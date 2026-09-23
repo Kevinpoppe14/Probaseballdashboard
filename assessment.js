@@ -401,16 +401,17 @@
 
   // Same screen-vs-print split as DualCheck: a native <select> hits the same browser-enforced
   // minimum render size at this page's heavy scale-down, so print shows its value as plain text.
-  function LRSelect({ value, onChange }) {
+  function LRSelect({ value, onChange, variant }) {
+    const variantClass = variant ? ` assess-lrselect-${variant}` : "";
     return (
       <React.Fragment>
-        <select className="assess-cell assess-lrselect" value={value || ""} onChange={(e) => onChange(e.target.value)}>
+        <select className={`assess-cell assess-lrselect${variantClass}`} value={value || ""} onChange={(e) => onChange(e.target.value)}>
           <option value=""></option>
           <option value="L">L</option>
           <option value="R">R</option>
           <option value="L & R">L & R</option>
         </select>
-        <span className={`assess-lrselect-print print-only${value ? " assess-mark-set" : ""}`}>{value || "—"}</span>
+        <span className={`assess-lrselect-print${variantClass} print-only${value ? " assess-mark-set" : ""}`}>{value || "—"}</span>
       </React.Fragment>
     );
   }
@@ -751,8 +752,8 @@
                         <td colSpan={2} style={{ textAlign: "center" }}><DualCheck value={rec.movementTests[r.key].check} onChange={(v) => set(["movementTests", r.key, "check"], v)} /></td>
                       ) : (
                         <React.Fragment>
-                          <td><LRSelect value={rec.movementTests[r.key].pass} onChange={(v) => set(["movementTests", r.key, "pass"], v)} /></td>
-                          <td><LRSelect value={rec.movementTests[r.key].fail} onChange={(v) => set(["movementTests", r.key, "fail"], v)} /></td>
+                          <td><LRSelect variant="pass" value={rec.movementTests[r.key].pass} onChange={(v) => set(["movementTests", r.key, "pass"], v)} /></td>
+                          <td><LRSelect variant="fail" value={rec.movementTests[r.key].fail} onChange={(v) => set(["movementTests", r.key, "fail"], v)} /></td>
                         </React.Fragment>
                       )}
                       <td><Cell width="100%" value={rec.movementTests[r.key].notes} onChange={(v) => set(["movementTests", r.key, "notes"], v)} /></td>

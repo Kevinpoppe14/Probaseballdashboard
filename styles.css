@@ -2176,4 +2176,8 @@ tbody tr:hover {
      same red as the on-screen accent, instead of blending in as plain black text like the "—"
      placeholders for whatever wasn't marked. */
   .assess-mark-set { color: var(--dst-red) !important; font-weight: 700; }
+  /* Movement Test's Pass column is a normal finding, not a flag — keep it plain black even when
+     filled in, so only the Fail column and any checkbox marks (still red via .assess-mark-set
+     above) read as something to act on. */
+  .assess-lrselect-pass.assess-mark-set { color: #000 !important; }
 }
