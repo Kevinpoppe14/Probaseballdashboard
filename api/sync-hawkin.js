@@ -172,12 +172,26 @@ module.exports = async (req, res) => {
     const all = athletesPayload.data || athletesPayload.athletes || [];
     const needle = normalizeName(req.query.name);
     const matches = all.filter((a) => normalizeName(a.name || "").includes(needle));
+    // Also check whether a test for this athlete actually comes back from the tests endpoint
+    // around their lastTestedOn date — narrows down "wrong window" vs. "the tests endpoint isn't
+    // returning this athlete's tests at all" (e.g. an access-scope/team-permission gap on the
+    // refresh token), independent of this file's own matching logic.
+    let testsNearLastTested = null;
+    if (matches.length && matches[0].lastTestedOn) {
+      const probeFrom = matches[0].lastTestedOn - 3 * 24 * 60 * 60;
+      const probe = await getHawkinTests(accessToken, probeFrom);
+      testsNearLastTested = probe.data
+        .filter((t) => normalizeName((t.athlete && t.athlete.name) || "").includes(needle))
+        .map((t) => ({ id: t.id, timestamp: t.timestamp, athleteTeams: t.athlete && t.athlete.teams }));
+    }
+
     res.status(200).json({
       totalHawkinAthletes: all.length,
       matches: matches.map((a) => ({
         id: a.id, name: a.name, active: a.active, teams: a.teams,
         lastTestedOn: a.lastTestedOn, lastTestedOnDate: a.lastTestedOn ? new Date(a.lastTestedOn * 1000).toISOString() : null,
       })),
+      testsNearLastTested,
     });
     return;
   }
