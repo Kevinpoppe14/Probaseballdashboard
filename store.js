@@ -136,10 +136,23 @@
     logSyncError(`bulk insert ${table}`, error);
   }
 
+  // Supabase caps an unpaginated select at 1000 rows by default — silently, no error, no
+  // truncation flag, just fewer rows than actually exist. force_tests crossed that this session
+  // (the Hawkin sync alone added 3000+), so any table here needs to page through everything
+  // rather than assume one request has it all; this loops on .range() until a page comes back
+  // short of a full page.
   async function fetchTable(table) {
-    const { data, error } = await sb().from(table).select("*");
-    if (error) { console.error(`AthleteStore: failed to load ${table} from Supabase`, error); return []; }
-    return data || [];
+    const PAGE_SIZE = 1000;
+    let all = [];
+    let offset = 0;
+    while (true) {
+      const { data, error } = await sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1);
+      if (error) { console.error(`AthleteStore: failed to load ${table} from Supabase`, error); break; }
+      all = all.concat(data || []);
+      if (!data || data.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+    return all;
   }
 
   // Pushes everything currently in `state` up to Supabase in one shot — used exactly once, the

@@ -36,10 +36,26 @@ function normalizeName(n) {
 function sbHeaders(serviceKey, extra) {
   return { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", ...extra };
 }
+// Supabase caps an unpaginated select at 1000 rows by default (silently — no error, no
+// truncation flag), so this pages through with Range headers rather than assume one request has
+// everything. Only athletes/app_meta go through this today (well under 1000 rows), but the roster
+// won't stay that small forever, and this is cheap insurance against the exact bug that made
+// force_tests silently truncate client-side (see store.js's own fetchTable).
 async function sbSelect(serviceKey, table, query) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, { headers: sbHeaders(serviceKey) });
-  if (!res.ok) throw new Error(`Supabase select ${table} failed: HTTP ${res.status} ${await res.text()}`);
-  return res.json();
+  const PAGE_SIZE = 1000;
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+      headers: sbHeaders(serviceKey, { Range: `${offset}-${offset + PAGE_SIZE - 1}` }),
+    });
+    if (!res.ok && res.status !== 206) throw new Error(`Supabase select ${table} failed: HTTP ${res.status} ${await res.text()}`);
+    const page = await res.json();
+    all = all.concat(page || []);
+    if (!page || page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return all;
 }
 async function sbUpsert(serviceKey, table, rows) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
