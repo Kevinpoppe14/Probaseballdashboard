@@ -159,10 +159,7 @@ module.exports = async (req, res) => {
         peakPower: metricValue(test, ["peak propulsive power"], ["relative"]),
         relativePeakPower: metricValue(test, ["peak relative propulsive power"]),
         takeoffVelocity: metricValue(test, ["takeoff velocity"]),
-        // No direct "Total Impulse" equivalent in the raw metrics for this test type — left
-        // unmapped (stays null) rather than guessing at a substitute; see `raw` below for the
-        // full metric set if this turns out to matter.
-        totalImpulse: null,
+        totalImpulse: metricValue(test, ["propulsive net impulse"], ["relative"]),
         brakingRfd: metricValue(test, ["braking rfd"], ["avg", "l|r"]),
         // "Concentric" and "Propulsive" are the same jump phase in Hawkin's naming.
         concentricImpulse: metricValue(test, ["propulsive impulse"], ["net", "relative", "p1", "p2"]),
