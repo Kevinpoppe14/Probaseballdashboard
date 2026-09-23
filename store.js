@@ -57,6 +57,46 @@
   const randomId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const wellnessKey = (athleteId, date) => `${athleteId}|${date}`;
 
+  // ---- "Created by / Last updated by" (see migration_002_activity_tracking.sql) -----------------
+  // Who made the LAST edit and when is set by a database trigger (auth.uid(), server-side — a
+  // coach's browser can't spoof it), not by anything this file sends up. It's exposed to the rest
+  // of the app as a `_activity` property tacked onto athlete/assessment records — never sent back
+  // to Supabase as part of the record's own `data` (stripActivity strips it first), so it can't get
+  // baked into the JSONB blob and drift out of sync with the real columns.
+  let currentUser = { id: null, email: null };
+  function setCurrentUser(user) { currentUser = user || { id: null, email: null }; }
+  function stripActivity(record) {
+    if (!record || typeof record !== "object" || !("_activity" in record)) return record;
+    const { _activity, ...rest } = record;
+    return rest;
+  }
+  function activityFromRow(row, emailById) {
+    const emailFor = (id) => (id ? (emailById.get(id) || id) : null);
+    return {
+      createdBy: emailFor(row.created_by),
+      createdAt: row.created_at || null,
+      updatedBy: emailFor(row.updated_by),
+      updatedAt: row.updated_at || null,
+    };
+  }
+  // Optimistic local stamp so "Last updated by" reflects an edit immediately, without waiting for a
+  // reload — matches what the server trigger will independently set moments later.
+  function stampLocalActivity(record, isNew) {
+    const now = new Date().toISOString();
+    const prev = record._activity || {};
+    record._activity = {
+      // For an existing record, createdBy/createdAt carry over exactly as they were — including
+      // staying null for anything that predates this feature, where who created it genuinely isn't
+      // known. Only a truly new record gets the current user stamped as its creator; an *edit*
+      // must never backfill a creator, or the signature would credit whoever happens to touch an
+      // old record next with having created it.
+      createdBy: isNew ? currentUser.email : (prev.createdBy || null),
+      createdAt: isNew ? now : (prev.createdAt || null),
+      updatedBy: currentUser.email,
+      updatedAt: now,
+    };
+  }
+
   function logSyncError(what, error) {
     if (error) console.error(`AthleteStore: ${what} failed`, error);
   }
@@ -107,7 +147,7 @@
   // already entered in this browser's localStorage becomes the team's shared starting data instead
   // of silently vanishing behind the (empty) cloud copy.
   async function pushEntireStateToSupabase() {
-    const athleteRows = state.customAthletes.map((a) => ({ id: String(a.id), data: a }));
+    const athleteRows = state.customAthletes.map((a) => ({ id: String(a.id), data: stripActivity(a) }));
     const forceRows = state.forceTests.map((t) => ({ id: randomId(), athlete_id: String(t.athleteId), data: t }));
     const bodyRows = state.bodyComp.map((t) => ({ id: randomId(), athlete_id: String(t.athleteId), data: t }));
     const wellnessRows = state.manualWellness.map((w) => ({ id: wellnessKey(w.athleteId, w.date), athlete_id: String(w.athleteId), data: w }));
@@ -115,7 +155,7 @@
     const planRows = state.playerPlans.map((p, i) => ({ id: p.id != null ? String(p.id) : `pp-${i}-${randomId()}`, data: p }));
     const periodRows = Object.keys(state.periodization).map((athleteId) => ({ athlete_id: String(athleteId), data: state.periodization[athleteId] }));
     const templateRows = state.periodTemplates.map((t) => ({ id: t.id, data: t }));
-    const assessRows = state.assessments.map((a) => ({ id: a.id, athlete_id: String(a.athleteId), data: a }));
+    const assessRows = state.assessments.map((a) => ({ id: a.id, athlete_id: String(a.athleteId), data: stripActivity(a) }));
 
     const inserts = [
       ["athletes", athleteRows], ["force_tests", forceRows], ["body_comp", bodyRows],
@@ -144,12 +184,12 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
-        fetchTable("app_meta"),
+        fetchTable("app_meta"), fetchTable("profiles"),
       ]);
     const cloudIsEmpty = ![athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments]
       .some((rows) => rows.length > 0);
@@ -161,8 +201,12 @@
       return;
     }
 
+    const emailById = new Map(profiles.map((p) => [p.id, p.email]));
     const next = emptyState();
-    athletes.forEach((r) => next.customAthletes.push(r.data));
+    // Only athletes and assessments show a "Created by / Last updated by" signature in the UI
+    // right now (see activityFromRow) — every table has the underlying columns from the migration,
+    // so this is just a matter of reading them here if that ever needs to extend to more tables.
+    athletes.forEach((r) => next.customAthletes.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
     forceTests.forEach((r) => next.forceTests.push(r.data));
     bodyComp.forEach((r) => next.bodyComp.push(r.data));
     manualWellness.forEach((r) => next.manualWellness.push(r.data));
@@ -170,7 +214,7 @@
     playerPlans.forEach((r) => next.playerPlans.push(r.data));
     periodization.forEach((r) => { next.periodization[r.athlete_id] = r.data; });
     periodTemplates.forEach((r) => next.periodTemplates.push(r.data));
-    assessments.forEach((r) => next.assessments.push(r.data));
+    assessments.forEach((r) => next.assessments.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
     const syncedAtRow = appMeta.find((r) => r.key === "playerPlansSyncedAt");
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
     state = next;
@@ -210,9 +254,10 @@
       load: [],
       isCustom: true,
     };
+    stampLocalActivity(created, true);
     state.customAthletes.push(created);
     persistLocal();
-    syncUpsert("athletes", created.id, undefined, created);
+    syncUpsert("athletes", created.id, undefined, stripActivity(created));
     return created;
   }
 
@@ -220,8 +265,9 @@
     const idx = state.customAthletes.findIndex((a) => a.id === id);
     if (idx === -1) return null;
     state.customAthletes[idx] = { ...state.customAthletes[idx], ...patch };
+    stampLocalActivity(state.customAthletes[idx], false);
     persistLocal();
-    syncUpsert("athletes", id, undefined, state.customAthletes[idx]);
+    syncUpsert("athletes", id, undefined, stripActivity(state.customAthletes[idx]));
     return state.customAthletes[idx];
   }
 
@@ -316,7 +362,7 @@
     state.manualWellness.filter((e) => e.athleteId === keepId).forEach((e) => syncUpsert("manual_wellness", wellnessKey(e.athleteId, e.date), keepId, e));
     state.notes.filter((n) => n.athleteId === keepId && n.athleteId !== undefined).forEach((n) => syncUpsert("notes", n.id, keepId, n));
     syncDeleteByAthlete("notes", mergeId);
-    state.assessments.filter((a) => a.athleteId === keepId).forEach((a) => syncUpsert("assessments", a.id, keepId, a));
+    state.assessments.filter((a) => a.athleteId === keepId).forEach((a) => syncUpsert("assessments", a.id, keepId, stripActivity(a)));
     syncDeleteByAthlete("assessments", mergeId);
     if (state.periodization[keepId]) syncUpsertPeriodization(keepId, state.periodization[keepId]);
 
@@ -413,10 +459,11 @@
 
   function saveAssessment(record) {
     const idx = state.assessments.findIndex((a) => a.id === record.id);
+    stampLocalActivity(record, idx === -1);
     if (idx === -1) state.assessments.push(record);
     else state.assessments[idx] = record;
     persistLocal();
-    syncUpsert("assessments", record.id, record.athleteId, record);
+    syncUpsert("assessments", record.id, record.athleteId, stripActivity(record));
     return record;
   }
 
@@ -524,6 +571,7 @@
 
   window.AthleteStore = {
     initFromSupabase,
+    setCurrentUser,
     allAthletes,
     findAthleteByName,
     findOrCreateAthlete,

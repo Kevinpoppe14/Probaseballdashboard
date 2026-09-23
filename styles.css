@@ -650,6 +650,13 @@ tbody tr:hover {
   margin: 4px 0 0;
 }
 
+.activity-signature {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+  margin-top: 6px;
+}
+
 .method-switch {
   display: flex;
   gap: 14px;

@@ -1770,6 +1770,20 @@ function BodyCompPanel({ athleteId }) {
   );
 }
 
+// A small "signature" line — who created/last touched this record and when — fed by the
+// created_by/updated_by columns Supabase stamps server-side (see supabase/migration_002_activity_tracking.sql).
+// Renders nothing for records saved before that migration ran (no _activity) or fully offline.
+function ActivitySignature({ activity, className }) {
+  if (!activity || (!activity.createdBy && !activity.updatedBy)) return null;
+  const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
+  const parts = [];
+  if (activity.createdBy) parts.push(`Created by ${activity.createdBy}${activity.createdAt ? ` on ${fmt(activity.createdAt)}` : ""}`);
+  if (activity.updatedBy && activity.updatedAt !== activity.createdAt) {
+    parts.push(`Last updated by ${activity.updatedBy}${activity.updatedAt ? ` on ${fmt(activity.updatedAt)}` : ""}`);
+  }
+  return <div className={`activity-signature no-print ${className || ""}`}>{parts.join(" · ")}</div>;
+}
+
 function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange, initialTab }) {
   const [activeTab, setActiveTab] = useState(initialTab || "overview");
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast / Performance tabs
@@ -1825,6 +1839,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
               <PositionSelect athlete={athlete} onChanged={onDataChange} />
             </span>
             <span className="no-print"><PhotoUrlEditor athlete={athlete} onChanged={onDataChange} /></span>
+            <ActivitySignature activity={athlete._activity} />
           </div>
           <span className="no-print"><StatusSelect athlete={athlete} onChanged={onDataChange} /></span>
         </div>
@@ -4600,6 +4615,7 @@ function Root() {
   React.useEffect(() => {
     let mounted = true;
     const enterWithSession = async (s) => {
+      window.AthleteStore.setCurrentUser({ id: s.user.id, email: s.user.email });
       await window.AthleteStore.initFromSupabase();
       if (!mounted) return;
       setSession(s);

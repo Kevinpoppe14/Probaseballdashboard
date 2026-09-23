@@ -439,6 +439,20 @@
     );
   }
 
+  // Who created this assessment and who last touched it, stamped server-side by Supabase (see
+  // supabase/migration_002_activity_tracking.sql) — a signature line, not shown at all for
+  // assessments saved before that migration ran (no _activity) or while working offline.
+  function AssessmentSignature({ activity }) {
+    if (!activity || (!activity.createdBy && !activity.updatedBy)) return null;
+    const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
+    const parts = [];
+    if (activity.createdBy) parts.push(`Created by ${activity.createdBy}${activity.createdAt ? ` on ${fmt(activity.createdAt)}` : ""}`);
+    if (activity.updatedBy && activity.updatedAt !== activity.createdAt) {
+      parts.push(`Last updated by ${activity.updatedBy}${activity.updatedAt ? ` on ${fmt(activity.updatedAt)}` : ""}`);
+    }
+    return <p className="activity-signature no-print">{parts.join(" · ")}</p>;
+  }
+
   function ScoreToggle({ value, onChange }) {
     return (
       <div className="assess-score-toggle no-print">
@@ -998,6 +1012,7 @@
             )}
           </div>
           {list.length > 0 && <p className="timestamp-note">{list.length} assessment{list.length === 1 ? "" : "s"} on file for {athlete.name}.</p>}
+          {record && <AssessmentSignature activity={record._activity} />}
         </div>
 
         {record ? (
