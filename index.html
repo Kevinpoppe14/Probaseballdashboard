@@ -686,27 +686,52 @@ function extractPrintCss() {
   return parts.join("\n");
 }
 
-// Snapshots a tab (assessment or plan) to a one-page PDF entirely in the browser — no server-side
-// rendering involved. Drives the same layout-fitting JS the tab's own print button uses (via a
-// custom event, since there's no real print action to hang a beforeprint listener off of here),
-// then hands the fitted DOM to html2canvas and lays the resulting image onto a jsPDF page sized to
-// match what preparePrint already fit it to.
+// Slices a (probably page-taller-than-one-page) canvas into a multi-page PDF, one page-height's
+// worth of pixels at a time, instead of squashing everything onto a single page.
+function addCanvasAsPages(pdf, canvas, pageW, pageH) {
+  const pageHeightPx = Math.floor((pageH / pageW) * canvas.width);
+  let renderedPx = 0;
+  let first = true;
+  while (renderedPx < canvas.height) {
+    const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+    const slice = document.createElement("canvas");
+    slice.width = canvas.width;
+    slice.height = sliceHeightPx;
+    slice.getContext("2d").drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+    const sliceHeightIn = (sliceHeightPx * pageW) / canvas.width;
+    if (!first) pdf.addPage();
+    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, sliceHeightIn);
+    renderedPx += sliceHeightPx;
+    first = false;
+  }
+}
+
+// Snapshots a tab (assessment or plan) to a PDF entirely in the browser — no server-side rendering
+// involved. Renders at the tab's natural, un-zoomed width rather than using the print button's
+// own scale-to-one-page layout: that logic scales via CSS `zoom`, which html2canvas doesn't
+// reproduce correctly (it reads back as overlapping, garbled text once snapshotted) — so this
+// prints CSS is still injected (for the print color scheme and print-vs-screen element swaps,
+// both plain CSS and unaffected by zoom), just without the zoom-based fitting. The result may run
+// a couple of pages instead of exactly one, which is a fine trade for actually being readable.
 async function renderTabToPdf(tab) {
   const wrapSelector = tab === "assessment" ? ".assess-wrap" : ".period-wrap";
   const wrap = document.querySelector(wrapSelector);
   if (!wrap) throw new Error("Couldn't find this tab's content to render — try reopening it.");
-  const prepEvent = tab === "assessment" ? "dst-render-assessment-prep" : "dst-render-plan-prep";
-  const cleanupEvent = tab === "assessment" ? "dst-render-assessment-cleanup" : "dst-render-plan-cleanup";
   const printCss = extractPrintCss();
+  const renderWidth = tab === "assessment" ? 1700 : 900;
 
-  window.dispatchEvent(new Event(prepEvent));
-  await new Promise((r) => setTimeout(r, 300)); // let React re-render at the fitted size before snapshotting
+  const savedWidth = wrap.style.width;
+  const savedZoom = wrap.style.zoom;
+  wrap.style.zoom = "";
+  wrap.style.width = `${renderWidth}px`;
+  await new Promise((r) => setTimeout(r, 50)); // let layout settle at the new width before snapshotting
   let canvas;
   try {
     canvas = await window.html2canvas(wrap, {
       backgroundColor: "#ffffff",
       scale: 2,
       useCORS: true,
+      windowWidth: renderWidth,
       onclone: (clonedDoc) => {
         const style = clonedDoc.createElement("style");
         style.textContent = printCss;
@@ -714,19 +739,14 @@ async function renderTabToPdf(tab) {
       },
     });
   } finally {
-    window.dispatchEvent(new Event(cleanupEvent));
+    wrap.style.width = savedWidth;
+    wrap.style.zoom = savedZoom;
   }
 
   const { jsPDF } = window.jspdf;
   const landscape = tab === "assessment";
   const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "in", format: "letter" });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const canvasRatio = canvas.width / canvas.height;
-  const pageRatio = pageW / pageH;
-  const drawW = canvasRatio > pageRatio ? pageW : pageH * canvasRatio;
-  const drawH = canvasRatio > pageRatio ? pageW / canvasRatio : pageH;
-  pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", (pageW - drawW) / 2, (pageH - drawH) / 2, drawW, drawH);
+  addCanvasAsPages(pdf, canvas, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
   return pdf.output("datauristring").split(",")[1]; // strip the "data:application/pdf;base64," prefix
 }
 
