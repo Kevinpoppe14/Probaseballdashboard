@@ -1,7 +1,9 @@
 // News page — one combined feed of articles (and video pages) about the active roster plus a list
 // of extra tracked topics (the company, staff, etc.).
-// The local server (serve.ps1, /api/news) pulls Bing News + Google News for each search and returns
-// JSON; this page merges everything into a single newest-first feed with links out to the stories.
+// /api/news pulls Bing News + Google News for each search and returns JSON — as a Vercel serverless
+// function (api/news.js) on the deployed site, or via the local server (serve.ps1) when running off
+// start-dashboard.bat; either way this page just calls the one URL and merges everything into a
+// single newest-first feed with links out to the stories.
 // Results are cached in localStorage so the page opens instantly and only re-fetches on request.
 // Loaded as its own <script type="text/babel"> and exposes window.NewsPage.
 (function () {
@@ -222,7 +224,10 @@
             });
           } catch (e) {
             if (e.message === "NO_ENDPOINT") {
-              setError("The news feature needs the updated dashboard server. Close the dashboard's server window (the black one) and start it again with start-dashboard.bat, then reload this page.");
+              const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+              setError(isLocal
+                ? "The news feature needs the updated dashboard server. Close the dashboard's server window (the black one) and start it again with start-dashboard.bat, then reload this page."
+                : "The news feature isn't available on this deployment right now — let whoever manages the dashboard know.");
               stopRef.current = true;
               return;
             }

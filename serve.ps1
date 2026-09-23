@@ -4,7 +4,11 @@
 # is public. Serving over localhost gives the page a real origin instead.
 #
 # It also provides /api/news, which the News page uses: browsers can't read Google News or Bing News
-# results directly (cross-origin), so this server fetches them and hands the results back as JSON. Requests are handled on a small pool of threads so several can run at once.
+# results directly (cross-origin), so this server fetches them and hands the results back as JSON.
+# Requests are handled on a small pool of threads so several can run at once. (The deployed site has
+# its own equivalent of this one route as a Vercel serverless function — see api/news.js — since
+# there's no PowerShell running there; /api/report-pdf below has no such counterpart and only ever
+# works locally, since it saves straight to this machine's Documents folder.)
 #
 # Usage: double-click start-dashboard.bat, or run:  powershell -ExecutionPolicy Bypass -File serve.ps1
 
