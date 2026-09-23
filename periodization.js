@@ -858,18 +858,22 @@
     useEffect(() => {
       const onBefore = () => preparePrint();       // also covers Ctrl+P while the plan is open
       const onPrintRequest = () => printPlanRef.current(); // the profile's own Print button asks for this
-      // Headless PDF rendering (the "Email to Athlete" feature) needs just the layout prep, not an
-      // actual window.print() call — there's no user to drive a real print dialog under automation.
+      // "Email to Athlete" snapshots this tab client-side (html2canvas) instead of calling
+      // window.print() — no real print happens, so beforeprint/afterprint never fire — these let it
+      // drive the same layout prep/cleanup directly (see EmailAthleteComposer in index.html).
       const onRenderPrep = () => preparePrint();
+      const onRenderCleanup = () => cleanupPrint();
       window.addEventListener("beforeprint", onBefore);
       window.addEventListener("afterprint", cleanupPrint);
       window.addEventListener("dst-print-plan", onPrintRequest);
       window.addEventListener("dst-render-plan-prep", onRenderPrep);
+      window.addEventListener("dst-render-plan-cleanup", onRenderCleanup);
       return () => {
         window.removeEventListener("beforeprint", onBefore);
         window.removeEventListener("afterprint", cleanupPrint);
         window.removeEventListener("dst-print-plan", onPrintRequest);
         window.removeEventListener("dst-render-plan-prep", onRenderPrep);
+        window.removeEventListener("dst-render-plan-cleanup", onRenderCleanup);
         cleanupPrint();
       };
       // eslint-disable-next-line

@@ -4,6 +4,6 @@
   ],
   "functions": {
     "api/sync-hawkin.js": { "maxDuration": 60 },
-    "api/send-athlete-email.js": { "maxDuration": 120 }
+    "api/send-athlete-email.js": { "maxDuration": 30 }
   }
 }

@@ -18,6 +18,9 @@
 <script crossorigin src="https://unpkg.com/papaparse@5/papaparse.min.js"></script>
 <!-- Supabase client (shared cloud storage + login, see supabase/SETUP.md) -->
 <script crossorigin src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- html2canvas + jsPDF: client-side PDF snapshot for "Email to Athlete" (see EmailAthleteComposer) -->
+<script crossorigin src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script crossorigin src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div id="root">
@@ -663,6 +666,70 @@ function EmailToAthleteButton({ athlete, tab, tabLabel }) {
   );
 }
 
+// Pulls every rule out of this page's @media print blocks and hands it back as plain, unconditional
+// CSS text. html2canvas renders a print-accurate snapshot by injecting this into the *cloned*
+// document it snapshots (see renderTabToPdf) — reusing the exact same print styling (colors,
+// hidden buttons, print-only marks) the "Print / Save PDF" buttons already rely on, rather than
+// maintaining a second copy of those rules just for this feature.
+function extractPrintCss() {
+  const parts = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules;
+    try { rules = sheet.cssRules; } catch (e) { continue; } // cross-origin sheet — nothing of ours lives there
+    if (!rules) continue;
+    for (const rule of Array.from(rules)) {
+      if (rule.media && rule.media.mediaText && rule.media.mediaText.includes("print")) {
+        for (const inner of Array.from(rule.cssRules)) parts.push(inner.cssText);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+// Snapshots a tab (assessment or plan) to a one-page PDF entirely in the browser — no server-side
+// rendering involved. Drives the same layout-fitting JS the tab's own print button uses (via a
+// custom event, since there's no real print action to hang a beforeprint listener off of here),
+// then hands the fitted DOM to html2canvas and lays the resulting image onto a jsPDF page sized to
+// match what preparePrint already fit it to.
+async function renderTabToPdf(tab) {
+  const wrapSelector = tab === "assessment" ? ".assess-wrap" : ".period-wrap";
+  const wrap = document.querySelector(wrapSelector);
+  if (!wrap) throw new Error("Couldn't find this tab's content to render — try reopening it.");
+  const prepEvent = tab === "assessment" ? "dst-render-assessment-prep" : "dst-render-plan-prep";
+  const cleanupEvent = tab === "assessment" ? "dst-render-assessment-cleanup" : "dst-render-plan-cleanup";
+  const printCss = extractPrintCss();
+
+  window.dispatchEvent(new Event(prepEvent));
+  await new Promise((r) => setTimeout(r, 300)); // let React re-render at the fitted size before snapshotting
+  let canvas;
+  try {
+    canvas = await window.html2canvas(wrap, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      onclone: (clonedDoc) => {
+        const style = clonedDoc.createElement("style");
+        style.textContent = printCss;
+        clonedDoc.head.appendChild(style);
+      },
+    });
+  } finally {
+    window.dispatchEvent(new Event(cleanupEvent));
+  }
+
+  const { jsPDF } = window.jspdf;
+  const landscape = tab === "assessment";
+  const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "in", format: "letter" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const canvasRatio = canvas.width / canvas.height;
+  const pageRatio = pageW / pageH;
+  const drawW = canvasRatio > pageRatio ? pageW : pageH * canvasRatio;
+  const drawH = canvasRatio > pageRatio ? pageW / canvasRatio : pageH;
+  pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", (pageW - drawW) / 2, (pageH - drawH) / 2, drawW, drawH);
+  return pdf.output("datauristring").split(",")[1]; // strip the "data:application/pdf;base64," prefix
+}
+
 function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
   const firstName = (athlete.name || "").split(/\s+/)[0] || athlete.name;
   const [to, setTo] = useState(athlete.email || "");
@@ -671,6 +738,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
     `Hi ${firstName},\n\nAttached is your latest ${tabLabel.toLowerCase()}. Let me know if you have any questions.\n`
   );
   const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState(""); // progress text while sending
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
 
@@ -681,6 +749,9 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
     if (!subject.trim() || !body.trim()) { setError("Subject and message can't be empty."); return; }
     setSending(true);
     try {
+      setStatus("Rendering PDF…");
+      const pdfBase64 = await renderTabToPdf(tab);
+      setStatus("Sending…");
       const { data } = await window.supabaseClient.auth.getSession();
       const token = data.session && data.session.access_token;
       if (!token) throw new Error("You're not signed in — reload and sign in again.");
@@ -688,7 +759,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
       const res = await fetch("/api/send-athlete-email", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ athleteId: athlete.id, tab, to: recipient, subject: subject.trim(), body, filename }),
+        body: JSON.stringify({ to: recipient, subject: subject.trim(), body, filename, pdfBase64 }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`);
@@ -697,6 +768,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
       setError(e.message || String(e));
     } finally {
       setSending(false);
+      setStatus("");
     }
   };
 
@@ -729,7 +801,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
           </div>
           {error && <div className="success-banner" style={{ marginTop: 8, background: "#3a1414", color: "var(--danger)", borderColor: "#5a1f1f" }}>{error}</div>}
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button className="btn btn-primary" onClick={send} disabled={sending}>{sending ? "Sending…" : "Send"}</button>
+            <button className="btn btn-primary" onClick={send} disabled={sending}>{sending ? status || "Sending…" : "Send"}</button>
             <button className="btn btn-secondary" onClick={onClose} disabled={sending}>Cancel</button>
           </div>
         </React.Fragment>

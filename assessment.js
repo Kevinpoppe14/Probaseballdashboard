@@ -1023,14 +1023,16 @@
     useEffect(() => {
       window.addEventListener("beforeprint", preparePrint); // also covers Ctrl+P while this tab is open
       window.addEventListener("afterprint", cleanupPrint);
-      // Headless PDF rendering (the "Email to Athlete" feature) has no button to click and can't
-      // rely on 'beforeprint' firing the same way a real browser print does under automation, so it
-      // triggers this same prep directly instead.
+      // "Email to Athlete" snapshots this tab client-side (html2canvas) instead of calling
+      // window.print() — no real print happens, so beforeprint/afterprint never fire — these let it
+      // drive the same layout prep/cleanup directly (see EmailAthleteComposer in index.html).
       window.addEventListener("dst-render-assessment-prep", preparePrint);
+      window.addEventListener("dst-render-assessment-cleanup", cleanupPrint);
       return () => {
         window.removeEventListener("beforeprint", preparePrint);
         window.removeEventListener("afterprint", cleanupPrint);
         window.removeEventListener("dst-render-assessment-prep", preparePrint);
+        window.removeEventListener("dst-render-assessment-cleanup", cleanupPrint);
         cleanupPrint();
       };
       // eslint-disable-next-line
