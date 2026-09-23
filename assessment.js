@@ -589,7 +589,7 @@
                 <BodyOutline label="Back" view="back" marks={rec.bodyMarkers.back} onChange={(v) => set(["bodyMarkers", "back"], v)} />
               </div>
               <div className="field no-print" style={{ marginTop: 10 }}>
-                <label>Visual notes (freehand marking on the diagram isn't supported yet — note findings here)</label>
+                <label>Visual notes</label>
                 <AutoGrowTextarea rows={2} value={rec.visualNotes} onChange={(e) => set(["visualNotes"], e.target.value)} />
               </div>
               {rec.visualNotes && <p className="assess-print-only-text print-only-block">{rec.visualNotes}</p>}

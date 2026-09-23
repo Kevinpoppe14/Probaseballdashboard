@@ -77,8 +77,17 @@ function lastN(arr, n) {
   return arr.slice(Math.max(0, arr.length - n));
 }
 
+// A bare "YYYY-MM-DD" is parsed as UTC midnight per the ECMAScript spec, but every date this app
+// stores is a calendar date, not a moment in time — reading it back with local getters (getMonth,
+// getDate, getFullYear) after that UTC parse rolls it back a day in any timezone behind UTC (all of
+// the US). Anchoring to local midnight first is what keeps a "2026-01-26" test showing as 1/26
+// instead of 1/25.
+function localDateMs(key) {
+  return new Date(`${key}T00:00:00`).getTime();
+}
+
 function shortDate(key) {
-  const d = new Date(key);
+  const d = new Date(`${key}T00:00:00`);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
@@ -97,11 +106,11 @@ function axisDateLabel(ts, includeYear) {
   return includeYear ? `${base}/${String(d.getFullYear()).slice(2)}` : base;
 }
 function spansMultipleYears(dateKeys) {
-  const years = new Set(dateKeys.filter(Boolean).map((k) => new Date(k).getFullYear()));
+  const years = new Set(dateKeys.filter(Boolean).map((k) => new Date(localDateMs(k)).getFullYear()));
   return years.size > 1;
 }
 function yearStartTimestamps(dateKeys) {
-  const years = Array.from(new Set(dateKeys.filter(Boolean).map((k) => new Date(k).getFullYear()))).sort((a, b) => a - b);
+  const years = Array.from(new Set(dateKeys.filter(Boolean).map((k) => new Date(localDateMs(k)).getFullYear()))).sort((a, b) => a - b);
   return years.slice(1).map((y) => new Date(y, 0, 1).getTime()); // skip the first year — no boundary before the data starts
 }
 
@@ -1598,7 +1607,7 @@ function AthletePerformanceGraphs({ athleteId, range }) {
     return <div className="empty-state">No force plate tests in this date range ({allTests.length} on file overall).</div>;
   }
   const kpiChartData = tests.map((t) => {
-    const point = { date: new Date(t.date).getTime() };
+    const point = { date: localDateMs(t.date) };
     FORCE_KPI_METRICS.forEach((m) => { point[m.key] = m.getValue(t); });
     return point;
   });
@@ -1647,7 +1656,7 @@ function ForcePlatePanel({ athleteId, range }) {
   const tooltipLabelFormatter = (ts) => axisDateLabel(ts, true);
 
   const chartDataBase = tests.map((t) => ({
-    date: new Date(t.date).getTime(),
+    date: localDateMs(t.date),
     jumpHeight: t.jumpHeight ?? null,
   }));
   const jumpTrend = computeLinearTrend(chartDataBase, "jumpHeight");
@@ -1656,7 +1665,7 @@ function ForcePlatePanel({ athleteId, range }) {
   const latest = tests[tests.length - 1];
 
   const kpiChartData = tests.map((t) => {
-    const point = { date: new Date(t.date).getTime() };
+    const point = { date: localDateMs(t.date) };
     FORCE_KPI_METRICS.forEach((m) => { point[m.key] = m.getValue(t); });
     return point;
   });
