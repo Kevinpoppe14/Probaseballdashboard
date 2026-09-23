@@ -159,6 +159,29 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // Temporary, read-only: look up one athlete by name in Hawkin directly (no Supabase writes) —
+  // for tracking down "why doesn't athlete X show up" without re-running a full sync. Remove once
+  // no longer needed. /api/v1/athletes returns everyone in one call (not paginated at this org's
+  // size), and each athlete's own lastTestedOn says whether they have history at all and how old
+  // the most recent test is, without touching the (paginated, much larger) tests endpoint.
+  if (req.query.debug === "findAthlete" && req.query.name) {
+    const accessToken = await getHawkinAccessToken();
+    const athletesRes = await fetch(`${HAWKIN_BASE}/api/v1/athletes`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!athletesRes.ok) { res.status(200).json({ error: `Hawkin athletes fetch failed: HTTP ${athletesRes.status}` }); return; }
+    const athletesPayload = await athletesRes.json();
+    const all = athletesPayload.data || athletesPayload.athletes || [];
+    const needle = normalizeName(req.query.name);
+    const matches = all.filter((a) => normalizeName(a.name || "").includes(needle));
+    res.status(200).json({
+      totalHawkinAthletes: all.length,
+      matches: matches.map((a) => ({
+        id: a.id, name: a.name, active: a.active, teams: a.teams,
+        lastTestedOn: a.lastTestedOn, lastTestedOnDate: a.lastTestedOn ? new Date(a.lastTestedOn * 1000).toISOString() : null,
+      })),
+    });
+    return;
+  }
+
   const summary = { matched: 0, inserted: 0, skippedAthletes: [], errors: [] };
   try {
     const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
