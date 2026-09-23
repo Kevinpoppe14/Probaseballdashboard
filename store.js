@@ -139,18 +139,26 @@
   // Supabase caps an unpaginated select at 1000 rows by default — silently, no error, no
   // truncation flag, just fewer rows than actually exist. force_tests crossed that this session
   // (the Hawkin sync alone added 3000+), so any table here needs to page through everything
-  // rather than assume one request has it all; this loops on .range() until a page comes back
-  // short of a full page.
+  // rather than assume one request has it all. The first page also asks for an exact count, so
+  // every remaining page can be requested *in parallel* instead of one round trip at a time —
+  // fetching this sequentially at force_tests' current size added several extra seconds to every
+  // sign-in, enough to look like the app had hung rather than just being slow.
   async function fetchTable(table) {
     const PAGE_SIZE = 1000;
-    let all = [];
-    let offset = 0;
-    while (true) {
-      const { data, error } = await sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1);
-      if (error) { console.error(`AthleteStore: failed to load ${table} from Supabase`, error); break; }
-      all = all.concat(data || []);
-      if (!data || data.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
+    const first = await sb().from(table).select("*", { count: "exact" }).range(0, PAGE_SIZE - 1);
+    if (first.error) { console.error(`AthleteStore: failed to load ${table} from Supabase`, first.error); return []; }
+    let all = first.data || [];
+    const total = typeof first.count === "number" ? first.count : all.length;
+    if (total > all.length) {
+      const pageFetches = [];
+      for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) {
+        pageFetches.push(sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1));
+      }
+      const pages = await Promise.all(pageFetches);
+      pages.forEach(({ data, error }) => {
+        if (error) console.error(`AthleteStore: failed to load a page of ${table} from Supabase`, error);
+        else all = all.concat(data || []);
+      });
     }
     return all;
   }

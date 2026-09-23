@@ -40,20 +40,30 @@ function sbHeaders(serviceKey, extra) {
 // truncation flag), so this pages through with Range headers rather than assume one request has
 // everything. Only athletes/app_meta go through this today (well under 1000 rows), but the roster
 // won't stay that small forever, and this is cheap insurance against the exact bug that made
-// force_tests silently truncate client-side (see store.js's own fetchTable).
+// force_tests silently truncate client-side (see store.js's own fetchTable). The first page asks
+// for an exact total (Prefer: count=exact) so every remaining page can be fetched in parallel
+// instead of one at a time — same reasoning as store.js's version of this.
 async function sbSelect(serviceKey, table, query) {
   const PAGE_SIZE = 1000;
-  let all = [];
-  let offset = 0;
-  while (true) {
+  const fetchPage = async (offset) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
       headers: sbHeaders(serviceKey, { Range: `${offset}-${offset + PAGE_SIZE - 1}` }),
     });
     if (!res.ok && res.status !== 206) throw new Error(`Supabase select ${table} failed: HTTP ${res.status} ${await res.text()}`);
-    const page = await res.json();
-    all = all.concat(page || []);
-    if (!page || page.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
+    return res;
+  };
+  const firstRes = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+    headers: sbHeaders(serviceKey, { Range: `0-${PAGE_SIZE - 1}`, Prefer: "count=exact" }),
+  });
+  if (!firstRes.ok && firstRes.status !== 206) throw new Error(`Supabase select ${table} failed: HTTP ${firstRes.status} ${await firstRes.text()}`);
+  let all = (await firstRes.json()) || [];
+  const contentRange = firstRes.headers.get("content-range"); // "0-999/8724"
+  const total = contentRange ? Number(contentRange.split("/")[1]) : all.length;
+  if (total > all.length) {
+    const pageFetches = [];
+    for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) pageFetches.push(fetchPage(offset));
+    const pages = await Promise.all(pageFetches);
+    for (const res of pages) all = all.concat((await res.json()) || []);
   }
   return all;
 }
