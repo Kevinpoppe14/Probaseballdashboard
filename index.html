@@ -82,6 +82,30 @@ function shortDate(key) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+// Now that force-test history can span several years (Hawkin backfills go back to 2020), a plain
+// "10/7" x-axis label is ambiguous — the same label can appear once per year in the data. Charts
+// built from a chronologically-sorted list of dates use this pair together: chartDateLabel to
+// decide whether a given point's label needs its year appended (only the *first* point of each
+// year gets it, so the axis doesn't repeat the year on every tick), and yearBoundaryLabels to find
+// which labels to draw a <ReferenceLine> at, marking where one year ends and the next begins.
+function chartDateLabel(dateKey, prevDateKey) {
+  const base = shortDate(dateKey);
+  const year = new Date(dateKey).getFullYear();
+  const prevYear = prevDateKey ? new Date(prevDateKey).getFullYear() : null;
+  return prevYear === null || year !== prevYear ? `${base}/${String(year).slice(2)}` : base;
+}
+function yearBoundaryLabels(sortedDateKeys) {
+  const labels = [];
+  let prevYear = null;
+  sortedDateKeys.forEach((key, i) => {
+    if (!key) return;
+    const year = new Date(key).getFullYear();
+    if (prevYear !== null && year !== prevYear) labels.push(chartDateLabel(key, sortedDateKeys[i - 1]));
+    prevYear = year;
+  });
+  return labels;
+}
+
 function dateRangeKeys(days) {
   const out = [];
   const today = new Date();
@@ -1524,7 +1548,7 @@ function CmjSummary({ tests, athleteId }) {
   return <p className="auto-caption"><strong>Summary:</strong> {text}</p>;
 }
 
-function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, showCounts = false }) {
+function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, showCounts = false, yearLines }) {
   const hasData = data.some((d) => typeof d[dataKey] === "number");
   const withValue = data.filter((d) => typeof d[dataKey] === "number").length;
   const trend = showTrend ? computeLinearTrend(data, dataKey) : null;
@@ -1548,6 +1572,7 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
             {/* no draw-in animation: charts are always in their final state (matters for printing / emailed PDFs) */}
             <Line type="monotone" dataKey={dataKey} stroke={color || "#b5283a"} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
             {showTrend && <Line type="monotone" dataKey="__trend" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls isAnimationActive={false} />}
+            {(yearLines || []).map((label) => <ReferenceLine key={label} x={label} stroke="#fff" strokeOpacity={0.4} />)}
           </LineChart>
         </ResponsiveContainer>
       ) : (
@@ -1568,17 +1593,18 @@ function AthletePerformanceGraphs({ athleteId, range }) {
   if (!tests.length) {
     return <div className="empty-state">No force plate tests in this date range ({allTests.length} on file overall).</div>;
   }
-  const kpiChartData = tests.map((t) => {
-    const point = { date: shortDate(t.date) };
+  const kpiChartData = tests.map((t, i) => {
+    const point = { date: chartDateLabel(t.date, tests[i - 1] && tests[i - 1].date) };
     FORCE_KPI_METRICS.forEach((m) => { point[m.key] = m.getValue(t); });
     return point;
   });
+  const yearLines = yearBoundaryLabels(tests.map((t) => t.date));
   return (
     <div>
       <CmjSummary tests={tests} athleteId={athleteId} />
       <div className="kpi-trend-grid">
         {FORCE_KPI_METRICS.map((m) => (
-          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} />
+          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} />
         ))}
       </div>
     </div>
@@ -1610,17 +1636,18 @@ function ForcePlatePanel({ athleteId, range }) {
     );
   }
 
-  const chartDataBase = tests.map((t) => ({
-    date: shortDate(t.date),
+  const chartDataBase = tests.map((t, i) => ({
+    date: chartDateLabel(t.date, tests[i - 1] && tests[i - 1].date),
     jumpHeight: t.jumpHeight ?? null,
   }));
   const jumpTrend = computeLinearTrend(chartDataBase, "jumpHeight");
   const chartData = chartDataBase.map((d, i) => ({ ...d, jumpTrend: jumpTrend[i] }));
   const jumpDomain = paddedDomain(chartData, ["jumpHeight", "jumpTrend"]);
+  const yearLines = yearBoundaryLabels(tests.map((t) => t.date));
   const latest = tests[tests.length - 1];
 
-  const kpiChartData = tests.map((t) => {
-    const point = { date: shortDate(t.date) };
+  const kpiChartData = tests.map((t, i) => {
+    const point = { date: chartDateLabel(t.date, tests[i - 1] && tests[i - 1].date) };
     FORCE_KPI_METRICS.forEach((m) => { point[m.key] = m.getValue(t); });
     return point;
   });
@@ -1644,13 +1671,14 @@ function ForcePlatePanel({ athleteId, range }) {
           <Legend />
           <Line yAxisId="jump" type="monotone" dataKey="jumpHeight" name="Jump Height (in)" stroke="#b5283a" strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="jump" type="monotone" dataKey="jumpTrend" name="Jump Height Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
+          {yearLines.map((label) => <ReferenceLine key={label} yAxisId="jump" x={label} stroke="#fff" strokeOpacity={0.4} />)}
         </LineChart>
       </ResponsiveContainer>
 
       <h2 style={{ marginTop: 18 }}>Individual KPI Trends</h2>
       <div className="kpi-trend-grid">
         {FORCE_KPI_METRICS.map((m) => (
-          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} showCounts />
+          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} showCounts />
         ))}
       </div>
 
