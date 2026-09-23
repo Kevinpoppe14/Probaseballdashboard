@@ -76,9 +76,12 @@
 
   // Caps how many Supabase requests are ever in flight at once, shared across every table's fetch
   // AND every page within a table (initFromSupabase fetches ~10 tables in parallel, and force_tests
-  // alone now needs 9 pages at its current size — firing all of that at once, ~18 requests
-  // simultaneously, overwhelmed Supabase's connection pool badly enough that requests hung rather
-  // than just queued, turning sign-in into what looked like the app being stuck rather than slow).
+  // needs several pages at its current size). Originally 4 — but even that turned out high enough
+  // that force_tests pages (the biggest rows, full raw Hawkin metric blobs) occasionally hit a
+  // Postgres statement timeout under concurrent load, not just a connection-pool queueing delay.
+  // Confirmed by hand: the same pages that failed at concurrency succeeded individually in under a
+  // second run one at a time. 2 is the more conservative number that's actually been verified not
+  // to trigger this.
   function makeLimiter(concurrency) {
     let active = 0;
     const queue = [];
@@ -90,7 +93,23 @@
     };
     return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); runNext(); });
   }
-  const dbLimit = makeLimiter(4);
+  const dbLimit = makeLimiter(2);
+
+  // A page that fails (a statement timeout, a dropped connection) is retried a couple of times
+  // with a short backoff before giving up — the alternative (store.js's old behavior) was to log
+  // an error and silently continue with that page's rows missing, which nobody would notice short
+  // of counting rows by hand.
+  async function withRetry(fn, label, attempts = 3) {
+    let lastError;
+    for (let i = 0; i < attempts; i++) {
+      const result = await fn();
+      if (!result.error) return result;
+      lastError = result.error;
+      console.error(`AthleteStore: ${label} failed (attempt ${i + 1}/${attempts})`, result.error);
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+    }
+    return { data: null, error: lastError };
+  }
 
   // ---- "Created by / Last updated by" (see migration_002_activity_tracking.sql) -----------------
   // Who made the LAST edit and when is set by a database trigger (auth.uid(), server-side — a
@@ -180,18 +199,24 @@
   // the thing that re-creates the connection-pool pileup it's meant to avoid.
   async function fetchTable(table) {
     const PAGE_SIZE = 1000;
-    const first = await dbLimit(() => sb().from(table).select("*", { count: "exact" }).range(0, PAGE_SIZE - 1));
-    if (first.error) { console.error(`AthleteStore: failed to load ${table} from Supabase`, first.error); return []; }
+    const first = await withRetry(
+      () => dbLimit(() => sb().from(table).select("*", { count: "exact" }).range(0, PAGE_SIZE - 1)),
+      `load ${table} (page 1)`
+    );
+    if (first.error) { console.error(`AthleteStore: giving up on ${table} — no data loaded for this table this session`, first.error); return []; }
     let all = first.data || [];
     const total = typeof first.count === "number" ? first.count : all.length;
     if (total > all.length) {
       const pageFetches = [];
       for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) {
-        pageFetches.push(dbLimit(() => sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1)));
+        pageFetches.push(withRetry(
+          () => dbLimit(() => sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1)),
+          `load ${table} (offset ${offset})`
+        ));
       }
       const pages = await Promise.all(pageFetches);
       pages.forEach(({ data, error }) => {
-        if (error) console.error(`AthleteStore: failed to load a page of ${table} from Supabase`, error);
+        if (error) console.error(`AthleteStore: giving up on a page of ${table} — some rows may be missing this session`, error);
         else all = all.concat(data || []);
       });
     }
