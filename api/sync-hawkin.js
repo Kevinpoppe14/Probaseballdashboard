@@ -159,43 +159,6 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Temporary, read-only: look up one athlete by name in Hawkin directly (no Supabase writes) —
-  // for tracking down "why doesn't athlete X show up" without re-running a full sync. Remove once
-  // no longer needed. /api/v1/athletes returns everyone in one call (not paginated at this org's
-  // size), and each athlete's own lastTestedOn says whether they have history at all and how old
-  // the most recent test is, without touching the (paginated, much larger) tests endpoint.
-  if (req.query.debug === "findAthlete" && req.query.name) {
-    const accessToken = await getHawkinAccessToken();
-    const athletesRes = await fetch(`${HAWKIN_BASE}/api/v1/athletes`, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!athletesRes.ok) { res.status(200).json({ error: `Hawkin athletes fetch failed: HTTP ${athletesRes.status}` }); return; }
-    const athletesPayload = await athletesRes.json();
-    const all = athletesPayload.data || athletesPayload.athletes || [];
-    const needle = normalizeName(req.query.name);
-    const matches = all.filter((a) => normalizeName(a.name || "").includes(needle));
-    // Also check whether a test for this athlete actually comes back from the tests endpoint
-    // around their lastTestedOn date — narrows down "wrong window" vs. "the tests endpoint isn't
-    // returning this athlete's tests at all" (e.g. an access-scope/team-permission gap on the
-    // refresh token), independent of this file's own matching logic.
-    let testsNearLastTested = null;
-    if (matches.length && matches[0].lastTestedOn) {
-      const probeFrom = matches[0].lastTestedOn - 3 * 24 * 60 * 60;
-      const probe = await getHawkinTests(accessToken, probeFrom);
-      testsNearLastTested = probe.data
-        .filter((t) => normalizeName((t.athlete && t.athlete.name) || "").includes(needle))
-        .map((t) => ({ id: t.id, timestamp: t.timestamp, athleteTeams: t.athlete && t.athlete.teams }));
-    }
-
-    res.status(200).json({
-      totalHawkinAthletes: all.length,
-      matches: matches.map((a) => ({
-        id: a.id, name: a.name, active: a.active, teams: a.teams,
-        lastTestedOn: a.lastTestedOn, lastTestedOnDate: a.lastTestedOn ? new Date(a.lastTestedOn * 1000).toISOString() : null,
-      })),
-      testsNearLastTested,
-    });
-    return;
-  }
-
   const summary = { matched: 0, inserted: 0, skippedAthletes: [], errors: [] };
   try {
     const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -212,7 +175,12 @@ module.exports = async (req, res) => {
     ]);
     const tests = testsPayload.data || [];
 
-    const localIdByName = new Map(localAthletes.map((row) => [normalizeName(row.data.name), row.id]));
+    // row.id is the Supabase text primary key ("196") — row.data.id is the athlete's own id as
+    // the rest of the app stores and compares it (a number, 196). A force_tests row's athleteId
+    // has to match that number, or every synced test silently fails to show up anywhere (the
+    // athlete_id *column* was always fine — it's always String()'d before being written — this
+    // was only about what ends up inside the JSON `data` itself).
+    const localIdByName = new Map(localAthletes.map((row) => [normalizeName(row.data.name), row.data.id]));
 
     const rowsToInsert = [];
     const seenUnmatched = new Set();
