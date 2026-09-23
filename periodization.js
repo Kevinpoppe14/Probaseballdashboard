@@ -858,13 +858,18 @@
     useEffect(() => {
       const onBefore = () => preparePrint();       // also covers Ctrl+P while the plan is open
       const onPrintRequest = () => printPlanRef.current(); // the profile's own Print button asks for this
+      // Headless PDF rendering (the "Email to Athlete" feature) needs just the layout prep, not an
+      // actual window.print() call — there's no user to drive a real print dialog under automation.
+      const onRenderPrep = () => preparePrint();
       window.addEventListener("beforeprint", onBefore);
       window.addEventListener("afterprint", cleanupPrint);
       window.addEventListener("dst-print-plan", onPrintRequest);
+      window.addEventListener("dst-render-plan-prep", onRenderPrep);
       return () => {
         window.removeEventListener("beforeprint", onBefore);
         window.removeEventListener("afterprint", cleanupPrint);
         window.removeEventListener("dst-print-plan", onPrintRequest);
+        window.removeEventListener("dst-render-plan-prep", onRenderPrep);
         cleanupPrint();
       };
       // eslint-disable-next-line
@@ -977,6 +982,9 @@
             <div className="period-btn-group">
               <button className="btn btn-secondary" onClick={addLane}>+ Add row</button>
               <button className="btn btn-secondary" onClick={printPlan} title="Prints just this plan, scaled to fit one portrait sheet">Print / Save PDF</button>
+              {typeof EmailToAthleteButton === "function" && (
+                <EmailToAthleteButton athlete={athlete} tab="plan" tabLabel="Player Plan" />
+              )}
             </div>
           </div>
           <div className="period-toolbar-row">

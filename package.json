@@ -1,0 +1,11 @@
+{
+  "name": "athlete-monitoring-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Vercel serverless functions for the Professional Baseball Dashboard (the app itself is a buildless static site served from the repo root).",
+  "dependencies": {
+    "@sparticuz/chromium": "^123.0.1",
+    "puppeteer-core": "^23.9.0",
+    "googleapis": "^144.0.0"
+  }
+}

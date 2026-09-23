@@ -1023,9 +1023,14 @@
     useEffect(() => {
       window.addEventListener("beforeprint", preparePrint); // also covers Ctrl+P while this tab is open
       window.addEventListener("afterprint", cleanupPrint);
+      // Headless PDF rendering (the "Email to Athlete" feature) has no button to click and can't
+      // rely on 'beforeprint' firing the same way a real browser print does under automation, so it
+      // triggers this same prep directly instead.
+      window.addEventListener("dst-render-assessment-prep", preparePrint);
       return () => {
         window.removeEventListener("beforeprint", preparePrint);
         window.removeEventListener("afterprint", cleanupPrint);
+        window.removeEventListener("dst-render-assessment-prep", preparePrint);
         cleanupPrint();
       };
       // eslint-disable-next-line
@@ -1059,6 +1064,9 @@
               >
                 {fitScreen ? "Actual Size" : "Fit to Screen"}
               </button>
+            )}
+            {record && typeof EmailToAthleteButton === "function" && (
+              <EmailToAthleteButton athlete={athlete} tab="assessment" tabLabel="Biomechanical Assessment" />
             )}
           </div>
           {list.length > 0 && <p className="timestamp-note">{list.length} assessment{list.length === 1 ? "" : "s"} on file for {athlete.name}.</p>}
