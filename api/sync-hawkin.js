@@ -1,9 +1,12 @@
 // Vercel Cron target (see vercel.json) — pulls new force-plate tests from Hawkin Dynamics once a
-// day and writes them into Supabase's force_tests table. No coach is logged in when this runs, so
-// it authenticates to Supabase with the service-role key (server-only env var, bypasses Row Level
-// Security) instead of a user session, and to Hawkin with a refresh token (an org admin creates one
-// under Settings -> Integrations in Hawkin) instead of a login. No npm dependencies, same reasoning
-// as api/news.js: this project has no build step, so everything here is plain fetch() calls.
+// day and writes them into Supabase's force_tests table. Also callable on demand from the "Sync
+// Now" button on the Import & Manual Entry page (see HawkinSyncPanel below). Either way, it always
+// writes via the Supabase service-role key (server-only env var, bypasses Row Level Security)
+// rather than a coach's own session — the cron path has no session at all, and reusing the same
+// write path for both keeps the insert/matching logic identical regardless of who triggered it.
+// It authenticates to Hawkin with a refresh token (an org admin creates one under Settings ->
+// Integrations in Hawkin) instead of a login. No npm dependencies, same reasoning as api/news.js:
+// this project has no build step, so everything here is plain fetch() calls.
 //
 // Athlete matching is by name only (same as the existing manual CSV import), not by caching a
 // Hawkin athlete id onto the athlete record — that would mean this job writing to the athletes
@@ -105,8 +108,30 @@ function metricValue(test, guesses, excludes) {
   return entry ? entry.value : null;
 }
 
+// Same anon key the dashboard itself uses (supabase-client.js) — safe to have here, it only proves
+// *which* Supabase project a token belongs to, not that the token is valid on its own.
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2Z2Z4d2h4Z2xmdGZ0bWx5ZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxMTc3NzcsImV4cCI6MjEwNTY5Mzc3N30.-g6HIvyDfsCIiVt4fIhswKqhLNMY8jqSDFbAN2pOHYs";
+
+// A logged-in coach clicking "Sync Now" sends their own Supabase session token instead of the
+// cron secret (which never reaches the browser) — verified for real against Supabase's auth
+// endpoint, not just "is a Bearer token present", so a made-up string can't pass as a coach.
+async function isSignedInCoach(bearerToken) {
+  if (!bearerToken) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${bearerToken}` },
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
 module.exports = async (req, res) => {
-  if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+  const auth = req.headers.authorization || "";
+  const isCron = auth === `Bearer ${process.env.CRON_SECRET}`;
+  const isManual = !isCron && (await isSignedInCoach(auth.replace(/^Bearer\s+/i, "")));
+  if (!isCron && !isManual) {
     res.status(401).json({ error: "unauthorized" });
     return;
   }

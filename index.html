@@ -2770,6 +2770,63 @@ function NoJumpDataPanel() {
   );
 }
 
+// Status + manual trigger for the daily Hawkin Dynamics sync (api/sync-hawkin.js, runs on its own
+// once a day via Vercel Cron). "Sync Now" calls the same function on demand, authenticated with
+// the coach's own logged-in session instead of the cron secret (which never reaches the browser).
+function HawkinSyncPanel({ onImported }) {
+  const [lastSynced, setLastSynced] = useState(undefined); // undefined = loading, null = never run yet
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const loadLastSynced = async () => {
+    const { data, error } = await window.supabaseClient.from("app_meta").select("value").eq("key", "hawkinSyncedAt").maybeSingle();
+    setLastSynced(!error && data ? data.value : null);
+  };
+  useEffect(() => { loadLastSynced(); }, []);
+
+  const syncNow = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const { data: sessionData } = await window.supabaseClient.auth.getSession();
+      const token = sessionData.session && sessionData.session.access_token;
+      const res = await fetch("/api/sync-hawkin", { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      setResult(json);
+      await loadLastSynced();
+      if (json.ok && json.inserted) onImported();
+    } catch (e) {
+      setResult({ ok: false, errors: [String((e && e.message) || e)] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <h2 style={{ fontSize: 13 }}>Hawkin Dynamics Sync</h2>
+      <p className="timestamp-note">
+        Runs automatically once a day &middot; Last synced: {lastSynced === undefined ? "checking…" : lastSynced == null ? "never" : new Date(lastSynced * 1000).toLocaleString()}
+      </p>
+      <button className="btn btn-secondary" style={{ marginTop: 6 }} onClick={syncNow} disabled={busy}>
+        {busy ? "Syncing…" : "Sync Now"}
+      </button>
+      {result && (
+        result.ok ? (
+          <p style={{ fontSize: 12, marginTop: 8, color: "var(--good)" }}>
+            {result.inserted} new test{result.inserted === 1 ? "" : "s"} synced
+            {result.skippedAthletes && result.skippedAthletes.length ? ` (${result.skippedAthletes.length} non-roster athlete name${result.skippedAthletes.length === 1 ? "" : "s"} skipped)` : ""}.
+          </p>
+        ) : (
+          <p style={{ fontSize: 12, marginTop: 8, color: "var(--danger)" }}>
+            Sync failed: {(result.errors && result.errors[0]) || result.error || "unknown error"}
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
 function ImportPage({ onImported, onSelect }) {
   const [source, setSource] = useState("hawkin");
   const stats = window.AthleteStore.counts();
@@ -2794,6 +2851,7 @@ function ImportPage({ onImported, onSelect }) {
       {source === "mlb" && <MlbLinkerPanel onImported={onImported} />}
       {source === "plansheet" && <PlayerPlansSyncPage onSelect={onSelect} onImported={onImported} />}
 
+      {source === "hawkin" && <HawkinSyncPanel onImported={onImported} />}
       {source === "hawkin" && <NoJumpDataPanel />}
       {source === "hawkin" && (
         <CsvImporter
@@ -2848,7 +2906,7 @@ function ImportPage({ onImported, onSelect }) {
           <span><strong>{stats.manualWellness}</strong> manual wellness check-ins</span>
         </div>
         <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 10 }}>
-          This data is stored only in this browser (localStorage) — it isn't sent anywhere. Clearing browser data will erase it.
+          This data is shared with every coach logged into the dashboard (stored in Supabase), with a local copy kept in this browser only as an offline fallback.
         </p>
         <button className="btn btn-secondary" style={{ marginTop: 6 }} onClick={handleClear}>
           Clear imported &amp; manual data
