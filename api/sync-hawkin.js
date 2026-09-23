@@ -49,7 +49,8 @@ async function sbUpsert(serviceKey, table, rows) {
   });
   if (!res.ok) throw new Error(`Supabase upsert ${table} failed: HTTP ${res.status} ${await res.text()}`);
 }
-async function getSyncFrom(serviceKey) {
+async function getSyncFrom(serviceKey, overrideSince) {
+  if (overrideSince != null) return overrideSince; // manual backfill (?since=) — see module.exports
   const rows = await sbSelect(serviceKey, "app_meta", "key=eq.hawkinSyncedAt&select=value");
   if (rows.length && rows[0].value != null) return Number(rows[0].value);
   // First run ever: back-fill a short recent window (not all-time — Hawkin data already manually
@@ -59,6 +60,13 @@ async function getSyncFrom(serviceKey) {
 }
 async function setSyncFrom(serviceKey, unixSeconds) {
   await sbUpsert(serviceKey, "app_meta", [{ key: "hawkinSyncedAt", value: unixSeconds }]);
+}
+// Separate from hawkinSyncedAt on purpose: that value is a data cursor (how far into Hawkin's own
+// test timestamps this has caught up to), which often doesn't change between runs if nothing new
+// was tested — showing *that* as "Last synced" in the UI would make a successful "Sync Now" click
+// look like it did nothing. This tracks wall-clock "when did the job last actually run" instead.
+async function setLastRunAt(serviceKey) {
+  await sbUpsert(serviceKey, "app_meta", [{ key: "hawkinLastRunAt", value: Math.floor(Date.now() / 1000) }]);
 }
 async function getAllAthletes(serviceKey) {
   return sbSelect(serviceKey, "athletes", "select=id,data");
@@ -74,10 +82,25 @@ async function getHawkinAccessToken() {
   if (!token) throw new Error(`Hawkin token exchange returned no access token (got: ${JSON.stringify(data)})`);
   return token;
 }
+// Loops through cursor pagination (hasMore/nextCursor) rather than assuming one response has
+// everything — needed for a wide window like a full-year backfill, where a single team's test
+// count alone can run into the thousands. Capped at 200 pages as a sanity backstop, not a limit
+// expected to actually be hit.
 async function getHawkinTests(accessToken, syncFrom) {
-  const res = await fetch(`${HAWKIN_BASE}/api/v1?syncFrom=${syncFrom}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new Error(`Hawkin tests fetch failed: HTTP ${res.status} ${await res.text()}`);
-  return res.json();
+  let all = [];
+  let cursor = null;
+  let lastSyncTime = null;
+  for (let page = 0; page < 200; page++) {
+    const url = `${HAWKIN_BASE}/api/v1?syncFrom=${syncFrom}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error(`Hawkin tests fetch failed: HTTP ${res.status} ${await res.text()}`);
+    const payload = await res.json();
+    all = all.concat(payload.data || []);
+    if (payload.lastSyncTime != null) lastSyncTime = payload.lastSyncTime;
+    if (!payload.hasMore || !payload.nextCursor) break;
+    cursor = payload.nextCursor;
+  }
+  return { data: all, lastSyncTime };
 }
 // ---- Metric extraction -----------------------------------------------------------------------
 // Hawkin's metric field names vary by test type and aren't fully pinned down in their public docs
@@ -140,7 +163,11 @@ module.exports = async (req, res) => {
   try {
     const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
     const accessToken = await getHawkinAccessToken();
-    const syncFrom = await getSyncFrom(serviceKey);
+    // ?since=<unix seconds> is a manual backfill override (e.g. a coach's Hawkin history for a
+    // less-active athlete falls outside the normal incremental window) — bypasses the stored
+    // cursor for this one run, but the run still advances that cursor normally afterward.
+    const overrideSince = req.query.since != null ? Number(req.query.since) : null;
+    const syncFrom = await getSyncFrom(serviceKey, overrideSince);
 
     const [testsPayload, localAthletes] = await Promise.all([
       getHawkinTests(accessToken, syncFrom),
@@ -196,13 +223,17 @@ module.exports = async (req, res) => {
       summary.matched++;
     }
 
-    if (rowsToInsert.length) {
-      await sbUpsert(serviceKey, "force_tests", rowsToInsert);
-      summary.inserted = rowsToInsert.length;
+    // Batched rather than one giant request — a full-year backfill can mean thousands of rows,
+    // and Supabase/PostgREST rejects or times out on very large single inserts.
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < rowsToInsert.length; i += BATCH_SIZE) {
+      await sbUpsert(serviceKey, "force_tests", rowsToInsert.slice(i, i + BATCH_SIZE));
     }
+    summary.inserted = rowsToInsert.length;
 
     const newSyncFrom = testsPayload.lastSyncTime || Math.floor(Date.now() / 1000);
     await setSyncFrom(serviceKey, newSyncFrom);
+    await setLastRunAt(serviceKey);
 
     res.status(200).json({ ok: true, ...summary, totalTestsSeen: tests.length, syncFrom, newSyncFrom });
   } catch (e) {

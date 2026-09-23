@@ -2779,7 +2779,7 @@ function HawkinSyncPanel({ onImported }) {
   const [result, setResult] = useState(null);
 
   const loadLastSynced = async () => {
-    const { data, error } = await window.supabaseClient.from("app_meta").select("value").eq("key", "hawkinSyncedAt").maybeSingle();
+    const { data, error } = await window.supabaseClient.from("app_meta").select("value").eq("key", "hawkinLastRunAt").maybeSingle();
     setLastSynced(!error && data ? data.value : null);
   };
   React.useEffect(() => { loadLastSynced(); }, []);
