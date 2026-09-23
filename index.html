@@ -18,7 +18,7 @@
 <script crossorigin src="https://unpkg.com/papaparse@5/papaparse.min.js"></script>
 <!-- Supabase client (shared cloud storage + login, see supabase/SETUP.md) -->
 <script crossorigin src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<!-- html2canvas + jsPDF: client-side PDF snapshot for "Email to Athlete" (see EmailAthleteComposer) -->
+<!-- html2canvas + jsPDF: client-side PDF snapshot for "Email to Athlete" / "Email Team Report" (see EmailComposer) -->
 <script crossorigin src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script crossorigin src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 </head>
@@ -661,7 +661,18 @@ function EmailToAthleteButton({ athlete, tab, tabLabel }) {
       >
         Email to Athlete
       </button>
-      {open && <EmailAthleteComposer athlete={athlete} tab={tab} tabLabel={tabLabel} onClose={() => setOpen(false)} />}
+      {open && (
+        <EmailComposer
+          title={`Email ${tabLabel} to ${athlete.name}`}
+          defaultTo={athlete.email || ""}
+          defaultSubject={`Your ${tabLabel} from Dynamic Sports Training`}
+          defaultBody={`Hi ${(athlete.name || "").split(/\s+/)[0] || athlete.name},\n\nAttached is your latest ${tabLabel.toLowerCase()}. Let me know if you have any questions.\n`}
+          attachmentNote={`A PDF of this ${tabLabel.toLowerCase()} will be attached, sent from your own email address.`}
+          renderPdf={() => renderTabToPdf(tab)}
+          filename={`${(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${tab}.pdf`}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </React.Fragment>
   );
 }
@@ -687,8 +698,11 @@ function extractPrintCss() {
 }
 
 // Slices a (probably page-taller-than-one-page) canvas into a multi-page PDF, one page-height's
-// worth of pixels at a time, instead of squashing everything onto a single page.
-function addCanvasAsPages(pdf, canvas, pageW, pageH) {
+// worth of pixels at a time, instead of squashing everything onto a single page. isFirstPage
+// controls whether the very first slice reuses the PDF's current page (the normal case) or forces
+// a new one first — needed when compositing several elements into one document (see
+// renderTeamReportToPdf), where every element after the first must start on its own fresh page.
+function addCanvasAsPages(pdf, canvas, pageW, pageH, isFirstPage = true) {
   const pageHeightPx = Math.floor((pageH / pageW) * canvas.width);
   let renderedPx = 0;
   let first = true;
@@ -699,7 +713,7 @@ function addCanvasAsPages(pdf, canvas, pageW, pageH) {
     slice.height = sliceHeightPx;
     slice.getContext("2d").drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
     const sliceHeightIn = (sliceHeightPx * pageW) / canvas.width;
-    if (!first) pdf.addPage();
+    if (!(first && isFirstPage)) pdf.addPage();
     pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, sliceHeightIn);
     renderedPx += sliceHeightPx;
     first = false;
@@ -794,32 +808,55 @@ async function renderAssessmentToPdf() {
   return pdf.output("datauristring").split(",")[1];
 }
 
-// The plan has no natural "pieces" to split like the assessment does, so this just captures the
-// whole thing at a comfortable natural width and lets it span as many pages as it needs — a plan
-// long enough to not fit one page isn't unusual, unlike the assessment's fixed-length form.
-async function renderPlanToPdf() {
-  const wrap = document.querySelector(".period-wrap");
-  if (!wrap) throw new Error("Couldn't find this plan to render — try reopening it.");
+// Shared fallback for any tab without a fixed one-page layout to composite (the plan, and the
+// chart-heavy Statcast/Performance tabs): capture the whole section at a comfortable natural width
+// and let it span as many pages as it needs, rather than shrinking it down to fit one.
+async function renderElementToPdf(selector, { width, orientation }) {
+  const el = document.querySelector(selector);
+  if (!el) throw new Error("Couldn't find this tab's content to render — try reopening it.");
   const printCss = extractPrintCss();
-  const canvas = await captureElement(wrap, printCss, 900);
+  const canvas = await captureElement(el, printCss, width);
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+  const pdf = new jsPDF({ orientation, unit: "in", format: "letter" });
   addCanvasAsPages(pdf, canvas, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
   return pdf.output("datauristring").split(",")[1];
 }
 
 async function renderTabToPdf(tab) {
-  return tab === "assessment" ? renderAssessmentToPdf() : renderPlanToPdf();
+  if (tab === "assessment") return renderAssessmentToPdf();
+  if (tab === "plan") return renderElementToPdf(".period-wrap", { width: 900, orientation: "portrait" });
+  // Statcast/Performance are chart grids with no fixed page design of their own to match — wide
+  // landscape gives their side-by-side charts more room than a portrait page would.
+  return renderElementToPdf(`[data-tab-content="${tab}"]`, { width: 1300, orientation: "landscape" });
 }
 
-function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
-  const firstName = (athlete.name || "").split(/\s+/)[0] || athlete.name;
-  const [to, setTo] = useState(athlete.email || "");
+// The team report is one ".report-sheet" per athlete (same markup "Print / Save PDF" uses,
+// prepared per-sheet with its own zoom-based one-page fit — see prepareSheets in TeamReportPage).
+// That zoom fit is exactly what html2canvas can't reproduce, so each sheet is captured here at its
+// natural size instead and given its own page(s) in the PDF, in roster order.
+async function renderTeamReportToPdf() {
+  const sheets = Array.from(document.querySelectorAll(".report-sheet")).filter((s) => s.offsetParent !== null);
+  if (!sheets.length) throw new Error("This team has no player report sheets to render yet.");
+  const printCss = extractPrintCss();
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  for (let i = 0; i < sheets.length; i++) {
+    const canvas = await captureElement(sheets[i], printCss, 900);
+    addCanvasAsPages(pdf, canvas, pageW, pageH, i === 0);
+  }
+  return pdf.output("datauristring").split(",")[1];
+}
+
+// Generic "compose + send a PDF" panel — used both for a single athlete's tab and for a team
+// report going out to several contacts at once. `renderPdf` does the actual snapshot (different
+// for each caller); everything else (recipients, status, error handling) is shared.
+function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, onClose }) {
+  const [to, setTo] = useState(defaultTo || "");
   const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState(`Your ${tabLabel} from Dynamic Sports Training`);
-  const [body, setBody] = useState(
-    `Hi ${firstName},\n\nAttached is your latest ${tabLabel.toLowerCase()}. Let me know if you have any questions.\n`
-  );
+  const [subject, setSubject] = useState(defaultSubject);
+  const [body, setBody] = useState(defaultBody);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState(""); // progress text while sending
   const [error, setError] = useState("");
@@ -827,25 +864,24 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
 
   const send = async () => {
     setError("");
-    const recipient = to.trim();
     const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    if (!recipient || !emailRe.test(recipient)) { setError("Enter a valid recipient email."); return; }
+    const toList = to.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!toList.length || toList.some((addr) => !emailRe.test(addr))) { setError("Enter at least one valid recipient email."); return; }
     const ccList = cc.split(",").map((s) => s.trim()).filter(Boolean);
     if (ccList.some((addr) => !emailRe.test(addr))) { setError("One of the CC addresses doesn't look like a valid email."); return; }
     if (!subject.trim() || !body.trim()) { setError("Subject and message can't be empty."); return; }
     setSending(true);
     try {
       setStatus("Rendering PDF…");
-      const pdfBase64 = await renderTabToPdf(tab);
+      const pdfBase64 = await renderPdf();
       setStatus("Sending…");
       const { data } = await window.supabaseClient.auth.getSession();
       const token = data.session && data.session.access_token;
       if (!token) throw new Error("You're not signed in — reload and sign in again.");
-      const filename = `${(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${tab}.pdf`;
       const res = await fetch("/api/send-athlete-email", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ to: recipient, cc: ccList.join(", "), subject: subject.trim(), body, filename, pdfBase64 }),
+        body: JSON.stringify({ to: toList.join(", "), cc: ccList.join(", "), subject: subject.trim(), body, filename, pdfBase64 }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`);
@@ -860,7 +896,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
 
   return (
     <div className="panel no-print" style={{ marginTop: 10 }}>
-      <h2>Email {tabLabel} to {athlete.name}</h2>
+      <h2>{title}</h2>
       {sent ? (
         <React.Fragment>
           <div className="success-banner">Sent to {to}{cc.trim() ? ` (cc: ${cc.trim()})` : ""}.</div>
@@ -871,7 +907,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
           <div className="form-row">
             <div className="field" style={{ minWidth: 220 }}>
               <label>To</label>
-              <input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="athlete@example.com" disabled={sending} />
+              <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="athlete@example.com" disabled={sending} />
             </div>
             <div className="field" style={{ minWidth: 220 }}>
               <label>CC (optional)</label>
@@ -886,9 +922,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
             <label>Message</label>
             <textarea rows={6} value={body} onChange={(e) => setBody(e.target.value)} disabled={sending} style={{ width: "100%" }} />
           </div>
-          <div className="assess-row-note" style={{ marginTop: 6 }}>
-            A PDF of this {tabLabel.toLowerCase()} will be attached, sent from your own email address.
-          </div>
+          <div className="assess-row-note" style={{ marginTop: 6 }}>{attachmentNote}</div>
           {error && <div className="success-banner" style={{ marginTop: 8, background: "#3a1414", color: "var(--danger)", borderColor: "#5a1f1f" }}>{error}</div>}
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button className="btn btn-primary" onClick={send} disabled={sending}>{sending ? status || "Sending…" : "Send"}</button>
@@ -897,6 +931,33 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
         </React.Fragment>
       )}
     </div>
+  );
+}
+
+// Sends the whole team report (one sheet per athlete) to one or more contacts at once, replacing
+// the old per-contact "open a Gmail draft and drag in a PDF the local dev server built" flow —
+// that relied on a local server this app no longer runs since moving to Supabase/Vercel.
+function EmailTeamReportButton({ team, defaultRecipients }) {
+  const [open, setOpen] = useState(false);
+  const dateText = new Date().toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
+  return (
+    <React.Fragment>
+      <button type="button" className="btn btn-secondary no-print" onClick={() => setOpen(true)} title={`Email the ${team} report to its contacts`}>
+        Email Team Report
+      </button>
+      {open && (
+        <EmailComposer
+          title={`Email ${team} Report`}
+          defaultTo={defaultRecipients || ""}
+          defaultSubject={`${team} player reports - Dynamic Sports Training`}
+          defaultBody={`Hi,\n\nAttached is the latest ${team} player report from Dynamic Sports Training, covering each player's periodization, performance metrics and coaching notes.\n\nLet me know if you have any questions.\n\nThank you,`}
+          attachmentNote="A PDF with one page per player will be attached, sent from your own email address."
+          renderPdf={renderTeamReportToPdf}
+          filename={`${team.replace(/[^a-z0-9]+/gi, "_")}-team-report-${dateText}.pdf`}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </React.Fragment>
   );
 }
 
@@ -2266,7 +2327,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
       </div>
 
-      <div className={activeTab === "statcast" ? "" : "tab-hidden"}>
+      <div className={activeTab === "statcast" ? "" : "tab-hidden"} data-tab-content="statcast">
+        <div className="no-print" style={{ marginBottom: 10 }}>
+          <EmailToAthleteButton athlete={athlete} tab="statcast" tabLabel="Statcast Metrics" />
+        </div>
         <RangeSelector
           range={dataRange}
           onChange={setDataRange}
@@ -2276,7 +2340,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         <MlbStatsPanel athlete={athlete} onChanged={onDataChange} />
       </div>
 
-      <div className={activeTab === "performance" ? "" : "tab-hidden"}>
+      <div className={activeTab === "performance" ? "" : "tab-hidden"} data-tab-content="performance">
+        <div className="no-print" style={{ marginBottom: 10 }}>
+          <EmailToAthleteButton athlete={athlete} tab="performance" tabLabel="Performance Metrics" />
+        </div>
         <RangeSelector range={dataRange} onChange={setDataRange} />
         <ForcePlatePanel athleteId={athlete.id} range={dataRange} />
       </div>
@@ -3493,7 +3560,7 @@ function PlayerDirectoryPage({ onSelect, dataVersion }) {
 // Staff directory for an MLB club (from mlb_team_contacts.js, copied from the PBSCCS members
 // directory). Personal cell numbers are in there, so the panel is left OUT of printed/PDF
 // reports unless you tick the box.
-function TeamContactsPanel({ team, onEmail, emailStatus }) {
+function TeamContactsPanel({ team }) {
   const [printIt, setPrintIt] = useState(false);
   const data = window.MLB_TEAM_CONTACTS && window.MLB_TEAM_CONTACTS[team];
   if (!data) return null;
@@ -3515,15 +3582,6 @@ function TeamContactsPanel({ team, onEmail, emailStatus }) {
         <input type="checkbox" checked={printIt} onChange={(e) => setPrintIt(e.target.checked)} />{" "}
         Include contacts when printing / saving as PDF (members-only info, including personal cell numbers)
       </label>
-      {onEmail && (
-        <p className="timestamp-note no-print" style={{ marginTop: -4, marginBottom: 10 }}>
-          Click a contact's email to open a Gmail draft to them and save this team's report as a PDF to attach.
-        </p>
-      )}
-      {emailStatus && (
-        <div className={`email-status no-print ${emailStatus.state}`}>{emailStatus.text}</div>
-      )}
-
       {groups.length > 0 && (
         <div style={{ display: "flex", gap: 28, flexWrap: "wrap", marginBottom: 12, fontSize: 13 }}>
           {groups.map((g, i) => (
@@ -3560,11 +3618,7 @@ function TeamContactsPanel({ team, onEmail, emailStatus }) {
               <td>
                 {c.e.map((email, j) => (
                   <div key={j}>
-                    <a
-                      href={`mailto:${email}`}
-                      onClick={onEmail ? (e) => { e.preventDefault(); onEmail(email, c); } : undefined}
-                      title={onEmail ? "Opens a Gmail draft and saves this team's report PDF to attach" : undefined}
-                    >{email}</a>
+                    <a href={`mailto:${email}`}>{email}</a>
                   </div>
                 ))}
               </td>
@@ -3650,51 +3704,6 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
   };
   const printTeamReport = () => { prepareSheets(); window.print(); };
 
-  // ---- email a contact with this team's report ----
-  // Links can't attach files, so: open a pre-addressed Gmail draft right away, then have the local server
-  // build the report PDF (same one-page-per-athlete layout as Print / Save PDF), save it to
-  // Documents\DST Team Reports and show it in File Explorer so it can be dragged into the draft.
-  const [emailStatus, setEmailStatus] = useState(null);
-  const snapshotReportHtml = () => {
-    prepareSheets(); // applies the same per-page fit as printing (zoom + width on each sheet)
-    const sheets = [...document.querySelectorAll(".report-sheet")];
-    // Relative links (logos, etc.) are made absolute rather than using a <base> tag: a <base> also redirects the
-    // charts' internal "url(#clip)" references and makes their lines disappear.
-    const origin = window.location.origin;
-    const inner = sheets.map((s) => s.outerHTML).join("\n")
-      .replace(/(src|href)="(?!https?:|data:|#|\/\/)\/?([^"]+)"/g, (m, attr, path) => `${attr}="${origin}/${path}"`);
-    cleanupSheets();
-    if (!sheets.length) return null;
-    return `<!DOCTYPE html><html><head><meta charset="utf-8">` +
-      `<link rel="stylesheet" href="${origin}/styles.css"><style>@page { size: letter portrait; margin: 0.35in; }</style></head>` +
-      `<body class="print-team-sheets"><div class="app"><div class="main">${inner}</div></div></body></html>`;
-  };
-  const emailReport = async (email, contact) => {
-    const players = rows.length;
-    const dateText = new Date().toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
-    const first = (contact.n.includes(",") ? contact.n.split(",")[1] : contact.n).trim().split(/\s+/)[0] || "there";
-    const subject = `${selectedTeam} player reports - Dynamic Sports Training`;
-    const body = `Hi ${first},\n\nAttached is the latest ${selectedTeam} player report from Dynamic Sports Training` +
-      `${players ? ` (${players} player${players === 1 ? "" : "s"})` : ""}, covering each player's periodization, performance metrics and coaching notes.\n\n` +
-      `Let me know if you have any questions.\n\nThank you,`;
-    const gmail = `https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.open(gmail, "_blank"); // straight from the click, so pop-up blockers allow it
-
-    const html = snapshotReportHtml();
-    if (!html) { setEmailStatus({ state: "error", text: `A Gmail draft to ${email} is open, but ${selectedTeam} has no athletes on the roster yet, so there's no report to attach.` }); return; }
-    setEmailStatus({ state: "working", text: `Gmail draft to ${email} opened. Building the ${selectedTeam} report PDF (about 10 seconds)...` });
-    try {
-      const res = await fetch(`/api/report-pdf?name=${encodeURIComponent(`${selectedTeam} - Team Report - ${dateText}`)}`, {
-        method: "POST", headers: { "Content-Type": "text/html; charset=utf-8" }, body: html,
-      });
-      if (res.status === 404) throw new Error("The dashboard server needs restarting (close its black window and run start-dashboard.bat) before it can build PDFs.");
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "PDF creation failed");
-      setEmailStatus({ state: "done", text: `Saved ${data.path} and showed it in File Explorer. Drag that PDF into the Gmail draft to ${email} to attach it.` });
-    } catch (e) {
-      setEmailStatus({ state: "error", text: `The Gmail draft to ${email} is open, but the PDF couldn't be built: ${e.message}` });
-    }
-  };
   React.useEffect(() => {
     if (!selectedTeam) return undefined;
     window.addEventListener("beforeprint", prepareSheets); // also covers Ctrl+P
@@ -3767,9 +3776,19 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
                 {rows.length} player{rows.length === 1 ? "" : "s"} monitored &middot; one sheet per athlete &middot; generated {new Date().toLocaleDateString()}
               </div>
             </div>
-            <button className="btn btn-secondary no-print" style={{ marginLeft: "auto" }} onClick={printTeamReport} title="Prints one page per athlete">
-              Print / Save PDF
-            </button>
+            <div className="no-print" style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
+              <button className="btn btn-secondary" onClick={printTeamReport} title="Prints one page per athlete">
+                Print / Save PDF
+              </button>
+              <EmailTeamReportButton
+                team={selectedTeam}
+                defaultRecipients={
+                  window.MLB_TEAM_CONTACTS && window.MLB_TEAM_CONTACTS[selectedTeam]
+                    ? window.MLB_TEAM_CONTACTS[selectedTeam].contacts.flatMap((c) => c.e).join(", ")
+                    : ""
+                }
+              />
+            </div>
           </div>
 
           <div className="kpi-row no-print">
@@ -3777,7 +3796,7 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
             <KpiCard label="Active" value={activeCount} />
           </div>
 
-          {selectedLeague === "MLB" && <TeamContactsPanel team={selectedTeam} onEmail={emailReport} emailStatus={emailStatus} />}
+          {selectedLeague === "MLB" && <TeamContactsPanel team={selectedTeam} />}
 
           <h2 className="no-print" style={{ marginBottom: 14 }}>Players <small style={{ color: "var(--text-dim)", fontSize: 12 }}>One sheet per athlete &middot; click a name to open their profile</small></h2>
           <RangeSelector range={perfRange} onChange={setPerfRange} />
