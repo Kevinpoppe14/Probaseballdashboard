@@ -32,6 +32,22 @@ function normalizeName(n) {
   return (n || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+// Caps concurrent Supabase requests from this function — see store.js's identical dbLimit for why:
+// firing every page of a paginated read at once overwhelmed Supabase's connection pool badly
+// enough that requests hung rather than queued.
+function makeLimiter(concurrency) {
+  let active = 0;
+  const queue = [];
+  const runNext = () => {
+    if (active >= concurrency || queue.length === 0) return;
+    active++;
+    const { fn, resolve, reject } = queue.shift();
+    fn().then(resolve, reject).finally(() => { active--; runNext(); });
+  };
+  return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); runNext(); });
+}
+const dbLimit = makeLimiter(4);
+
 // ---- Supabase (via REST + the service-role key, so this works with no user session) -----------
 function sbHeaders(serviceKey, extra) {
   return { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", ...extra };
@@ -52,16 +68,16 @@ async function sbSelect(serviceKey, table, query) {
     if (!res.ok && res.status !== 206) throw new Error(`Supabase select ${table} failed: HTTP ${res.status} ${await res.text()}`);
     return res;
   };
-  const firstRes = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+  const firstRes = await dbLimit(() => fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
     headers: sbHeaders(serviceKey, { Range: `0-${PAGE_SIZE - 1}`, Prefer: "count=exact" }),
-  });
+  }));
   if (!firstRes.ok && firstRes.status !== 206) throw new Error(`Supabase select ${table} failed: HTTP ${firstRes.status} ${await firstRes.text()}`);
   let all = (await firstRes.json()) || [];
   const contentRange = firstRes.headers.get("content-range"); // "0-999/8724"
   const total = contentRange ? Number(contentRange.split("/")[1]) : all.length;
   if (total > all.length) {
     const pageFetches = [];
-    for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) pageFetches.push(fetchPage(offset));
+    for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) pageFetches.push(dbLimit(() => fetchPage(offset)));
     const pages = await Promise.all(pageFetches);
     for (const res of pages) all = all.concat((await res.json()) || []);
   }

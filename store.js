@@ -57,6 +57,24 @@
   const randomId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const wellnessKey = (athleteId, date) => `${athleteId}|${date}`;
 
+  // Caps how many Supabase requests are ever in flight at once, shared across every table's fetch
+  // AND every page within a table (initFromSupabase fetches ~10 tables in parallel, and force_tests
+  // alone now needs 9 pages at its current size — firing all of that at once, ~18 requests
+  // simultaneously, overwhelmed Supabase's connection pool badly enough that requests hung rather
+  // than just queued, turning sign-in into what looked like the app being stuck rather than slow).
+  function makeLimiter(concurrency) {
+    let active = 0;
+    const queue = [];
+    const runNext = () => {
+      if (active >= concurrency || queue.length === 0) return;
+      active++;
+      const { fn, resolve, reject } = queue.shift();
+      fn().then(resolve, reject).finally(() => { active--; runNext(); });
+    };
+    return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); runNext(); });
+  }
+  const dbLimit = makeLimiter(4);
+
   // ---- "Created by / Last updated by" (see migration_002_activity_tracking.sql) -----------------
   // Who made the LAST edit and when is set by a database trigger (auth.uid(), server-side — a
   // coach's browser can't spoof it), not by anything this file sends up. It's exposed to the rest
@@ -140,19 +158,19 @@
   // truncation flag, just fewer rows than actually exist. force_tests crossed that this session
   // (the Hawkin sync alone added 3000+), so any table here needs to page through everything
   // rather than assume one request has it all. The first page also asks for an exact count, so
-  // every remaining page can be requested *in parallel* instead of one round trip at a time —
-  // fetching this sequentially at force_tests' current size added several extra seconds to every
-  // sign-in, enough to look like the app had hung rather than just being slow.
+  // every remaining page can be requested up front instead of one round trip at a time — each one
+  // still goes through dbLimit, though, alongside every other table's own fetch, so this can't be
+  // the thing that re-creates the connection-pool pileup it's meant to avoid.
   async function fetchTable(table) {
     const PAGE_SIZE = 1000;
-    const first = await sb().from(table).select("*", { count: "exact" }).range(0, PAGE_SIZE - 1);
+    const first = await dbLimit(() => sb().from(table).select("*", { count: "exact" }).range(0, PAGE_SIZE - 1));
     if (first.error) { console.error(`AthleteStore: failed to load ${table} from Supabase`, first.error); return []; }
     let all = first.data || [];
     const total = typeof first.count === "number" ? first.count : all.length;
     if (total > all.length) {
       const pageFetches = [];
       for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) {
-        pageFetches.push(sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1));
+        pageFetches.push(dbLimit(() => sb().from(table).select("*").range(offset, offset + PAGE_SIZE - 1)));
       }
       const pages = await Promise.all(pageFetches);
       pages.forEach(({ data, error }) => {
