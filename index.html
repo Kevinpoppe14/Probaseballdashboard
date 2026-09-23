@@ -83,27 +83,26 @@ function shortDate(key) {
 }
 
 // Now that force-test history can span several years (Hawkin backfills go back to 2020), a plain
-// "10/7" x-axis label is ambiguous — the same label can appear once per year in the data. Charts
-// built from a chronologically-sorted list of dates use this pair together: chartDateLabel to
-// decide whether a given point's label needs its year appended (only the *first* point of each
-// year gets it, so the axis doesn't repeat the year on every tick), and yearBoundaryLabels to find
-// which labels to draw a <ReferenceLine> at, marking where one year ends and the next begins.
-function chartDateLabel(dateKey, prevDateKey) {
-  const base = shortDate(dateKey);
-  const year = new Date(dateKey).getFullYear();
-  const prevYear = prevDateKey ? new Date(prevDateKey).getFullYear() : null;
-  return prevYear === null || year !== prevYear ? `${base}/${String(year).slice(2)}` : base;
+// "10/7" x-axis label is ambiguous — the same label repeats once per year. A *categorical* axis
+// (a string per point) can't fix this reliably: Recharts thins out category ticks on its own once
+// there are more than a handful of points, so a year appended to just one specific point's label
+// routinely gets dropped along with that tick. The fix is a real numeric time axis instead — ticks
+// are then positioned by actual elapsed time (Recharts/d3 pick sensible ones on their own) and a
+// <ReferenceLine> at a real timestamp always lands in the right place regardless of which ticks
+// happen to be drawn. axisDateLabel formats a tick (showing the year whenever the chart's own data
+// spans more than one), and yearStartTimestamps gives the Jan-1 boundaries to draw those lines at.
+function axisDateLabel(ts, includeYear) {
+  const d = new Date(ts);
+  const base = `${d.getMonth() + 1}/${d.getDate()}`;
+  return includeYear ? `${base}/${String(d.getFullYear()).slice(2)}` : base;
 }
-function yearBoundaryLabels(sortedDateKeys) {
-  const labels = [];
-  let prevYear = null;
-  sortedDateKeys.forEach((key, i) => {
-    if (!key) return;
-    const year = new Date(key).getFullYear();
-    if (prevYear !== null && year !== prevYear) labels.push(chartDateLabel(key, sortedDateKeys[i - 1]));
-    prevYear = year;
-  });
-  return labels;
+function spansMultipleYears(dateKeys) {
+  const years = new Set(dateKeys.filter(Boolean).map((k) => new Date(k).getFullYear()));
+  return years.size > 1;
+}
+function yearStartTimestamps(dateKeys) {
+  const years = Array.from(new Set(dateKeys.filter(Boolean).map((k) => new Date(k).getFullYear()))).sort((a, b) => a - b);
+  return years.slice(1).map((y) => new Date(y, 0, 1).getTime()); // skip the first year — no boundary before the data starts
 }
 
 function dateRangeKeys(days) {
@@ -1554,6 +1553,11 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
   const trend = showTrend ? computeLinearTrend(data, dataKey) : null;
   const chartData = data.map((d, i) => ({ ...d, __trend: trend ? trend[i] : null }));
   const domain = paddedDomain(chartData, showTrend ? [dataKey, "__trend"] : [dataKey]);
+  // `date` is a numeric timestamp (see ForcePlatePanel/AthletePerformanceGraphs) so ticks land at
+  // real time intervals instead of Recharts spacing out arbitrary category strings, and a
+  // <ReferenceLine> at a real timestamp always lands correctly regardless of which ticks are drawn.
+  const showYear = spansMultipleYears(data.map((d) => d.date));
+  const axisProps = { dataKey: "date", type: "number", domain: ["dataMin", "dataMax"], scale: "time", tickFormatter: (ts) => axisDateLabel(ts, showYear) };
   return (
     <div className="panel">
       <h2>{title} {unit ? <small>({unit})</small> : null}</h2>
@@ -1566,13 +1570,13 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
         <ResponsiveContainer width="100%" height={160}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-            <XAxis dataKey="date" stroke="#9a9a9a" fontSize={10} />
+            <XAxis {...axisProps} stroke="#9a9a9a" fontSize={10} />
             <YAxis stroke="#9a9a9a" fontSize={10} width={40} domain={domain} />
-            <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
+            <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} labelFormatter={(ts) => axisDateLabel(ts, true)} />
             {/* no draw-in animation: charts are always in their final state (matters for printing / emailed PDFs) */}
             <Line type="monotone" dataKey={dataKey} stroke={color || "#b5283a"} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
             {showTrend && <Line type="monotone" dataKey="__trend" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls isAnimationActive={false} />}
-            {(yearLines || []).map((label) => <ReferenceLine key={label} x={label} stroke="#fff" strokeOpacity={0.4} />)}
+            {(yearLines || []).map((ts) => <ReferenceLine key={ts} x={ts} stroke="#fff" strokeOpacity={0.5} />)}
           </LineChart>
         </ResponsiveContainer>
       ) : (
@@ -1593,12 +1597,12 @@ function AthletePerformanceGraphs({ athleteId, range }) {
   if (!tests.length) {
     return <div className="empty-state">No force plate tests in this date range ({allTests.length} on file overall).</div>;
   }
-  const kpiChartData = tests.map((t, i) => {
-    const point = { date: chartDateLabel(t.date, tests[i - 1] && tests[i - 1].date) };
+  const kpiChartData = tests.map((t) => {
+    const point = { date: new Date(t.date).getTime() };
     FORCE_KPI_METRICS.forEach((m) => { point[m.key] = m.getValue(t); });
     return point;
   });
-  const yearLines = yearBoundaryLabels(tests.map((t) => t.date));
+  const yearLines = yearStartTimestamps(tests.map((t) => t.date));
   return (
     <div>
       <CmjSummary tests={tests} athleteId={athleteId} />
@@ -1636,18 +1640,23 @@ function ForcePlatePanel({ athleteId, range }) {
     );
   }
 
-  const chartDataBase = tests.map((t, i) => ({
-    date: chartDateLabel(t.date, tests[i - 1] && tests[i - 1].date),
+  const testDates = tests.map((t) => t.date);
+  const showYear = spansMultipleYears(testDates);
+  const yearLines = yearStartTimestamps(testDates);
+  const axisProps = { dataKey: "date", type: "number", domain: ["dataMin", "dataMax"], scale: "time", tickFormatter: (ts) => axisDateLabel(ts, showYear) };
+  const tooltipLabelFormatter = (ts) => axisDateLabel(ts, true);
+
+  const chartDataBase = tests.map((t) => ({
+    date: new Date(t.date).getTime(),
     jumpHeight: t.jumpHeight ?? null,
   }));
   const jumpTrend = computeLinearTrend(chartDataBase, "jumpHeight");
   const chartData = chartDataBase.map((d, i) => ({ ...d, jumpTrend: jumpTrend[i] }));
   const jumpDomain = paddedDomain(chartData, ["jumpHeight", "jumpTrend"]);
-  const yearLines = yearBoundaryLabels(tests.map((t) => t.date));
   const latest = tests[tests.length - 1];
 
-  const kpiChartData = tests.map((t, i) => {
-    const point = { date: chartDateLabel(t.date, tests[i - 1] && tests[i - 1].date) };
+  const kpiChartData = tests.map((t) => {
+    const point = { date: new Date(t.date).getTime() };
     FORCE_KPI_METRICS.forEach((m) => { point[m.key] = m.getValue(t); });
     return point;
   });
@@ -1665,13 +1674,13 @@ function ForcePlatePanel({ athleteId, range }) {
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-          <XAxis dataKey="date" stroke="#9a9a9a" fontSize={12} />
+          <XAxis {...axisProps} stroke="#9a9a9a" fontSize={12} />
           <YAxis yAxisId="jump" stroke="#9a9a9a" fontSize={12} domain={jumpDomain} />
-          <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
+          <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} labelFormatter={tooltipLabelFormatter} />
           <Legend />
           <Line yAxisId="jump" type="monotone" dataKey="jumpHeight" name="Jump Height (in)" stroke="#b5283a" strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="jump" type="monotone" dataKey="jumpTrend" name="Jump Height Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
-          {yearLines.map((label) => <ReferenceLine key={label} yAxisId="jump" x={label} stroke="#fff" strokeOpacity={0.4} />)}
+          {yearLines.map((ts) => <ReferenceLine key={ts} yAxisId="jump" x={ts} stroke="#fff" strokeOpacity={0.5} />)}
         </LineChart>
       </ResponsiveContainer>
 
