@@ -321,31 +321,6 @@
             ))}
           </div>
 
-          <div className="news-topics">
-            <span className="news-topics-label">Also tracking:</span>
-            {topics.map((t) => (
-              <span className="news-topic-tag" key={t}>
-                {t}
-                {editingTopics && <button title={`Stop tracking ${t}`} onClick={() => removeTopic(t)}>×</button>}
-              </span>
-            ))}
-            {topics.length === 0 && <span className="news-topics-empty">nothing yet</span>}
-            <button className="btn-link" onClick={() => setEditingTopics(!editingTopics)}>{editingTopics ? "Done" : "Edit topics"}</button>
-          </div>
-          {editingTopics && (
-            <div className="news-topic-edit">
-              <input
-                placeholder="Add a name or phrase, e.g. Dynamic Sports Training"
-                value={newTopic}
-                onChange={(e) => setNewTopic(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addTopic(); }}
-              />
-              <button className="btn btn-secondary" onClick={addTopic} disabled={!newTopic.trim()}>Add</button>
-              <button className="btn-link" onClick={() => setTopics(DEFAULT_TOPICS)}>Reset to the original list</button>
-              <span>Topics are searched as exact phrases; click Refresh news after adding one. For a common name, add a keyword after a plus sign, e.g. <em>Garrett Kelly + baseball</em>.</span>
-            </div>
-          )}
-
           {progress && (
             <div className="news-progress">
               <div className="news-progress-bar"><span style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} /></div>
@@ -383,6 +358,33 @@
             </div>
           </div>
         )}
+
+        <div className="panel">
+          <div className="news-topics">
+            <span className="news-topics-label">Also tracking:</span>
+            {topics.map((t) => (
+              <span className="news-topic-tag" key={t}>
+                {t}
+                {editingTopics && <button title={`Stop tracking ${t}`} onClick={() => removeTopic(t)}>×</button>}
+              </span>
+            ))}
+            {topics.length === 0 && <span className="news-topics-empty">nothing yet</span>}
+            <button className="btn-link" onClick={() => setEditingTopics(!editingTopics)}>{editingTopics ? "Done" : "Edit topics"}</button>
+          </div>
+          {editingTopics && (
+            <div className="news-topic-edit">
+              <input
+                placeholder="Add a name or phrase, e.g. Dynamic Sports Training"
+                value={newTopic}
+                onChange={(e) => setNewTopic(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") addTopic(); }}
+              />
+              <button className="btn btn-secondary" onClick={addTopic} disabled={!newTopic.trim()}>Add</button>
+              <button className="btn-link" onClick={() => setTopics(DEFAULT_TOPICS)}>Reset to the original list</button>
+              <span>Topics are searched as exact phrases; click Refresh news after adding one. For a common name, add a keyword after a plus sign, e.g. <em>Garrett Kelly + baseball</em>.</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
