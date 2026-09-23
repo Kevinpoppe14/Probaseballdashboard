@@ -148,7 +148,8 @@
         pelvis: { ...byKey(SQUAT_PELVIS_ROWS, emptyLRDual), depthEarly: false, depthAfter90: false },
         upperBody: { lordosis: emptyDual(), forwardHead: emptyDual(), barDriftForward: emptyDual(), barDriftBack: emptyDual(), score: "" },
       },
-      keyTakeaways: "",
+      keyTakeawaysAttention: "",
+      keyTakeawaysNoted: "",
       performanceTesting: byKey(PERFORMANCE_TESTING, emptyLR),
     };
   }
@@ -166,6 +167,11 @@
     return {
       ...blank,
       ...record,
+      // The Key Takeaways box used to be one combined field before it split into side-by-side
+      // Needs Attention / Noted columns — fold an older record's text into the Noted side so
+      // nothing a coach already wrote disappears.
+      keyTakeawaysAttention: record.keyTakeawaysAttention !== undefined ? record.keyTakeawaysAttention : "",
+      keyTakeawaysNoted: record.keyTakeawaysNoted !== undefined ? record.keyTakeawaysNoted : (record.keyTakeaways || ""),
       bodyMarkers: { ...blank.bodyMarkers, ...(record.bodyMarkers || {}) },
       bodyRegions: mergeByKey(BODY_REGIONS, record.bodyRegions, () => ({ flagged: false, notes: "", tags: {} })),
       movementTests: mergedMovementTests,
@@ -298,10 +304,10 @@
     const iso = summarizeIsolated(rec);
     const attention = [...squat.attention, ...move.attention, ...iso.attention];
     const noted = [...summarizeBodyRegions(rec), ...squat.noted, ...move.noted, ...iso.noted];
-    const parts = [];
-    if (attention.length) parts.push(`Needs attention:\n${attention.map((l) => `- ${l}`).join("\n")}`);
-    if (noted.length) parts.push(`Noted:\n${noted.map((l) => `- ${l}`).join("\n")}`);
-    return parts.join("\n\n");
+    return {
+      attention: attention.length ? attention.map((l) => `- ${l}`).join("\n") : "",
+      noted: noted.length ? noted.map((l) => `- ${l}`).join("\n") : "",
+    };
   }
 
   // ---- small form controls ---------------------------------------------------------------------
@@ -783,21 +789,41 @@
                   className="btn btn-secondary"
                   onClick={() => {
                     const summary = generateFindingsSummary(rec);
-                    if (!summary) { window.alert("Nothing checked or flagged yet to summarize — fill in some findings first."); return; }
-                    const existing = (rec.keyTakeaways || "").trim();
-                    set(["keyTakeaways"], existing ? `${existing}\n\n${summary}` : summary);
+                    if (!summary.attention && !summary.noted) { window.alert("Nothing checked or flagged yet to summarize — fill in some findings first."); return; }
+                    if (summary.attention) {
+                      const existing = (rec.keyTakeawaysAttention || "").trim();
+                      set(["keyTakeawaysAttention"], existing ? `${existing}\n${summary.attention}` : summary.attention);
+                    }
+                    if (summary.noted) {
+                      const existing = (rec.keyTakeawaysNoted || "").trim();
+                      set(["keyTakeawaysNoted"], existing ? `${existing}\n${summary.noted}` : summary.noted);
+                    }
                   }}
                 >
                   Auto-fill from findings
                 </button>
                 <div className="assess-row-note" style={{ marginTop: 4 }}>Drafts a summary from what's checked/flagged elsewhere in the form — added below anything already here, so nothing gets overwritten. Edit or delete freely after.</div>
               </div>
-              <AutoGrowTextarea
-                rows={2}
-                placeholder="Summary of the biggest findings and what to prioritize..."
-                value={rec.keyTakeaways}
-                onChange={(e) => set(["keyTakeaways"], e.target.value)}
-              />
+              <div className="assess-perf-columns">
+                <div className="field">
+                  <label>Needs Attention</label>
+                  <AutoGrowTextarea
+                    rows={2}
+                    placeholder="Findings that need correction or follow-up..."
+                    value={rec.keyTakeawaysAttention}
+                    onChange={(e) => set(["keyTakeawaysAttention"], e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Noted</label>
+                  <AutoGrowTextarea
+                    rows={2}
+                    placeholder="Findings worth keeping an eye on..."
+                    value={rec.keyTakeawaysNoted}
+                    onChange={(e) => set(["keyTakeawaysNoted"], e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -1945,7 +1945,7 @@ tbody tr:hover {
 
 /* Starts small like a normal notes field and grows with what's typed (height is set inline by
    AutoGrowTextarea, tracking scrollHeight) instead of resizing by drag. */
-.assess-autogrow { resize: none; overflow: hidden; }
+.assess-autogrow { resize: none; overflow: hidden; width: 100%; }
 
 .assess-table {
   width: 100%;
