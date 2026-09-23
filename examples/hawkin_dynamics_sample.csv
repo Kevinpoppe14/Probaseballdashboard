@@ -1,0 +1,6 @@
+Athlete Name,Test Date,Test Type,Jump Height (in),RSI-Modified,System Weight (N),Peak Power (W),Relative Peak Power (W/kg),Takeoff Velocity (m/s),Total Impulse (Ns),Braking RFD (N/s),Concentric Impulse (Ns)
+Diego Harper,2026-09-01,CMJ,15.0,0.51,833.6,4820,56.7,2.74,262,2100,215
+Diego Harper,2026-09-08,CMJ,14.5,0.47,835.1,4700,55.2,2.69,255,1980,209
+Diego Harper,2026-09-15,CMJ,13.4,0.41,838.9,4510,53.1,2.59,244,1790,198
+Marcus Delgado,2026-09-10,CMJ,16.3,0.58,910.4,5210,57.9,2.85,281,2350,231
+Sam Whitaker,2026-09-12,CMJ,13.0,0.44,802.3,4300,53.5,2.55,231,1850,190

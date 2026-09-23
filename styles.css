@@ -1,0 +1,2172 @@
+:root {
+  --bg: #0a0a0a;
+  --panel: #161616;
+  --panel-2: #1c1c1c55;
+  --border: #2c2c2c;
+  --text: #f2f2f2;
+  --text-dim: #9a9a9a;
+  --primary: #b5283a;
+  --dst-black: #1a1a1a;
+  --dst-red: #a52a34;
+  --good: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --info: #38bdf8;
+  --neutral: #6b7280;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: radial-gradient(circle at top left, #1c1c1c, var(--bg));
+  color: var(--text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+}
+
+.login-card .brand-logo { height: 40px; margin-bottom: 18px; }
+.login-card h1 { font-size: 20px; margin: 0 0 6px; }
+.login-card .field { text-align: left; margin-bottom: 14px; }
+.login-sub { color: var(--text-dim); font-size: 13px; margin: 0 0 22px; }
+.login-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 14px;
+  text-align: left;
+}
+.login-note { color: var(--text-dim); font-size: 12px; margin: 16px 0 0; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  background: linear-gradient(90deg, #000000, var(--dst-black));
+  border-bottom: 3px solid var(--dst-red);
+  flex-wrap: wrap;
+}
+
+.topbar-account { display: flex; align-items: center; gap: 10px; }
+.topbar-account-email { font-size: 12px; color: var(--text-dim); }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  height: 46px;
+  width: auto;
+  display: block;
+}
+
+.brand h1 {
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.brand span {
+  color: #b0b0b0;
+  font-size: 12px;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.controls select, .controls input {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.controls input::placeholder { color: var(--text-dim); }
+
+/* Roster filters sit under the location cards, aligned to the right edge */
+.controls-right {
+  justify-content: flex-end;
+  margin: 0 0 16px;
+}
+
+.main {
+  flex: 1;
+  padding: 20px 24px 40px;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.crumb button {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.location-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+}
+
+.kpi-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.kpi-trend-grid .panel {
+  margin-bottom: 0;
+}
+
+/* Team Report: one block per athlete — header row, then their performance graphs */
+.team-athlete-block {
+  break-inside: avoid;
+}
+
+.team-athlete-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.team-athlete-name {
+  font-size: 18px;
+  font-weight: 700;
+  margin-right: 12px;
+}
+
+.team-athlete-header:hover .team-athlete-name {
+  color: var(--dst-red);
+}
+
+.team-athlete-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.team-athlete-block .kpi-trend-grid {
+  margin-bottom: 0;
+}
+
+.team-athlete-notes {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.bulk-actions-bar {
+  border-color: var(--dst-red);
+}
+
+.bulk-actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bulk-actions-header strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.kpi-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.kpi-card .label {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.kpi-card .value {
+  font-size: 28px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.kpi-card .value.good { color: var(--good); }
+.kpi-card .value.warn { color: var(--warn); }
+.kpi-card .value.danger { color: var(--danger); }
+
+.timestamp-note a {
+  color: var(--info);
+}
+
+.panel table a {
+  color: var(--info);
+  text-decoration: none;
+}
+
+.panel table a:hover {
+  text-decoration: underline;
+}
+
+.kpi-card-btn {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.kpi-card-btn .value {
+  color: var(--text);
+}
+
+.kpi-card-btn:hover {
+  border-color: var(--primary);
+}
+
+.kpi-card-btn.active {
+  border-color: var(--primary);
+  background: rgba(181, 40, 58, 0.12);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 20px;
+}
+
+.panel h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.panel h2 small {
+  color: var(--text-dim);
+  font-weight: 400;
+  margin-left: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+
+thead th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 10px 10px;
+  border-bottom: 1px solid #232323;
+  white-space: nowrap;
+}
+
+tbody tr {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+tbody tr:hover {
+  background: #241417;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.good { background: #14351f; color: var(--good); }
+.badge.warn { background: #3a2a0d; color: var(--warn); }
+.badge.danger { background: #3a1414; color: var(--danger); }
+.badge.info { background: #0e2f3f; color: var(--info); }
+.badge.neutral { background: #202020; color: var(--neutral); }
+
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.detail-header .who {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.jersey {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--dst-black);
+  border: 2px solid var(--dst-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.who h2 { margin: 0; font-size: 20px; }
+.who .pos { color: var(--text-dim); font-size: 13px; }
+
+.legend-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+.footer-note {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 10px;
+}
+
+@media (max-width: 980px) {
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .charts-grid { grid-template-columns: 1fr; }
+  .metric-strip { grid-template-columns: 1fr; }
+}
+
+/* --- Nav tabs --- */
+.nav-tabs {
+  display: flex;
+  gap: 4px;
+  background: #0000003a;
+  border: 1px solid #2c2c2c;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.nav-tab {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.nav-tab.active {
+  background: var(--dst-red);
+  color: #fff;
+}
+
+.nav-tab:not(.active):hover {
+  color: var(--text);
+}
+
+/* --- Pill sub-tabs (Import page: source switcher) --- */
+.pill-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.pill-tab {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pill-tab.active {
+  background: var(--dst-red);
+  border-color: var(--dst-red);
+  color: #fff;
+}
+
+/* --- Buttons --- */
+.btn {
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: #1e1e1e;
+  color: var(--text);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--dst-red);
+  border-color: var(--dst-red);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) { background: #8f2029; }
+
+.btn-secondary:hover { background: #2a2a2a; }
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--info);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* --- File input / importer --- */
+.file-drop {
+  border: 1px dashed #3a3a3a;
+  border-radius: 8px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.file-drop input[type="file"] {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.mapping-table {
+  width: 100%;
+  margin: 14px 0;
+  font-size: 13px;
+}
+
+.mapping-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #232323;
+}
+
+.mapping-table select {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 100%;
+  max-width: 260px;
+}
+
+.required-mark { color: var(--dst-red); margin-left: 4px; }
+
+.success-banner {
+  background: #14351f;
+  color: var(--good);
+  border: 1px solid #1e5030;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.empty-state {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* --- Forms (manual entry) --- */
+.form-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 160px;
+}
+
+.field label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.field input, .field select {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.store-stats {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.store-stats strong { color: var(--text); }
+
+.field textarea {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: monospace;
+  resize: vertical;
+}
+
+.sync-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.sync-row .field { flex: 1; min-width: 260px; }
+
+.timestamp-note {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.method-switch {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  margin: 10px 0 14px;
+}
+
+.method-switch button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.method-switch button.active {
+  color: var(--dst-red);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* --- Inline table controls (Status/League/Team) — blend into the row until touched --- */
+.inline-select {
+  background-color: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+.inline-select:hover,
+.inline-select:focus {
+  background-color: #1c1c1c;
+  border-color: #3a3a3a;
+  outline: none;
+}
+
+/* --- Notes log --- */
+.notes-log {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.note-entry {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.note-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.note-text {
+  font-size: 13px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+/* --- Player Profiles directory --- */
+.player-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.player-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s ease;
+}
+
+.player-card:hover {
+  border-color: var(--dst-red);
+}
+
+.player-card-photo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.player-card-name {
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.player-card-meta {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+/* --- Team Report: league -> team picker --- */
+.team-select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.team-select-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--text);
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.15s ease;
+}
+
+.team-select-btn:hover {
+  border-color: var(--dst-red);
+}
+
+/* logos in the tiles are centered — drop the inline right margin used beside names in tables */
+.team-select-btn img,
+.team-select-btn > span {
+  margin-right: 0 !important;
+}
+
+.team-select-name {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  min-height: 2.6em; /* keeps one- and two-line names aligned across the grid */
+  display: flex;
+  align-items: center;
+}
+
+.team-select-empty .team-select-count {
+  color: var(--text-dim);
+}
+
+/* Light plate behind logos so dark team logos stay readable on the dark tiles */
+.team-select-btn img {
+  background: #f2f2f2;
+  border-radius: 14px;
+  padding: 6px;
+  box-sizing: border-box;
+}
+
+.team-select-empty img {
+  opacity: 0.75;
+}
+
+/* League buttons: logo (or the league name as text) sized to match the team tiles */
+.league-select-btn {
+  min-height: 190px;
+  justify-content: center;
+}
+
+.league-select-btn img.league-tile-logo {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  padding: 8px;
+}
+
+.league-tile-word {
+  font-size: 22px;
+  font-weight: 700;
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  text-align: center;
+}
+
+.team-select-count {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.team-select-names {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* --- Team Report --- */
+.report-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.report-title {
+  margin: 0;
+  font-size: 24px;
+}
+
+.report-subtitle {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+/* --- Player Profile tabs (Overview / Statcast Metrics / Performance Metrics) --- */
+.tab-hidden {
+  display: none;
+}
+
+/* Position is an editable dropdown on screen, but printed profiles should show it as plain text */
+.print-only {
+  display: none;
+}
+
+/* --- Print (Team Report / Player Profile "Print / Save PDF") --- */
+@media print {
+  .topbar, .footer-note, .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: inline !important;
+  }
+
+  /* Printing a profile prints only the tab that is open (the hidden tabs stay hidden) */
+
+  body, .app, .main {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .panel, .kpi-card {
+    background: #ffffff !important;
+    border: 1px solid #ccc !important;
+  }
+
+  h1, h2, h3, .report-title {
+    color: #000 !important;
+  }
+
+  .kpi-card .label,
+  .panel h2 small,
+  .report-subtitle,
+  thead th {
+    color: #555 !important;
+  }
+
+  table, tbody td {
+    color: #000 !important;
+  }
+
+  thead th {
+    border-bottom-color: #999 !important;
+  }
+
+  tbody td {
+    border-bottom-color: #ddd !important;
+  }
+}
+
+/* --- Periodization planner (Player Plans > Periodization) --- */
+.period-wrap { outline: none; user-select: none; }
+.period-wrap input, .period-wrap textarea { user-select: text; }
+
+.period-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.period-btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.period-help {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 4px 0 0;
+  line-height: 1.5;
+}
+
+.period-template-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.period-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+}
+
+.period-chip button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.period-chip button:hover { color: var(--danger, #f87171); }
+
+.period-scroll { overflow-x: auto; padding: 0; }
+
+.period-grid { position: relative; }
+
+.period-head {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+}
+
+.period-corner {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.period-week {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.period-week strong { color: var(--text); font-size: 12px; }
+.period-week:hover { background: rgba(255, 255, 255, 0.04); }
+.period-week.cursor { background: rgba(181, 40, 58, 0.25); }
+
+.period-lane { display: flex; border-bottom: 1px solid var(--border); }
+
+.period-lane-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.period-lane-label input {
+  width: 70px;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.period-lane-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+
+.period-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.period-lane-x {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.period-lane:hover .period-lane-x { opacity: 1; }
+.period-lane-x:hover { color: var(--danger, #f87171); }
+
+.period-track {
+  position: relative;
+  flex-shrink: 0;
+  touch-action: none;
+  background-image: linear-gradient(to right, transparent calc(100% - 1px), var(--border) 100%);
+  background-repeat: repeat-x;
+  cursor: crosshair;
+}
+
+.period-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(181, 40, 58, 0.14);
+  pointer-events: none;
+}
+
+.period-block {
+  position: absolute;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: grab;
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+  touch-action: none;
+}
+
+.period-block:active { cursor: grabbing; }
+.period-block.selected { outline: 2px solid #fff; outline-offset: 1px; z-index: 3; }
+
+.period-block-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.period-block-label em { opacity: 0.7; font-weight: 400; }
+
+.period-note-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.period-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.period-handle.l { left: 0; }
+.period-handle.r { right: 0; }
+.period-handle:hover { background: rgba(255, 255, 255, 0.3); }
+
+.period-inline-input {
+  width: 100%;
+  font-size: 12px;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #fff;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.period-ghost {
+  position: absolute;
+  height: 28px;
+  border-radius: 6px;
+  border: 2px dashed #fff;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.period-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.period-swatches { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--text-dim); }
+
+.period-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.period-swatch.on { border-color: #fff; }
+
+.period-swatch.clear {
+  width: auto;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.period-swatch.clear.on { border-color: #fff; color: var(--text); }
+
+.print-only-block { display: none; }
+
+/* Screen: the print copy of the DST logo stays hidden; measuring hides screen-only controls */
+.ph-right img.ph-logo-print { display: none; } /* screen shows only the light-lettered logo; the print rules below swap in the original */
+.period-wrap.measuring .no-print { display: none !important; }
+
+@media print {
+  /* ---- "Print / Save PDF" on the plan: show only the plan ---- */
+  body.print-plan-only *:not(:has(.period-wrap)):not(.period-wrap):not(.period-wrap *) { display: none !important; }
+  body.print-plan-only .main { padding: 0 !important; max-width: none !important; }
+  body.print-plan-only, body.print-plan-only .app, body.print-plan-only .main { background: #fff !important; min-height: 0 !important; }
+
+  /* ---- white-paper colours for the plan; keep every colour that carries meaning ---- */
+  :is(.period-wrap, .report-sheet), :is(.period-wrap, .report-sheet) * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  :is(.period-wrap, .report-sheet) { color: #000; }
+  :is(.period-wrap, .report-sheet) .panel { box-shadow: none !important; }
+  :is(.period-wrap, .report-sheet) .period-visual,
+  :is(.period-wrap, .report-sheet) .period-goals,
+  :is(.period-wrap, .report-sheet) .period-action,
+  :is(.period-wrap, .report-sheet) .report-section { border: 2px solid #a52a34 !important; }
+
+  /* the original DST artwork (grey + red) replaces the light on-screen copy */
+  .ph-logo-screen { display: none !important; }
+  .ph-logo-print { display: block !important; }
+  /* every bit of writing on the printed plan is black (the on-screen greys vanish on white paper) */
+  :is(.period-wrap, .report-sheet), :is(.period-wrap, .report-sheet) * { color: #000 !important; }
+  :is(.period-wrap, .report-sheet) ::placeholder { color: transparent !important; }
+  /* ...except text that sits on a coloured fill, and the red PRIORITY label */
+  :is(.period-wrap, .report-sheet) .period-block, :is(.period-wrap, .report-sheet) .period-block *, :is(.period-wrap, .report-sheet) .goal-rank { color: #fff !important; }
+  :is(.period-wrap, .report-sheet) .priority-bracket span { color: #a52a34 !important; }
+  .ph-initials { background: #eee !important; }
+  .period-lane-label { background: #fff !important; border-right-color: #ccc !important; }
+  .period-head, .period-lane, .period-week { border-color: #ddd !important; }
+  .period-track { background-image: linear-gradient(to right, transparent calc(100% - 1px), #ddd 100%) !important; }
+  .period-seg { background: #d9d9d9 !important; }
+  .period-seg.done { background: #a52a34 !important; }
+  .period-seg.current { background: #f59e0b !important; box-shadow: none !important; }
+  .period-now-chip { border-color: #ccc !important; }
+
+  .goal-item .goal-text, .period-action textarea {
+    background: #fff !important; color: #000 !important; border: 1px solid #ccc !important; resize: none;
+  }
+  .period-action textarea { min-height: 0; overflow: hidden !important; }
+
+  /* the page is narrow, so the mobile "stacked" header rule would kick in — keep the 3-part header on paper */
+  :is(.period-wrap, .report-sheet) .period-header { grid-template-columns: 1fr auto 1fr !important; justify-items: stretch !important; text-align: left !important; }
+  :is(.period-wrap, .report-sheet) .ph-left { align-items: flex-start !important; }
+  :is(.period-wrap, .report-sheet) .ph-center { text-align: center !important; }
+  :is(.period-wrap, .report-sheet) .ph-right { justify-self: end !important; }
+  /* Shadows, opacity and filters make Chrome turn text and shapes into pictures inside the PDF, which
+     prints soft and blurry. Keep everything flat so it stays sharp vector text and solid fills. */
+  :is(.period-wrap, .report-sheet), :is(.period-wrap, .report-sheet) * { text-shadow: none !important; box-shadow: none !important; opacity: 1 !important; filter: none !important; }
+  :is(.period-wrap, .report-sheet) .period-week.now { border-bottom: 3px solid #f59e0b !important; }
+  .period-block.selected { outline: none !important; }
+  .period-cursor { display: none !important; }
+  .period-week.cursor { background: none !important; }
+  .period-scroll { overflow: visible !important; }
+  :is(.period-wrap, .report-sheet) .panel { break-inside: avoid; }
+  :is(.period-wrap, .report-sheet) > .panel:last-child { margin-bottom: 0 !important; }
+}
+
+/* --- Periodization: progress bar + read-only timeline (planner, player profile, team report) --- */
+.period-progress { margin-bottom: 4px; }
+
+.period-progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+
+.period-progress-week { font-size: 17px; }
+.period-progress-range { font-size: 12px; color: var(--text-dim); }
+
+.period-progress-bar { display: flex; gap: 3px; }
+
+.period-seg {
+  flex: 1;
+  height: 12px;
+  min-width: 3px;
+  border-radius: 3px;
+  background: #2a2a2a;
+}
+
+.period-seg.done { background: var(--primary); }
+.period-seg.current { background: var(--warn); box-shadow: 0 0 0 1px #000, 0 0 6px rgba(245, 158, 11, 0.6); }
+
+.period-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.period-now-title { color: var(--text-dim); margin-right: 2px; }
+
+.period-now-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.period-now-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+.period-saved { font-size: 12px; color: var(--text-dim); margin: 10px 0 0; }
+
+.period-week.now { box-shadow: inset 0 -3px 0 var(--warn); }
+.period-week.now strong { color: var(--warn); }
+
+.period-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--warn);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.period-ro { margin-top: 14px; font-size: 12px; }
+
+.period-ro-row { display: flex; border-bottom: 1px solid var(--border); }
+.period-ro-row:last-child { border-bottom: none; }
+
+.period-ro-label {
+  width: 108px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  padding-right: 6px;
+}
+
+.period-ro-label i { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+
+.period-ro-track { flex: 1; position: relative; min-width: 0; }
+
+.period-ro-weeks { display: flex; }
+.period-ro-weeks span { flex: 1; text-align: center; font-size: 10px; color: var(--text-dim); padding: 3px 0; overflow: hidden; }
+.period-ro-weeks span.now { color: var(--warn); font-weight: 700; box-shadow: inset 0 -2px 0 var(--warn); }
+
+.period-ro-now { position: absolute; top: 0; bottom: 0; background: rgba(245, 158, 11, 0.12); pointer-events: none; }
+
+.period-ro-block {
+  position: absolute;
+  height: 22px;
+  border-radius: 5px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 22px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.period-ro-block em { opacity: 0.7; font-weight: 400; }
+
+/* compact variant used inside each athlete block on the team report */
+.period-view-compact {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.period-view-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+/* --- Periodization: goals + action plan --- */
+.goal-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 22px;
+}
+
+.goal-col h3, .action-ro h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text);
+}
+
+.goal-col h3 small {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.goal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.goal-item .goal-text { flex: 1; min-width: 0; }
+.goal-item.done .goal-text { text-decoration: line-through; color: var(--text-dim); }
+
+.goal-x {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.goal-x:hover { color: var(--danger); }
+
+.goal-empty { font-size: 12px; color: var(--text-dim); margin: 0 0 8px; }
+
+.goal-add { display: flex; gap: 6px; margin-top: 8px; }
+.goal-add input { flex: 1; min-width: 0; }
+
+.period-action textarea { width: 100%; }
+
+/* read-only version on the player profile / team report */
+.period-goals-ro { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+.goal-item.ro { align-items: flex-start; font-size: 13px; }
+.goal-mark { width: 16px; flex-shrink: 0; color: var(--text-dim); }
+.goal-item.ro.done .goal-mark { color: var(--good); }
+.goal-item.ro.done .goal-text-ro { color: var(--text-dim); text-decoration: line-through; }
+
+.action-ro { margin-top: 14px; }
+
+.action-ro-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* inputs that live outside a .field wrapper need the dark input look explicitly */
+.goal-item .goal-text,
+.goal-add input,
+.period-action textarea,
+.period-lane-label input {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.period-action textarea { line-height: 1.5; resize: vertical; }
+.period-lane-label input { padding: 2px 4px; font-size: 12px; }
+
+/* --- Goals: red outline, priority bracket, drag-to-reorder --- */
+.period-goals {
+  border: 2px solid var(--dst-red);
+  box-shadow: 0 0 0 1px rgba(165, 42, 52, 0.25), 0 0 14px rgba(165, 42, 52, 0.18);
+}
+
+.goal-body { display: flex; align-items: stretch; gap: 8px; }
+.goal-items { flex: 1; min-width: 0; }
+
+/* "[" bracket spanning the height of the list with PRIORITY running up the side */
+.priority-bracket {
+  width: 26px;
+  flex-shrink: 0;
+  border: 2px solid var(--dst-red);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0 6px;
+}
+
+.priority-bracket span {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--dst-red);
+  white-space: nowrap;
+}
+
+.goal-grip {
+  cursor: grab;
+  color: var(--text-dim);
+  font-size: 14px;
+  letter-spacing: -2px;
+  line-height: 1;
+  padding: 4px 2px;
+  user-select: none;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.goal-grip:hover { color: var(--text); }
+.goal-grip.disabled { cursor: default; opacity: 0.35; }
+
+.goal-rank {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--dst-red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.goal-item.dragging {
+  opacity: 0.85;
+  background: rgba(165, 42, 52, 0.18);
+  border-radius: 6px;
+  outline: 1px dashed var(--dst-red);
+}
+
+.goal-item.ro { align-items: center; }
+
+/* --- Periodization header: athlete photo + team logo (left), title (center), DST logo (right) --- */
+.period-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 26px;
+}
+
+.ph-left { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.ph-pics { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
+
+.ph-photo {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--dst-red);
+  background: var(--dst-black);
+  flex-shrink: 0;
+}
+
+.ph-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.ph-team img,
+.ph-team > span {
+  margin-right: 0 !important;
+  display: block;
+}
+
+.ph-team img {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.ph-name { font-size: 26px; font-weight: 700; line-height: 1.15; }
+.ph-teamname { font-size: 14px; color: var(--text-dim); }
+
+.ph-center { text-align: center; }
+.ph-center h1 { margin: 0; font-size: 30px; letter-spacing: 0.4px; }
+.ph-sub { margin-top: 6px; font-size: 12px; color: var(--text-dim); }
+
+.ph-right { justify-self: end; }
+.ph-right img {
+  height: 88px;
+  width: auto;
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .period-header { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  .ph-left { align-items: center; }
+  .ph-right { justify-self: center; }
+}
+
+/* Timeline and Action Plan get the same red outline as the Goals section */
+.period-visual,
+.period-action {
+  border: 2px solid var(--dst-red);
+  box-shadow: 0 0 0 1px rgba(165, 42, 52, 0.25), 0 0 14px rgba(165, 42, 52, 0.18);
+}
+
+/* progress bar + timeline share one red-outlined section */
+.period-visual { padding: 0; overflow: hidden; }
+.period-visual-top { padding: 18px 18px 14px; }
+.period-visual .period-scroll { border-top: 1px solid var(--border); }
+
+/* --- Team report: one sheet per athlete (styled like the Player Plan page) --- */
+/* fixed page width so every sheet (on screen, printed, or emailed) is laid out identically regardless of window size */
+.report-sheet {
+  width: 1000px;
+  max-width: none;
+  margin: 0 auto 32px;
+}
+
+.report-sheet.measuring .no-print { display: none !important; }
+
+.report-section {
+  border: 2px solid var(--dst-red);
+  box-shadow: 0 0 0 1px rgba(165, 42, 52, 0.25), 0 0 14px rgba(165, 42, 52, 0.18);
+}
+
+.ph-name-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ph-name-link:hover { color: var(--dst-red); }
+
+/* four metric charts across so the seven fit in two tidy rows on the sheet */
+.report-sheet .kpi-trend-grid { grid-template-columns: repeat(4, 1fr); margin-bottom: 0; }
+
+/* notes flow inside the section card instead of a scroll box */
+.report-sheet .team-athlete-notes { margin: 0; padding: 0; border: none; }
+.report-sheet .notes-log { max-height: none; overflow: visible; }
+.report-sheet .period-view-head { display: none; }
+
+@media print {
+  body.print-team-sheets .main { padding: 0 !important; max-width: none !important; }
+  body.print-team-sheets, body.print-team-sheets .app, body.print-team-sheets .main { background: #fff !important; min-height: 0 !important; }
+
+  .report-sheet { margin: 0 !important; max-width: none; break-after: page; break-inside: avoid; }
+  .report-sheet:last-child { break-after: auto; }
+  .report-contacts { break-after: page; }
+
+  /* charts: black axis text on white, softer grid; no shadows so they stay sharp */
+  .report-sheet .recharts-text, .report-sheet .recharts-cartesian-axis-tick-value { fill: #000 !important; }
+  .report-sheet .recharts-cartesian-axis-line, .report-sheet .recharts-cartesian-axis-tick-line { stroke: #666 !important; }
+  .report-sheet .recharts-cartesian-grid line { stroke: #ddd !important; }
+
+  /* notes: the dark cards become plain bordered boxes */
+  .report-sheet .note-entry { background: #fff !important; border: 1px solid #ccc !important; }
+  .report-sheet .notes-log { max-height: none !important; overflow: visible !important; }
+  .report-sheet .kpi-trend-grid .panel { background: #fff !important; }
+}
+
+/* Custom date range: From / To pickers under the range pills */
+.range-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.range-custom label { display: inline-flex; align-items: center; gap: 6px; }
+
+.range-custom input[type="date"] {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color-scheme: dark;
+}
+
+/* Automated captions: plan position under the progress bar, CMJ summary above the metrics */
+.auto-caption {
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--dst-red);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.auto-caption strong { color: var(--text); }
+
+@media print {
+  .auto-caption { background: none !important; color: #000 !important; border-left-color: #a52a34 !important; }
+}
+
+/* --- News page --- */
+.news-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 10px; }
+.news-refresh { display: flex; flex-wrap: wrap; gap: 8px; }
+.news-sep { width: 1px; background: var(--border); margin: 0 6px; align-self: stretch; }
+
+.news-progress { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; font-size: 12px; color: var(--text-dim); }
+.news-progress-bar { flex: 0 0 220px; height: 8px; border-radius: 4px; background: #2a2a2a; overflow: hidden; }
+.news-progress-bar span { display: block; height: 100%; background: var(--primary); transition: width 0.3s ease; }
+
+.news-card {
+  display: flex;
+  gap: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.news-card:hover { border-color: var(--dst-red); }
+
+.news-thumb-link { flex-shrink: 0; }
+.news-thumb { width: 132px; height: 88px; object-fit: cover; border-radius: 8px; display: block; background: #111; }
+
+.news-body { min-width: 0; flex: 1; }
+
+.news-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+
+.news-kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #202020;
+  color: var(--text-dim);
+}
+
+.news-kind.video { background: rgba(165, 42, 52, 0.25); color: #ff9aa4; }
+
+.news-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.news-title:hover { color: var(--info); text-decoration: underline; }
+
+.news-snippet { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+
+.news-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+.news-chip {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(165, 42, 52, 0.18);
+  border: 1px solid rgba(165, 42, 52, 0.5);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.news-chip:hover { background: rgba(165, 42, 52, 0.4); }
+
+@media (max-width: 620px) {
+  .news-card { flex-direction: column; }
+  .news-thumb { width: 100%; height: 160px; }
+}
+
+/* News: tracked topics */
+.news-chip.topic { background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.5); }
+.news-chip.topic:hover { background: rgba(56, 189, 248, 0.3); }
+
+.news-topics { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px; font-size: 12px; }
+.news-topics-label { color: var(--text-dim); }
+.news-topics-empty { color: var(--text-dim); font-style: italic; }
+
+.news-topic-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--text);
+}
+
+.news-topic-tag button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; }
+.news-topic-tag button:hover { color: var(--danger); }
+
+.news-topic-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+.news-topic-edit input {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 280px;
+  font-family: inherit;
+}
+
+/* Bottom menu bar (Import & Manual Entry) — sticks to the bottom of the window while scrolling */
+.bottom-menu {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 24px;
+  background: linear-gradient(90deg, #000000, var(--dst-black));
+  border-top: 3px solid var(--dst-red);
+}
+
+.bottom-menu .nav-tab { padding: 8px 16px; }
+
+/* Status line under the contacts header when emailing a team report */
+.email-status {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.email-status.working { border-color: var(--warn); color: var(--warn); }
+.email-status.done { border-color: var(--good); color: var(--good); }
+.email-status.error { border-color: var(--danger); color: var(--danger); }
+
+/* --- Movement Assessment tab --- */
+.assess-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* One chip per saved assessment (newest first) instead of a date-picker dropdown — click the
+   label to open it, click the × to delete just that one. */
+.assess-history { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.assess-history-item {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.assess-history-item.active { border-color: var(--dst-red); }
+.assess-history-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.assess-history-item.active .assess-history-btn { background: var(--dst-red); color: #fff; }
+.assess-history-delete {
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.assess-history-delete:hover { color: var(--danger); }
+.assess-history-item.active .assess-history-delete { border-left-color: rgba(255, 255, 255, 0.35); color: rgba(255, 255, 255, 0.85); }
+.assess-history-item.active .assess-history-delete:hover { color: #fff; }
+
+.assess-header-top { display: flex; align-items: center; gap: 16px; }
+.assess-header-top .assess-header-grid { flex: 1; min-width: 0; }
+/* Smaller than the Player Plan header's own (that one has a whole panel to itself) — this sits
+   beside three compact text fields, so the photo/logo just need to be recognizable, not a feature. */
+.assess-header-pics { margin-bottom: 0; flex-shrink: 0; }
+.assess-header-photo { width: 44px; height: 44px; border-width: 2px; }
+.assess-header-pics .ph-initials { font-size: 15px; }
+
+.assess-header-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 14px;
+}
+
+.assess-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.assess-col { min-width: 0; }
+
+/* Print as a single page with the columns side by side, each scaled to fill its own half —
+   see preparePrint. JS sets each column's own fixed width/zoom; flex-shrink:0 is essential here
+   because the *measuring* pass runs in normal screen media, where the actual browser window is
+   often narrower than the two columns' combined print width — a flex item shrinks by default to
+   fit its container, which would squeeze both columns down to the wrong width (and wrong text
+   wrapping) during measurement even though the real print page is wide enough. Grid tracks don't
+   have this problem (no default "shrink to fit"), but a grid can't be told two children's exact
+   pixel widths independently the way flex-basis lets us here. */
+.assess-wrap.print-paginated .assess-columns { display: flex; align-items: flex-start; gap: 24px; }
+.assess-wrap.print-paginated .assess-col { flex: 0 0 auto; }
+/* The DST letterhead — matches the original paper form, centered above the header row (living
+   inside the header panel so its height is naturally included in whatever gets measured for the
+   page fit — see preparePrint). */
+.assess-print-logo { display: none; }
+.assess-wrap.print-paginated .assess-print-logo { display: block; text-align: center; margin-bottom: 10px; }
+.assess-print-logo img { height: 56px; width: auto; }
+/* Body diagrams read as a thumbnail row on screen, but print gets a real reference size that
+   actually uses the panel's space — sized here (not just under @media print) so preparePrint's
+   fit-to-page measurement sees the real height it's about to render, not the small on-screen one. */
+.assess-wrap.print-paginated .assess-body-img { height: 620px; }
+.assess-wrap.print-paginated .assess-outlines { gap: 24px; }
+/* The overhead-squat bars (Ankle/Knee/Pelvis/Upper Body) hold one short word each, so at the
+   ~0.2-0.3 zoom the rest of this page needs, their normal 12px text shrinks to under 3 effective
+   px — technically still white-on-dark (see the @media print rule for .assess-subhead), but too
+   small to actually read once rasterized. Bumped up here (scoped like the body-image size above,
+   so the page-fit measurement accounts for the taller bars) rather than in @media print. */
+.assess-wrap.print-paginated .assess-subhead { font-size: 34px; padding: 9px 12px; }
+
+/* Performance Testing as two even columns instead of one long list */
+.assess-perf-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+
+/* Starts small like a normal notes field and grows with what's typed (height is set inline by
+   AutoGrowTextarea, tracking scrollHeight) instead of resizing by drag. */
+.assess-autogrow { resize: none; overflow: hidden; }
+
+.assess-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.assess-table th, .assess-table td {
+  border: 1px solid var(--border);
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: normal;
+}
+
+.assess-table thead th {
+  background: #1c1c1c;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.assess-table tbody tr:hover { background: none; }
+.assess-table tr.assess-flagged td:first-child { color: var(--warn); font-weight: 600; }
+
+.assess-row-note { color: var(--text-dim); font-size: 10px; font-style: italic; }
+
+/* Body region findings: clickable pills instead of static slash-separated text */
+.assess-tagrow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.assess-tag {
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text-dim);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.assess-tag:hover { border-color: #5a5a5a; }
+.assess-tag.active { background: var(--dst-red); border-color: var(--dst-red); color: #fff; font-weight: 600; }
+.assess-tag-qualifier { font-size: 10px; padding: 2px 7px; opacity: 0.85; }
+.assess-tag-qualifier.active { opacity: 1; }
+
+.assess-cell {
+  width: 100%;
+  box-sizing: border-box;
+  background: #111111;
+  border: 1px solid #3a3a3a;
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* Print-only stand-in for .assess-cell (see the Cell component) — a single-line input clips
+   anything longer than its own width, so print swaps it for a wrapping block that grows to show
+   the whole note instead of cutting it off. Scoped to .print-paginated (not just @media print) so
+   preparePrint's fit-to-page measurement sees the real wrapped height a long note needs, not the
+   input's fixed one-line height — the same reason the body-image print size lives there too. */
+.assess-cell-print { display: none; }
+.assess-wrap.print-paginated .assess-cell { display: none; }
+.assess-wrap.print-paginated .assess-cell-print {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  text-align: left;
+}
+
+.assess-dualcheck { display: flex; gap: 6px; justify-content: center; align-items: center; }
+.assess-dualcheck-mark { font-weight: 700; }
+/* Every checkbox in the assessment — dual-checks, the Body Region flag, Shoulder Impingement,
+   Pelvic Tilt — is the same size, rather than each spot picking its own via whatever wrapper it
+   happened to be in. */
+.assess-wrap input[type="checkbox"] { width: 20px; height: 20px; margin: 0; cursor: pointer; accent-color: var(--dst-red); }
+
+.assess-cell-stack { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.assess-cell-stack .assess-dualcheck { justify-content: center; }
+
+.assess-subsection { margin-top: 16px; }
+.assess-subsection:first-child { margin-top: 0; }
+
+.assess-subhead {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: #202020;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+}
+
+/* Shared "make good use of the panel width" treatment for the Overhead Squat joint tables
+   (Ankle/Knee/Pelvis use .assess-table-transposed below, Upper Body applies this directly) —
+   larger text instead of the small, sized-to-content look these used to have (checkbox sizing is
+   handled globally above, the same everywhere). */
+.assess-table-big { font-size: 14px; }
+.assess-table-big th, .assess-table-big td { padding: 8px 12px; }
+
+/* Ankle/Knee/Pelvis joint-finding tables specifically: findings as columns, L/R as the two rows,
+   stretched to fill the panel's width (rather than sized-to-content and centered, which left a
+   lot of the module empty) — the first column is a row label (L/R), not data, so it gets its own
+   narrower treatment. */
+.assess-table-transposed {
+  width: 100%;
+  table-layout: fixed;
+}
+.assess-table-transposed th:first-child, .assess-table-transposed td:first-child {
+  width: 34px;
+  text-align: center;
+  font-weight: 700;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+/* Explicit share of the remaining width for the finding columns (all three of these tables have
+   exactly 3) — table-layout: fixed is supposed to split unspecified columns evenly on its own,
+   but that left a wide gap unused on the right, so this states it outright instead of relying on
+   the browser to infer it. */
+.assess-table-transposed th:not(:first-child), .assess-table-transposed td:not(:first-child) {
+  width: calc((100% - 34px) / 3);
+}
+
+/* Pelvic Tilt: Early and After 90 share one cell instead of a column each */
+.assess-pelvic-tilt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 0 auto; width: fit-content; }
+.assess-pelvic-tilt label { display: flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; white-space: nowrap; }
+
+/* Every section outlines red by default; clicking into one turns it gold, so it's obvious which
+   part of the form is currently being worked in — moves as soon as a different section is
+   clicked into. */
+.assess-form .panel { border-color: #c0392b; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.assess-form .panel.assess-panel-active {
+  border-color: #d4af37;
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.4);
+}
+
+.assess-score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.assess-score-toggle { display: flex; gap: 6px; }
+.assess-score-row .print-only { display: none; }
+
+.assess-outlines {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.assess-body-outline { text-align: center; color: var(--text-dim); }
+.assess-body-imgwrap { position: relative; display: inline-block; line-height: 0; cursor: crosshair; }
+.assess-body-img {
+  height: 130px;
+  width: auto;
+  display: block;
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px 6px;
+  box-sizing: border-box;
+}
+/* A clicked spot on the diagram — plain positioned box, not a native control, so it scales fine
+   at the heavy print zoom (no floor-clamp workaround needed like the checkboxes/dropdowns). */
+.assess-body-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border: 2px solid #e03131;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+}
+.assess-body-outline-label { font-size: 11px; margin-top: 4px; }
+
+.assess-print-only-text { display: none; }
+
+/* screen: hides the toolbar etc. while measuring for the one-page print fit */
+.assess-wrap.measuring .no-print { display: none !important; }
+
+@media print {
+  body.print-assessment-only .main { padding: 0 !important; max-width: none !important; }
+  body.print-assessment-only, body.print-assessment-only .app, body.print-assessment-only .main {
+    background: #fff !important; min-height: 0 !important;
+  }
+  body.print-assessment-only *:not(:has(.assess-wrap)):not(.assess-wrap):not(.assess-wrap *) { display: none !important; }
+
+  .assess-wrap, .assess-wrap * { color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Keep the same red section outline on paper as on screen (the on-screen "active section" gold
+     glow doesn't carry over — printed pages have no notion of what was last clicked into). */
+  .assess-wrap .panel { background: #fff !important; border: 2px solid #c0392b !important; box-shadow: none !important; }
+  .assess-table thead th { background: #eee !important; color: #000 !important; }
+  .assess-wrap textarea, .assess-wrap input {
+    background: #fff !important; border: 1px solid #bbb !important; color: #000 !important;
+  }
+  /* The overhead-squat subsection bars keep their dark background in print (the .panel override
+     above only whitens panels, not this), so the blanket "everything prints black text" rule just
+     above would otherwise make the label invisible against it — this wins on specificity and puts
+     it back to white. */
+  .assess-wrap .assess-subhead { color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .assess-score-toggle { display: none !important; }
+  /* Native checkboxes hit a browser-enforced minimum render size that ignores our page-fit zoom
+     once scaled down this far, so print swaps them for a plain check-mark line instead. */
+  .assess-dualcheck { display: none !important; }
+  .assess-dualcheck-mark { display: inline !important; }
+  /* Same story for the Pass/Fail dropdown: native <select> chrome doesn't shrink past its own
+     minimum size either, so print shows the picked value as plain text instead. */
+  .assess-lrselect { display: none !important; }
+  .assess-lrselect-print { display: inline !important; }
+  /* Body-region pills print as a plain comma list of whatever's selected. */
+  .assess-tagrow { display: none !important; }
+  .assess-tagrow-print { display: inline !important; }
+  .assess-score-row .print-only { display: inline !important; }
+  .assess-print-only-text { display: block !important; font-size: 12px; margin: 8px 0 0; white-space: pre-wrap; }
+  /* Anything actually marked/selected (a dual-check, an L/R pick, a body-region tag) prints in the
+     same red as the on-screen accent, instead of blending in as plain black text like the "—"
+     placeholders for whatever wasn't marked. */
+  .assess-mark-set { color: var(--dst-red) !important; font-weight: 700; }
+}
