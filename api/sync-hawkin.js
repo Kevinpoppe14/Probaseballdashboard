@@ -270,13 +270,38 @@ module.exports = async (req, res) => {
       summary.matched++;
     }
 
+    // A CMJ session is usually several trials (3-5 jumps) sharing one calendar date — the
+    // established rule (same as the manual CSV import) is one test per athlete per day, keeping
+    // whichever trial had the highest jump height. Collapsing this run's own batch first means a
+    // session's several trials count as a single candidate below, not several separate look-ups.
+    const bestPerDay = new Map();
+    for (const row of rowsToInsert) {
+      const key = `${row.athlete_id}|${row.data.date}`;
+      const prev = bestPerDay.get(key);
+      const jh = typeof row.data.jumpHeight === "number" ? row.data.jumpHeight : -Infinity;
+      const prevJh = prev && typeof prev.data.jumpHeight === "number" ? prev.data.jumpHeight : -Infinity;
+      if (!prev || jh > prevJh) bestPerDay.set(key, row);
+    }
+    let candidateRows = Array.from(bestPerDay.values());
+    summary.collapsedDuplicateTrials = rowsToInsert.length - candidateRows.length;
+
+    // Same "a date already on file is skipped" rule as the CSV importer — don't re-litigate a day
+    // that was already recorded, whether that record came from an earlier sync or a CSV import.
+    // Scoped to just the athletes this run touched, not the whole (8000+ row) table.
+    const touchedAthleteIds = [...new Set(candidateRows.map((r) => r.athlete_id))];
+    if (touchedAthleteIds.length) {
+      const existingRows = await sbSelect(serviceKey, "force_tests", `select=athlete_id,data&athlete_id=in.(${touchedAthleteIds.join(",")})`);
+      const existingKeys = new Set(existingRows.map((r) => `${r.athlete_id}|${r.data.date}`));
+      candidateRows = candidateRows.filter((r) => !existingKeys.has(`${r.athlete_id}|${r.data.date}`));
+    }
+
     // Batched rather than one giant request — a full-year backfill can mean thousands of rows,
     // and Supabase/PostgREST rejects or times out on very large single inserts.
     const BATCH_SIZE = 500;
-    for (let i = 0; i < rowsToInsert.length; i += BATCH_SIZE) {
-      await sbUpsert(serviceKey, "force_tests", rowsToInsert.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < candidateRows.length; i += BATCH_SIZE) {
+      await sbUpsert(serviceKey, "force_tests", candidateRows.slice(i, i + BATCH_SIZE));
     }
-    summary.inserted = rowsToInsert.length;
+    summary.inserted = candidateRows.length;
 
     const newSyncFrom = testsPayload.lastSyncTime || Math.floor(Date.now() / 1000);
     await setSyncFrom(serviceKey, newSyncFrom);
