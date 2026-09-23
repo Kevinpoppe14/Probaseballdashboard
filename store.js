@@ -42,8 +42,25 @@
 
   let state = loadLocal();
 
+  // localStorage has a hard per-origin size cap (typically 5-10MB) — this is only ever a
+  // fallback cache, so a write that doesn't fit (QuotaExceededError) must not crash whatever
+  // called it. It used to: persistLocal is called synchronously inside initFromSupabase, with
+  // nothing catching an exception there, so a full storage quota turned into an unhandled promise
+  // rejection that silently broke sign-in — the whole app stuck on "Loading..." forever, with the
+  // real error visible only in the console, not on screen. Local caching not working for a
+  // session just means that session falls back to Supabase-only (still correct, just not
+  // offline-resilient); it must never block the app from loading in the first place.
   function persistLocal() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    try {
+      // The full raw Hawkin metric object (~70 fields) rides along on every synced force test for
+      // reference, but nothing in the UI reads it — it's the single biggest contributor to
+      // exceeding the quota above, so the local cache (unlike the in-memory copy, and unlike what's
+      // in Supabase) goes without it.
+      const lightState = { ...state, forceTests: state.forceTests.map(({ raw, ...rest }) => rest) };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lightState));
+    } catch (e) {
+      console.error("AthleteStore: couldn't cache to localStorage (probably over quota) — continuing without the local fallback copy.", e);
+    }
   }
 
   // ---- Supabase sync -----------------------------------------------------------------------
