@@ -76,13 +76,6 @@ async function getHawkinTests(accessToken, syncFrom) {
   if (!res.ok) throw new Error(`Hawkin tests fetch failed: HTTP ${res.status} ${await res.text()}`);
   return res.json();
 }
-async function getHawkinAthletes(accessToken) {
-  const res = await fetch(`${HAWKIN_BASE}/api/v1/athletes`, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new Error(`Hawkin athletes fetch failed: HTTP ${res.status} ${await res.text()}`);
-  const data = await res.json();
-  return data.data || data.athletes || [];
-}
-
 // ---- Metric extraction -----------------------------------------------------------------------
 // Hawkin's metric field names vary by test type and aren't fully pinned down in their public docs
 // (e.g. "Jump Height(m)") — matched the same fuzzy way the manual CSV importer already matches
@@ -114,18 +107,7 @@ function metricValue(test, guesses, excludes) {
 
 module.exports = async (req, res) => {
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    // Non-sensitive diagnostic — never the actual values — to tell "env var isn't set on this
-    // deployment" apart from "the value doesn't match", instead of guessing. Remove once this
-    // has been confirmed working.
-    res.status(401).json({
-      error: "unauthorized",
-      debug: {
-        envVarPresent: typeof process.env.CRON_SECRET === "string" && process.env.CRON_SECRET.length > 0,
-        envVarLength: (process.env.CRON_SECRET || "").length,
-        receivedHeaderPresent: typeof req.headers.authorization === "string",
-        receivedHeaderLength: (req.headers.authorization || "").length,
-      },
-    });
+    res.status(401).json({ error: "unauthorized" });
     return;
   }
 
@@ -135,60 +117,55 @@ module.exports = async (req, res) => {
     const accessToken = await getHawkinAccessToken();
     const syncFrom = await getSyncFrom(serviceKey);
 
-    const [testsPayload, hawkinAthletes, localAthletes] = await Promise.all([
+    const [testsPayload, localAthletes] = await Promise.all([
       getHawkinTests(accessToken, syncFrom),
-      getHawkinAthletes(accessToken),
       getAllAthletes(serviceKey),
     ]);
     const tests = testsPayload.data || [];
 
-    // Temporary: ?debug=shapes shows the raw Hawkin payload shapes so field-name assumptions can
-    // be corrected against real data instead of guessed again. Remove once matching is confirmed.
-    if (req.query.debug === "shapes") {
-      res.status(200).json({
-        sampleTest: tests[0] || null,
-        testKeys: tests[0] ? Object.keys(tests[0]) : [],
-        sampleHawkinAthlete: hawkinAthletes[0] || null,
-        hawkinAthleteKeys: hawkinAthletes[0] ? Object.keys(hawkinAthletes[0]) : [],
-        hawkinAthleteCount: hawkinAthletes.length,
-        sampleLocalAthleteName: localAthletes[0] ? localAthletes[0].data.name : null,
-      });
-      return;
-    }
-
-    const hawkinNameById = new Map(
-      hawkinAthletes.map((a) => [a.id, (a.name || `${a.firstName || ""} ${a.lastName || ""}`).trim()])
-    );
     const localIdByName = new Map(localAthletes.map((row) => [normalizeName(row.data.name), row.id]));
 
     const rowsToInsert = [];
     const seenUnmatched = new Set();
     for (const test of tests) {
-      const hawkinName = hawkinNameById.get(test.athleteId) || "";
+      // The athlete is embedded directly on the test (test.athlete = {id, name, ...}), not a flat
+      // athleteId field. This org's Hawkin account also covers ~2,780 athletes total (far more
+      // than this roster's 190), so most "unmatched" names here are expected, not a bug — they're
+      // athletes at the facility who aren't on this particular roster.
+      const hawkinName = (test.athlete && test.athlete.name) || "";
       const localId = hawkinName ? localIdByName.get(normalizeName(hawkinName)) : undefined;
       if (!localId) {
-        const label = hawkinName || test.athleteId;
+        const label = hawkinName || (test.athlete && test.athlete.id) || "unknown";
         if (!seenUnmatched.has(label)) { seenUnmatched.add(label); summary.skippedAthletes.push(label); }
         continue;
       }
 
-      const dateRaw = test.date || test.testDate || test.startTime || test.timestamp;
-      const dateObj = dateRaw ? new Date(dateRaw) : null;
+      // timestamp is Unix seconds.
+      const dateObj = test.timestamp ? new Date(test.timestamp * 1000) : null;
       const dateStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toISOString().slice(0, 10) : null;
 
       const record = {
         athleteId: localId,
         date: dateStr,
-        testType: test.testTypeName || (test.testType && test.testType.name) || "",
+        testType: (test.testType && test.testType.name) || "",
         jumpHeight: jumpHeightInInches(findMetricEntry(test, ["jump height"])),
-        rsiModified: metricValue(test, ["rsi"]),
-        systemWeight: metricValue(test, ["system weight", "body weight", "bodyweight"]),
-        peakPower: metricValue(test, ["peak power"], ["relative", "/bm", "/kg"]),
-        relativePeakPower: metricValue(test, ["relative peak power", "peak power / bm", "w/kg"]),
+        // "RSI" and "mRSI" are two different metrics Hawkin reports side by side — guessing just
+        // "rsi" matches "RSI" first and silently grabs the wrong one, so this targets "mRSI"
+        // specifically (the CSV import's "RSI-Modified" column is the same metric).
+        rsiModified: metricValue(test, ["mrsi"]),
+        systemWeight: metricValue(test, ["system weight"]),
+        // Hawkin's API has no single "Peak Power" metric — "peak power" in jump testing
+        // conventionally means the propulsive (concentric) phase's peak, which is what these map to.
+        peakPower: metricValue(test, ["peak propulsive power"], ["relative"]),
+        relativePeakPower: metricValue(test, ["peak relative propulsive power"]),
         takeoffVelocity: metricValue(test, ["takeoff velocity"]),
-        totalImpulse: metricValue(test, ["total impulse"]),
-        brakingRfd: metricValue(test, ["braking rfd"]),
-        concentricImpulse: metricValue(test, ["concentric impulse"]),
+        // No direct "Total Impulse" equivalent in the raw metrics for this test type — left
+        // unmapped (stays null) rather than guessing at a substitute; see `raw` below for the
+        // full metric set if this turns out to matter.
+        totalImpulse: null,
+        brakingRfd: metricValue(test, ["braking rfd"], ["avg", "l|r"]),
+        // "Concentric" and "Propulsive" are the same jump phase in Hawkin's naming.
+        concentricImpulse: metricValue(test, ["propulsive impulse"], ["net", "relative", "p1", "p2"]),
         source: "hawkin-sync",
         hawkinTestId: test.id,
         raw: test,
