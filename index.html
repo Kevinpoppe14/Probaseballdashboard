@@ -727,6 +727,20 @@ async function captureElement(el, printCss, width) {
         const style = clonedDoc.createElement("style");
         style.textContent = printCss;
         clonedDoc.head.appendChild(style);
+        // html2canvas approximates native <input>/<select> rendering rather than drawing them
+        // properly, and consistently clips text a little at the edges (the assessment header's
+        // Name/Date/Coach fields have no print-only text swap like the table cells do, since a
+        // real browser print — unlike html2canvas — renders native inputs just fine). Swapping
+        // each visible input for a plain text element sidesteps that entirely.
+        clonedDoc.querySelectorAll("input").forEach((input) => {
+          if (getComputedStyle(input).display === "none") return; // already hidden by printCss
+          const replacement = clonedDoc.createElement("div");
+          replacement.textContent = input.value || "";
+          replacement.style.cssText = getComputedStyle(input).cssText;
+          replacement.style.display = "flex";
+          replacement.style.alignItems = "center";
+          input.replaceWith(replacement);
+        });
       },
     });
   } finally {
@@ -801,6 +815,7 @@ async function renderTabToPdf(tab) {
 function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
   const firstName = (athlete.name || "").split(/\s+/)[0] || athlete.name;
   const [to, setTo] = useState(athlete.email || "");
+  const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(`Your ${tabLabel} from Dynamic Sports Training`);
   const [body, setBody] = useState(
     `Hi ${firstName},\n\nAttached is your latest ${tabLabel.toLowerCase()}. Let me know if you have any questions.\n`
@@ -813,7 +828,10 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
   const send = async () => {
     setError("");
     const recipient = to.trim();
-    if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) { setError("Enter a valid recipient email."); return; }
+    const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (!recipient || !emailRe.test(recipient)) { setError("Enter a valid recipient email."); return; }
+    const ccList = cc.split(",").map((s) => s.trim()).filter(Boolean);
+    if (ccList.some((addr) => !emailRe.test(addr))) { setError("One of the CC addresses doesn't look like a valid email."); return; }
     if (!subject.trim() || !body.trim()) { setError("Subject and message can't be empty."); return; }
     setSending(true);
     try {
@@ -827,7 +845,7 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
       const res = await fetch("/api/send-athlete-email", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ to: recipient, subject: subject.trim(), body, filename, pdfBase64 }),
+        body: JSON.stringify({ to: recipient, cc: ccList.join(", "), subject: subject.trim(), body, filename, pdfBase64 }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`);
@@ -845,15 +863,19 @@ function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
       <h2>Email {tabLabel} to {athlete.name}</h2>
       {sent ? (
         <React.Fragment>
-          <div className="success-banner">Sent to {to}.</div>
+          <div className="success-banner">Sent to {to}{cc.trim() ? ` (cc: ${cc.trim()})` : ""}.</div>
           <button className="btn btn-secondary" style={{ marginTop: 8 }} onClick={onClose}>Close</button>
         </React.Fragment>
       ) : (
         <React.Fragment>
           <div className="form-row">
-            <div className="field" style={{ minWidth: 260 }}>
+            <div className="field" style={{ minWidth: 220 }}>
               <label>To</label>
               <input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="athlete@example.com" disabled={sending} />
+            </div>
+            <div className="field" style={{ minWidth: 220 }}>
+              <label>CC (optional)</label>
+              <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="parent@example.com, coach@example.com" disabled={sending} />
             </div>
             <div className="field" style={{ flex: 1, minWidth: 260 }}>
               <label>Subject</label>

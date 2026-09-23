@@ -34,12 +34,13 @@ async function getSignedInCoachEmail(bearerToken) {
   }
 }
 
-function buildRawEmail({ from, to, subject, bodyText, filename, pdfBase64 }) {
+function buildRawEmail({ from, to, cc, subject, bodyText, filename, pdfBase64 }) {
   const boundary = `dst_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const encodeHeader = (s) => `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
   const lines = [
     `From: ${from}`,
     `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
     `Subject: ${encodeHeader(subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -66,7 +67,7 @@ function buildRawEmail({ from, to, subject, bodyText, filename, pdfBase64 }) {
     .replace(/=+$/, "");
 }
 
-async function sendAsCoach({ coachEmail, to, subject, bodyText, filename, pdfBase64 }) {
+async function sendAsCoach({ coachEmail, to, cc, subject, bodyText, filename, pdfBase64 }) {
   const { google } = require("googleapis");
   const creds = JSON.parse(requireEnv("GMAIL_SERVICE_ACCOUNT_JSON"));
   const jwtClient = new google.auth.JWT({
@@ -76,7 +77,7 @@ async function sendAsCoach({ coachEmail, to, subject, bodyText, filename, pdfBas
     subject: coachEmail, // domain-wide delegation: send AS this coach, not as the service account
   });
   const gmail = google.gmail({ version: "v1", auth: jwtClient });
-  const raw = buildRawEmail({ from: coachEmail, to, subject, bodyText, filename, pdfBase64 });
+  const raw = buildRawEmail({ from: coachEmail, to, cc, subject, bodyText, filename, pdfBase64 });
   await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
 }
 
@@ -92,9 +93,15 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { to, subject, body: bodyText, filename, pdfBase64 } = req.body || {};
-  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+  const { to, cc, subject, body: bodyText, filename, pdfBase64 } = req.body || {};
+  const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  if (!to || !emailRe.test(to)) {
     res.status(400).json({ error: "a valid recipient email is required" });
+    return;
+  }
+  const ccList = (cc || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (ccList.some((addr) => !emailRe.test(addr))) {
+    res.status(400).json({ error: "one of the CC addresses is not a valid email" });
     return;
   }
   if (!subject || !bodyText) {
@@ -107,8 +114,8 @@ module.exports = async (req, res) => {
   }
 
   try {
-    await sendAsCoach({ coachEmail, to, subject, bodyText, filename: filename || "attachment.pdf", pdfBase64 });
-    res.status(200).json({ ok: true, sentAs: coachEmail, to });
+    await sendAsCoach({ coachEmail, to, cc: ccList.join(", "), subject, bodyText, filename: filename || "attachment.pdf", pdfBase64 });
+    res.status(200).json({ ok: true, sentAs: coachEmail, to, cc: ccList });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
