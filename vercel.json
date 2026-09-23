@@ -4,6 +4,10 @@
   ],
   "functions": {
     "api/sync-hawkin.js": { "maxDuration": 60 },
-    "api/send-athlete-email.js": { "maxDuration": 120, "memory": 2048 }
+    "api/send-athlete-email.js": {
+      "maxDuration": 120,
+      "memory": 2048,
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
+    }
   }
 }
