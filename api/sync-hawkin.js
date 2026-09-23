@@ -142,6 +142,20 @@ module.exports = async (req, res) => {
     ]);
     const tests = testsPayload.data || [];
 
+    // Temporary: ?debug=shapes shows the raw Hawkin payload shapes so field-name assumptions can
+    // be corrected against real data instead of guessed again. Remove once matching is confirmed.
+    if (req.query.debug === "shapes") {
+      res.status(200).json({
+        sampleTest: tests[0] || null,
+        testKeys: tests[0] ? Object.keys(tests[0]) : [],
+        sampleHawkinAthlete: hawkinAthletes[0] || null,
+        hawkinAthleteKeys: hawkinAthletes[0] ? Object.keys(hawkinAthletes[0]) : [],
+        hawkinAthleteCount: hawkinAthletes.length,
+        sampleLocalAthleteName: localAthletes[0] ? localAthletes[0].data.name : null,
+      });
+      return;
+    }
+
     const hawkinNameById = new Map(
       hawkinAthletes.map((a) => [a.id, (a.name || `${a.firstName || ""} ${a.lastName || ""}`).trim()])
     );
