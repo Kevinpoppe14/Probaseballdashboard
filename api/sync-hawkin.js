@@ -114,7 +114,18 @@ function metricValue(test, guesses, excludes) {
 
 module.exports = async (req, res) => {
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    res.status(401).json({ error: "unauthorized" });
+    // Non-sensitive diagnostic — never the actual values — to tell "env var isn't set on this
+    // deployment" apart from "the value doesn't match", instead of guessing. Remove once this
+    // has been confirmed working.
+    res.status(401).json({
+      error: "unauthorized",
+      debug: {
+        envVarPresent: typeof process.env.CRON_SECRET === "string" && process.env.CRON_SECRET.length > 0,
+        envVarLength: (process.env.CRON_SECRET || "").length,
+        receivedHeaderPresent: typeof req.headers.authorization === "string",
+        receivedHeaderLength: (req.headers.authorization || "").length,
+      },
+    });
     return;
   }
 
