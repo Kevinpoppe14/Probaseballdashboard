@@ -706,32 +706,23 @@ function addCanvasAsPages(pdf, canvas, pageW, pageH) {
   }
 }
 
-// Snapshots a tab (assessment or plan) to a PDF entirely in the browser — no server-side rendering
-// involved. Renders at the tab's natural, un-zoomed width rather than using the print button's
-// own scale-to-one-page layout: that logic scales via CSS `zoom`, which html2canvas doesn't
-// reproduce correctly (it reads back as overlapping, garbled text once snapshotted) — so this
-// prints CSS is still injected (for the print color scheme and print-vs-screen element swaps,
-// both plain CSS and unaffected by zoom), just without the zoom-based fitting. The result may run
-// a couple of pages instead of exactly one, which is a fine trade for actually being readable.
-async function renderTabToPdf(tab) {
-  const wrapSelector = tab === "assessment" ? ".assess-wrap" : ".period-wrap";
-  const wrap = document.querySelector(wrapSelector);
-  if (!wrap) throw new Error("Couldn't find this tab's content to render — try reopening it.");
-  const printCss = extractPrintCss();
-  const renderWidth = tab === "assessment" ? 1700 : 900;
-
-  const savedWidth = wrap.style.width;
-  const savedZoom = wrap.style.zoom;
-  wrap.style.zoom = "";
-  wrap.style.width = `${renderWidth}px`;
-  await new Promise((r) => setTimeout(r, 50)); // let layout settle at the new width before snapshotting
-  let canvas;
+// Snapshots one element at its natural (un-zoomed) size — html2canvas doesn't reproduce CSS zoom
+// correctly (it reads back as overlapping, garbled text), so every capture in this file avoids it
+// entirely by setting a plain pixel width instead. printCss (see extractPrintCss) is injected into
+// html2canvas's cloned document so the snapshot picks up print colors and print-vs-screen element
+// swaps, the same as actually printing would.
+async function captureElement(el, printCss, width) {
+  const savedWidth = el.style.width;
+  const savedZoom = el.style.zoom;
+  el.style.zoom = "";
+  el.style.width = `${width}px`;
+  await new Promise((r) => setTimeout(r, 30)); // let layout settle at the new width before snapshotting
   try {
-    canvas = await window.html2canvas(wrap, {
+    return await window.html2canvas(el, {
       backgroundColor: "#ffffff",
       scale: 2,
       useCORS: true,
-      windowWidth: renderWidth,
+      windowWidth: width,
       onclone: (clonedDoc) => {
         const style = clonedDoc.createElement("style");
         style.textContent = printCss;
@@ -739,15 +730,72 @@ async function renderTabToPdf(tab) {
       },
     });
   } finally {
-    wrap.style.width = savedWidth;
-    wrap.style.zoom = savedZoom;
+    el.style.width = savedWidth;
+    el.style.zoom = savedZoom;
   }
+}
+
+// Scales a canvas to fit within a box (preserving aspect ratio) and draws it centered there.
+function addImageFitted(pdf, canvas, x, y, boxW, boxH) {
+  const ratio = canvas.width / canvas.height;
+  const boxRatio = boxW / boxH;
+  const w = ratio > boxRatio ? boxW : boxH * ratio;
+  const h = ratio > boxRatio ? boxW / ratio : boxH;
+  pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", x + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
+}
+
+// The assessment's own "Print / Save PDF" lays out its header full-width, then its two columns
+// side by side, each independently scaled to fill its half of one landscape page — captured live
+// via CSS zoom (see preparePrint in assessment.js), which is exactly what html2canvas can't
+// reproduce. This gets the same one-page, three-piece layout a different way: capture the header
+// and each column separately at their own natural size, then place each into its own box on one
+// PDF page, letting jsPDF's own image scaling do the fitting instead of CSS zoom.
+async function renderAssessmentToPdf() {
+  const wrap = document.querySelector(".assess-wrap");
+  if (!wrap) throw new Error("Couldn't find this assessment to render — try reopening it.");
+  const header = wrap.querySelector(".assess-header");
+  const cols = wrap.querySelectorAll(".assess-col");
+  if (!header || cols.length !== 2) throw new Error("Unexpected assessment layout — try reopening it.");
+  const printCss = extractPrintCss();
+
+  const headerCanvas = await captureElement(header, printCss, 1400);
+  const col0Canvas = await captureElement(cols[0], printCss, 900);
+  const col1Canvas = await captureElement(cols[1], printCss, 900);
 
   const { jsPDF } = window.jspdf;
-  const landscape = tab === "assessment";
-  const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "in", format: "letter" });
+  const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const gap = 0.15;
+
+  const headerH = Math.min(pageH * 0.25, (headerCanvas.height * pageW) / headerCanvas.width);
+  addImageFitted(pdf, headerCanvas, 0, 0, pageW, headerH);
+
+  const colY = headerH + 0.1;
+  const colBoxW = (pageW - gap) / 2;
+  const colBoxH = pageH - colY;
+  addImageFitted(pdf, col0Canvas, 0, colY, colBoxW, colBoxH);
+  addImageFitted(pdf, col1Canvas, colBoxW + gap, colY, colBoxW, colBoxH);
+
+  return pdf.output("datauristring").split(",")[1];
+}
+
+// The plan has no natural "pieces" to split like the assessment does, so this just captures the
+// whole thing at a comfortable natural width and lets it span as many pages as it needs — a plan
+// long enough to not fit one page isn't unusual, unlike the assessment's fixed-length form.
+async function renderPlanToPdf() {
+  const wrap = document.querySelector(".period-wrap");
+  if (!wrap) throw new Error("Couldn't find this plan to render — try reopening it.");
+  const printCss = extractPrintCss();
+  const canvas = await captureElement(wrap, printCss, 900);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
   addCanvasAsPages(pdf, canvas, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
-  return pdf.output("datauristring").split(",")[1]; // strip the "data:application/pdf;base64," prefix
+  return pdf.output("datauristring").split(",")[1];
+}
+
+async function renderTabToPdf(tab) {
+  return tab === "assessment" ? renderAssessmentToPdf() : renderPlanToPdf();
 }
 
 function EmailAthleteComposer({ athlete, tab, tabLabel, onClose }) {
