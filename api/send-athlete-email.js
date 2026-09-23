@@ -11,6 +11,11 @@
 // PDF rendering signs into the live app as a dedicated, low-privilege Supabase account
 // (PDF_RENDER_EMAIL/PDF_RENDER_PASSWORD) rather than forwarding the coach's own session token to
 // this server — the coach's real token never leaves their browser.
+//
+// The browser itself runs on Browserless (BROWSERLESS_WS_ENDPOINT) rather than launching Chromium
+// inside this function: Vercel's function environment is missing several system libraries a real
+// Chromium binary needs (libnss3 and others), which made a locally-launched, self-hosted Chromium
+// unreliable here — connecting to an already-running remote browser sidesteps that entirely.
 
 const SUPABASE_URL = "https://avgfxwhxglftftmlydiz.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2Z2Z4d2h4Z2xmdGZ0bWx5ZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxMTc3NzcsImV4cCI6MjEwNTY5Mzc3N30.-g6HIvyDfsCIiVt4fIhswKqhLNMY8jqSDFbAN2pOHYs";
@@ -43,18 +48,13 @@ async function getSignedInCoachEmail(bearerToken) {
 }
 
 async function renderTabPdf({ athleteId, tab }) {
-  const chromium = require("@sparticuz/chromium");
   const puppeteer = require("puppeteer-core");
   const renderEmail = requireEnv("PDF_RENDER_EMAIL");
   const renderPassword = requireEnv("PDF_RENDER_PASSWORD");
+  const browserWSEndpoint = requireEnv("BROWSERLESS_WS_ENDPOINT");
   const { landscape, renderEvent } = TABS[tab];
 
-  const browser = await puppeteer.launch({
-    args: chromium.args,
-    defaultViewport: { width: 1600, height: 1200 },
-    executablePath: await chromium.executablePath(),
-    headless: chromium.headless,
-  });
+  const browser = await puppeteer.connect({ browserWSEndpoint, defaultViewport: { width: 1600, height: 1200 } });
   try {
     const page = await browser.newPage();
 
