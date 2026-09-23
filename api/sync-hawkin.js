@@ -128,12 +128,14 @@ async function getHawkinAccessToken() {
 // everything — needed for a wide window like a full-year backfill, where a single team's test
 // count alone can run into the thousands. Capped at 200 pages as a sanity backstop, not a limit
 // expected to actually be hit.
-async function getHawkinTests(accessToken, syncFrom) {
+async function getHawkinTests(accessToken, syncFrom, syncTo) {
   let all = [];
   let cursor = null;
   let lastSyncTime = null;
   for (let page = 0; page < 200; page++) {
-    const url = `${HAWKIN_BASE}/api/v1?syncFrom=${syncFrom}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    let url = `${HAWKIN_BASE}/api/v1?syncFrom=${syncFrom}`;
+    if (syncTo != null) url += `&syncTo=${syncTo}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) throw new Error(`Hawkin tests fetch failed: HTTP ${res.status} ${await res.text()}`);
     const payload = await res.json();
@@ -207,12 +209,16 @@ module.exports = async (req, res) => {
     const accessToken = await getHawkinAccessToken();
     // ?since=<unix seconds> is a manual backfill override (e.g. a coach's Hawkin history for a
     // less-active athlete falls outside the normal incremental window) — bypasses the stored
-    // cursor for this one run, but the run still advances that cursor normally afterward.
+    // cursor for this one run. ?until=<unix seconds> bounds it to a specific historical window
+    // (e.g. re-importing one year at a time so each request finishes within the function's time
+    // limit) — a bounded run like that is a deliberate one-off replay, not "how far normal daily
+    // syncing has gotten", so it leaves the stored cursor alone rather than dragging it backward.
     const overrideSince = req.query.since != null ? Number(req.query.since) : null;
+    const overrideUntil = req.query.until != null ? Number(req.query.until) : null;
     const syncFrom = await getSyncFrom(serviceKey, overrideSince);
 
     const [testsPayload, localAthletes] = await Promise.all([
-      getHawkinTests(accessToken, syncFrom),
+      getHawkinTests(accessToken, syncFrom, overrideUntil),
       getAllAthletes(serviceKey),
     ]);
     const tests = testsPayload.data || [];
@@ -304,10 +310,10 @@ module.exports = async (req, res) => {
     summary.inserted = candidateRows.length;
 
     const newSyncFrom = testsPayload.lastSyncTime || Math.floor(Date.now() / 1000);
-    await setSyncFrom(serviceKey, newSyncFrom);
+    if (overrideUntil == null) await setSyncFrom(serviceKey, newSyncFrom);
     await setLastRunAt(serviceKey);
 
-    res.status(200).json({ ok: true, ...summary, totalTestsSeen: tests.length, syncFrom, newSyncFrom });
+    res.status(200).json({ ok: true, ...summary, totalTestsSeen: tests.length, syncFrom, newSyncFrom, cursorAdvanced: overrideUntil == null });
   } catch (e) {
     summary.errors.push(String((e && e.message) || e));
     res.status(200).json({ ok: false, ...summary });
