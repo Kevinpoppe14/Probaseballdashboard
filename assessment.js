@@ -154,6 +154,21 @@
     };
   }
 
+  // The old combined Key Takeaways field read "Needs attention:\n- ...\n\nNoted:\n- ...", produced
+  // by the pre-split generateFindingsSummary. Recognizes exactly that shape and pulls the two
+  // sections apart; anything else (a coach's own free-form text) is left alone so it isn't
+  // mistakenly torn apart.
+  function splitLegacyTakeaways(text) {
+    const t = text || "";
+    if (!/^\s*needs attention:/i.test(t) || !/\n\s*noted:/i.test(t)) return null;
+    const attMatch = t.match(/needs attention:\s*\n([\s\S]*?)(?=\n\s*noted:\s*\n|$)/i);
+    const notedMatch = t.match(/noted:\s*\n([\s\S]*)$/i);
+    return {
+      attention: attMatch ? attMatch[1].trim() : "",
+      noted: notedMatch ? notedMatch[1].trim() : "",
+    };
+  }
+
   // Fills in any section a record made before a field layout change is missing, so old
   // assessments keep working after this file is updated.
   function withDefaults(record, athleteId) {
@@ -164,14 +179,22 @@
       mergedMovementTests[k].pass = normalizePF(mergedMovementTests[k].pass);
       mergedMovementTests[k].fail = normalizePF(mergedMovementTests[k].fail);
     });
+    // The Key Takeaways box used to be one combined field before it split into side-by-side Needs
+    // Attention / Noted columns. Pull whichever text an older (or already-once-migrated) record has
+    // into the Noted side by default, then split it apart if it's still in the old combined shape —
+    // covers both a record from before the split ever existed and one saved right after the split
+    // shipped, before this parser did.
+    let keyTakeawaysAttention = record.keyTakeawaysAttention !== undefined ? record.keyTakeawaysAttention : "";
+    let keyTakeawaysNoted = record.keyTakeawaysNoted !== undefined ? record.keyTakeawaysNoted : (record.keyTakeaways || "");
+    if (!keyTakeawaysAttention.trim()) {
+      const split = splitLegacyTakeaways(keyTakeawaysNoted);
+      if (split) { keyTakeawaysAttention = split.attention; keyTakeawaysNoted = split.noted; }
+    }
     return {
       ...blank,
       ...record,
-      // The Key Takeaways box used to be one combined field before it split into side-by-side
-      // Needs Attention / Noted columns — fold an older record's text into the Noted side so
-      // nothing a coach already wrote disappears.
-      keyTakeawaysAttention: record.keyTakeawaysAttention !== undefined ? record.keyTakeawaysAttention : "",
-      keyTakeawaysNoted: record.keyTakeawaysNoted !== undefined ? record.keyTakeawaysNoted : (record.keyTakeaways || ""),
+      keyTakeawaysAttention,
+      keyTakeawaysNoted,
       bodyMarkers: { ...blank.bodyMarkers, ...(record.bodyMarkers || {}) },
       bodyRegions: mergeByKey(BODY_REGIONS, record.bodyRegions, () => ({ flagged: false, notes: "", tags: {} })),
       movementTests: mergedMovementTests,
