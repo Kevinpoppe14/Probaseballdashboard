@@ -3,8 +3,8 @@
     { "path": "/api/sync-hawkin", "schedule": "0 9 * * *" },
     { "path": "/api/weekly-roster-email", "schedule": "0 16 * * 0" },
     { "path": "/api/weekly-roster-email", "schedule": "0 17 * * 0" },
-    { "path": "/api/daily-activity-email", "schedule": "0 12 * * *" },
-    { "path": "/api/daily-activity-email", "schedule": "0 13 * * *" }
+    { "path": "/api/daily-activity-email", "schedule": "0 0 * * *" },
+    { "path": "/api/daily-activity-email", "schedule": "0 1 * * *" }
   ],
   "functions": {
     "api/sync-hawkin.js": { "maxDuration": 60 },

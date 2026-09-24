@@ -6,7 +6,7 @@
 // player_plans (Google-Sheet-synced, same reasoning) — including either would flood this with
 // automated noise instead of "what did a coach actually do".
 //
-// Two cron entries (12:00 and 13:00 UTC — see vercel.json) cover both sides of the Central-time
+// Two cron entries (00:00 and 01:00 UTC — see vercel.json) cover both sides of the Central-time
 // DST transition, same reasoning and same real-wall-clock-hour check as weekly-roster-email.js.
 // "created_by"/"updated_by" on each table are auth.users uuids (see migration_002_activity_tracking.sql),
 // resolved to emails via the profiles table rather than the admin API — cheaper, and this only
@@ -230,7 +230,7 @@ module.exports = async (req, res) => {
     const chicagoToday = new Date(Number(get("year")), Number(get("month")) - 1, Number(get("day")));
     const dateKey = chicagoToday.toISOString().slice(0, 10);
 
-    if (!force && hour !== 7) {
+    if (!force && hour !== 19) {
       res.status(200).json({ ok: true, skipped: true, reason: "not the scheduled send time", hour });
       return;
     }
