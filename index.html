@@ -3830,6 +3830,7 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
 
   const [selectedLeague, setSelectedLeague] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("");
+  React.useEffect(() => { window.scrollTo(0, 0); }, [selectedTeam]);
   const [perfRange, setPerfRange] = useState("all"); // date range for each athlete's performance graphs
 
   const teamsInLeague = useMemo(() => {
@@ -5060,6 +5061,8 @@ function App({ userEmail, onLogout }) {
   // Which tab the profile opens on: normally Overview, or the Player Plan tab when arriving from an
   // "Edit plan" link on the team report (or whatever tab a deep link asked for).
   const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : "");
+  // Opening a different page or athlete should land at the top, not wherever the list was scrolled to.
+  React.useEffect(() => { window.scrollTo(0, 0); }, [view, selectedId]);
   const editPeriodization = (id) => {
     setSelectedId(id);
     setProfileTab("plan");
