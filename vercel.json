@@ -1,9 +1,12 @@
 {
   "crons": [
-    { "path": "/api/sync-hawkin", "schedule": "0 9 * * *" }
+    { "path": "/api/sync-hawkin", "schedule": "0 9 * * *" },
+    { "path": "/api/weekly-roster-email", "schedule": "0 16 * * 0" },
+    { "path": "/api/weekly-roster-email", "schedule": "0 17 * * 0" }
   ],
   "functions": {
     "api/sync-hawkin.js": { "maxDuration": 60 },
-    "api/send-athlete-email.js": { "maxDuration": 30 }
+    "api/send-athlete-email.js": { "maxDuration": 30 },
+    "api/weekly-roster-email.js": { "maxDuration": 60 }
   }
 }
