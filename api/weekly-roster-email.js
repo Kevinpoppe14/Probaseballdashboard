@@ -150,7 +150,7 @@ function programStatus(plan, today) {
   return { tone: "good", label: "On track" };
 }
 function assessmentStatus(assessments, today) {
-  if (!assessments.length) return { tone: "danger", label: "Never assessed" };
+  if (!assessments.length) return { tone: "danger", label: "Due for Assessment" };
   const latest = [...assessments].sort((a, b) => (a.date || "").localeCompare(b.date || ""))[assessments.length - 1];
   const daysSince = Math.floor((today.getTime() - new Date(`${latest.date}T00:00:00`).getTime()) / 864e5);
   if (daysSince >= 30) return { tone: "warn", label: `Due (${daysSince}d)` };

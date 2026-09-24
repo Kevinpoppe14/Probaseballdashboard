@@ -1952,7 +1952,7 @@ function ProgramStatusBadge({ athleteId }) {
 function AssessmentDueBadge({ athleteId }) {
   const assessments = window.AthleteStore.getAssessments(athleteId);
   if (!assessments.length) {
-    return <span className="badge danger" title="No biomechanical assessment on file yet">Never assessed</span>;
+    return <span className="badge danger" title="No biomechanical assessment on file yet">Due for Assessment</span>;
   }
   const latest = assessments[assessments.length - 1];
   const daysSince = Math.floor((Date.now() - new Date(`${latest.date}T00:00:00`).getTime()) / 864e5);
