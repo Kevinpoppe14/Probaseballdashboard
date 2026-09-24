@@ -81,6 +81,22 @@ async function sendAsCoach({ coachEmail, to, cc, subject, bodyText, filename, pd
   await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
 }
 
+// Best-effort — a logging failure shouldn't turn an email that already sent successfully into a
+// user-facing error. Uses the service-role key (bypasses RLS) since a coach's own session has no
+// insert grant on email_log — see migration_003_email_log.sql.
+async function logEmailSent({ coachEmail, to, cc, subject, kind, athleteName, tab }) {
+  try {
+    const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+    await fetch(`${SUPABASE_URL}/rest/v1/email_log`, {
+      method: "POST",
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify([{ sent_by: coachEmail, to_email: to, cc_email: cc || null, subject, kind: kind || null, athlete_name: athleteName || null, tab: tab || null }]),
+    });
+  } catch (e) {
+    console.error("email_log insert failed (email itself still sent):", e.message || e);
+  }
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "method not allowed" });
@@ -93,7 +109,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { to, cc, subject, body: bodyText, filename, pdfBase64 } = req.body || {};
+  const { to, cc, subject, body: bodyText, filename, pdfBase64, kind, athleteName, tab } = req.body || {};
   const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
   if (!to || !emailRe.test(to)) {
     res.status(400).json({ error: "a valid recipient email is required" });
@@ -115,6 +131,7 @@ module.exports = async (req, res) => {
 
   try {
     await sendAsCoach({ coachEmail, to, cc: ccList.join(", "), subject, bodyText, filename: filename || "attachment.pdf", pdfBase64 });
+    await logEmailSent({ coachEmail, to, cc: ccList.join(", "), subject, kind, athleteName, tab });
     res.status(200).json({ ok: true, sentAs: coachEmail, to, cc: ccList });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

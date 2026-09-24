@@ -670,6 +670,7 @@ function EmailToAthleteButton({ athlete, tab, tabLabel }) {
           attachmentNote={`A PDF of this ${tabLabel.toLowerCase()} will be attached, sent from your own email address.`}
           renderPdf={() => renderTabToPdf(tab)}
           filename={`${(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${tab}.pdf`}
+          logContext={{ kind: "athlete_tab", athleteName: athlete.name, tab }}
           onClose={() => setOpen(false)}
         />
       )}
@@ -901,7 +902,7 @@ async function renderTeamReportToPdf() {
 // Generic "compose + send a PDF" panel — used both for a single athlete's tab and for a team
 // report going out to several contacts at once. `renderPdf` does the actual snapshot (different
 // for each caller); everything else (recipients, status, error handling) is shared.
-function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, onClose }) {
+function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, logContext, onClose }) {
   const [to, setTo] = useState(defaultTo || "");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(defaultSubject);
@@ -930,7 +931,7 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
       const res = await fetch("/api/send-athlete-email", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ to: toList.join(", "), cc: ccList.join(", "), subject: subject.trim(), body, filename, pdfBase64 }),
+        body: JSON.stringify({ to: toList.join(", "), cc: ccList.join(", "), subject: subject.trim(), body, filename, pdfBase64, ...(logContext || {}) }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`);
@@ -1003,6 +1004,7 @@ function EmailTeamReportButton({ team, defaultRecipients }) {
           attachmentNote="A PDF with one page per player will be attached, sent from your own email address."
           renderPdf={renderTeamReportToPdf}
           filename={`${team.replace(/[^a-z0-9]+/gi, "_")}-team-report-${dateText}.pdf`}
+          logContext={{ kind: "team_report", athleteName: team }}
           onClose={() => setOpen(false)}
         />
       )}

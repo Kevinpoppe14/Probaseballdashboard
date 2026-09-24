@@ -378,6 +378,7 @@ module.exports = async (req, res) => {
     }
 
     await sendDigestEmail({ to: recipients.join(", "), subject, html });
+    await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: recipients.join(", "), subject, kind: "weekly_digest" }]);
     if (!force) await sbUpsert(serviceKey, "app_meta", [{ key: "lastWeeklyRosterEmailDate", value: dateKey }]);
 
     res.status(200).json({ ok: true, sent: recipients.length, recipients, athletes: enriched.length, locations: locations.map((l) => l.location) });
