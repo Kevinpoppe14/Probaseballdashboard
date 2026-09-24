@@ -1923,9 +1923,16 @@ function WeekOverWeekTicker({ athleteId }) {
 // right now). Green: an active plan, but no block boundary to flag — mid-block is the normal case.
 function ProgramStatusBadge({ athleteId }) {
   const plan = window.AthleteStore.getPeriodization(athleteId);
-  if (!plan || !window.PeriodizationLib) return null;
+  if (!plan || !window.PeriodizationLib) {
+    return <span className="badge neutral" title="No periodization plan saved for this athlete">No Program</span>;
+  }
   const progress = window.PeriodizationLib.planProgress(plan);
-  if (progress.state !== "active") return null; // hasn't started yet, or fully finished — nothing "this week" to flag
+  if (progress.state === "upcoming") {
+    return <span className="badge neutral" title={`Plan starts ${shortDate(plan.startDate)}`}>Upcoming</span>;
+  }
+  if (progress.state === "complete") {
+    return <span className="badge neutral" title={`${plan.weeks}-week plan finished`}>Complete</span>;
+  }
   const wk = progress.week - 1; // 0-based
   const endsThisWeek = plan.blocks.filter((b) => b.start + b.len - 1 === wk);
   const endedLastWeek = plan.blocks.filter((b) => b.start + b.len - 1 === wk - 1 && !plan.blocks.some((o) => o.lane === b.lane && o.start <= wk && wk < o.start + o.len));
