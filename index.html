@@ -697,13 +697,19 @@ function extractPrintCss() {
   return parts.join("\n");
 }
 
+// Blank space kept around every emailed PDF's content, on every page — plain full-bleed pages
+// looked cramped right up against the edges.
+const PDF_MARGIN_IN = 0.35;
+
 // Slices a (probably page-taller-than-one-page) canvas into a multi-page PDF, one page-height's
 // worth of pixels at a time, instead of squashing everything onto a single page. isFirstPage
 // controls whether the very first slice reuses the PDF's current page (the normal case) or forces
 // a new one first — needed when compositing several elements into one document (see
 // renderTeamReportToPdf), where every element after the first must start on its own fresh page.
 function addCanvasAsPages(pdf, canvas, pageW, pageH, isFirstPage = true) {
-  const pageHeightPx = Math.floor((pageH / pageW) * canvas.width);
+  const usableW = pageW - PDF_MARGIN_IN * 2;
+  const usableH = pageH - PDF_MARGIN_IN * 2;
+  const pageHeightPx = Math.floor((usableH / usableW) * canvas.width);
   let renderedPx = 0;
   let first = true;
   while (renderedPx < canvas.height) {
@@ -712,9 +718,9 @@ function addCanvasAsPages(pdf, canvas, pageW, pageH, isFirstPage = true) {
     slice.width = canvas.width;
     slice.height = sliceHeightPx;
     slice.getContext("2d").drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
-    const sliceHeightIn = (sliceHeightPx * pageW) / canvas.width;
+    const sliceHeightIn = (sliceHeightPx * usableW) / canvas.width;
     if (!(first && isFirstPage)) pdf.addPage();
-    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, sliceHeightIn);
+    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", PDF_MARGIN_IN, PDF_MARGIN_IN, usableW, sliceHeightIn);
     renderedPx += sliceHeightPx;
     first = false;
   }
@@ -834,18 +840,19 @@ async function renderAssessmentToPdf() {
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
+  const m = PDF_MARGIN_IN;
+  const pageW = pdf.internal.pageSize.getWidth() - m * 2;
+  const pageH = pdf.internal.pageSize.getHeight() - m * 2;
   const gap = 0.15;
 
   const headerH = Math.min(pageH * 0.25, (headerCanvas.height * pageW) / headerCanvas.width);
-  addImageFitted(pdf, headerCanvas, 0, 0, pageW, headerH);
+  addImageFitted(pdf, headerCanvas, m, m, pageW, headerH);
 
-  const colY = headerH + 0.1;
+  const colY = m + headerH + 0.1;
   const colBoxW = (pageW - gap) / 2;
-  const colBoxH = pageH - colY;
-  addImageFitted(pdf, col0Canvas, 0, colY, colBoxW, colBoxH);
-  addImageFitted(pdf, col1Canvas, colBoxW + gap, colY, colBoxW, colBoxH);
+  const colBoxH = pageH - headerH - 0.1;
+  addImageFitted(pdf, col0Canvas, m, colY, colBoxW, colBoxH);
+  addImageFitted(pdf, col1Canvas, m + colBoxW + gap, colY, colBoxW, colBoxH);
 
   return pdf.output("datauristring").split(",")[1];
 }
