@@ -743,19 +743,39 @@ async function captureElement(el, printCss, width) {
   });
   const scrollers = Array.from(el.querySelectorAll(".period-scroll"));
   const savedScrollers = scrollers.map((s) => ({ s, width: s.style.width, overflow: s.style.overflow }));
+  // Widening a scroller only helps if nothing between it and `el` clips it back down — the plan's
+  // own panel around it (.period-visual) hides overflow on purpose on screen, for its rounded
+  // corners, which would otherwise cut the now-wider grid right back off before it ever reaches
+  // `el` (and so before `el.scrollWidth`, read below, would ever reflect it).
+  const savedAncestors = [];
   scrollers.forEach((s) => {
     s.style.overflow = "visible";
     s.style.width = `${s.scrollWidth}px`;
+    let node = s.parentElement;
+    while (node && node !== el.parentElement) {
+      if (getComputedStyle(node).overflow !== "visible" && !savedAncestors.some((a) => a.node === node)) {
+        savedAncestors.push({ node, overflow: node.style.overflow });
+        node.style.overflow = "visible";
+      }
+      node = node.parentElement;
+    }
   });
   el.style.zoom = "";
   el.style.width = `${width}px`;
   await new Promise((r) => setTimeout(r, 30)); // let layout settle at the new width before snapshotting
+  // html2canvas sizes its output canvas from el's own rendered width, not just the target `width`
+  // — el's scrollWidth reflects any scrollers just widened above (now that their clipping ancestors
+  // are out of the way too), so re-applying it as el's actual width is what makes the wider content
+  // actually part of the capture instead of still being cropped off at the original `width`.
+  const captureWidth = Math.max(width, el.scrollWidth);
+  el.style.width = `${captureWidth}px`;
+  await new Promise((r) => setTimeout(r, 30));
   try {
     return await window.html2canvas(el, {
       backgroundColor: "#ffffff",
       scale: 2,
       useCORS: true,
-      windowWidth: width,
+      windowWidth: captureWidth,
       onclone: (clonedDoc) => {
         const style = clonedDoc.createElement("style");
         style.textContent = printCss;
@@ -780,6 +800,7 @@ async function captureElement(el, printCss, width) {
     el.style.width = savedWidth;
     el.style.zoom = savedZoom;
     savedScrollers.forEach((s) => { s.s.style.width = s.width; s.s.style.overflow = s.overflow; });
+    savedAncestors.forEach((a) => { a.node.style.overflow = a.overflow; });
     savedTextareas.forEach((s) => { s.ta.style.height = s.height; s.ta.style.overflow = s.overflow; });
   }
 }
