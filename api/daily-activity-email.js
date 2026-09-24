@@ -194,10 +194,17 @@ async function isSignedInCoach(bearerToken) {
 // rather than one query shape assumed to fit all three. Assessments/periodization only store
 // athleteId, not a name, so their descriptions need the athletes table's id->name map built in the
 // handler below (passed in as `names`).
+//
+// created_by/created_at are stamped once, at insert, and never touched again (see
+// stamp_activity() in migration_002) — updated_by/updated_at get re-stamped on every save,
+// including a debounced autosave that fires just from opening a record in the UI. That means a
+// row's own updated_by can silently drift to whoever last viewed it, hiding who actually created
+// it. So: a row whose created_at falls in today's window gets reported as "created" (credited to
+// created_by), not "updated" (credited to whoever happened to touch it afterward).
 const EDIT_TABLES = [
-  { table: "athletes", select: "id,data,updated_by,updated_at,created_at", describe: (row) => `${(row.data && row.data.name) || row.id} updated` },
-  { table: "assessments", select: "id,athlete_id,data,updated_by,updated_at,created_at", describe: (row, names) => `Assessment for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`} updated` },
-  { table: "periodization", select: "athlete_id,data,updated_by,updated_at,created_at", describe: (row, names) => `Periodization plan updated for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`}` },
+  { table: "athletes", select: "id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `${(row.data && row.data.name) || row.id} ${action}` },
+  { table: "assessments", select: "id,athlete_id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `Assessment for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`} ${action}` },
+  { table: "periodization", select: "athlete_id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `Periodization plan ${action} for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`}` },
 ];
 
 module.exports = async (req, res) => {
@@ -253,11 +260,13 @@ module.exports = async (req, res) => {
     const edits = [];
     EDIT_TABLES.forEach((def, i) => {
       editTableRows[i].forEach((row) => {
+        const createdNow = !!(row.created_at && row.created_at >= since);
+        const action = createdNow ? "created" : "updated";
         edits.push({
-          at: row.updated_at,
-          by: emailByUuid.get(row.updated_by) || "system / sync",
-          what: def.describe(row, nameByAthleteId),
-          kind: def.kind,
+          at: createdNow ? row.created_at : row.updated_at,
+          by: emailByUuid.get(createdNow ? row.created_by : row.updated_by) || "system / sync",
+          what: def.describe(row, nameByAthleteId, action),
+          kind: createdNow ? "Created" : "Updated",
         });
       });
     });
