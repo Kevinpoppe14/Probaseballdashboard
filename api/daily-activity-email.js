@@ -1,9 +1,10 @@
 // Daily activity digest — sent only to Kevin, every morning year-round (no in-season window,
 // unlike weekly-roster-email.js — account/roster activity isn't seasonal), covering the last 24
-// hours: emails sent through the app (see email_log, migration_003) and coach-driven edits to
-// athletes, assessments, and periodization plans. Deliberately leaves out force_tests (the daily
-// Hawkin sync, not a human edit) and player_plans (Google-Sheet-synced, same reasoning) — including
-// either would flood this with automated noise instead of "what did a coach actually do".
+// hours: who signed in (Supabase Auth's own last_sign_in_at per user), emails sent through the app
+// (see email_log, migration_003), and coach-driven edits to athletes, assessments, and periodization
+// plans. Deliberately leaves out force_tests (the daily Hawkin sync, not a human edit) and
+// player_plans (Google-Sheet-synced, same reasoning) — including either would flood this with
+// automated noise instead of "what did a coach actually do".
 //
 // Two cron entries (12:00 and 13:00 UTC — see vercel.json) cover both sides of the Central-time
 // DST transition, same reasoning and same real-wall-clock-hour check as weekly-roster-email.js.
@@ -14,6 +15,7 @@
 const SUPABASE_URL = "https://avgfxwhxglftftmlydiz.supabase.co";
 const SEND_AS_EMAIL = "kevin@dynamicsportstraining.com";
 const RECIPIENT_EMAIL = "kevin@dynamicsportstraining.com";
+const EXCLUDED_LOGINS = ["test@test.com"]; // the dev/test login, not a real coach
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -70,6 +72,32 @@ async function sbUpsert(serviceKey, table, rows) {
   if (!res.ok) throw new Error(`Supabase upsert ${table} failed: HTTP ${res.status} ${await res.text()}`);
 }
 
+// Supabase Auth already tracks each user's last sign-in on their own account record — no separate
+// login table needed. Like last_sign_in_at itself, this only ever shows the MOST RECENT sign-in per
+// user, so someone who logged in twice today only shows up once (with their later time).
+async function getRecentLogins(serviceKey, since) {
+  const excluded = new Set(EXCLUDED_LOGINS.map((e) => e.toLowerCase()));
+  const logins = [];
+  let page = 1;
+  for (;;) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=200`, {
+      headers: sbHeaders(serviceKey),
+    });
+    if (!res.ok) throw new Error(`Failed to list users: HTTP ${res.status} ${await res.text()}`);
+    const body = await res.json();
+    const users = body.users || [];
+    users.forEach((u) => {
+      if (u.email && u.last_sign_in_at && u.last_sign_in_at >= since && !excluded.has(u.email.toLowerCase())) {
+        logins.push({ email: u.email, at: u.last_sign_in_at });
+      }
+    });
+    if (users.length < 200) break;
+    page++;
+  }
+  logins.sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+  return logins;
+}
+
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -77,8 +105,15 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function buildDigestHtml({ emails, edits }) {
+function buildDigestHtml({ emails, edits, logins }) {
   const dateLabel = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "long", day: "numeric", year: "numeric" });
+  const loginRows = logins.length
+    ? logins.map((l) => `
+        <tr>
+          <td style="padding:6px 10px;border-bottom:1px solid #2a2a2a;color:#9a9a9a;font-size:12px;font-family:monospace;white-space:nowrap;">${fmtTime(l.at)}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #2a2a2a;color:#fff;font-size:12px;font-family:Arial,sans-serif;">${escapeHtml(l.email)}</td>
+        </tr>`).join("")
+    : `<tr><td colspan="2" style="padding:8px 10px;color:#6b6b6b;font-size:12px;font-family:Arial,sans-serif;">No logins.</td></tr>`;
   const emailRows = emails.length
     ? emails.map((e) => `
         <tr>
@@ -108,6 +143,10 @@ function buildDigestHtml({ emails, edits }) {
         <tr><td style="padding:20px 24px;border-bottom:2px solid #b5283a;">
           <div style="color:#fff;font-size:18px;font-weight:700;font-family:Arial,sans-serif;">Daily Activity Digest</div>
           <div style="color:#9a9a9a;font-size:12px;font-family:Arial,sans-serif;margin-top:2px;">${dateLabel} &middot; last 24 hours</div>
+        </td></tr>
+        <tr><td style="padding:18px 14px 4px;">
+          <div style="color:#fff;font-size:14px;font-weight:700;font-family:Arial,sans-serif;padding:0 10px 8px;">Logins (${logins.length})</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${loginRows}</table>
         </td></tr>
         <tr><td style="padding:18px 14px 4px;">
           <div style="color:#fff;font-size:14px;font-weight:700;font-family:Arial,sans-serif;padding:0 10px 8px;">Emails sent (${emails.length})</div>
@@ -201,10 +240,11 @@ module.exports = async (req, res) => {
 
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-    const [emailRows, profileRows, athleteRows, ...editTableRows] = await Promise.all([
+    const [emailRows, profileRows, athleteRows, logins, ...editTableRows] = await Promise.all([
       sbSelect(serviceKey, "email_log", `select=sent_at,sent_by,to_email,subject,kind&sent_at=gte.${since}&order=sent_at.desc`),
       sbSelect(serviceKey, "profiles", "select=id,email"),
       sbSelect(serviceKey, "athletes", "select=data"),
+      getRecentLogins(serviceKey, since),
       ...EDIT_TABLES.map((t) => sbSelect(serviceKey, t.table, `select=${t.select}&updated_at=gte.${since}&order=updated_at.desc`)),
     ]);
 
@@ -223,14 +263,14 @@ module.exports = async (req, res) => {
     });
     edits.sort((a, b) => (b.at || "").localeCompare(a.at || ""));
 
-    const html = buildDigestHtml({ emails: emailRows, edits });
+    const html = buildDigestHtml({ emails: emailRows, edits, logins });
     const subject = `Daily Activity Digest — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 
     await sendDigestEmail({ to: RECIPIENT_EMAIL, subject, html });
     await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: RECIPIENT_EMAIL, subject, kind: "activity_digest" }]);
     if (!force) await sbUpsert(serviceKey, "app_meta", [{ key: "lastDailyActivityEmailDate", value: dateKey }]);
 
-    res.status(200).json({ ok: true, sent: 1, emails: emailRows.length, edits: edits.length });
+    res.status(200).json({ ok: true, sent: 1, emails: emailRows.length, edits: edits.length, logins: logins.length });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
