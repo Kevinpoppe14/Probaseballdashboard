@@ -2341,6 +2341,7 @@ function ActivitySignature({ activity, className }) {
 
 function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange, initialTab }) {
   const [activeTab, setActiveTab] = useState(initialTab || "overview");
+  React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast / Performance tabs
   const athlete = getRoster().find((a) => a.id === athleteId);
   const wellnessSeries = useMemo(
