@@ -317,6 +317,20 @@
     return { noted, attention };
   }
 
+  // Free-text notes typed into the body region, movement test and isolated tests tables — these
+  // are the coach's own observations, so they go into "Noted" verbatim (collapsed to one line).
+  function summarizeWrittenNotes(rec) {
+    const lines = [];
+    const add = (label, text) => {
+      const t = (text || "").replace(/\s*\n\s*/g, " ").trim();
+      if (t) lines.push(`${label}: ${t}`);
+    };
+    BODY_REGIONS.forEach((r) => { const s = rec.bodyRegions[r.key]; if (s) add(r.label, s.notes); });
+    MOVEMENT_TESTS.forEach((r) => { const v = rec.movementTests[r.key]; if (v) add(r.label, v.notes); });
+    ISOLATED_SPECIFIC.forEach((r) => { const v = rec.isolatedSpecific[r.key]; if (v) add(r.label, v.notes); });
+    return lines;
+  }
+
   // Pulls together whatever's currently checked/flagged across the whole form into a "needs
   // attention" / "noted" draft — meant to be a starting point the coach edits from, not a final
   // summary, so it's only ever inserted on request (see the Key Takeaways panel's button) rather
@@ -326,7 +340,7 @@
     const move = summarizeMovementTests(rec);
     const iso = summarizeIsolated(rec);
     const attention = [...squat.attention, ...move.attention, ...iso.attention];
-    const noted = [...summarizeBodyRegions(rec), ...squat.noted, ...move.noted, ...iso.noted];
+    const noted = [...summarizeBodyRegions(rec), ...squat.noted, ...move.noted, ...iso.noted, ...summarizeWrittenNotes(rec)];
     return {
       attention: attention.length ? attention.map((l) => `- ${l}`).join("\n") : "",
       noted: noted.length ? noted.map((l) => `- ${l}`).join("\n") : "",
@@ -826,7 +840,7 @@
                 >
                   Auto-fill from findings
                 </button>
-                <div className="assess-row-note" style={{ marginTop: 4 }}>Drafts a summary from what's checked/flagged elsewhere in the form — added below anything already here, so nothing gets overwritten. Edit or delete freely after.</div>
+                <div className="assess-row-note" style={{ marginTop: 4 }}>Drafts a summary from what's checked/flagged and any written test notes elsewhere in the form — added below anything already here, so nothing gets overwritten. Edit or delete freely after.</div>
               </div>
               <div className="assess-perf-columns">
                 <div className="field">
