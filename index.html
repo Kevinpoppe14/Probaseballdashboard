@@ -1519,6 +1519,8 @@ function AthleteRow({ athlete, onSelect, onDataChange, checked, onToggleCheck })
         <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td></td>
+        <td></td>
+        <td></td>
         <td>
           <button className="btn-link" style={{ marginRight: 10 }} onClick={saveEdit}>Save</button>
           <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditing(false); }}>Cancel</button>
@@ -1539,6 +1541,8 @@ function AthleteRow({ athlete, onSelect, onDataChange, checked, onToggleCheck })
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
+      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} /></td>
       <td onClick={(e) => e.stopPropagation()}>
         <button className="btn-link" style={{ marginRight: 10 }} onClick={startEdit}>Edit</button>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
@@ -1812,6 +1816,8 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                   <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
                 ))}
                 <th title="Latest force-plate test vs. the closest one from about a week earlier">This Week</th>
+                <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
+                <th title="Flags when there's no biomechanical assessment on file, or the latest one is a month or more old">Assessment</th>
                 <th></th>
               </tr>
             </thead>
@@ -1854,9 +1860,15 @@ const FORCE_KPI_METRICS = [
 // closest one from roughly a week earlier. "Roughly" because testing isn't always on a strict
 // weekly cadence — this walks back from the latest test to the first one at least 4 days earlier,
 // rather than requiring exactly 7, so a slightly early or late session still counts as "last week"
-// instead of the ticker just going blank.
+// instead of the ticker just going blank. Two guards keep it from reaching past "recent", though:
+// the latest test itself has to actually be from about this week (not an athlete's last test ever,
+// however old), and the comparison test has to be from about last week too, not just however far
+// back happens to be the next one on file — an athlete tested this week and then not again since
+// February shouldn't show a "week over week" change spanning that whole gap.
 const WEEK_TICKER_METRICS = ["bodyWeightLbs", "jumpHeight", "relativePeakPower"];
 const WEEK_TICKER_MIN_GAP_DAYS = 4;
+const WEEK_TICKER_MAX_GAP_DAYS = 10;
+const WEEK_TICKER_MAX_RECENCY_DAYS = 10;
 
 function weekOverWeekDelta(tests, metric) {
   const withValue = tests
@@ -1866,9 +1878,11 @@ function weekOverWeekDelta(tests, metric) {
   if (!withValue.length) return null;
   const latest = withValue[withValue.length - 1];
   const latestMs = new Date(`${latest.t.date}T00:00:00`).getTime();
+  if ((Date.now() - latestMs) / 864e5 > WEEK_TICKER_MAX_RECENCY_DAYS) return null; // no test from this week — nothing to show
   let prev = null;
   for (let i = withValue.length - 2; i >= 0; i--) {
     const daysBack = (latestMs - new Date(`${withValue[i].t.date}T00:00:00`).getTime()) / 864e5;
+    if (daysBack > WEEK_TICKER_MAX_GAP_DAYS) break; // everything from here back is even further away — give up
     if (daysBack >= WEEK_TICKER_MIN_GAP_DAYS) { prev = withValue[i]; break; }
   }
   if (!prev || !prev.v) return null;
@@ -1899,6 +1913,46 @@ function WeekOverWeekTicker({ athleteId }) {
       })}
     </div>
   );
+}
+
+// Roster-row flag: is a training block (any lane — Strength, Running/Speed, Throwing, whatever the
+// plan uses) ending this week or did one end last week with nothing picking it up. Only athletes
+// with an actual saved periodization plan show anything here — most of the roster has none.
+// Yellow: some block's last week is this week (line up what's next). Red: some block's last week
+// was last week and nothing in that lane covers this week either (the athlete's plan has a gap
+// right now). Green: an active plan, but no block boundary to flag — mid-block is the normal case.
+function ProgramStatusBadge({ athleteId }) {
+  const plan = window.AthleteStore.getPeriodization(athleteId);
+  if (!plan || !window.PeriodizationLib) return null;
+  const progress = window.PeriodizationLib.planProgress(plan);
+  if (progress.state !== "active") return null; // hasn't started yet, or fully finished — nothing "this week" to flag
+  const wk = progress.week - 1; // 0-based
+  const endsThisWeek = plan.blocks.filter((b) => b.start + b.len - 1 === wk);
+  const endedLastWeek = plan.blocks.filter((b) => b.start + b.len - 1 === wk - 1 && !plan.blocks.some((o) => o.lane === b.lane && o.start <= wk && wk < o.start + o.len));
+  const laneName = (b) => (plan.lanes.find((l) => l.id === b.lane) || {}).name || "Program";
+  if (endedLastWeek.length) {
+    const title = `Ended last week with nothing scheduled this week: ${endedLastWeek.map((b) => `${laneName(b)} (${b.label || "untitled"})`).join(", ")}`;
+    return <span className="badge danger" title={title}>Program gap</span>;
+  }
+  if (endsThisWeek.length) {
+    const title = `Ending this week: ${endsThisWeek.map((b) => `${laneName(b)} (${b.label || "untitled"})`).join(", ")}`;
+    return <span className="badge warn" title={title}>Ending this week</span>;
+  }
+  return <span className="badge good" title={`Week ${progress.week} of ${plan.weeks} — on track`}>On track</span>;
+}
+
+// Roster-row flag: no assessment on file at all, or the most recent one is a month or more old.
+function AssessmentDueBadge({ athleteId }) {
+  const assessments = window.AthleteStore.getAssessments(athleteId);
+  if (!assessments.length) {
+    return <span className="badge danger" title="No biomechanical assessment on file yet">Never assessed</span>;
+  }
+  const latest = assessments[assessments.length - 1];
+  const daysSince = Math.floor((Date.now() - new Date(`${latest.date}T00:00:00`).getTime()) / 864e5);
+  if (daysSince >= 30) {
+    return <span className="badge warn" title={`Last assessed ${shortDate(latest.date)} (${daysSince} days ago)`}>Due ({daysSince}d)</span>;
+  }
+  return null;
 }
 
 // ---- Automated CMJ summary ----

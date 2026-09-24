@@ -1247,4 +1247,7 @@
   window.PeriodizationView = PeriodizationView;
   window.PlanSheetHeader = PlanHeader; // the athlete header used on the plan and on each team-report sheet
   window.PeriodizationBoard = PlannerBoard; // the full editable plan for one athlete (used as a tab on the player profile)
+  // planProgress alone (not a component) for the roster page's program-status flag — see
+  // ProgramStatusBadge in index.html — so it doesn't have to re-derive "what week is it" itself.
+  window.PeriodizationLib = { planProgress };
 })();
