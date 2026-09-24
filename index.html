@@ -1516,13 +1516,13 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
           </div>
         </td>
         <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
+        <td></td>
+        <td></td>
+        <td></td>
         <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
         <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
-        <td></td>
-        <td></td>
-        <td></td>
         <td>
           <button className="btn-link" style={{ marginRight: 10 }} onClick={saveEdit}>Save</button>
           <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditing(false); }}>Cancel</button>
@@ -1538,13 +1538,13 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       </td>
       <td><Avatar athlete={athlete} />{displayName(athlete)}</td>
       <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
+      <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
+      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /></td>
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
-      <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
-      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
-      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /></td>
       <td onClick={(e) => e.stopPropagation()}>
         <button className="btn-link" style={{ marginRight: 10 }} onClick={startEdit}>Edit</button>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
@@ -1814,12 +1814,15 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                 <th>
                   <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} />
                 </th>
-                {ROSTER_COLUMNS.map((col) => (
+                {ROSTER_COLUMNS.slice(0, 2).map((col) => (
                   <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
                 ))}
                 <th title="Latest force-plate test vs. the closest one from about a week earlier. Click to jump to Performance Metrics.">This Week</th>
                 <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
                 <th title="Red: no assessment on file. Yellow: latest one is 3+ weeks old. Green: current. Click to jump to it.">Assessment</th>
+                {ROSTER_COLUMNS.slice(2).map((col) => (
+                  <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
+                ))}
                 <th></th>
               </tr>
             </thead>
