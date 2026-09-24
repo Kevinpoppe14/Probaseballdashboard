@@ -728,6 +728,25 @@ function addCanvasAsPages(pdf, canvas, pageW, pageH, isFirstPage = true) {
 async function captureElement(el, printCss, width) {
   const savedWidth = el.style.width;
   const savedZoom = el.style.zoom;
+  // Two more things that would otherwise clip content out of the snapshot entirely (not garble it
+  // like zoom does — just leave it missing): a textarea only shows what fits its current height
+  // (the Player Plan's action-plan boxes are the main case), and the plan's week-by-week grid
+  // scrolls horizontally in its own container rather than growing the page. Both are plain
+  // width/height/overflow changes, so — unlike zoom — html2canvas renders them correctly; expanding
+  // every one every time is harmless on tabs that have none.
+  const textareas = Array.from(el.querySelectorAll("textarea"));
+  const savedTextareas = textareas.map((ta) => ({ ta, height: ta.style.height, overflow: ta.style.overflow }));
+  textareas.forEach((ta) => {
+    ta.style.overflow = "hidden";
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight + 4}px`;
+  });
+  const scrollers = Array.from(el.querySelectorAll(".period-scroll"));
+  const savedScrollers = scrollers.map((s) => ({ s, width: s.style.width, overflow: s.style.overflow }));
+  scrollers.forEach((s) => {
+    s.style.overflow = "visible";
+    s.style.width = `${s.scrollWidth}px`;
+  });
   el.style.zoom = "";
   el.style.width = `${width}px`;
   await new Promise((r) => setTimeout(r, 30)); // let layout settle at the new width before snapshotting
@@ -760,6 +779,8 @@ async function captureElement(el, printCss, width) {
   } finally {
     el.style.width = savedWidth;
     el.style.zoom = savedZoom;
+    savedScrollers.forEach((s) => { s.s.style.width = s.width; s.s.style.overflow = s.overflow; });
+    savedTextareas.forEach((s) => { s.ta.style.height = s.height; s.ta.style.overflow = s.overflow; });
   }
 }
 
@@ -824,7 +845,7 @@ async function renderElementToPdf(selector, { width, orientation }) {
 
 async function renderTabToPdf(tab) {
   if (tab === "assessment") return renderAssessmentToPdf();
-  if (tab === "plan") return renderElementToPdf(".period-wrap", { width: 900, orientation: "portrait" });
+  if (tab === "plan") return renderElementToPdf(".period-wrap", { width: 1000, orientation: "portrait" });
   // Statcast/Performance are chart grids with no fixed page design of their own to match — wide
   // landscape gives their side-by-side charts more room than a portrait page would.
   return renderElementToPdf(`[data-tab-content="${tab}"]`, { width: 1300, orientation: "landscape" });
