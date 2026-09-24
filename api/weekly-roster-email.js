@@ -282,7 +282,10 @@ module.exports = async (req, res) => {
     res.status(401).json({ error: "unauthorized" });
     return;
   }
-  const force = isManual || (req.query && req.query.force === "1");
+  // Being a signed-in coach only grants access to call this at all (for testing) — it must NOT by
+  // itself skip the schedule/date/already-sent checks below, or every plain status-check request
+  // becomes a real send. Only an explicit ?force=1 does that.
+  const force = !!(req.query && req.query.force === "1");
 
   try {
     const now = new Date();
