@@ -1518,6 +1518,7 @@ function AthleteRow({ athlete, onSelect, onDataChange, checked, onToggleCheck })
         <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
         <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
+        <td></td>
         <td>
           <button className="btn-link" style={{ marginRight: 10 }} onClick={saveEdit}>Save</button>
           <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditing(false); }}>Cancel</button>
@@ -1537,6 +1538,7 @@ function AthleteRow({ athlete, onSelect, onDataChange, checked, onToggleCheck })
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
+      <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} /></td>
       <td onClick={(e) => e.stopPropagation()}>
         <button className="btn-link" style={{ marginRight: 10 }} onClick={startEdit}>Edit</button>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
@@ -1809,6 +1811,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                 {ROSTER_COLUMNS.map((col) => (
                   <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
                 ))}
+                <th title="Latest force-plate test vs. the closest one from about a week earlier">This Week</th>
                 <th></th>
               </tr>
             </thead>
@@ -1846,6 +1849,57 @@ const FORCE_KPI_METRICS = [
   { key: "totalImpulse", label: "Total Impulse", unit: "Ns", getValue: (t) => (typeof t.totalImpulse === "number" ? t.totalImpulse : null) },
   { key: "mRSI", label: "mRSI", unit: "", getValue: (t) => (typeof t.rsiModified === "number" ? t.rsiModified : null) },
 ];
+
+// Roster-row ticker: body weight / jump height / relative peak power, latest force test vs. the
+// closest one from roughly a week earlier. "Roughly" because testing isn't always on a strict
+// weekly cadence — this walks back from the latest test to the first one at least 4 days earlier,
+// rather than requiring exactly 7, so a slightly early or late session still counts as "last week"
+// instead of the ticker just going blank.
+const WEEK_TICKER_METRICS = ["bodyWeightLbs", "jumpHeight", "relativePeakPower"];
+const WEEK_TICKER_MIN_GAP_DAYS = 4;
+
+function weekOverWeekDelta(tests, metric) {
+  const withValue = tests
+    .map((t) => ({ t, v: metric.getValue(t) }))
+    .filter((r) => typeof r.v === "number")
+    .sort((a, b) => a.t.date.localeCompare(b.t.date));
+  if (!withValue.length) return null;
+  const latest = withValue[withValue.length - 1];
+  const latestMs = new Date(`${latest.t.date}T00:00:00`).getTime();
+  let prev = null;
+  for (let i = withValue.length - 2; i >= 0; i--) {
+    const daysBack = (latestMs - new Date(`${withValue[i].t.date}T00:00:00`).getTime()) / 864e5;
+    if (daysBack >= WEEK_TICKER_MIN_GAP_DAYS) { prev = withValue[i]; break; }
+  }
+  if (!prev || !prev.v) return null;
+  return { metric, latestVal: latest.v, latestDate: latest.t.date, prevVal: prev.v, prevDate: prev.t.date, delta: latest.v - prev.v };
+}
+
+function WeekOverWeekTicker({ athleteId }) {
+  const tests = window.AthleteStore.getForceTests(athleteId);
+  if (!tests.length) return <span className="week-ticker-empty">—</span>;
+  const entries = WEEK_TICKER_METRICS.map((key) => {
+    const metric = FORCE_KPI_METRICS.find((m) => m.key === key);
+    return { metric, change: weekOverWeekDelta(tests, metric) };
+  }).filter((e) => e.change);
+  if (!entries.length) return <span className="week-ticker-empty">—</span>;
+  return (
+    <div className="week-ticker">
+      {entries.map(({ metric, change }) => {
+        const flat = Math.abs(change.delta) < 0.05;
+        const dir = flat ? "flat" : change.delta > 0 ? "up" : "down";
+        const arrow = flat ? "▬" : change.delta > 0 ? "▲" : "▼";
+        const abbrev = metric.key === "bodyWeightLbs" ? "BW" : metric.key === "jumpHeight" ? "JH" : "RPP";
+        const title = `${metric.label}: ${fmt2(change.latestVal)} ${metric.unit} on ${shortDate(change.latestDate)} vs ${fmt2(change.prevVal)} ${metric.unit} on ${shortDate(change.prevDate)}`;
+        return (
+          <span key={metric.key} className={`week-ticker-item week-ticker-${dir}`} title={title}>
+            {abbrev} {arrow}{fmt2(Math.abs(change.delta))}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 // ---- Automated CMJ summary ----
 // Rule-based (no AI): the latest values, the jump-height trend, and which other metrics are moving.

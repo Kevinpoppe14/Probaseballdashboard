@@ -361,6 +361,14 @@ tbody tr:hover {
 .badge.warn { background: #3a2a0d; color: var(--warn); }
 .badge.danger { background: #3a1414; color: var(--danger); }
 .badge.info { background: #0e2f3f; color: var(--info); }
+
+/* Roster row ticker — body weight / jump height / relative peak power vs. about a week ago */
+.week-ticker { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-family: monospace; white-space: nowrap; }
+.week-ticker-item { cursor: default; }
+.week-ticker-up { color: var(--good); }
+.week-ticker-down { color: var(--danger); }
+.week-ticker-flat { color: var(--text-dim); }
+.week-ticker-empty { color: var(--text-dim); }
 .badge.neutral { background: #202020; color: var(--neutral); }
 
 .metric-strip {
