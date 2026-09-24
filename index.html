@@ -1472,7 +1472,7 @@ function MergeControl({ athlete, onChanged }) {
   );
 }
 
-function AthleteRow({ athlete, onSelect, onDataChange, checked, onToggleCheck }) {
+function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onToggleCheck }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(athlete.name);
   const [jersey, setJersey] = useState(hasJersey(athlete) ? athlete.jersey : "");
@@ -1542,9 +1542,9 @@ function AthleteRow({ athlete, onSelect, onDataChange, checked, onToggleCheck })
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
-      <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} /></td>
+      <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
       <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
-      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} /></td>
+      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /></td>
       <td onClick={(e) => e.stopPropagation()}>
         <button className="btn-link" style={{ marginRight: 10 }} onClick={startEdit}>Edit</button>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
@@ -1655,7 +1655,7 @@ function BulkActionsBar({ selectedIds, roster, onApplied, onClear }) {
   );
 }
 
-function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, dataVersion, onDataChange, filterControls }) {
+function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
   const [sortConfig, setSortConfig] = useState({ key: null, dir: "asc" });
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
@@ -1817,9 +1817,9 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                 {ROSTER_COLUMNS.map((col) => (
                   <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
                 ))}
-                <th title="Latest force-plate test vs. the closest one from about a week earlier">This Week</th>
+                <th title="Latest force-plate test vs. the closest one from about a week earlier. Click to jump to Performance Metrics.">This Week</th>
                 <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
-                <th title="Flags when there's no biomechanical assessment on file, or the latest one is a month or more old">Assessment</th>
+                <th title="Red: no assessment on file. Yellow: latest one is 3+ weeks old. Green: current. Click to jump to it.">Assessment</th>
                 <th></th>
               </tr>
             </thead>
@@ -1829,6 +1829,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                   key={athlete.id}
                   athlete={athlete}
                   onSelect={onSelect}
+                  onOpenTab={onOpenTab}
                   onDataChange={onDataChange}
                   checked={selectedIds.has(athlete.id)}
                   onToggleCheck={() => toggleSelect(athlete.id)}
@@ -1891,16 +1892,29 @@ function weekOverWeekDelta(tests, metric) {
   return { metric, latestVal: latest.v, latestDate: latest.t.date, prevVal: prev.v, prevDate: prev.t.date, delta: latest.v - prev.v };
 }
 
-function WeekOverWeekTicker({ athleteId }) {
+// A plain left-click navigates within the app (no full reload); a modified click (ctrl/cmd/shift/
+// middle button) is left alone so the browser's own "open in new tab" still works off the real href.
+function handleAppLinkClick(e, onOpenTab) {
+  e.stopPropagation();
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  onOpenTab();
+}
+
+function WeekOverWeekTicker({ athleteId, onOpenTab }) {
   const tests = window.AthleteStore.getForceTests(athleteId);
-  if (!tests.length) return <span className="week-ticker-empty">—</span>;
-  const entries = WEEK_TICKER_METRICS.map((key) => {
-    const metric = FORCE_KPI_METRICS.find((m) => m.key === key);
-    return { metric, change: weekOverWeekDelta(tests, metric) };
-  }).filter((e) => e.change);
-  if (!entries.length) return <span className="week-ticker-empty">—</span>;
+  const href = `?athlete=${athleteId}&tab=performance`;
+  const entries = tests.length
+    ? WEEK_TICKER_METRICS.map((key) => {
+        const metric = FORCE_KPI_METRICS.find((m) => m.key === key);
+        return { metric, change: weekOverWeekDelta(tests, metric) };
+      }).filter((e) => e.change)
+    : [];
+  if (!entries.length) {
+    return <a href={href} className="week-ticker-empty week-ticker-link" onClick={(e) => handleAppLinkClick(e, onOpenTab)} title="View Performance Metrics">—</a>;
+  }
   return (
-    <div className="week-ticker">
+    <a href={href} className="week-ticker week-ticker-link" onClick={(e) => handleAppLinkClick(e, onOpenTab)}>
       {entries.map(({ metric, change }) => {
         const flat = Math.abs(change.delta) < 0.05;
         const dir = flat ? "flat" : change.delta > 0 ? "up" : "down";
@@ -1913,7 +1927,7 @@ function WeekOverWeekTicker({ athleteId }) {
           </span>
         );
       })}
-    </div>
+    </a>
   );
 }
 
@@ -1950,18 +1964,24 @@ function ProgramStatusBadge({ athleteId }) {
   return <span className="badge good" title={`Week ${progress.week} of ${plan.weeks} — on track`}>On track</span>;
 }
 
-// Roster-row flag: no assessment on file at all, or the most recent one is a month or more old.
-function AssessmentDueBadge({ athleteId }) {
+// Roster-row flag: whether a biomechanical assessment is on file and how current it is. All three
+// states link to the athlete's most recent assessment (or the tab itself, if none exists yet).
+// Red: nothing on file. Yellow: latest assessment is 3+ weeks old — assuming a roughly monthly
+// cadence, the next one is coming up. Green: current, just a quick link to the one on file.
+const ASSESSMENT_DUE_SOON_DAYS = 21;
+function AssessmentDueBadge({ athleteId, onOpenTab }) {
   const assessments = window.AthleteStore.getAssessments(athleteId);
+  const href = `?athlete=${athleteId}&tab=assessment`;
+  const onClick = (e) => handleAppLinkClick(e, onOpenTab);
   if (!assessments.length) {
-    return <span className="badge danger" title="No biomechanical assessment on file yet">Due for Assessment</span>;
+    return <a href={href} onClick={onClick} className="badge danger badge-link" title="No biomechanical assessment on file yet">Due for Assessment</a>;
   }
   const latest = assessments[assessments.length - 1];
   const daysSince = Math.floor((Date.now() - new Date(`${latest.date}T00:00:00`).getTime()) / 864e5);
-  if (daysSince >= 30) {
-    return <span className="badge warn" title={`Last assessed ${shortDate(latest.date)} (${daysSince} days ago)`}>Due ({daysSince}d)</span>;
+  if (daysSince >= ASSESSMENT_DUE_SOON_DAYS) {
+    return <a href={href} onClick={onClick} className="badge warn badge-link" title={`Last assessed ${shortDate(latest.date)} (${daysSince} days ago)`}>Due for Assessment Next Week</a>;
   }
-  return null;
+  return <a href={href} onClick={onClick} className="badge good badge-link" title={`Last assessed ${shortDate(latest.date)} (${daysSince} days ago)`}>View Most Recent Assessment</a>;
 }
 
 // ---- Automated CMJ summary ----
@@ -5049,6 +5069,14 @@ function App({ userEmail, onLogout }) {
     setView("athlete");
   };
 
+  // Roster-row badge/ticker links (performance ticker, assessment flag) jump straight to that
+  // athlete's tab instead of just the overview.
+  const openAthleteTab = (id, tab) => {
+    setSelectedId(id);
+    setProfileTab(tab);
+    setView("athlete");
+  };
+
   return (
     <div className="app">
       <TopBar
@@ -5071,6 +5099,7 @@ function App({ userEmail, onLogout }) {
             search={search}
             rangeDays={rangeDays}
             onSelect={selectAthlete}
+            onOpenTab={openAthleteTab}
             dataVersion={dataVersion}
             onDataChange={bumpVersion}
             filterControls={
