@@ -141,7 +141,7 @@ function buildDigestHtml({ emails, edits, logins }) {
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="background:#151515;border-radius:10px;overflow:hidden;">
         <tr><td style="padding:20px 24px;border-bottom:2px solid #b5283a;">
-          <div style="color:#fff;font-size:18px;font-weight:700;font-family:Arial,sans-serif;">Daily Activity Digest</div>
+          <div style="color:#fff;font-size:18px;font-weight:700;font-family:Arial,sans-serif;">Daily Dashboard Activity</div>
           <div style="color:#9a9a9a;font-size:12px;font-family:Arial,sans-serif;margin-top:2px;">${dateLabel} &middot; last 24 hours</div>
         </td></tr>
         <tr><td style="padding:18px 14px 4px;">
@@ -273,7 +273,7 @@ module.exports = async (req, res) => {
     edits.sort((a, b) => (b.at || "").localeCompare(a.at || ""));
 
     const html = buildDigestHtml({ emails: emailRows, edits, logins });
-    const subject = `Daily Activity Digest — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    const subject = `Daily Dashboard Activity — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 
     await sendDigestEmail({ to: RECIPIENT_EMAIL, subject, html });
     await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: RECIPIENT_EMAIL, subject, kind: "activity_digest" }]);
