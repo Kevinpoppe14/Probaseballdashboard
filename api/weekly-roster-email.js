@@ -214,7 +214,7 @@ function buildDigestHtml({ locations, today }) {
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="background:#151515;border-radius:10px;overflow:hidden;">
         <tr><td style="padding:20px 24px;border-bottom:2px solid #b5283a;">
-          <div style="color:#fff;font-size:18px;font-weight:700;font-family:Arial,sans-serif;">Weekly Roster Overview</div>
+          <div style="color:#fff;font-size:18px;font-weight:700;font-family:Arial,sans-serif;">Weekly Pro Baseball Snapshot</div>
           <div style="color:#9a9a9a;font-size:12px;font-family:Arial,sans-serif;margin-top:2px;">${dateLabel} &middot; Dynamic Sports Training</div>
         </td></tr>
         <tr><td style="padding:0 14px 20px;">
@@ -369,7 +369,7 @@ module.exports = async (req, res) => {
       .map(([location, athletes]) => ({ location, athletes: athletes.sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name))) }));
 
     const html = buildDigestHtml({ locations, today: chicagoToday });
-    const subject = `Weekly Roster Overview — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    const subject = `Weekly Pro Baseball Snapshot — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
     const recipients = await getRecipients(serviceKey);
 
     if (!recipients.length) {
