@@ -2241,7 +2241,7 @@ tbody tr:hover {
 /* Positional CMJ profile (Performance Metrics tab) */
 .profile-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; font-size: 12px; }
 .profile-controls select { margin-left: 4px; }
-.profile-layout { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 18px; align-items: start; }
+.profile-layout { display: grid; grid-template-columns: minmax(300px, 400px) 1fr; gap: 18px; align-items: start; }
 @media (max-width: 900px) { .profile-layout { grid-template-columns: 1fr; } }
 .profile-row { display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(110px, 0.9fr) 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; border-bottom: 1px solid #222; font-size: 12px; }
 .profile-head { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; border-bottom-color: #333; }

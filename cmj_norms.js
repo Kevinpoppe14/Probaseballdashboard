@@ -227,6 +227,53 @@
     };
   }
 
+  // Offseason = September 1 through May 31 (e.g. Sep 2019 - May 2020 is '19-'20). In-season months
+  // (June-August) aren't part of any offseason bucket and are left out of this trend entirely.
+  function offseasonKey(dateStr) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    const y = d.getFullYear(), m = d.getMonth() + 1;
+    const yy = (n) => String(n).slice(-2);
+    if (m >= 9) return { startYear: y, label: `'${yy(y)}-'${yy(y + 1)}` };
+    if (m <= 5) return { startYear: y - 1, label: `'${yy(y - 1)}-'${yy(y)}` };
+    return null;
+  }
+
+  // One point per offseason, from the athlete's earliest tracked offseason to their most recent —
+  // never further back than their own data goes. Each point scores that offseason's average CMJ
+  // against the SAME norm table (groupKey) used everywhere else in the profile, so the line reflects
+  // real change in the athlete rather than a moving baseline. Offseasons with no tests in between are
+  // kept as null (not skipped), so the line visibly gaps instead of connecting across a missed year.
+  function offseasonTrend(tests, groupKey) {
+    const cmj = (tests || []).filter((t) => t.testType === "Countermovement Jump" && t.raw && t.date);
+    if (!cmj.length) return null;
+    const byYear = {};
+    cmj.forEach((t) => {
+      const k = offseasonKey(t.date);
+      if (!k) return;
+      (byYear[k.startYear] = byYear[k.startYear] || { label: k.label, tests: [] }).tests.push(t);
+    });
+    const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+    if (!years.length) return null;
+    const hawkinMetrics = METRICS.filter((m) => m.hawkin);
+    const points = [];
+    for (let y = years[0]; y <= years[years.length - 1]; y++) {
+      const bucket = byYear[y];
+      const yy = (n) => String(n).slice(-2);
+      const point = { offseason: bucket ? bucket.label : `'${yy(y)}-'${yy(y + 1)}`, startYear: y, n: bucket ? bucket.tests.length : 0 };
+      hawkinMetrics.forEach((m) => {
+        const vals = bucket ? bucket.tests.map((t) => m.raw(t.raw)).filter((v) => v !== null) : [];
+        if (!vals.length) { point[m.key] = null; return; }
+        const value = vals.reduce((s, v) => s + v, 0) / vals.length;
+        const table = HAWKIN_TABLES[m.hawkin][groupKey];
+        point[m.key] = table ? hawkinPercentile(table, value, m.lowerIsBetter) : null;
+      });
+      const pcts = hawkinMetrics.map((m) => point[m.key]).filter((v) => typeof v === "number");
+      point.overall = pcts.length ? pcts.reduce((s, v) => s + v, 0) / pcts.length : null;
+      points.push(point);
+    }
+    return points;
+  }
+
   const mean = (xs) => { const v = xs.filter((x) => typeof x === "number"); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
   const ord = (n) => { const r = Math.round(n), s = ["th", "st", "nd", "rd"], v = r % 100; return r + (s[(v - 20) % 10] || s[v] || s[0]); };
 
@@ -299,5 +346,5 @@
     return items;
   }
 
-  window.CmjNorms = { HAWKIN_GROUPS, METRICS, buildProfile, recommendations, band, defaultGroupFor, PROFILE_WINDOW_DAYS };
+  window.CmjNorms = { HAWKIN_GROUPS, METRICS, buildProfile, offseasonTrend, recommendations, band, defaultGroupFor, PROFILE_WINDOW_DAYS };
 })();
