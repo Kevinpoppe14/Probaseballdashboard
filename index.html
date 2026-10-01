@@ -4665,22 +4665,78 @@ async function fetchPercentileRow(mlbamId, isPitcher, yr) {
   return findByPlayerId(rows, "player_id", mlbamId) || null;
 }
 
-// Red (0) through blue (100), the same low/high convention as Savant's own chart, computed as an
-// HSL sweep rather than matched stop-for-stop to their exact palette.
+// Matches Savant's own percentile-chart palette: a diverging blue -> pale grey -> red scale keyed
+// purely to the number itself (not to whether high or low is "good" for that stat) — blue at 0,
+// white-grey at 50, red at 100. Every column in PERCENTILE_METRIC_GROUPS is already oriented so
+// 100 = best, so "red" always lines up with the GREAT end of the legend below.
 function percentileColor(pct) {
-  const hue = Math.max(0, Math.min(100, pct)) * 2.2; // 0 -> red, 100 -> blue (220°)
-  return `hsl(${hue}, 70%, 50%)`;
+  const p = Math.max(0, Math.min(100, pct));
+  const stops = p <= 50
+    ? [[37, 99, 201], [228, 230, 233], p / 50]
+    : [[228, 230, 233], [196, 46, 46], (p - 50) / 50];
+  const [from, to, t] = stops;
+  const mix = (i) => Math.round(from[i] + (to[i] - from[i]) * t);
+  return `rgb(${mix(0)}, ${mix(1)}, ${mix(2)})`;
 }
 
-function PercentileBar({ label, pct }) {
+// One shared legend for the whole panel (every bar uses the same 0-100 scale), styled after the
+// POOR / AVERAGE / GREAT header on Savant's own percentile chart.
+function PercentileLegend() {
+  return (
+    <div className="percentile-legend">
+      <span className="percentile-legend-poor">POOR</span>
+      <span className="percentile-legend-avg">AVERAGE</span>
+      <span className="percentile-legend-great">GREAT</span>
+    </div>
+  );
+}
+
+// Small 3-point line next to each bar — oldest to newest left to right, dots colored on the same
+// scale as the bars so a glance at color alone shows whether a season was better or worse.
+function PercentileTrendSpark({ points }) {
+  const w = 64, h = 26, pad = 5;
+  const n = points.length;
+  const coords = points.map((p, i) => {
+    const x = pad + (i * (w - pad * 2)) / (n - 1 || 1);
+    const has = typeof p.pct === "number" && !isNaN(p.pct);
+    const y = has ? pad + (1 - p.pct / 100) * (h - pad * 2) : null;
+    return { x, y, pct: has ? p.pct : null, year: p.year };
+  });
+  const valid = coords.filter((c) => c.y !== null);
+  if (!valid.length) return <span className="percentile-trend-empty">—</span>;
+  return (
+    <svg width={w} height={h} className="percentile-trend-spark">
+      {valid.length > 1 && (
+        <polyline points={valid.map((c) => `${c.x},${c.y}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth="1.25" />
+      )}
+      {valid.map((c) => (
+        <circle key={c.year} cx={c.x} cy={c.y} r={2.6} fill={percentileColor(c.pct)}>
+          <title>{`${c.year}: ${Math.round(c.pct)}th percentile`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
+function PercentileBar({ label, pct, trend }) {
   const has = typeof pct === "number" && !isNaN(pct);
+  const clamped = has ? Math.max(2, Math.min(98, pct)) : 0; // keep the badge from hanging off either edge
   return (
     <div className="percentile-row">
       <div className="percentile-label">{label}</div>
       <div className="percentile-track">
-        {has && <div className="percentile-fill" style={{ width: `${pct}%`, background: percentileColor(pct) }} />}
+        <div className="percentile-track-line" />
+        {has && (
+          <React.Fragment>
+            <div className="percentile-fill" style={{ width: `${pct}%`, background: percentileColor(pct) }} />
+            <div className="percentile-badge" style={{ left: `${clamped}%`, background: percentileColor(pct) }}>
+              {Math.round(pct)}
+            </div>
+          </React.Fragment>
+        )}
+        {!has && <span className="percentile-nodata">—</span>}
       </div>
-      <div className="percentile-value">{has ? Math.round(pct) : "—"}</div>
+      {trend ? <PercentileTrendSpark points={trend} /> : <span />}
     </div>
   );
 }
@@ -4696,25 +4752,27 @@ function PercentileRankingsPanel({ athlete, onChanged }) {
   const year = new Date().getFullYear();
   const groups = isPitcher ? PERCENTILE_METRIC_GROUPS.pitcher : PERCENTILE_METRIC_GROUPS.batter;
 
+  const TREND_SEASONS = 3;
+
   const refresh = async () => {
     setLoading(true);
     setError("");
     try {
-      let row = await fetchPercentileRow(resolvedId, isPitcher, year);
-      let usedYear = year;
-      if (!row) {
-        // Off-season, or this year's games haven't been added to the leaderboard yet — fall back
-        // to the most recently completed season rather than showing nothing.
-        row = await fetchPercentileRow(resolvedId, isPitcher, year - 1);
-        usedYear = year - 1;
-      }
-      if (!row) {
+      const years = []; // most recent first: [year, year-1, year-2]
+      for (let i = 0; i < TREND_SEASONS; i++) years.push(year - i);
+      const rows = await Promise.all(years.map((y) => fetchPercentileRow(resolvedId, isPitcher, y)));
+      const trendRows = {};
+      years.forEach((y, i) => { trendRows[y] = rows[i]; });
+      const usedYear = years.find((y) => trendRows[y]) || null;
+      if (!usedYear) {
         setError(
-          "No percentile ranking data found for this player in this or the prior season — this is expected for anyone who isn't on an active MLB roster with tracked Statcast games."
+          `No percentile ranking data found for this player in the last ${TREND_SEASONS} seasons — this is expected for anyone who isn't on an active MLB roster with tracked Statcast games.`
         );
       }
       window.AthleteStore.updateAthlete(athlete.id, {
-        mlbPercentiles: row ? { type: isPitcher ? "pitcher" : "batter", year: usedYear, values: row, fetchedAt: new Date().toISOString() } : null,
+        mlbPercentiles: usedYear
+          ? { type: isPitcher ? "pitcher" : "batter", year: usedYear, values: trendRows[usedYear], years, trendRows, fetchedAt: new Date().toISOString() }
+          : null,
       });
       onChanged();
     } catch (e) {
@@ -4725,6 +4783,16 @@ function PercentileRankingsPanel({ athlete, onChanged }) {
   };
 
   const values = data && data.values;
+  const trendYears = data && data.years ? [...data.years].reverse() : null; // oldest -> newest, for left-to-right reading
+
+  const trendFor = (key) => {
+    if (!trendYears) return null;
+    return trendYears.map((y) => {
+      const row = data.trendRows[y];
+      const raw = row ? row[key] : null;
+      return { year: y, pct: raw !== undefined && raw !== null && raw !== "" ? Number(raw) : null };
+    });
+  };
 
   return (
     <div className="panel" style={{ marginBottom: 14 }}>
@@ -4734,19 +4802,24 @@ function PercentileRankingsPanel({ athlete, onChanged }) {
       )}
       {values ? (
         <div className="percentile-groups">
+          <div className="percentile-row percentile-header-row">
+            <div />
+            <PercentileLegend />
+            <div className="percentile-trend-header">{trendYears ? `${trendYears[0]}–${trendYears[trendYears.length - 1]}` : "3-Yr"} Trend</div>
+          </div>
           {groups.map((g) => (
             <div key={g.group} className="percentile-group">
               <h3>{g.group}</h3>
               {g.metrics.map((m) => {
                 const raw = values[m.key];
                 const pct = raw !== undefined && raw !== null && raw !== "" ? Number(raw) : null;
-                return <PercentileBar key={m.key} label={m.label} pct={pct} />;
+                return <PercentileBar key={m.key} label={m.label} pct={pct} trend={trendFor(m.key)} />;
               })}
             </div>
           ))}
         </div>
       ) : (
-        <div className="empty-state">No percentile data fetched yet. Click Refresh below to pull this season's rankings from Baseball Savant.</div>
+        <div className="empty-state">No percentile data fetched yet. Click Refresh below to pull the last {TREND_SEASONS} seasons' rankings from Baseball Savant.</div>
       )}
       <button className="btn btn-secondary no-print" disabled={loading} onClick={refresh} style={{ marginTop: 10 }}>
         {loading ? "Fetching…" : "Refresh Percentile Rankings"}
