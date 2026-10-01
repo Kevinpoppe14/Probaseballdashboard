@@ -2306,7 +2306,7 @@ function PositionalProfilePanel({ athlete }) {
   }
   const hasDropJump = tests.some((t) => /drop jump/i.test(t.testType || "") && (Date.now() - new Date(`${t.date}T00:00:00`).getTime()) / 864e5 <= 90);
   const recs = N.recommendations(profile, { name: athlete.name, hasDropJump });
-  const radarLabel = { peakRelPropPower: "Rel. Prop. Power", propulsiveNetImpulse: "Prop. Net Impulse", brakingNetImpulse: "Braking Net Impulse", timeToTakeoff: "Time to Takeoff" };
+  const radarLabel = { peakRelPropPower: "Rel. Prop. Power", propulsiveNetImpulse: "Prop. Net Impulse", brakingNetImpulse: "Braking Net Impulse" };
   const radarData = profile.rows.filter((r) => r.hawkinPct !== null).map((r) => ({ metric: radarLabel[r.key] || r.label, pct: Math.round(r.hawkinPct), median: 50 }));
   const hawkinRows = profile.rows.filter((r) => r.hawkin);
   const valdOnlyRows = profile.rows.filter((r) => !r.hawkin);

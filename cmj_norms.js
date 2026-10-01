@@ -54,17 +54,6 @@
       [356.2, 337.5, 322.3, 313.6, 306.6, 302.6, 298.8, 295.7, 292.2, 288.9, 284.8, 279.8, 276.9, 274.3, 271.4, 268.6, 264.7, 258.8, 252.8, 245.0],
       [346.6, 341.0, 332.2, 323.3, 317.2, 313.0, 309.6, 306.3, 303.7, 300.8, 298.2, 295.3, 292.4, 287.8, 276.8, 266.2, 254.3, 247.3, 236.2, 221.0]
     ),
-    timeToTakeoff: H(
-      [0.67, 0.70, 0.72, 0.74, 0.76, 0.78, 0.79, 0.80, 0.82, 0.84, 0.86, 0.87, 0.90, 0.92, 0.94, 0.98, 1.01, 1.07, 1.16, 1.24],
-      [0.69, 0.73, 0.76, 0.77, 0.78, 0.79, 0.81, 0.82, 0.83, 0.84, 0.86, 0.87, 0.89, 0.92, 0.96, 0.99, 1.04, 1.10, 1.15, 1.23],
-      [0.69, 0.71, 0.73, 0.76, 0.77, 0.78, 0.80, 0.81, 0.83, 0.86, 0.87, 0.89, 0.91, 0.92, 0.94, 0.97, 1.00, 1.03, 1.12, 1.23],
-      [0.67, 0.71, 0.72, 0.74, 0.76, 0.77, 0.78, 0.80, 0.82, 0.84, 0.86, 0.88, 0.91, 0.92, 0.94, 0.98, 1.00, 1.05, 1.15, 1.24],
-      [0.71, 0.73, 0.75, 0.77, 0.79, 0.80, 0.81, 0.84, 0.85, 0.87, 0.88, 0.89, 0.91, 0.92, 0.94, 0.96, 0.99, 1.02, 1.08, 1.11],
-      [0.65, 0.68, 0.71, 0.73, 0.75, 0.76, 0.78, 0.79, 0.81, 0.83, 0.85, 0.87, 0.89, 0.92, 0.95, 0.98, 1.03, 1.09, 1.19, 1.26],
-      [0.67, 0.71, 0.73, 0.75, 0.76, 0.78, 0.80, 0.81, 0.82, 0.84, 0.85, 0.87, 0.88, 0.90, 0.92, 0.94, 0.96, 1.00, 1.08, 1.15],
-      [0.66, 0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.81, 0.83, 0.84, 0.85, 0.87, 0.89, 0.91, 0.93, 0.95, 0.98, 1.02, 1.11, 1.18],
-      [0.70, 0.73, 0.74, 0.75, 0.77, 0.79, 0.80, 0.81, 0.82, 0.83, 0.84, 0.85, 0.87, 0.89, 0.90, 0.92, 0.93, 0.96, 1.00, 1.03]
-    ),
     brakingNetImpulse: H(
       [181.5, 175.0, 162.9, 155.8, 149.5, 144.2, 139.7, 135.1, 130.3, 126.3, 123.4, 120.6, 116.7, 113.1, 109.7, 106.0, 100.4, 95.7, 88.8, 79.6],
       [183.3, 179.6, 174.2, 170.3, 166.6, 160.0, 154.6, 147.3, 141.6, 138.6, 135.6, 130.9, 128.6, 125.6, 123.2, 117.6, 111.3, 107.0, 96.2, 81.6],
@@ -120,8 +109,6 @@
     ftct: { g1: [0.64, 0.77, 0.85, 0.94, 1.08], g2: [0.64, 0.76, 0.85, 0.94, 1.09], g3: [0.63, 0.77, 0.87, 0.97, 1.11], g4: [0.63, 0.75, 0.83, 0.91, 1.02] },
     eccPeakVelocity: { g1: [1.17, 1.40, 1.56, 1.71, 1.92], g2: [1.11, 1.36, 1.52, 1.68, 1.92], g3: [1.10, 1.34, 1.51, 1.66, 1.86], g4: [1.17, 1.46, 1.62, 1.75, 1.95] },
     eccPeakPowerBM: { g1: [14.8, 20.6, 24.8, 29.1, 35.1], g2: [13.3, 19.4, 23.9, 28.8, 35.5], g3: [12.9, 18.6, 23.2, 27.9, 35.4], g4: [13.8, 20.9, 25.4, 29.6, 35.9] },
-    eccDecelRfdBM: { g1: [54, 84, 108, 136, 185], g2: [51, 80, 106, 136, 186], g3: [46, 76, 104, 133, 187], g4: [50, 81, 103, 128, 168] },
-    concPeakForceBM: { g1: [22.8, 25.0, 26.8, 28.8, 32.1], g2: [22.8, 25.0, 26.9, 29.1, 32.2], g3: [22.7, 24.9, 26.9, 29.0, 32.6], g4: [22.5, 24.7, 26.4, 28.2, 30.8] },
     bodyMassKg: { g1: [82.6, 90.7, 96.1, 102.7, 114.7], g2: [77.0, 84.0, 89.7, 96.0, 105.8], g3: [78.7, 87.7, 93.3, 98.8, 107.5], g4: [80.2, 89.8, 96.9, 103.8, 113.7] },
   };
 
@@ -142,8 +129,6 @@
       raw: (r) => num(r["Peak Relative Propulsive Power(W/kg)"]) },
     { key: "brakingNetImpulse", label: "Braking Net Impulse", unit: "N·s", decimals: 0, hawkin: "brakingNetImpulse", group: "braking",
       raw: (r) => num(r["Braking Net Impulse(N.s)"]) },
-    { key: "timeToTakeoff", label: "Time to Takeoff", unit: "s", decimals: 3, hawkin: "timeToTakeoff", lowerIsBetter: true, group: "strategy",
-      raw: (r) => num(r["Time To Takeoff(s)"]) },
     { key: "mRSI", label: "mRSI", unit: "", decimals: 2, hawkin: "mRSI", vald: "mRSI", group: "strategy",
       raw: (r) => num(r["mRSI"]) },
     { key: "ftct", label: "Flight Time : Contraction Time", unit: "", decimals: 2, vald: "ftct", group: "strategy",
@@ -155,12 +140,6 @@
     { key: "eccPeakPowerBM", label: "Peak Relative Braking Power", unit: "W/kg", decimals: 1, vald: "eccPeakPowerBM", group: "braking",
       raw: (r) => { const v = num(r["Peak Relative Braking Power(W/kg)"]); return v === null ? null : Math.abs(v); },
       valdNote: "VALD: Eccentric Peak Power / BM", approx: true },
-    { key: "eccDecelRfdBM", label: "Braking RFD / Body Mass", unit: "N/s/kg", decimals: 0, vald: "eccDecelRfdBM", group: "braking",
-      raw: (r) => { const rfd = num(r["Braking RFD(N/s)"]), w = num(r["System Weight(N)"]); return rfd && w ? rfd / (w / G) : null; },
-      valdNote: "VALD: Eccentric Deceleration RFD / BM", approx: true },
-    { key: "concPeakForceBM", label: "Peak Relative Propulsive Force", unit: "N/kg", decimals: 1, vald: "concPeakForceBM", group: "output",
-      raw: (r) => { const p = num(r["Peak Relative Propulsive Force(%)"]); return p === null ? null : (p / 100) * G; },
-      valdNote: "VALD: Concentric Peak Force / BM", approx: true },
   ];
 
   // Hawkin rows run 100th -> 5th percentile in 5-point steps.
@@ -252,8 +231,8 @@
   const ord = (n) => { const r = Math.round(n), s = ["th", "st", "nd", "rd"], v = r % 100; return r + (s[(v - 20) % 10] || s[v] || s[0]); };
 
   // Rule-based read of the profile, following the Hawkin guide's framing: jump height and momentum are
-  // the outcome, propulsive impulse and power are what drive it, and time to takeoff / mRSI describe
-  // how quickly the athlete gets there (strategy). Each item: { tone: "good"|"warn"|"info", text }.
+  // the outcome, propulsive impulse and power are what drive it, and mRSI describes how quickly the
+  // athlete gets there (strategy). Each item: { tone: "good"|"warn"|"info", text }.
   function recommendations(profile, ctx) {
     if (!profile) return [];
     const by = Object.fromEntries(profile.rows.map((r) => [r.key, r]));
@@ -274,18 +253,18 @@
     // can be high on one and low on the other, and averaging the two hides exactly that.
     const rel = mean(["jumpHeight", "peakRelPropPower"].map(hp));
     const abs = mean(["jumpMomentum", "propulsiveNetImpulse"].map(hp));
-    const strategy = mean(["timeToTakeoff", "mRSI"].map(hp));
+    const strategy = hp("mRSI");
     const braking = hp("brakingNetImpulse");
     let massNoted = false;
 
     if (rel !== null && strategy !== null) {
       if (rel >= 52.5 && strategy < 47.5) {
-        items.push({ tone: "warn", text: `Force-capable but slow: jump height / relative power sit in the ${ord(rel)} percentile while time to takeoff / mRSI are in the ${ord(strategy)}. Prioritize speed-strength — ballistic and short-contact jump work, loaded jumps with intent to move fast — and track time to takeoff and mRSI.` });
+        items.push({ tone: "warn", text: `Force-capable but slow: jump height / relative power sit in the ${ord(rel)} percentile while mRSI is in the ${ord(strategy)}. Prioritize speed-strength — ballistic and short-contact jump work, loaded jumps with intent to move fast — and track mRSI.` });
       } else if (rel < 47.5 && strategy >= 52.5 && abs !== null && abs >= 52.5) {
         massNoted = true;
         items.push({ tone: "warn", text: `Quick and produces plenty of total force (momentum / propulsive impulse ${ord(abs)} percentile), but it doesn't convert into height for their size (jump height / relative power ${ord(rel)}). Prioritize relative power — explosive and ballistic work, plus body composition if appropriate — and track jump height and relative peak power.` });
       } else if (rel < 47.5 && strategy >= 52.5) {
-        items.push({ tone: "warn", text: `Quick but under-powered: time to takeoff / mRSI are ${ord(strategy)} percentile but jump height / relative power only ${ord(rel)}. Build force capacity — heavy lower-body strength work to raise propulsive impulse — and track jump height and propulsive net impulse.` });
+        items.push({ tone: "warn", text: `Quick but under-powered: mRSI is ${ord(strategy)} percentile but jump height / relative power only ${ord(rel)}. Build force capacity — heavy lower-body strength work to raise propulsive impulse — and track jump height and propulsive net impulse.` });
       } else if (rel < 47.5 && strategy < 47.5) {
         items.push({ tone: "warn", text: `Below the positional standard in both relative output (${ord(rel)}) and speed (${ord(strategy)}). Build foundational strength first, then layer in power and reactive work.` });
       } else if (rel >= 52.5 && strategy >= 52.5) {
@@ -309,7 +288,6 @@
     if (isPitcher) {
       const low = ["propulsiveNetImpulse", "peakRelPropPower"].filter((k) => hp(k) !== null && hp(k) < 47.5).map((k) => by[k].label.toLowerCase());
       items.push({ tone: low.length ? "warn" : "info", text: `Pitchers: in Division I pitchers, CMJ propulsive impulse and peak power correlated with fastball velocity (r = 0.71 and 0.68). ${low.length ? `${first}'s ${low.join(" and ")} ${low.length > 1 ? "are" : "is"} below the pitcher median — a velocity-development priority.` : "Both are at or above the pitcher median."}` });
-      items.push({ tone: "info", text: "Add single-leg CMJ (drive vs. lead leg asymmetry) and shoulder IR/ER at 90° — the guide puts healthy ER:IR strength at 65–75%." });
     } else {
       if (!ctx.hasDropJump) items.push({ tone: "info", text: "No recent drop jump on file. Drop jump RSI relates to first-step quickness, base stealing and defensive range — worth adding to the battery." });
       if (profile.groupKey === "outfield") items.push({ tone: "info", text: "Outfielders: hamstring weakness is consistently linked to strains. Add the standing 90:20 hamstring test (VALD also reports Nordic peak force under 377 N carries ~2.5x strain risk)." });
@@ -317,9 +295,6 @@
 
     const days = Math.round((Date.now() - dayMs(profile.lastDate)) / 864e5);
     if (days > 35) items.push({ tone: "warn", text: `Last hands-on-hips CMJ was ${days} days ago. The guide recommends monthly retesting to track adaptation.` });
-
-    const gaps = profile.rows.filter((r) => r.hawkinPct !== null && r.valdPct !== null && Math.abs(r.hawkinPct - r.valdPct) >= 20);
-    if (gaps.length) items.push({ tone: "info", text: `Hawkin and VALD disagree by 20+ percentile points on ${gaps.map((r) => r.label).join(", ")} — the two MLB samples and calculation methods differ, so treat them as separate reference points rather than one answer.` });
 
     return items;
   }
