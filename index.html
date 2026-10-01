@@ -48,7 +48,6 @@
 <script src="research_snapshots_2.js"></script>
 <script src="research_snapshots_3.js"></script>
 <script src="cmj_norms.js"></script>
-<script src="cmj_statcast_correlations.js"></script>
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
@@ -2455,141 +2454,6 @@ function PositionalProfilePanel({ athlete }) {
   );
 }
 
-// ---- CMJ <-> Statcast correlations (bottom of Performance Metrics) ----------------------
-// Diverging scale centered on a neutral grey at r=0 (dark-theme equivalent of PercentileLegend's
-// pale-grey center) — red for positive, blue for negative. Sign here is just direction of the
-// relationship, not "good"/"bad" the way percentileColor's red/blue is, so the two scales
-// intentionally aren't shared.
-function correlationColor(r) {
-  if (typeof r !== "number" || isNaN(r)) return "#3a3a3a";
-  const t = Math.min(1, Math.abs(r));
-  const from = [58, 58, 60];
-  const to = r >= 0 ? [196, 46, 46] : [59, 95, 196];
-  const mix = (i) => Math.round(from[i] + (to[i] - from[i]) * t);
-  return `rgb(${mix(0)}, ${mix(1)}, ${mix(2)})`;
-}
-function fmtR(r) {
-  return (r >= 0 ? "+" : "−") + Math.abs(r).toFixed(2);
-}
-
-// Pooled, roster-wide view: every {cmjMetric, statcastMetric} pair's Pearson r across every
-// athlete-season in this athlete's own position group (pitcher or position player — see the
-// Individual panel below for one-athlete-at-a-time correlations instead).
-function CmjStatcastOverallPanel({ athlete }) {
-  const C = window.CmjStatcastCorrelations;
-  const N = window.CmjNorms;
-  if (!C || !N) return null;
-  const type = athlete.position === "Pitcher" ? "pitcher" : "batter";
-  const groupLabel = type === "pitcher" ? "pitchers" : "position players";
-  const athletes = window.AthleteStore.allAthletes();
-  const matrix = C.buildOverallMatrix(athletes, type);
-  const statcastMetrics = C.STATCAST_METRICS[type];
-  const cmjMetrics = N.METRICS;
-  const athleteCounts = cmjMetrics.flatMap((m) => statcastMetrics.map((s) => matrix[m.key][s.key].athletes));
-  const maxAthletes = athleteCounts.length ? Math.max(...athleteCounts) : 0;
-
-  return (
-    <div className="panel">
-      <h2>CMJ &harr; Statcast Correlations <small>All {groupLabel} on the roster</small></h2>
-      <p className="corr-caveat">
-        Each cell correlates a CMJ metric's offseason percentile with the following season's Statcast percentile for that stat
-        (e.g. the '24-'25 offseason against the 2025 season), pooled across every {groupLabel.slice(0, -1)}-season pair on file
-        &mdash; "n" below each value is athlete-seasons, not athletes. {maxAthletes} {groupLabel} currently have both a CMJ
-        offseason and a matched following-season Statcast percentile, so read this as a first pass that will sharpen as more
-        athletes get their Statcast percentiles refreshed, not a finished analysis.
-      </p>
-      {maxAthletes === 0 ? (
-        <div className="empty-state">No {groupLabel} yet have both CMJ offseason history and a refreshed Statcast percentile for the following season.</div>
-      ) : (
-        <table className="corr-table">
-          <thead>
-            <tr>
-              <th>CMJ Metric</th>
-              {statcastMetrics.map((s) => <th key={s.key}>{s.label}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {cmjMetrics.map((m) => (
-              <tr key={m.key}>
-                <td>{m.label}</td>
-                {statcastMetrics.map((s) => {
-                  const cell = matrix[m.key][s.key];
-                  return (
-                    <td key={s.key}>
-                      {cell.r === null ? (
-                        <span className="corr-cell-empty">&mdash;</span>
-                      ) : (
-                        <span className="corr-r-badge" style={{ background: correlationColor(cell.r) }}>
-                          {fmtR(cell.r)}
-                          <span className="corr-n">n={cell.n}</span>
-                        </span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-// Per-athlete view: each row uses only ONE athlete's own offseason-to-season pairs, surfacing
-// someone whose personal jump/output link is strong even where the pooled correlation above is
-// weak or noisy. Capped at `MIN_N` because Statcast percentiles only cache 3 trailing seasons, so
-// no row here can ever have more than 3 paired points — that's leads worth a look, not proof.
-function CmjStatcastIndividualPanel({ athlete }) {
-  const C = window.CmjStatcastCorrelations;
-  if (!C) return null;
-  const MIN_N = 3;
-  const TOP_N = 15;
-  const type = athlete.position === "Pitcher" ? "pitcher" : "batter";
-  const groupLabel = type === "pitcher" ? "pitchers" : "position players";
-  const athletes = window.AthleteStore.allAthletes();
-  const results = C.buildIndividualCorrelations(athletes, type, MIN_N);
-  const top = results.slice(0, TOP_N);
-  const mineOutsideTop = results.slice(TOP_N).filter((r) => r.athleteId === athlete.id);
-  const shown = [...top, ...mineOutsideTop];
-
-  return (
-    <div className="panel">
-      <h2>Individual CMJ &harr; Statcast Correlations <small>Strongest single-athlete links among {groupLabel}</small></h2>
-      <p className="corr-caveat">
-        Unlike the matrix above, each row here is built from one athlete's own offseason-to-season pairs only. Every row is
-        capped at {MIN_N} paired seasons (that's as many as Statcast percentiles ever cache) and requires at least {MIN_N} to
-        appear at all, so none of these have the statistical power to prove anything on their own &mdash; treat them as leads
-        worth a closer look. {athlete.name}'s own rows, if any, are highlighted.
-      </p>
-      {!results.length ? (
-        <div className="empty-state">No {groupLabel} yet have at least {MIN_N} offseason-to-season pairs to correlate individually.</div>
-      ) : (
-        <table className="corr-table corr-indiv-table">
-          <thead>
-            <tr><th>Athlete</th><th>CMJ Metric</th><th>Statcast Metric</th><th>r</th></tr>
-          </thead>
-          <tbody>
-            {shown.map((row) => (
-              <tr key={`${row.athleteId}-${row.cmjKey}-${row.statcastKey}`} className={row.athleteId === athlete.id ? "corr-indiv-current" : ""}>
-                <td>{row.athleteName}</td>
-                <td>{row.cmjLabel}</td>
-                <td>{row.statcastLabel}</td>
-                <td>
-                  <span className="corr-r-badge" style={{ background: correlationColor(row.r) }}>
-                    {fmtR(row.r)}
-                    <span className="corr-n">n={row.n}</span>
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
 function ForcePlatePanel({ athleteId, range }) {
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = allTests.filter((t) => dateInRange(t.date, range));
@@ -2998,8 +2862,6 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         <PositionalProfilePanel athlete={athlete} />
         <RangeSelector range={dataRange} onChange={setDataRange} />
         <ForcePlatePanel athleteId={athlete.id} range={dataRange} />
-        <CmjStatcastOverallPanel athlete={athlete} />
-        <CmjStatcastIndividualPanel athlete={athlete} />
       </div>
 
       <div className={activeTab === "bodycomp" ? "" : "tab-hidden"}>
