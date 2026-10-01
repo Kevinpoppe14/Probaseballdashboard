@@ -4692,31 +4692,75 @@ function PercentileLegend() {
   );
 }
 
-// Small 3-point line next to each bar — oldest to newest left to right, dots colored on the same
-// scale as the bars so a glance at color alone shows whether a season was better or worse.
-function PercentileTrendSpark({ points }) {
-  const w = 40, h = 16, pad = 3;
+// Same rule as the year-over-year ticker: a change that rounds away at one decimal counts as flat.
+function trendDir(from, to) {
+  if (Math.round(from * 10) === Math.round(to * 10)) return "flat";
+  return to > from ? "up" : "down";
+}
+const TREND_COLORS = { up: "var(--good)", down: "var(--danger)", flat: "#6b7280" };
+
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function signedChange(d, digits) {
+  const r = digits === 0 ? Math.round(d) : Number(fmt2(d));
+  if (!r) return "no change";
+  return (r > 0 ? "+" : "−") + (digits === 0 ? Math.abs(r) : fmt2(Math.abs(r)));
+}
+
+// Small year-by-year line, oldest to newest left to right. Each segment is green when the number
+// went up that year and red when it went down; hovering a point shows the year, value and change.
+// `domain` pins the y-scale (percentiles use 0-100); omit it to scale to the data itself.
+function TrendSpark({ points, width, height, domain, describe }) {
+  const [hoverYear, setHoverYear] = useState(null);
+  const pad = 4;
+  const vals = points.filter((p) => typeof p.value === "number" && !isNaN(p.value)).map((p) => p.value);
+  if (!vals.length) return <span className="percentile-trend-empty">—</span>;
+  const [lo, hi] = domain || [Math.min(...vals), Math.max(...vals)];
+  const span = hi - lo || Math.abs(hi) || 1;
   const n = points.length;
-  const coords = points.map((p, i) => {
-    const x = pad + (i * (w - pad * 2)) / (n - 1 || 1);
-    const has = typeof p.pct === "number" && !isNaN(p.pct);
-    const y = has ? pad + (1 - p.pct / 100) * (h - pad * 2) : null;
-    return { x, y, pct: has ? p.pct : null, year: p.year };
-  });
-  const valid = coords.filter((c) => c.y !== null);
-  if (!valid.length) return <span className="percentile-trend-empty">—</span>;
+  const valid = points
+    .map((p, i) => ({
+      ...p,
+      x: pad + (i * (width - pad * 2)) / (n - 1 || 1),
+      y: typeof p.value === "number" && !isNaN(p.value) ? pad + (1 - (p.value - lo) / span) * (height - pad * 2) : null,
+    }))
+    .filter((c) => c.y !== null);
+  const prevOf = (c) => {
+    const i = valid.findIndex((v) => v.year === c.year);
+    return i > 0 ? valid[i - 1] : null;
+  };
+  const hovered = valid.find((c) => c.year === hoverYear);
   return (
-    <svg width={w} height={h} className="percentile-trend-spark">
-      {valid.length > 1 && (
-        <polyline points={valid.map((c) => `${c.x},${c.y}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth="1" />
+    <div className="trend-spark" style={{ width, height }}>
+      <svg width={width} height={height}>
+        {valid.slice(1).map((c, i) => (
+          <line key={c.year} x1={valid[i].x} y1={valid[i].y} x2={c.x} y2={c.y} strokeWidth="1.5" strokeLinecap="round" style={{ stroke: TREND_COLORS[trendDir(valid[i].value, c.value)] }} />
+        ))}
+        {valid.map((c) => {
+          const prev = prevOf(c);
+          return (
+            <g key={c.year} onMouseEnter={() => setHoverYear(c.year)} onMouseLeave={() => setHoverYear(null)}>
+              <circle cx={c.x} cy={c.y} r={7} fill="transparent" />
+              <circle cx={c.x} cy={c.y} r={c.year === hoverYear ? 3.4 : 2.4} style={{ fill: TREND_COLORS[prev ? trendDir(prev.value, c.value) : "flat"] }} />
+            </g>
+          );
+        })}
+      </svg>
+      {hovered && (
+        <div className="trend-tooltip" style={{ left: hovered.x, top: hovered.y }}>
+          {describe(hovered, prevOf(hovered))}
+        </div>
       )}
-      {valid.map((c) => (
-        <circle key={c.year} cx={c.x} cy={c.y} r={1.8} fill={percentileColor(c.pct)}>
-          <title>{`${c.year}: ${Math.round(c.pct)}th percentile`}</title>
-        </circle>
-      ))}
-    </svg>
+    </div>
   );
+}
+
+function describePercentilePoint(c, prev) {
+  const pct = Math.round(c.value);
+  return `${c.year}: ${ordinal(pct)} percentile` + (prev ? ` (${signedChange(pct - Math.round(prev.value), 0)} vs ${prev.year})` : "");
 }
 
 function PercentileBar({ label, pct, trend }) {
@@ -4737,7 +4781,7 @@ function PercentileBar({ label, pct, trend }) {
         )}
         {!has && <span className="percentile-nodata">—</span>}
       </div>
-      {trend ? <PercentileTrendSpark points={trend} /> : <span />}
+      {trend ? <TrendSpark points={trend} width={44} height={18} domain={[0, 100]} describe={describePercentilePoint} /> : <span />}
     </div>
   );
 }
@@ -4791,7 +4835,7 @@ function PercentileRankingsPanel({ athlete, onChanged }) {
     return trendYears.map((y) => {
       const row = data.trendRows[y];
       const raw = row ? row[key] : null;
-      return { year: y, pct: raw !== undefined && raw !== null && raw !== "" ? Number(raw) : null };
+      return { year: y, value: raw !== undefined && raw !== null && raw !== "" ? Number(raw) : null };
     });
   };
 
@@ -4940,32 +4984,6 @@ function yearOverYearDelta(yearValues) {
   return { latest, prev, delta, dir: flat ? "flat" : delta > 0 ? "up" : "down" };
 }
 
-function StatTrendSpark({ points }) {
-  const w = 56, h = 24, pad = 4;
-  const vals = points.filter((p) => typeof p.value === "number").map((p) => p.value);
-  if (!vals.length) return <span className="percentile-trend-empty">—</span>;
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const span = max - min || Math.abs(max) || 1;
-  const n = points.length;
-  const coords = points.map((pt, i) => {
-    const x = pad + (i * (w - pad * 2)) / (n - 1 || 1);
-    const has = typeof pt.value === "number";
-    const y = has ? pad + (1 - (pt.value - min) / span) * (h - pad * 2) : null;
-    return { x, y, year: pt.year, value: pt.value };
-  });
-  const valid = coords.filter((c) => c.y !== null);
-  return (
-    <svg width={w} height={h} className="research-trend-spark">
-      {valid.length > 1 && <polyline points={valid.map((c) => `${c.x},${c.y}`).join(" ")} fill="none" stroke="#b5283a" strokeWidth="1.25" />}
-      {valid.map((c) => (
-        <circle key={c.year} cx={c.x} cy={c.y} r={2.4} fill="#b5283a">
-          <title>{`${c.year}: ${fmt2(c.value)}`}</title>
-        </circle>
-      ))}
-    </svg>
-  );
-}
-
 function StatTicker({ yearValues }) {
   const delta = yearOverYearDelta(yearValues);
   if (!delta) return <span className="week-ticker-empty">—</span>;
@@ -4980,12 +4998,14 @@ function StatTicker({ yearValues }) {
 function ResearchStatCard({ label, unit, yearValues }) {
   const withVal = yearValues.filter((d) => typeof d.value === "number");
   const current = withVal.length ? withVal[withVal.length - 1] : null;
+  const withUnit = (v) => `${fmt2(v)}${unit ? " " + unit : ""}`;
+  const describe = (c, prev) => `${c.year}: ${withUnit(c.value)}` + (prev ? ` (${signedChange(c.value - prev.value)} vs ${prev.year})` : "");
   return (
     <div className="research-stat-card">
       <div className="research-stat-label">{label}</div>
-      <div className="research-stat-value">{current ? `${fmt2(current.value)}${unit ? " " + unit : ""}` : "—"}</div>
+      <div className="research-stat-value">{current ? withUnit(current.value) : "—"}</div>
       <div className="research-stat-row">
-        <StatTrendSpark points={yearValues} />
+        <TrendSpark points={yearValues} width={60} height={24} describe={describe} />
         <StatTicker yearValues={yearValues} />
       </div>
     </div>
@@ -5006,9 +5026,15 @@ function ResearchToolSummaryPanel({ athlete }) {
     cards.push({ key: "avgBat", label: "Avg Bat Speed", unit: "mph", yearValues: lastNYearsAgg(e.hitting.games, (g) => wAvg(g, 7, 8)) });
   }
   if (p) {
-    cards.push({ key: "avgFb", label: "Avg Fastball Velo", unit: "mph", yearValues: lastNYearsAgg(p.games, (g) => wAvg(g, 6, 7)) });
-    cards.push({ key: "peakFb", label: "Peak Fastball Velo", unit: "mph", yearValues: lastNYearsAgg(p.games, (g) => maxOf(g, 8)) });
-    cards.push({ key: "pitches", label: "Pitches Tracked", unit: "", yearValues: lastNYearsAgg(p.games, (g) => g.reduce((s, row) => s + (row[3] || 0), 0)) });
+    // The research tool's own season totals (p.seasons) reach back further than the per-game rows,
+    // which only cover the current season — use them wherever a year has one.
+    const preferSeason = (key, fromGames) => fromGames.map((d) => {
+      const s = p.seasons && p.seasons[d.year];
+      return { year: d.year, value: s && typeof s[key] === "number" ? s[key] : d.value };
+    });
+    cards.push({ key: "avgFb", label: "Avg Fastball Velo", unit: "mph", yearValues: preferSeason("avgFB", lastNYearsAgg(p.games, (g) => wAvg(g, 6, 7))) });
+    cards.push({ key: "peakFb", label: "Peak Fastball Velo", unit: "mph", yearValues: preferSeason("maxFB", lastNYearsAgg(p.games, (g) => maxOf(g, 8))) });
+    cards.push({ key: "pitches", label: "Pitches Tracked", unit: "", yearValues: preferSeason("tracked", lastNYearsAgg(p.games, (g) => g.reduce((s, row) => s + (row[3] || 0), 0))) });
   }
 
   if (!cards.length) {
