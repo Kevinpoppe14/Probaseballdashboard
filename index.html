@@ -2356,7 +2356,6 @@ function PositionalProfilePanel({ athlete }) {
   const radarData = profile.rows.filter((r) => r.hawkinPct !== null).map((r) => ({ metric: radarLabel[r.key] || r.label, pct: Math.round(r.hawkinPct), median: 50 }));
   const bodyMassRow = profile.rows.find((r) => r.key === "bodyMassKg");
   const hawkinRows = profile.rows.filter((r) => r.hawkin);
-  const valdOnlyRows = profile.rows.filter((r) => !r.hawkin && r.key !== "bodyMassKg");
   const range = profile.firstDate === profile.lastDate ? shortDate(profile.lastDate) : `${shortDate(profile.firstDate)} – ${shortDate(profile.lastDate)}`;
   const trendPoints = N.offseasonTrend(tests, groupKey);
 
@@ -2408,7 +2407,7 @@ function PositionalProfilePanel({ athlete }) {
             const spark = offseasonSpark(trendPoints, "bodyMassKg");
             return (
               <div className="profile-row">
-                <span className="profile-metric" title="Context, not a performance output — shown first since it shapes how to read every other row.">Body Mass</span>
+                <span className="profile-metric" title="Context, not a performance output — shown first since it shapes how to read every other row.">{bodyMassRow.label}</span>
                 <span className="profile-value">{formatProfileValue(bodyMassRow)}</span>
                 <NormBar pct={c.pct} title={c.title} zoned />
                 {spark ? <TrendSpark points={spark} width={56} height={24} domain={[0, 100]} describe={describePercentilePoint} /> : <span />}
@@ -2429,18 +2428,9 @@ function PositionalProfilePanel({ athlete }) {
               </div>
             );
           })}
-          <div className="profile-subhead">VALD-only metrics <small>(Hawkin's guide has no norm for these)</small></div>
-          {valdOnlyRows.map((r) => (
-            <div key={r.key} className="profile-row">
-              <span className="profile-metric" title={r.valdNote}>{r.label}{r.approx ? <em> ≈</em> : null}</span>
-              <span className="profile-value">{formatProfileValue(r)}</span>
-              <NormBar pct={r.valdPct} title="VALD MLB norm" zoned />
-              <span className="norm-bar-empty">no offseason history</span>
-            </div>
-          ))}
           <div className="profile-legend">
             {Object.entries(BAND_COLORS).map(([k, c]) => <span key={k}><i style={{ background: c }} />{k}</span>)}
-            <span className="timestamp-note">Jump Height and Relative Peak Power show the Hawkin–VALD span when both have a norm, rather than averaging two differently-built MLB samples into one number. ≈ VALD defines this slightly differently; hover the name for the VALD metric it's matched to.</span>
+            <span className="timestamp-note">Jump Height and Relative Peak Power show the Hawkin–VALD span when both have a norm, rather than averaging two differently-built MLB samples into one number.</span>
           </div>
           {trendPoints && (
             <p className="timestamp-note">

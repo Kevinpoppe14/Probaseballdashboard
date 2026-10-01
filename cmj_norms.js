@@ -106,9 +106,6 @@
     jumpHeightCm: { g1: [33.3, 38.7, 42.8, 47.3, 53.4], g2: [35.1, 40.3, 44.1, 48.0, 53.2], g3: [35.3, 40.7, 44.5, 48.7, 55.4], g4: [33.7, 39.4, 43.3, 47.5, 54.3] },
     mRSI: { g1: [0.45, 0.56, 0.65, 0.74, 0.87], g2: [0.46, 0.57, 0.66, 0.75, 0.87], g3: [0.45, 0.58, 0.68, 0.78, 0.91], g4: [0.43, 0.56, 0.64, 0.72, 0.85] },
     peakPowerBM: { g1: [49, 55, 59, 64, 72], g2: [50, 57, 61, 66, 73], g3: [52, 58, 63, 67, 74], g4: [49, 55, 59, 63, 71] },
-    ftct: { g1: [0.64, 0.77, 0.85, 0.94, 1.08], g2: [0.64, 0.76, 0.85, 0.94, 1.09], g3: [0.63, 0.77, 0.87, 0.97, 1.11], g4: [0.63, 0.75, 0.83, 0.91, 1.02] },
-    eccPeakVelocity: { g1: [1.17, 1.40, 1.56, 1.71, 1.92], g2: [1.11, 1.36, 1.52, 1.68, 1.92], g3: [1.10, 1.34, 1.51, 1.66, 1.86], g4: [1.17, 1.46, 1.62, 1.75, 1.95] },
-    eccPeakPowerBM: { g1: [14.8, 20.6, 24.8, 29.1, 35.1], g2: [13.3, 19.4, 23.9, 28.8, 35.5], g3: [12.9, 18.6, 23.2, 27.9, 35.4], g4: [13.8, 20.9, 25.4, 29.6, 35.9] },
     bodyMassKg: { g1: [82.6, 90.7, 96.1, 102.7, 114.7], g2: [77.0, 84.0, 89.7, 96.0, 105.8], g3: [78.7, 87.7, 93.3, 98.8, 107.5], g4: [80.2, 89.8, 96.9, 103.8, 113.7] },
   };
 
@@ -119,8 +116,8 @@
   // table it's compared against (either may be missing). `approx` marks VALD alignments where the two
   // systems define the metric slightly differently.
   const METRICS = [
-    { key: "bodyMassKg", label: "Body Mass", unit: "kg", decimals: 1, vald: "bodyMassKg", group: "context",
-      raw: (r) => { const w = num(r["System Weight(N)"]); return w ? w / G : null; } },
+    { key: "bodyMassKg", label: "Body Weight", unit: "lb", decimals: 0, vald: "bodyMassKg", group: "context",
+      raw: (r) => { const w = num(r["System Weight(N)"]); return w ? w / G : null; }, display: (kg) => kg * 2.20462 },
     { key: "jumpHeight", label: "Jump Height", unit: "in", decimals: 1, hawkin: "jumpHeight", vald: "jumpHeightCm", group: "output",
       raw: (r) => num(r["Jump Height(m)"]), display: (m) => m / 0.0254, toVald: (m) => m * 100 },
     { key: "jumpMomentum", label: "Jump Momentum", unit: "kg·m/s", decimals: 0, hawkin: "jumpMomentum", group: "output",
@@ -133,15 +130,6 @@
       raw: (r) => num(r["Braking Net Impulse(N.s)"]) },
     { key: "mRSI", label: "mRSI", unit: "", decimals: 2, hawkin: "mRSI", vald: "mRSI", group: "strategy",
       raw: (r) => num(r["mRSI"]) },
-    { key: "ftct", label: "Flight Time : Contraction Time", unit: "", decimals: 2, vald: "ftct", group: "strategy",
-      raw: (r) => { const f = num(r["Flight Time(s)"]), t = num(r["Time To Takeoff(s)"]); return f && t ? f / t : null; },
-      valdNote: "Hawkin Flight Time ÷ Time to Takeoff" },
-    { key: "eccPeakVelocity", label: "Peak Braking Velocity", unit: "m/s", decimals: 2, vald: "eccPeakVelocity", group: "braking",
-      raw: (r) => { const v = num(r["Peak Braking Velocity(m/s)"]); return v === null ? null : Math.abs(v); },
-      valdNote: "VALD: Eccentric Peak Velocity", approx: true },
-    { key: "eccPeakPowerBM", label: "Peak Relative Braking Power", unit: "W/kg", decimals: 1, vald: "eccPeakPowerBM", group: "braking",
-      raw: (r) => { const v = num(r["Peak Relative Braking Power(W/kg)"]); return v === null ? null : Math.abs(v); },
-      valdNote: "VALD: Eccentric Peak Power / BM", approx: true },
   ];
 
   // Hawkin rows run 100th -> 5th percentile in 5-point steps.
