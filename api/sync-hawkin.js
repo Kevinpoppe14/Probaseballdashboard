@@ -32,6 +32,13 @@ function normalizeName(n) {
   return (n || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+// Hawkin's own athlete name doesn't always match the roster's display name (nicknames, etc). Same
+// alias list import_contacts.js already built for this exact reason (CSV import hits the same
+// problem), reused here instead of inventing a second list to keep in sync.
+const NAME_ALIASES = {
+  "gabe klobosits": "Gabriel Klobosits",
+};
+
 // Caps concurrent Supabase requests from this function — see store.js's identical dbLimit for why:
 // firing every page of a paginated read at once overwhelmed Supabase's connection pool badly
 // enough that requests hung rather than queued.
@@ -238,7 +245,8 @@ module.exports = async (req, res) => {
       // than this roster's 190), so most "unmatched" names here are expected, not a bug — they're
       // athletes at the facility who aren't on this particular roster.
       const hawkinName = (test.athlete && test.athlete.name) || "";
-      const localId = hawkinName ? localIdByName.get(normalizeName(hawkinName)) : undefined;
+      const resolvedName = NAME_ALIASES[normalizeName(hawkinName)] || hawkinName;
+      const localId = hawkinName ? localIdByName.get(normalizeName(resolvedName)) : undefined;
       if (!localId) {
         const label = hawkinName || (test.athlete && test.athlete.id) || "unknown";
         if (!seenUnmatched.has(label)) { seenUnmatched.add(label); summary.skippedAthletes.push(label); }
