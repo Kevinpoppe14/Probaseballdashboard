@@ -2264,11 +2264,11 @@ function pctLabel(p) {
   return ordinal(Math.round(p));
 }
 
-function NormBar({ pct, zoned }) {
-  if (pct === null || pct === undefined) return <div className="norm-bar norm-bar-empty">no norm</div>;
+function NormBar({ pct, zoned, title }) {
+  if (pct === null || pct === undefined) return <div className="norm-bar-empty">no norm</div>;
   const b = window.CmjNorms.band(pct);
   return (
-    <div className="norm-bar-wrap">
+    <div className="norm-bar-wrap" title={title}>
       <div className="norm-bar">
         {zoned
           ? NORM_ZONES.map((z) => <div key={z.from} className="norm-zone" style={{ left: `${z.from}%`, width: `${z.to - z.from}%`, background: z.color }} />)
@@ -2279,6 +2279,42 @@ function NormBar({ pct, zoned }) {
       <span className="norm-pct" style={{ color: BAND_COLORS[b] }}>{pctLabel(pct)}</span>
     </div>
   );
+}
+
+// Hawkin and VALD are two different MLB samples scored two different ways — averaging them into one
+// number would imply an agreement/precision that isn't really there. Showing the span between the two
+// is the more honest read, so jump height and relative peak power (the two metrics requested) render
+// as a range instead of collapsing to a point.
+function NormRangeBar({ lo, hi, title }) {
+  if (lo === null || hi === null) return <div className="norm-bar-empty">no norm</div>;
+  const loB = window.CmjNorms.band(lo), hiB = window.CmjNorms.band(hi);
+  const left = Math.max(1, Math.min(99, lo)), right = Math.max(1, Math.min(99, hi));
+  return (
+    <div className="norm-bar-wrap" title={title}>
+      <div className="norm-bar">
+        {NORM_ZONES.map((z) => <div key={z.from} className="norm-zone" style={{ left: `${z.from}%`, width: `${z.to - z.from}%`, background: z.color }} />)}
+        {[25, 50, 75].map((t) => <div key={t} className="norm-tick" style={{ left: `${t}%` }} />)}
+        <div className="norm-range-band" style={{ left: `${left}%`, width: `${Math.max(2, right - left)}%` }} />
+        <div className="norm-marker norm-marker-sm" style={{ left: `${left}%`, background: BAND_COLORS[loB] }} />
+        <div className="norm-marker norm-marker-sm" style={{ left: `${right}%`, background: BAND_COLORS[hiB] }} />
+      </div>
+      <span className="norm-pct">{pctLabel(lo)}–{pctLabel(hi)}</span>
+    </div>
+  );
+}
+
+// Jump height and relative peak power: show the Hawkin/VALD span when both exist, otherwise whichever
+// one does. mRSI: Hawkin only, even though VALD also publishes it — picking one keeps that metric
+// simple since it's the "speed of movement" figure the recommendations are built on. Everything else
+// only ever has one source to begin with.
+const NORM_RANGE_METRICS = new Set(["jumpHeight", "peakRelPropPower"]);
+function combinedPercentile(r) {
+  if (NORM_RANGE_METRICS.has(r.key) && r.hawkinPct !== null && r.valdPct !== null) {
+    return { type: "range", lo: Math.min(r.hawkinPct, r.valdPct), hi: Math.max(r.hawkinPct, r.valdPct) };
+  }
+  if (r.key === "mRSI") return { type: "point", pct: r.hawkinPct, title: "Hawkin MLB norm" };
+  if (r.hawkinPct !== null) return { type: "point", pct: r.hawkinPct, title: "Hawkin MLB norm" };
+  return { type: "point", pct: r.valdPct, title: "VALD MLB norm" };
 }
 
 function formatProfileValue(r) {
@@ -2387,28 +2423,31 @@ function PositionalProfilePanel({ athlete }) {
 
         <div className="profile-table">
           <div className="profile-row profile-head">
-            <span>Metric</span><span>Athlete</span><span>Hawkin MLB</span><span>VALD MLB</span>
+            <span>Metric</span><span>Athlete</span><span>MLB Percentile</span>
           </div>
-          {hawkinRows.map((r) => (
-            <div key={r.key} className="profile-row">
-              <span className="profile-metric">{r.label}{r.lowerIsBetter ? <em> (lower is better)</em> : null}</span>
-              <span className="profile-value">{formatProfileValue(r)}</span>
-              <NormBar pct={r.hawkinPct} zoned />
-              <NormBar pct={r.valdPct} />
-            </div>
-          ))}
+          {hawkinRows.map((r) => {
+            const c = combinedPercentile(r);
+            return (
+              <div key={r.key} className="profile-row">
+                <span className="profile-metric">{r.label}{r.lowerIsBetter ? <em> (lower is better)</em> : null}</span>
+                <span className="profile-value">{formatProfileValue(r)}</span>
+                {c.type === "range"
+                  ? <NormRangeBar lo={c.lo} hi={c.hi} title={`Hawkin: ${pctLabel(r.hawkinPct)} · VALD: ${pctLabel(r.valdPct)}`} />
+                  : <NormBar pct={c.pct} title={c.title} zoned />}
+              </div>
+            );
+          })}
           <div className="profile-subhead">VALD-only metrics <small>(Hawkin's guide has no norm for these)</small></div>
           {valdOnlyRows.map((r) => (
             <div key={r.key} className="profile-row">
               <span className="profile-metric" title={r.valdNote}>{r.label}{r.approx ? <em> ≈</em> : null}</span>
               <span className="profile-value">{formatProfileValue(r)}</span>
-              <span className="norm-bar-na">—</span>
-              <NormBar pct={r.valdPct} />
+              <NormBar pct={r.valdPct} title="VALD MLB norm" zoned />
             </div>
           ))}
           <div className="profile-legend">
             {Object.entries(BAND_COLORS).map(([k, c]) => <span key={k}><i style={{ background: c }} />{k}</span>)}
-            <span className="timestamp-note">≈ VALD defines this slightly differently; hover the name for the VALD metric it's matched to.</span>
+            <span className="timestamp-note">Jump Height and Relative Peak Power show the Hawkin–VALD span when both have a norm, rather than averaging two differently-built MLB samples into one number. ≈ VALD defines this slightly differently; hover the name for the VALD metric it's matched to.</span>
           </div>
         </div>
       </div>
