@@ -2626,6 +2626,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         <div className="no-print" style={{ marginBottom: 10 }}>
           <EmailToAthleteButton athlete={athlete} tab="statcast" tabLabel="Statcast Metrics" />
         </div>
+        <ResearchToolSummaryPanel athlete={athlete} />
         <PercentileRankingsPanel athlete={athlete} onChanged={onDataChange} />
         <RangeSelector
           range={dataRange}
@@ -4683,7 +4684,7 @@ function percentileColor(pct) {
 // POOR / AVERAGE / GREAT header on Savant's own percentile chart.
 function PercentileLegend() {
   return (
-    <div className="percentile-legend">
+    <div className="percentile-legend-bar">
       <span className="percentile-legend-poor">POOR</span>
       <span className="percentile-legend-avg">AVERAGE</span>
       <span className="percentile-legend-great">GREAT</span>
@@ -4694,7 +4695,7 @@ function PercentileLegend() {
 // Small 3-point line next to each bar — oldest to newest left to right, dots colored on the same
 // scale as the bars so a glance at color alone shows whether a season was better or worse.
 function PercentileTrendSpark({ points }) {
-  const w = 64, h = 26, pad = 5;
+  const w = 40, h = 16, pad = 3;
   const n = points.length;
   const coords = points.map((p, i) => {
     const x = pad + (i * (w - pad * 2)) / (n - 1 || 1);
@@ -4707,10 +4708,10 @@ function PercentileTrendSpark({ points }) {
   return (
     <svg width={w} height={h} className="percentile-trend-spark">
       {valid.length > 1 && (
-        <polyline points={valid.map((c) => `${c.x},${c.y}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth="1.25" />
+        <polyline points={valid.map((c) => `${c.x},${c.y}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth="1" />
       )}
       {valid.map((c) => (
-        <circle key={c.year} cx={c.x} cy={c.y} r={2.6} fill={percentileColor(c.pct)}>
+        <circle key={c.year} cx={c.x} cy={c.y} r={1.8} fill={percentileColor(c.pct)}>
           <title>{`${c.year}: ${Math.round(c.pct)}th percentile`}</title>
         </circle>
       ))}
@@ -4796,17 +4797,20 @@ function PercentileRankingsPanel({ athlete, onChanged }) {
 
   return (
     <div className="panel" style={{ marginBottom: 14 }}>
-      <h2>Percentile Rankings <small>Baseball Savant &middot; {data ? `${data.year} season` : `${year} season`}</small></h2>
+      <h2>
+        Percentile Rankings{" "}
+        <small>
+          Baseball Savant &middot; {data ? `${data.year} season` : `${year} season`}
+          {trendYears ? ` · ${trendYears[0]}–${trendYears[trendYears.length - 1]} trend` : ""}
+        </small>
+      </h2>
       {error && (
         <div className="success-banner" style={{ background: "#3a1414", color: "var(--danger)", borderColor: "#5a1f1f" }}>{error}</div>
       )}
       {values ? (
-        <div className="percentile-groups">
-          <div className="percentile-row percentile-header-row">
-            <div />
-            <PercentileLegend />
-            <div className="percentile-trend-header">{trendYears ? `${trendYears[0]}–${trendYears[trendYears.length - 1]}` : "3-Yr"} Trend</div>
-          </div>
+        <div>
+          <PercentileLegend />
+          <div className="percentile-groups">
           {groups.map((g) => (
             <div key={g.group} className="percentile-group">
               <h3>{g.group}</h3>
@@ -4817,6 +4821,7 @@ function PercentileRankingsPanel({ athlete, onChanged }) {
               })}
             </div>
           ))}
+          </div>
         </div>
       ) : (
         <div className="empty-state">No percentile data fetched yet. Click Refresh below to pull the last {TREND_SEASONS} seasons' rankings from Baseball Savant.</div>
@@ -4890,24 +4895,155 @@ function ResearchLineChart({ title, unit, data, lines, trendKey, height }) {
   );
 }
 
+// Shared by the summary panel above and the per-game charts below.
+function maxOf(rows, i) {
+  const v = rows.map((g) => g[i]).filter((x) => typeof x === "number");
+  return v.length ? Math.max(...v) : null;
+}
+function wAvg(rows, vi, ni) {
+  const n = rows.reduce((s, g) => s + (g[ni] || 0), 0);
+  return n ? rows.reduce((s, g) => s + (g[vi] || 0) * (g[ni] || 0), 0) / n : null;
+}
+
+// ---- Research tool summary: 3-year trend + year-over-year ticker --------------------------
+// Independent of the Statcast tab's date-range selector (that's for the game-by-game charts
+// below) — this always looks at the last 3 calendar years so a coach can see whether a number is
+// trending up or down, same idea as the roster ticker but year-over-year instead of week-over-week.
+const RESEARCH_TREND_YEARS = 3;
+
+function groupGamesByYear(games) {
+  const byYear = {};
+  (games || []).forEach((g) => {
+    const y = String(g[0] || "").slice(0, 4);
+    if (y) (byYear[y] = byYear[y] || []).push(g);
+  });
+  return byYear;
+}
+
+function lastNYearsAgg(games, computeFn) {
+  const byYear = groupGamesByYear(games);
+  const currentYear = new Date().getFullYear();
+  const years = [];
+  for (let i = RESEARCH_TREND_YEARS - 1; i >= 0; i--) years.push(String(currentYear - i));
+  return years.map((y) => ({ year: y, value: byYear[y] && byYear[y].length ? computeFn(byYear[y]) : null }));
+}
+
+// Flat if the two most recent years round to the same displayed number, so the ticker never
+// shows an arrow for a "change" too small to actually see in the big number above it.
+function yearOverYearDelta(yearValues) {
+  const withVal = yearValues.filter((d) => typeof d.value === "number");
+  if (withVal.length < 2) return null;
+  const latest = withVal[withVal.length - 1];
+  const prev = withVal[withVal.length - 2];
+  const delta = latest.value - prev.value;
+  const flat = Math.round(latest.value * 10) === Math.round(prev.value * 10);
+  return { latest, prev, delta, dir: flat ? "flat" : delta > 0 ? "up" : "down" };
+}
+
+function StatTrendSpark({ points }) {
+  const w = 56, h = 24, pad = 4;
+  const vals = points.filter((p) => typeof p.value === "number").map((p) => p.value);
+  if (!vals.length) return <span className="percentile-trend-empty">—</span>;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || Math.abs(max) || 1;
+  const n = points.length;
+  const coords = points.map((pt, i) => {
+    const x = pad + (i * (w - pad * 2)) / (n - 1 || 1);
+    const has = typeof pt.value === "number";
+    const y = has ? pad + (1 - (pt.value - min) / span) * (h - pad * 2) : null;
+    return { x, y, year: pt.year, value: pt.value };
+  });
+  const valid = coords.filter((c) => c.y !== null);
+  return (
+    <svg width={w} height={h} className="research-trend-spark">
+      {valid.length > 1 && <polyline points={valid.map((c) => `${c.x},${c.y}`).join(" ")} fill="none" stroke="#b5283a" strokeWidth="1.25" />}
+      {valid.map((c) => (
+        <circle key={c.year} cx={c.x} cy={c.y} r={2.4} fill="#b5283a">
+          <title>{`${c.year}: ${fmt2(c.value)}`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
+function StatTicker({ yearValues }) {
+  const delta = yearOverYearDelta(yearValues);
+  if (!delta) return <span className="week-ticker-empty">—</span>;
+  const arrow = delta.dir === "flat" ? "▬" : delta.dir === "up" ? "▲" : "▼";
+  return (
+    <span className={`week-ticker-item week-ticker-${delta.dir}`} title={`${delta.prev.year}: ${fmt2(delta.prev.value)} → ${delta.latest.year}: ${fmt2(delta.latest.value)}`}>
+      {arrow}{fmt2(Math.abs(delta.delta))}
+    </span>
+  );
+}
+
+function ResearchStatCard({ label, unit, yearValues }) {
+  const withVal = yearValues.filter((d) => typeof d.value === "number");
+  const current = withVal.length ? withVal[withVal.length - 1] : null;
+  return (
+    <div className="research-stat-card">
+      <div className="research-stat-label">{label}</div>
+      <div className="research-stat-value">{current ? `${fmt2(current.value)}${unit ? " " + unit : ""}` : "—"}</div>
+      <div className="research-stat-row">
+        <StatTrendSpark points={yearValues} />
+        <StatTicker yearValues={yearValues} />
+      </div>
+    </div>
+  );
+}
+
+function ResearchToolSummaryPanel({ athlete }) {
+  const e = findResearchEntry(athlete);
+  if (!e) return null;
+  const p = e.pitching;
+
+  const cards = [];
+  if (e.running) cards.push({ key: "sprint", label: "Top Sprint Speed", unit: "ft/s", yearValues: lastNYearsAgg(e.running.games, (g) => maxOf(g, 3)) });
+  if (e.hitting) {
+    cards.push({ key: "topEv", label: "Top Exit Velo", unit: "mph", yearValues: lastNYearsAgg(e.hitting.games, (g) => maxOf(g, 3)) });
+    cards.push({ key: "avgEv", label: "Avg Exit Velo", unit: "mph", yearValues: lastNYearsAgg(e.hitting.games, (g) => wAvg(g, 4, 5)) });
+    cards.push({ key: "topBat", label: "Top Bat Speed", unit: "mph", yearValues: lastNYearsAgg(e.hitting.games, (g) => maxOf(g, 6)) });
+    cards.push({ key: "avgBat", label: "Avg Bat Speed", unit: "mph", yearValues: lastNYearsAgg(e.hitting.games, (g) => wAvg(g, 7, 8)) });
+  }
+  if (p) {
+    cards.push({ key: "avgFb", label: "Avg Fastball Velo", unit: "mph", yearValues: lastNYearsAgg(p.games, (g) => wAvg(g, 6, 7)) });
+    cards.push({ key: "peakFb", label: "Peak Fastball Velo", unit: "mph", yearValues: lastNYearsAgg(p.games, (g) => maxOf(g, 8)) });
+    cards.push({ key: "pitches", label: "Pitches Tracked", unit: "", yearValues: lastNYearsAgg(p.games, (g) => g.reduce((s, row) => s + (row[3] || 0), 0)) });
+  }
+
+  if (!cards.length) {
+    return e.note ? (
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <h2>MLB Research Tool</h2>
+        <div className="empty-state">{e.note}</div>
+      </div>
+    ) : null;
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: 14 }}>
+      <h2>MLB Research Tool <small>snapshot copied {e.pulled} &middot; {RESEARCH_TREND_YEARS}-year trend</small></h2>
+      {e.note && <div className="empty-state">{e.note}</div>}
+      <div className="research-stat-row-wrap">
+        {cards.map((c) => <ResearchStatCard key={c.key} label={c.label} unit={c.unit} yearValues={c.yearValues} />)}
+      </div>
+    </div>
+  );
+}
+
 function MlbResearchPanel({ athlete, range }) {
   const e = findResearchEntry(athlete);
   if (!e) return null;
   const p = e.pitching;
   const f = (v, unit) => (v != null ? `${fmt2(v)}${unit ? " " + unit : ""}` : "—");
 
-  // Everything below is derived from the per-game rows so the date-range option applies to
-  // both the charts and the summary tiles.
+  // Everything below is derived from the per-game rows so the date-range option applies to the
+  // charts (the summary numbers above, in ResearchToolSummaryPanel, are a fixed 3-year trend
+  // instead and don't use this).
   const inRange = (g) => dateInRange(g[0], range);
-  const maxOf = (rows, i) => { const v = rows.map((g) => g[i]).filter((x) => typeof x === "number"); return v.length ? Math.max(...v) : null; };
-  const wAvg = (rows, vi, ni) => {
-    const n = rows.reduce((s, g) => s + (g[ni] || 0), 0);
-    return n ? rows.reduce((s, g) => s + (g[vi] || 0) * (g[ni] || 0), 0) / n : null;
-  };
   const runGames = e.running ? e.running.games.filter(inRange) : [];
   const hitGames = e.hitting ? e.hitting.games.filter(inRange) : [];
   const pitchGames = p ? p.games.filter(inRange) : [];
-  const topRun = runGames.reduce((m, g) => (m === null || g[3] > m[3] ? g : m), null);
   const rangeKey = parseRange(range).key;
   const scopeLabel = rangeKey === "all" || !rangeKey ? "all tracked games" : rangeKey === "custom" ? rangeLabel(range) : rangeLabel(range).toLowerCase();
 
@@ -4920,33 +5056,7 @@ function MlbResearchPanel({ athlete, range }) {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      <div className="panel" style={{ marginBottom: 14 }}>
-        <h2>MLB Research Tool <small>tracked data &middot; snapshot copied {e.pulled} &middot; {scopeLabel}</small></h2>
-        {e.note && <div className="empty-state">{e.note}</div>}
-
-        {(e.running || e.hitting) && (
-          <div>
-            <div className="location-kpi-row">
-              <KpiCard label="Top Sprint Speed" value={f(topRun && topRun[3], "ft/s")} />
-              <KpiCard label="Top Exit Velo" value={f(maxOf(hitGames, 3), "mph")} />
-              <KpiCard label="Avg Exit Velo" value={f(wAvg(hitGames, 4, 5), "mph")} />
-              <KpiCard label="Top Bat Speed" value={f(maxOf(hitGames, 6), "mph")} />
-              <KpiCard label="Avg Bat Speed" value={f(wAvg(hitGames, 7, 8), "mph")} />
-            </div>
-            {topRun && (
-              <p className="timestamp-note">Top sprint: {topRun[0]} {topRun[1]} {topRun[4]}</p>
-            )}
-          </div>
-        )}
-
-        {p && (
-          <div className="location-kpi-row">
-            <KpiCard label="Avg Fastball Velo" value={f(wAvg(pitchGames, 6, 7), "mph")} />
-            <KpiCard label="Peak Fastball Velo" value={f(maxOf(pitchGames, 8), "mph")} />
-            <KpiCard label="Pitches Tracked" value={pitchGames.reduce((s, g) => s + (g[3] || 0), 0)} />
-          </div>
-        )}
-      </div>
+      <p className="timestamp-note" style={{ marginBottom: 10 }}>Game-by-game charts below &middot; {scopeLabel}</p>
 
       {e.running && (
         <ResearchLineChart
