@@ -2626,6 +2626,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         <div className="no-print" style={{ marginBottom: 10 }}>
           <EmailToAthleteButton athlete={athlete} tab="statcast" tabLabel="Statcast Metrics" />
         </div>
+        <PercentileRankingsPanel athlete={athlete} onChanged={onDataChange} />
         <RangeSelector
           range={dataRange}
           onChange={setDataRange}
@@ -4597,6 +4598,166 @@ async function fetchPitchArsenal(mlbamId, yr) {
     perType.push(...batchResults);
   }
   return perType.filter(Boolean).sort((a, b) => (b.usagePct || 0) - (a.usagePct || 0));
+}
+
+// ---- Percentile Rankings (Baseball Savant) ------------------------------------------------
+// Savant's own percentile-rankings leaderboard already does the work of converting raw stats
+// into 0-100 percentiles against that season's qualified players (2.1 PA/team game for batters,
+// 1.25 PA/team game for pitchers) — every column is oriented so 100 is always "best", including
+// ones where a lower raw number is actually better (K%, Whiff%, Chase%, xERA), so no column needs
+// inverting here. FanGraphs was evaluated too, but its leaderboard pages sit behind a Cloudflare
+// bot challenge that blocks automated fetches (and shouldn't be bypassed), so this covers Savant
+// only — which is also the only one of the two with a public, pre-computed percentile product.
+const PERCENTILE_METRIC_GROUPS = {
+  batter: [
+    { group: "Offense", metrics: [
+      { key: "xwoba", label: "xwOBA" },
+      { key: "xba", label: "xBA" },
+      { key: "xslg", label: "xSLG" },
+      { key: "xiso", label: "xISO" },
+      { key: "xobp", label: "xOBP" },
+      { key: "brl_percent", label: "Barrel %" },
+      { key: "exit_velocity", label: "Exit Velocity" },
+      { key: "max_ev", label: "Max Exit Velo" },
+      { key: "hard_hit_percent", label: "Hard-Hit %" },
+      { key: "bat_speed", label: "Bat Speed" },
+      { key: "squared_up_rate", label: "Squared-Up Rate" },
+      { key: "k_percent", label: "Strikeout %" },
+      { key: "bb_percent", label: "Walk %" },
+      { key: "whiff_percent", label: "Whiff %" },
+      { key: "chase_percent", label: "Chase %" },
+    ] },
+    { group: "Defense", metrics: [
+      { key: "oaa", label: "Outs Above Average" },
+      { key: "arm_strength", label: "Arm Strength" },
+    ] },
+    { group: "Baserunning", metrics: [
+      { key: "sprint_speed", label: "Sprint Speed" },
+    ] },
+  ],
+  pitcher: [
+    { group: "Pitching", metrics: [
+      { key: "xera", label: "xERA" },
+      { key: "xwoba", label: "xwOBA Against" },
+      { key: "xba", label: "xBA Against" },
+      { key: "xslg", label: "xSLG Against" },
+      { key: "xiso", label: "xISO Against" },
+      { key: "xobp", label: "xOBP Against" },
+      { key: "brl_percent", label: "Barrel % Against" },
+      { key: "exit_velocity", label: "Exit Velo Against" },
+      { key: "hard_hit_percent", label: "Hard-Hit % Against" },
+      { key: "k_percent", label: "Strikeout %" },
+      { key: "bb_percent", label: "Walk %" },
+      { key: "whiff_percent", label: "Whiff %" },
+      { key: "chase_percent", label: "Chase %" },
+      { key: "fb_velocity", label: "Fastball Velocity" },
+      { key: "fb_spin", label: "Fastball Spin" },
+      { key: "curve_spin", label: "Curveball Spin" },
+      { key: "arm_strength", label: "Arm Strength" },
+    ] },
+  ],
+};
+
+async function fetchPercentileRow(mlbamId, isPitcher, yr) {
+  const rows = await fetchSavantCsvSafe(
+    `https://baseballsavant.mlb.com/leaderboard/percentile-rankings?type=${isPitcher ? "pitcher" : "batter"}&year=${yr}&team=&csv=true`
+  );
+  return findByPlayerId(rows, "player_id", mlbamId) || null;
+}
+
+// Red (0) through blue (100), the same low/high convention as Savant's own chart, computed as an
+// HSL sweep rather than matched stop-for-stop to their exact palette.
+function percentileColor(pct) {
+  const hue = Math.max(0, Math.min(100, pct)) * 2.2; // 0 -> red, 100 -> blue (220°)
+  return `hsl(${hue}, 70%, 50%)`;
+}
+
+function PercentileBar({ label, pct }) {
+  const has = typeof pct === "number" && !isNaN(pct);
+  return (
+    <div className="percentile-row">
+      <div className="percentile-label">{label}</div>
+      <div className="percentile-track">
+        {has && <div className="percentile-fill" style={{ width: `${pct}%`, background: percentileColor(pct) }} />}
+      </div>
+      <div className="percentile-value">{has ? Math.round(pct) : "—"}</div>
+    </div>
+  );
+}
+
+function PercentileRankingsPanel({ athlete, onChanged }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const resolvedId = extractMlbamId(athlete);
+  if (!resolvedId) return null; // MlbStatsPanel below already prompts for linking an MLBAM ID
+
+  const isPitcher = athlete.position === "Pitcher";
+  const data = athlete.mlbPercentiles;
+  const year = new Date().getFullYear();
+  const groups = isPitcher ? PERCENTILE_METRIC_GROUPS.pitcher : PERCENTILE_METRIC_GROUPS.batter;
+
+  const refresh = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      let row = await fetchPercentileRow(resolvedId, isPitcher, year);
+      let usedYear = year;
+      if (!row) {
+        // Off-season, or this year's games haven't been added to the leaderboard yet — fall back
+        // to the most recently completed season rather than showing nothing.
+        row = await fetchPercentileRow(resolvedId, isPitcher, year - 1);
+        usedYear = year - 1;
+      }
+      if (!row) {
+        setError(
+          "No percentile ranking data found for this player in this or the prior season — this is expected for anyone who isn't on an active MLB roster with tracked Statcast games."
+        );
+      }
+      window.AthleteStore.updateAthlete(athlete.id, {
+        mlbPercentiles: row ? { type: isPitcher ? "pitcher" : "batter", year: usedYear, values: row, fetchedAt: new Date().toISOString() } : null,
+      });
+      onChanged();
+    } catch (e) {
+      setError(`Couldn't fetch percentile rankings from Baseball Savant (${e.message}).`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const values = data && data.values;
+
+  return (
+    <div className="panel" style={{ marginBottom: 14 }}>
+      <h2>Percentile Rankings <small>Baseball Savant &middot; {data ? `${data.year} season` : `${year} season`}</small></h2>
+      {error && (
+        <div className="success-banner" style={{ background: "#3a1414", color: "var(--danger)", borderColor: "#5a1f1f" }}>{error}</div>
+      )}
+      {values ? (
+        <div className="percentile-groups">
+          {groups.map((g) => (
+            <div key={g.group} className="percentile-group">
+              <h3>{g.group}</h3>
+              {g.metrics.map((m) => {
+                const raw = values[m.key];
+                const pct = raw !== undefined && raw !== null && raw !== "" ? Number(raw) : null;
+                return <PercentileBar key={m.key} label={m.label} pct={pct} />;
+              })}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">No percentile data fetched yet. Click Refresh below to pull this season's rankings from Baseball Savant.</div>
+      )}
+      <button className="btn btn-secondary no-print" disabled={loading} onClick={refresh} style={{ marginTop: 10 }}>
+        {loading ? "Fetching…" : "Refresh Percentile Rankings"}
+      </button>
+      {!loading && data && data.fetchedAt && (
+        <p className="timestamp-note">
+          Last refreshed {new Date(data.fetchedAt).toLocaleString()} &middot; qualifies at 2.1 PA/team game (batters) or 1.25 PA/team game (pitchers)
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ---- MLB Research tool snapshot (research_snapshots.js) ---------------------------------
