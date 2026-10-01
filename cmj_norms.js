@@ -119,6 +119,8 @@
   // table it's compared against (either may be missing). `approx` marks VALD alignments where the two
   // systems define the metric slightly differently.
   const METRICS = [
+    { key: "bodyMassKg", label: "Body Mass", unit: "kg", decimals: 1, vald: "bodyMassKg", group: "context",
+      raw: (r) => { const w = num(r["System Weight(N)"]); return w ? w / G : null; } },
     { key: "jumpHeight", label: "Jump Height", unit: "in", decimals: 1, hawkin: "jumpHeight", vald: "jumpHeightCm", group: "output",
       raw: (r) => num(r["Jump Height(m)"]), display: (m) => m / 0.0254, toVald: (m) => m * 100 },
     { key: "jumpMomentum", label: "Jump Momentum", unit: "kg·m/s", decimals: 0, hawkin: "jumpMomentum", group: "output",
@@ -209,8 +211,7 @@
       const valdPct = valdPoints ? valdPercentile(valdPoints, m.toVald ? m.toVald(value) : value) : null;
       return { ...m, value, displayValue: m.display ? m.display(value) : value, n: vals.length, hawkinPct, valdPct };
     });
-    const weights = used.map((t) => num(t.raw["System Weight(N)"])).filter((v) => v !== null);
-    const bodyMassKg = weights.length ? weights.reduce((s, v) => s + v, 0) / weights.length / G : null;
+    const bodyMassRow = rows.find((r) => r.key === "bodyMassKg");
     return {
       groupKey,
       groupLabel: (HAWKIN_GROUPS.find((g) => g.key === groupKey) || {}).label,
@@ -221,8 +222,8 @@
       testCount: used.length,
       totalCmj: cmj.length,
       excludedVariants: (tests || []).filter((t) => t.testType && t.testType !== "Countermovement Jump" && /countermovement/i.test(t.testType)).length,
-      bodyMassKg,
-      bodyMassValdPct: bodyMassKg && valdGroup ? valdPercentile(VALD_TABLES.bodyMassKg[valdGroup], bodyMassKg) : null,
+      bodyMassKg: bodyMassRow.value,
+      bodyMassValdPct: bodyMassRow.valdPct,
       rows,
     };
   }
@@ -255,6 +256,11 @@
     const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
     if (!years.length) return null;
     const hawkinMetrics = METRICS.filter((m) => m.hawkin);
+    const valdGroup = VALD_GROUP_FOR[groupKey];
+    // Body mass has no Hawkin norm, so it's scored against VALD here same as everywhere else in the
+    // profile — included for its own trend line, but kept out of "overall" (that stays Hawkin-only,
+    // same metrics as the headline percentile and recommendations).
+    const extraMetrics = METRICS.filter((m) => !m.hawkin && m.key === "bodyMassKg");
     const points = [];
     for (let y = years[0]; y <= years[years.length - 1]; y++) {
       const bucket = byYear[y];
@@ -266,6 +272,13 @@
         const value = vals.reduce((s, v) => s + v, 0) / vals.length;
         const table = HAWKIN_TABLES[m.hawkin][groupKey];
         point[m.key] = table ? hawkinPercentile(table, value, m.lowerIsBetter) : null;
+      });
+      extraMetrics.forEach((m) => {
+        const vals = bucket ? bucket.tests.map((t) => m.raw(t.raw)).filter((v) => v !== null) : [];
+        if (!vals.length) { point[m.key] = null; return; }
+        const value = vals.reduce((s, v) => s + v, 0) / vals.length;
+        const valdPoints = m.vald && valdGroup ? VALD_TABLES[m.vald][valdGroup] : null;
+        point[m.key] = valdPoints ? valdPercentile(valdPoints, value) : null;
       });
       const pcts = hawkinMetrics.map((m) => point[m.key]).filter((v) => typeof v === "number");
       point.overall = pcts.length ? pcts.reduce((s, v) => s + v, 0) / pcts.length : null;
