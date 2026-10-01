@@ -47,6 +47,7 @@
 <script src="research_snapshots.js"></script>
 <script src="research_snapshots_2.js"></script>
 <script src="research_snapshots_3.js"></script>
+<script src="cmj_norms.js"></script>
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
@@ -1957,9 +1958,17 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
 // profile and team report — one entry per metric, with how to pull its value off a raw
 // Hawkin Dynamics force test record. Body Weight and mRSI are derived/renamed from the
 // underlying systemWeight (N) and rsiModified fields respectively.
+// Tests synced before jumpMomentum was stored as its own field still carry it in the raw Hawkin record.
+function jumpMomentumOf(t) {
+  if (typeof t.jumpMomentum === "number") return round2(t.jumpMomentum);
+  const v = t.raw && t.raw["Jump Momentum(kg.m/s)"];
+  return typeof v === "number" ? round2(v) : null;
+}
+
 const FORCE_KPI_METRICS = [
   { key: "bodyWeightLbs", label: "Body Weight", unit: "lbs", getValue: (t) => (typeof t.systemWeight === "number" ? round2(t.systemWeight / N_TO_LBF) : null) },
   { key: "jumpHeight", label: "Jump Height", unit: "in", getValue: (t) => (typeof t.jumpHeight === "number" ? t.jumpHeight : null) },
+  { key: "jumpMomentum", label: "Jump Momentum", unit: "kg·m/s", getValue: jumpMomentumOf },
   { key: "peakPower", label: "Peak Power", unit: "W", getValue: (t) => (typeof t.peakPower === "number" ? t.peakPower : null) },
   { key: "relativePeakPower", label: "Relative Peak Power", unit: "W/kg", getValue: (t) => (typeof t.relativePeakPower === "number" ? t.relativePeakPower : null) },
   { key: "takeoffVelocity", label: "Takeoff Velocity", unit: "m/s", getValue: (t) => (typeof t.takeoffVelocity === "number" ? t.takeoffVelocity : null) },
@@ -2238,6 +2247,147 @@ function AthletePerformanceGraphs({ athleteId, range }) {
   );
 }
 
+// ---- Positional CMJ profile: Hawkin + VALD MLB norms -------------------------------------------
+const BAND_COLORS = { Elite: "#16a34a", Good: "#4ade80", Average: "#9ca3af", Below: "#f59e0b", Poor: "#ef4444" };
+const NORM_ZONES = [
+  { from: 0, to: 27.5, color: "#5b1a1a" },
+  { from: 27.5, to: 47.5, color: "#5a4210" },
+  { from: 47.5, to: 52.5, color: "#3a3a3a" },
+  { from: 52.5, to: 77.5, color: "#1f4a2c" },
+  { from: 77.5, to: 100, color: "#14532d" },
+];
+
+function pctLabel(p) {
+  if (p === null || p === undefined) return "—";
+  if (p < 5) return "<5th";
+  if (p >= 99) return "99th+";
+  return ordinal(Math.round(p));
+}
+
+function NormBar({ pct, zoned }) {
+  if (pct === null || pct === undefined) return <div className="norm-bar norm-bar-empty">no norm</div>;
+  const b = window.CmjNorms.band(pct);
+  return (
+    <div className="norm-bar-wrap">
+      <div className="norm-bar">
+        {zoned
+          ? NORM_ZONES.map((z) => <div key={z.from} className="norm-zone" style={{ left: `${z.from}%`, width: `${z.to - z.from}%`, background: z.color }} />)
+          : <div className="norm-zone" style={{ left: 0, width: `${pct}%`, background: "#1e3a5f" }} />}
+        {[25, 50, 75].map((t) => <div key={t} className="norm-tick" style={{ left: `${t}%` }} />)}
+        <div className="norm-marker" style={{ left: `${Math.max(1, Math.min(99, pct))}%`, background: BAND_COLORS[b] }} />
+      </div>
+      <span className="norm-pct" style={{ color: BAND_COLORS[b] }}>{pctLabel(pct)}</span>
+    </div>
+  );
+}
+
+function formatProfileValue(r) {
+  if (r.value === null) return "—";
+  const v = r.displayValue.toFixed(r.decimals);
+  const extra = r.key === "jumpHeight" ? ` (${(r.value * 100).toFixed(1)} cm)` : "";
+  return `${v}${r.unit ? " " + r.unit : ""}${extra}`;
+}
+
+const PROFILE_TONE = { good: "var(--good)", warn: "var(--warn)", info: "var(--info)" };
+
+function PositionalProfilePanel({ athlete }) {
+  const N = window.CmjNorms;
+  const [groupKey, setGroupKey] = useState(() => (N ? N.defaultGroupFor(athlete.position) : "allPosition"));
+  if (!N) return null;
+  const tests = window.AthleteStore.getForceTests(athlete.id);
+  const profile = N.buildProfile(tests, groupKey);
+  if (!profile) {
+    return (
+      <div className="panel">
+        <h2>Positional CMJ Profile <small>Hawkin &amp; VALD MLB norms</small></h2>
+        <div className="empty-state">No hands-on-hips countermovement jumps on file — the MLB norms only apply to that test.</div>
+      </div>
+    );
+  }
+  const hasDropJump = tests.some((t) => /drop jump/i.test(t.testType || "") && (Date.now() - new Date(`${t.date}T00:00:00`).getTime()) / 864e5 <= 90);
+  const recs = N.recommendations(profile, { name: athlete.name, hasDropJump });
+  const radarLabel = { peakRelPropPower: "Rel. Prop. Power", propulsiveNetImpulse: "Prop. Net Impulse", brakingNetImpulse: "Braking Net Impulse", timeToTakeoff: "Time to Takeoff" };
+  const radarData = profile.rows.filter((r) => r.hawkinPct !== null).map((r) => ({ metric: radarLabel[r.key] || r.label, pct: Math.round(r.hawkinPct), median: 50 }));
+  const hawkinRows = profile.rows.filter((r) => r.hawkin);
+  const valdOnlyRows = profile.rows.filter((r) => !r.hawkin);
+  const range = profile.firstDate === profile.lastDate ? shortDate(profile.lastDate) : `${shortDate(profile.firstDate)} – ${shortDate(profile.lastDate)}`;
+
+  return (
+    <div className="panel">
+      <h2>
+        Positional CMJ Profile{" "}
+        <small>
+          {profile.testCount} hands-on-hips CMJ{profile.testCount === 1 ? "" : "s"} averaged · {range}
+        </small>
+      </h2>
+      <div className="profile-controls no-print">
+        <label>
+          Compare against{" "}
+          <select value={groupKey} onChange={(e) => setGroupKey(e.target.value)}>
+            {N.HAWKIN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+          </select>
+        </label>
+        <span className="timestamp-note">
+          Hawkin MLB: {profile.groupLabel} · VALD 2025 MLB: {profile.valdGroupLabel || "no matching group"}
+          {profile.bodyMassKg ? ` · Body mass ${profile.bodyMassKg.toFixed(1)} kg${profile.bodyMassValdPct !== null ? ` (${pctLabel(profile.bodyMassValdPct)} for position)` : ""}` : ""}
+        </span>
+      </div>
+
+      <div className="profile-layout">
+        <div className="profile-radar">
+          <ResponsiveContainer width="100%" height={300}>
+            <RadarChart data={radarData} outerRadius="72%">
+              <PolarGrid stroke="#2e2e2e" />
+              <PolarAngleAxis dataKey="metric" tick={{ fill: "#bbb", fontSize: 10 }} />
+              <PolarRadiusAxis domain={[0, 100]} tickCount={5} tick={{ fill: "#666", fontSize: 9 }} axisLine={false} />
+              <Radar name="MLB median" dataKey="median" stroke="#6b7280" strokeDasharray="4 3" fill="none" isAnimationActive={false} />
+              <Radar name="Percentile" dataKey="pct" stroke="#b5283a" fill="#b5283a" fillOpacity={0.35} isAnimationActive={false} />
+              <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} formatter={(v, n) => [n === "Percentile" ? ordinal(v) : "50th", n]} />
+            </RadarChart>
+          </ResponsiveContainer>
+          <p className="timestamp-note" style={{ textAlign: "center" }}>Hawkin MLB percentile by metric · dashed ring = MLB median</p>
+        </div>
+
+        <div className="profile-table">
+          <div className="profile-row profile-head">
+            <span>Metric</span><span>Athlete</span><span>Hawkin MLB</span><span>VALD MLB</span>
+          </div>
+          {hawkinRows.map((r) => (
+            <div key={r.key} className="profile-row">
+              <span className="profile-metric">{r.label}{r.lowerIsBetter ? <em> (lower is better)</em> : null}</span>
+              <span className="profile-value">{formatProfileValue(r)}</span>
+              <NormBar pct={r.hawkinPct} zoned />
+              <NormBar pct={r.valdPct} />
+            </div>
+          ))}
+          <div className="profile-subhead">VALD-only metrics <small>(Hawkin's guide has no norm for these)</small></div>
+          {valdOnlyRows.map((r) => (
+            <div key={r.key} className="profile-row">
+              <span className="profile-metric" title={r.valdNote}>{r.label}{r.approx ? <em> ≈</em> : null}</span>
+              <span className="profile-value">{formatProfileValue(r)}</span>
+              <span className="norm-bar-na">—</span>
+              <NormBar pct={r.valdPct} />
+            </div>
+          ))}
+          <div className="profile-legend">
+            {Object.entries(BAND_COLORS).map(([k, c]) => <span key={k}><i style={{ background: c }} />{k}</span>)}
+            <span className="timestamp-note">≈ VALD defines this slightly differently; hover the name for the VALD metric it's matched to.</span>
+          </div>
+        </div>
+      </div>
+
+      <h2 style={{ marginTop: 18 }}>Profile Summary &amp; Recommendations</h2>
+      <ul className="profile-recs">
+        {recs.map((r, i) => <li key={i} style={{ borderLeftColor: PROFILE_TONE[r.tone] }}>{r.text}</li>)}
+      </ul>
+      <p className="timestamp-note">
+        Norms: Hawkin Dynamics MLB normative data (CMJ hands on hips) and VALD's 2025 MLB ForceDecks report. Profile averages every
+        hands-on-hips CMJ in the {N.PROFILE_WINDOW_DAYS} days up to the latest one{profile.excludedVariants ? `; ${profile.excludedVariants} arm-swing/weighted/other CMJ variants are left out` : ""}.
+      </p>
+    </div>
+  );
+}
+
 function ForcePlatePanel({ athleteId, range }) {
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = allTests.filter((t) => dateInRange(t.date, range));
@@ -2321,6 +2471,7 @@ function ForcePlatePanel({ athleteId, range }) {
             <th>Test Type</th>
             <th>Body Weight (lbs)</th>
             <th>Jump Height</th>
+            <th>Jump Momentum</th>
             <th>mRSI</th>
             <th>Peak Power</th>
             <th>Relative Peak Power</th>
@@ -2337,6 +2488,7 @@ function ForcePlatePanel({ athleteId, range }) {
               <td>{t.testType || "—"}</td>
               <td>{typeof t.systemWeight === "number" ? fmt2(t.systemWeight / N_TO_LBF) : "—"}</td>
               <td>{fmt2(t.jumpHeight) ?? "—"}</td>
+              <td>{jumpMomentumOf(t) ?? "—"}</td>
               <td>{fmt2(t.rsiModified) ?? "—"}</td>
               <td>{fmt2(t.peakPower) ?? "—"}</td>
               <td>{fmt2(t.relativePeakPower) ?? "—"}</td>
@@ -2641,6 +2793,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         <div className="no-print" style={{ marginBottom: 10 }}>
           <EmailToAthleteButton athlete={athlete} tab="performance" tabLabel="Performance Metrics" />
         </div>
+        <PositionalProfilePanel athlete={athlete} />
         <RangeSelector range={dataRange} onChange={setDataRange} />
         <ForcePlatePanel athleteId={athlete.id} range={dataRange} />
       </div>

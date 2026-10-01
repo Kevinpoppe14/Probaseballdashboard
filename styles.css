@@ -2237,3 +2237,27 @@ tbody tr:hover {
 .research-stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; }
 .research-stat-value { font-size: 20px; font-weight: 700; margin-top: 4px; }
 .research-stat-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+
+/* Positional CMJ profile (Performance Metrics tab) */
+.profile-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; font-size: 12px; }
+.profile-controls select { margin-left: 4px; }
+.profile-layout { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .profile-layout { grid-template-columns: 1fr; } }
+.profile-row { display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(110px, 0.9fr) 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; border-bottom: 1px solid #222; font-size: 12px; }
+.profile-head { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; border-bottom-color: #333; }
+.profile-subhead { margin-top: 12px; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.profile-subhead small { text-transform: none; letter-spacing: 0; }
+.profile-metric em { color: var(--text-dim); font-style: normal; font-size: 10px; }
+.profile-value { font-family: monospace; font-size: 11.5px; }
+.norm-bar-wrap { display: flex; align-items: center; gap: 6px; }
+.norm-bar { position: relative; flex: 1; height: 10px; border-radius: 999px; background: #222; overflow: visible; }
+.norm-zone { position: absolute; top: 0; bottom: 0; }
+.norm-bar .norm-zone:first-child { border-radius: 999px 0 0 999px; }
+.norm-tick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: rgba(255, 255, 255, 0.25); }
+.norm-marker { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.norm-pct { width: 44px; text-align: right; font-size: 11px; font-weight: 700; font-family: monospace; }
+.norm-bar-empty, .norm-bar-na { font-size: 10px; color: var(--text-dim); text-align: center; }
+.profile-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 10px; font-size: 11px; }
+.profile-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.profile-recs { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.profile-recs li { background: var(--panel-2, #1c1c1c); border-left: 3px solid var(--info); border-radius: 6px; padding: 8px 12px; font-size: 13px; line-height: 1.45; }

@@ -254,6 +254,7 @@ module.exports = async (req, res) => {
         date: dateStr,
         testType: (test.testType && test.testType.name) || "",
         jumpHeight: jumpHeightInInches(findMetricEntry(test, ["jump height"])),
+        jumpMomentum: metricValue(test, ["jump momentum"]),
         // "RSI" and "mRSI" are two different metrics Hawkin reports side by side — guessing just
         // "rsi" matches "RSI" first and silently grabs the wrong one, so this targets "mRSI"
         // specifically (the CSV import's "RSI-Modified" column is the same metric).
