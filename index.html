@@ -2530,7 +2530,7 @@ function ForcePlatePanel({ athleteId, range }) {
         ))}
       </div>
 
-      <table style={{ marginTop: 14 }}>
+      <table className="no-print" style={{ marginTop: 14 }}>
         <thead>
           <tr>
             <th>Date</th>
@@ -2665,7 +2665,8 @@ function ActivitySignature({ activity, className }) {
 function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange, initialTab }) {
   const [activeTab, setActiveTab] = useState(initialTab || "overview");
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
-  const [dataRange, setDataRange] = useState("all"); // date range for the Statcast / Performance tabs
+  const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
+  const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
   const athlete = getRoster().find((a) => a.id === athleteId);
   const wellnessSeries = useMemo(
     () => window.AthleteStore.getWellnessSeries(athlete),
@@ -2860,8 +2861,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
           <EmailToAthleteButton athlete={athlete} tab="performance" tabLabel="Performance Metrics" />
         </div>
         <PositionalProfilePanel athlete={athlete} />
-        <RangeSelector range={dataRange} onChange={setDataRange} />
-        <ForcePlatePanel athleteId={athlete.id} range={dataRange} />
+        <RangeSelector range={perfRange} onChange={setPerfRange} />
+        <ForcePlatePanel athleteId={athlete.id} range={perfRange} />
       </div>
 
       <div className={activeTab === "bodycomp" ? "" : "tab-hidden"}>
