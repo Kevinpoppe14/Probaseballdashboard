@@ -2261,3 +2261,8 @@ tbody tr:hover {
 .profile-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 .profile-recs { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 6px; }
 .profile-recs li { background: var(--panel-2, #1c1c1c); border-left: 3px solid var(--info); border-radius: 6px; padding: 8px 12px; font-size: 13px; line-height: 1.45; }
+@media (max-width: 700px) {
+  .profile-row { grid-template-columns: 1fr 1fr; row-gap: 4px; }
+  .profile-row .norm-bar-wrap, .profile-row .norm-bar-na, .profile-row .norm-bar-empty { grid-column: span 1; }
+  .profile-head span:nth-child(n+3) { display: none; }
+}
