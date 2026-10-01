@@ -269,21 +269,29 @@
         text: `Overall: ${first}'s CMJ profile averages the ${ord(overall)} percentile across ${hawkinPcts.length} Hawkin MLB metrics for ${profile.groupLabel} (${band(overall)}).` });
     }
 
-    const output = mean(["jumpHeight", "jumpMomentum", "propulsiveNetImpulse", "peakRelPropPower"].map(hp));
+    // Relative output (jump height, power per kg) is what the strategy matrix runs on; absolute output
+    // (momentum, propulsive impulse) scales with body mass, so it's read separately — a heavy athlete
+    // can be high on one and low on the other, and averaging the two hides exactly that.
+    const rel = mean(["jumpHeight", "peakRelPropPower"].map(hp));
+    const abs = mean(["jumpMomentum", "propulsiveNetImpulse"].map(hp));
     const strategy = mean(["timeToTakeoff", "mRSI"].map(hp));
     const braking = hp("brakingNetImpulse");
+    let massNoted = false;
 
-    if (output !== null && strategy !== null) {
-      if (output >= 52.5 && strategy < 47.5) {
-        items.push({ tone: "warn", text: `Force-capable but slow: output sits in the ${ord(output)} percentile while time to takeoff / mRSI are in the ${ord(strategy)}. Prioritize speed-strength — ballistic and short-contact jump work, loaded jumps with intent to move fast — and track time to takeoff and mRSI.` });
-      } else if (output < 47.5 && strategy >= 52.5) {
-        items.push({ tone: "warn", text: `Quick but under-powered: strategy is ${ord(strategy)} percentile but output only ${ord(output)}. Build force capacity — heavy lower-body strength work to raise propulsive impulse — and track jump height and propulsive net impulse.` });
-      } else if (output < 47.5 && strategy < 47.5) {
-        items.push({ tone: "warn", text: `Below the positional standard in both output (${ord(output)}) and speed (${ord(strategy)}). Build foundational strength first, then layer in power and reactive work.` });
-      } else if (output >= 52.5 && strategy >= 52.5) {
-        items.push({ tone: "good", text: `Well-rounded: both output (${ord(output)}) and speed of movement (${ord(strategy)}) are above the positional median. Focus on maintaining this and on readiness monitoring against the baseline.` });
+    if (rel !== null && strategy !== null) {
+      if (rel >= 52.5 && strategy < 47.5) {
+        items.push({ tone: "warn", text: `Force-capable but slow: jump height / relative power sit in the ${ord(rel)} percentile while time to takeoff / mRSI are in the ${ord(strategy)}. Prioritize speed-strength — ballistic and short-contact jump work, loaded jumps with intent to move fast — and track time to takeoff and mRSI.` });
+      } else if (rel < 47.5 && strategy >= 52.5 && abs !== null && abs >= 52.5) {
+        massNoted = true;
+        items.push({ tone: "warn", text: `Quick and produces plenty of total force (momentum / propulsive impulse ${ord(abs)} percentile), but it doesn't convert into height for their size (jump height / relative power ${ord(rel)}). Prioritize relative power — explosive and ballistic work, plus body composition if appropriate — and track jump height and relative peak power.` });
+      } else if (rel < 47.5 && strategy >= 52.5) {
+        items.push({ tone: "warn", text: `Quick but under-powered: time to takeoff / mRSI are ${ord(strategy)} percentile but jump height / relative power only ${ord(rel)}. Build force capacity — heavy lower-body strength work to raise propulsive impulse — and track jump height and propulsive net impulse.` });
+      } else if (rel < 47.5 && strategy < 47.5) {
+        items.push({ tone: "warn", text: `Below the positional standard in both relative output (${ord(rel)}) and speed (${ord(strategy)}). Build foundational strength first, then layer in power and reactive work.` });
+      } else if (rel >= 52.5 && strategy >= 52.5) {
+        items.push({ tone: "good", text: `Well-rounded: both relative output (${ord(rel)}) and speed of movement (${ord(strategy)}) are above the positional median. Focus on maintaining this and on readiness monitoring against the baseline.` });
       } else {
-        items.push({ tone: "info", text: `Balanced around the positional median — output ${ord(output)}, strategy ${ord(strategy)} percentile.` });
+        items.push({ tone: "info", text: `Balanced around the positional median — relative output ${ord(rel)}, strategy ${ord(strategy)} percentile.` });
       }
     }
 
@@ -293,7 +301,8 @@
 
     const jh = hp("jumpHeight"), mom = hp("jumpMomentum");
     if (jh !== null && mom !== null) {
-      if (mom - jh >= 25) items.push({ tone: "info", text: `Jump momentum (${ord(mom)}) outranks jump height (${ord(jh)}): output is mass-driven. That still transfers to swing and throwing force; improving relative power would lift jump height.` });
+      if (mom - jh >= 25 && massNoted) { /* already covered above */ }
+      else if (mom - jh >= 25) items.push({ tone: "info", text: `Jump momentum (${ord(mom)}) outranks jump height (${ord(jh)}): output is mass-driven. That still transfers to swing and throwing force; improving relative power would lift jump height.` });
       else if (jh - mom >= 25) items.push({ tone: "info", text: `Jump height (${ord(jh)}) outranks jump momentum (${ord(mom)}): light for the position. Adding lean mass while holding jump height would raise momentum.` });
     }
 
