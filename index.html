@@ -702,8 +702,10 @@ function KpiCard({ label, value, tone, onClick, active }) {
 // and run by the Cubs' own strength & conditioning staff, not DST — so anything sent about their
 // Player Plan should say that instead, same as the plan/report header itself (see PlanHeader).
 function isCubsOnlyAthlete(athlete) {
-  return athlete.rosterGroup === CUBS_ROSTER_GROUP && !athlete.dstLocation;
+  return !!athlete && athlete.rosterGroup === CUBS_ROSTER_GROUP && !athlete.dstLocation;
 }
+const DST_CHART_COLOR = "#b5283a";
+const CUBS_CHART_COLOR = "#0e3386";
 
 function EmailToAthleteButton({ athlete, tab, tabLabel }) {
   const [open, setOpen] = useState(false);
@@ -1183,8 +1185,8 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp,
           <React.Fragment>
             <img className="brand-logo" src="https://www.mlbstatic.com/team-logos/112.svg" alt="Chicago Cubs" />
             <div>
-              <h1>Chicago Cubs Strength &amp; Conditioning</h1>
-              <span>Player Development</span>
+              <h1>Chicago Cubs</h1>
+              <span>Strength and Conditioning</span>
             </div>
           </React.Fragment>
         ) : (
@@ -2376,6 +2378,7 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
 // Compact version of the profile's Performance tab for the Team Report: just the individual
 // KPI trend charts for one athlete, within the selected date range.
 function AthletePerformanceGraphs({ athleteId, range }) {
+  const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = allTests.filter((t) => dateInRange(t.date, range));
   if (!allTests.length) {
@@ -2395,7 +2398,7 @@ function AthletePerformanceGraphs({ athleteId, range }) {
       <CmjSummary tests={tests} athleteId={athleteId} />
       <div className="kpi-trend-grid">
         {FORCE_KPI_METRICS.map((m) => (
-          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} />
+          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} color={chartLineColor} />
         ))}
       </div>
     </div>
@@ -2493,6 +2496,7 @@ function PositionalProfilePanel({ athlete }) {
   const N = window.CmjNorms;
   const [groupKey, setGroupKey] = useState(() => (N ? N.defaultGroupFor(athlete.position) : "allPosition"));
   if (!N) return null;
+  const chartLineColor = isCubsOnlyAthlete(athlete) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const tests = window.AthleteStore.getForceTests(athlete.id);
   const profile = N.buildProfile(tests, groupKey);
   if (!profile) {
@@ -2542,7 +2546,7 @@ function PositionalProfilePanel({ athlete }) {
               <PolarAngleAxis dataKey="metric" tick={{ fill: "#bbb", fontSize: 10 }} />
               <PolarRadiusAxis domain={[0, 100]} tickCount={5} tick={{ fill: "#666", fontSize: 9 }} axisLine={false} />
               <Radar name="MLB median" dataKey="median" stroke="#6b7280" strokeDasharray="4 3" fill="none" isAnimationActive={false} />
-              <Radar name="Percentile" dataKey="pct" stroke="#b5283a" fill="#b5283a" fillOpacity={0.35} isAnimationActive={false} />
+              <Radar name="Percentile" dataKey="pct" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.35} isAnimationActive={false} />
               <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} formatter={(v, n) => [n === "Percentile" ? ordinal(v) : "50th", n]} />
             </RadarChart>
           </ResponsiveContainer>
@@ -2610,6 +2614,7 @@ function PositionalProfilePanel({ athlete }) {
 }
 
 function ForcePlatePanel({ athleteId, range }) {
+  const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = allTests.filter((t) => dateInRange(t.date, range));
   if (!allTests.length) {
@@ -2672,7 +2677,7 @@ function ForcePlatePanel({ athleteId, range }) {
           <YAxis yAxisId="jump" stroke="#9a9a9a" fontSize={12} domain={jumpDomain} />
           <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} labelFormatter={tooltipLabelFormatter} />
           <Legend />
-          <Line yAxisId="jump" type="monotone" dataKey="jumpHeight" name="Jump Height (in)" stroke="#b5283a" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+          <Line yAxisId="jump" type="monotone" dataKey="jumpHeight" name="Jump Height (in)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="jump" type="monotone" dataKey="jumpTrend" name="Jump Height Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
           {yearLines.map((ts) => <ReferenceLine key={ts} yAxisId="jump" x={ts} stroke="#fff" strokeOpacity={0.5} />)}
         </LineChart>
@@ -2681,7 +2686,7 @@ function ForcePlatePanel({ athleteId, range }) {
       <h2 style={{ marginTop: 18 }}>Individual KPI Trends</h2>
       <div className="kpi-trend-grid">
         {FORCE_KPI_METRICS.map((m) => (
-          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} showCounts />
+          <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} showCounts color={chartLineColor} />
         ))}
       </div>
 
@@ -2726,6 +2731,7 @@ function ForcePlatePanel({ athleteId, range }) {
 }
 
 function BodyCompPanel({ athleteId }) {
+  const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const scans = window.AthleteStore.getBodyComp(athleteId);
   if (!scans.length) {
     return (
@@ -2768,7 +2774,7 @@ function BodyCompPanel({ athleteId }) {
           <YAxis yAxisId="muscle" orientation="right" stroke="#9a9a9a" fontSize={12} domain={muscleDomain} />
           <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
           <Legend />
-          <Line yAxisId="fat" type="monotone" dataKey="bodyFatPct" name="Body Fat (%)" stroke="#b5283a" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+          <Line yAxisId="fat" type="monotone" dataKey="bodyFatPct" name="Body Fat (%)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="fat" type="monotone" dataKey="bodyFatTrend" name="Body Fat Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
           <Line yAxisId="muscle" type="monotone" dataKey="skeletalMuscleKg" name="Skeletal Muscle (kg)" stroke="#6b7280" strokeWidth={2} dot={{ r: 3 }} connectNulls />
         </LineChart>
@@ -2823,6 +2829,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
   const athlete = getRoster().find((a) => a.id === athleteId);
+  // Cubs 40-man, not also a DST client — every tab on this profile goes Cubs-branded, not just
+  // the Player Plan (see PlanHeader in periodization.js for that one's own independent check).
+  const isCubsOnly = isCubsOnlyAthlete(athlete);
+  const chartLineColor = isCubsOnly ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const wellnessSeries = useMemo(
     () => window.AthleteStore.getWellnessSeries(athlete),
     [athlete, dataVersion]
@@ -2853,7 +2863,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
     .reverse();
 
   return (
-    <div>
+    <div className={isCubsOnly ? "cubs-theme" : ""}>
       <div className="crumb no-print">
         <button onClick={onBack}>&larr; Team Overview</button>
         <span>/ {lastFirstName(athlete.name)}</span>
@@ -2923,7 +2933,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
                 <PolarGrid stroke="#253048" />
                 <PolarAngleAxis dataKey="metric" stroke="#9a9a9a" fontSize={11} />
                 <PolarRadiusAxis domain={[0, 5]} stroke="#253048" tick={false} />
-                <Radar dataKey="value" stroke="#b5283a" fill="#b5283a" fillOpacity={0.45} />
+                <Radar dataKey="value" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.45} />
                 <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
               </RadarChart>
             </ResponsiveContainer>
@@ -4592,7 +4602,7 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
               const hasPlan = !!plan && plan.blocks.length > 0;
               const rangeText = rangeLabel(perfRange);
               return (
-                <div className="report-sheet" key={athlete.id}>
+                <div className={`report-sheet${isCubsOnlyAthlete(athlete) ? " cubs-theme" : ""}`} key={athlete.id}>
                   {window.PlanSheetHeader && (
                     <window.PlanSheetHeader
                       athlete={athlete}
@@ -5546,6 +5556,7 @@ function ResearchToolSummaryPanel({ athlete }) {
 }
 
 function MlbResearchPanel({ athlete, range }) {
+  const chartLineColor = isCubsOnlyAthlete(athlete) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const e = findResearchEntry(athlete);
   if (!e) return null;
   const p = e.pitching;
@@ -5576,7 +5587,7 @@ function MlbResearchPanel({ athlete, range }) {
         <ResearchLineChart
           title="Sprint Speed" unit="top per game, ft/s"
           data={runGames.map((g) => ({ date: g[0], matchup: g[1], play: g[4], top: g[3] }))}
-          lines={[{ key: "top", name: "Top sprint", color: "#b5283a" }]}
+          lines={[{ key: "top", name: "Top sprint", color: chartLineColor }]}
           trendKey="top"
         />
       )}
@@ -5603,7 +5614,7 @@ function MlbResearchPanel({ athlete, range }) {
             title="Velocity, Game to Game" unit={`${scopeLabel}, mph`}
             data={pitchGames.map((g) => ({ date: g[0], matchup: g[1], avgFB: g[6], peak: g[8] }))}
             lines={[
-              { key: "avgFB", name: "Avg fastball", color: "#b5283a" },
+              { key: "avgFB", name: "Avg fastball", color: chartLineColor },
               { key: "peak", name: "Peak fastball", color: "#f59e0b", dashed: true },
             ]}
             height={260}
@@ -5612,7 +5623,7 @@ function MlbResearchPanel({ athlete, range }) {
             title="Velocity, Year to Year" unit="mph, all seasons"
             data={yearRows}
             lines={[
-              { key: "avgFB", name: "Avg fastball", color: "#b5283a" },
+              { key: "avgFB", name: "Avg fastball", color: chartLineColor },
               { key: "peak", name: "Peak", color: "#f59e0b", dashed: true },
             ]}
             height={220}
@@ -5661,6 +5672,7 @@ function MlbResearchPanel({ athlete, range }) {
 const MLB_TREND_YEARS = 6; // current season + 5 prior, for the year-over-year charts
 
 function MlbStatsPanel({ athlete, onChanged }) {
+  const chartLineColor = isCubsOnlyAthlete(athlete) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const [idInput, setIdInput] = useState(athlete.mlbamId || "");
   const [loading, setLoading] = useState(false);
   const [loadingNote, setLoadingNote] = useState("");
@@ -5872,7 +5884,7 @@ function MlbStatsPanel({ athlete, onChanged }) {
                   <YAxis stroke="#9a9a9a" fontSize={11} domain={fastballYoYDomain} />
                   <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
                   <Legend />
-                  <Line type="monotone" dataKey="avg" name="Avg (mph)" stroke="#b5283a" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line type="monotone" dataKey="avg" name="Avg (mph)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
                   <Line type="monotone" dataKey="peak" name="Peak (mph)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
@@ -5915,7 +5927,7 @@ function MlbStatsPanel({ athlete, onChanged }) {
 
           {sprintYoYData.length > 0 && (
             <div style={{ marginTop: 14 }}>
-              <MiniTrendChart title="Sprint Speed" unit="ft/s, year over year" data={sprintYoYData} dataKey="sprintSpeed" showTrend={false} />
+              <MiniTrendChart title="Sprint Speed" unit="ft/s, year over year" data={sprintYoYData} dataKey="sprintSpeed" showTrend={false} color={chartLineColor} />
             </div>
           )}
         </div>

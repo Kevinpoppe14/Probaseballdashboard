@@ -470,7 +470,12 @@ tbody tr:hover {
   color: var(--text);
 }
 
-/* Chicago Cubs roster view — same chrome, Cubs identity instead of DST's */
+/* Chicago Cubs roster view / athlete profile — same chrome, Cubs identity instead of DST's.
+   Applied on Team Overview's topbar while the Chicago Cubs filter is active, and on an athlete
+   profile's root (AthleteDetail) or a Team Report sheet when that athlete is Cubs 40-man and not
+   also a DST client. Most of the app's red accents already read var(--dst-red)/var(--primary), so
+   overriding those two variables within this scope repaints everything that uses them at once. */
+.cubs-theme { --dst-red: var(--cubs-blue); --primary: var(--cubs-blue); }
 .topbar.cubs-theme { border-bottom-color: var(--cubs-blue); }
 .topbar.cubs-theme .nav-tab.active { background: var(--cubs-blue); }
 
@@ -1248,12 +1253,15 @@ tbody tr:hover {
   /* ...except text that sits on a coloured fill, and the red PRIORITY label */
   :is(.period-wrap, .report-sheet) .period-block, :is(.period-wrap, .report-sheet) .period-block *, :is(.period-wrap, .report-sheet) .goal-rank { color: #fff !important; }
   :is(.period-wrap, .report-sheet) .priority-bracket span { color: #a52a34 !important; }
+  .cubs-theme .period-visual, .cubs-theme .period-goals, .cubs-theme .period-action, .cubs-theme .report-section { border-color: var(--cubs-blue) !important; }
+  .cubs-theme .priority-bracket span { color: var(--cubs-blue) !important; }
   .ph-initials { background: #eee !important; }
   .period-lane-label { background: #fff !important; border-right-color: #ccc !important; }
   .period-head, .period-lane, .period-week { border-color: #ddd !important; }
   .period-track { background-image: linear-gradient(to right, transparent calc(100% - 1px), #ddd 100%) !important; }
   .period-seg { background: #d9d9d9 !important; }
   .period-seg.done { background: #a52a34 !important; }
+  .cubs-theme .period-seg.done { background: var(--cubs-blue) !important; }
   .period-seg.current { background: #f59e0b !important; box-shadow: none !important; }
   .period-now-chip { border-color: #ccc !important; }
 
@@ -1736,6 +1744,7 @@ tbody tr:hover {
 
 @media print {
   .auto-caption { background: none !important; color: #000 !important; border-left-color: #a52a34 !important; }
+  .cubs-theme .auto-caption { border-left-color: var(--cubs-blue) !important; }
 }
 
 /* --- News page --- */
@@ -2116,6 +2125,7 @@ tbody tr:hover {
    part of the form is currently being worked in — moves as soon as a different section is
    clicked into. */
 .assess-form .panel { border-color: #c0392b; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.cubs-theme .assess-form .panel { border-color: var(--cubs-blue); }
 .assess-form .panel.assess-panel-active {
   border-color: #d4af37;
   box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.4);
@@ -2181,6 +2191,7 @@ tbody tr:hover {
   /* Keep the same red section outline on paper as on screen (the on-screen "active section" gold
      glow doesn't carry over — printed pages have no notion of what was last clicked into). */
   .assess-wrap .panel { background: #fff !important; border: 2px solid #c0392b !important; box-shadow: none !important; }
+  .cubs-theme .assess-wrap .panel { border-color: var(--cubs-blue) !important; }
   .assess-table thead th { background: #eee !important; color: #000 !important; }
   .assess-wrap textarea, .assess-wrap input {
     background: #fff !important; border: 1px solid #bbb !important; color: #000 !important;
