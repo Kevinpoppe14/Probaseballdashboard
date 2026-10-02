@@ -77,6 +77,11 @@ function getRoster() {
   return window.AthleteStore.allAthletes();
 }
 
+// Tags an athlete as belonging to the separate Chicago Cubs 40-man roster tab rather than the
+// regular DST client roster — the two lists share every profile feature (same AthleteDetail,
+// same tabs) but are kept out of each other's Team Overview / Team Report rosters.
+const CUBS_ROSTER_GROUP = "cubs-40man";
+
 function lastN(arr, n) {
   return arr.slice(Math.max(0, arr.length - n));
 }
@@ -1117,7 +1122,7 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, userEmail, onLogout }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, onGoCubsRoster, userEmail, onLogout }) {
   return (
     <div className="topbar">
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -1139,6 +1144,9 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp,
         </button>
         <button className={`nav-tab ${view === "teamreport" ? "active" : ""}`} onClick={onGoTeamReport}>
           Team Reports
+        </button>
+        <button className={`nav-tab ${view === "cubsroster" ? "active" : ""}`} onClick={onGoCubsRoster}>
+          Cubs Roster
         </button>
         <button className={`nav-tab ${view === "news" ? "active" : ""}`} onClick={onGoNews}>
           In the News
@@ -1761,7 +1769,8 @@ function BulkActionsBar({ selectedIds, roster, onApplied, onClear }) {
   );
 }
 
-function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
+function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls, rosterGroup }) {
+  const inRosterGroup = (a) => (rosterGroup === "cubs" ? a.rosterGroup === CUBS_ROSTER_GROUP : a.rosterGroup !== CUBS_ROSTER_GROUP);
   const [sortConfig, setSortConfig] = useState({ key: null, dir: "asc" });
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
@@ -1787,10 +1796,10 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       const matchesLeague = leagueFilter === "All" || (a.league || "") === leagueFilter;
       const matchesLocation = locationFilter === "All" || (a.dstLocation || "") === locationFilter;
       const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
-      return matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
+      return inRosterGroup(a) && matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
     });
     // eslint-disable-next-line
-  }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion]);
+  }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion, rosterGroup]);
 
   const rows = useMemo(() => {
     return filtered.map((a) => {
@@ -1815,10 +1824,10 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       const matchesStatus = statusFilter === "All" || (a.status || "active").toLowerCase() === statusFilter.toLowerCase();
       const matchesLeague = leagueFilter === "All" || (a.league || "") === leagueFilter;
       const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
-      return matchesPos && matchesStatus && matchesLeague && matchesSearch && (a.status || "active").toLowerCase() !== "alumni";
+      return inRosterGroup(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && (a.status || "active").toLowerCase() !== "alumni";
     });
     // eslint-disable-next-line
-  }, [positionFilter, statusFilter, leagueFilter, search, dataVersion]);
+  }, [positionFilter, statusFilter, leagueFilter, search, dataVersion, rosterGroup]);
 
   const locationCounts = DST_LOCATIONS.map((loc) => ({
     location: loc,
@@ -1857,14 +1866,15 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
     });
   };
 
-  if (getRoster().length === 0) {
+  if (getRoster().filter(inRosterGroup).length === 0) {
     return (
       <div>
         <AddAthleteForm onAdded={onDataChange} />
         <div className="panel">
           <div className="empty-state">
-            No athletes on the roster yet. Sync a Google Sheet on the Player Plans page, import Hawkin Dynamics /
-            Evolt360 data, or add someone above to get started.
+            {rosterGroup === "cubs"
+              ? "No Cubs roster athletes on file yet. Add someone above to get started."
+              : "No athletes on the roster yet. Sync a Google Sheet on the Player Plans page, import Hawkin Dynamics / Evolt360 data, or add someone above to get started."}
           </div>
         </div>
       </div>
@@ -1882,21 +1892,23 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
         />
       </div>
 
-      <div className="panel">
-        <h2>Roster by Location <small>Click a location to filter the roster below</small></h2>
-        <div className="location-kpi-row">
-          {locationCounts.map(({ location, count }) => (
-            <KpiCard
-              key={location}
-              label={location}
-              value={count}
-              active={locationFilter === location}
-              onClick={() => setLocationFilter(locationFilter === location ? "All" : location)}
-            />
-          ))}
-          {noLocationCount > 0 && <KpiCard label="No Location Set" value={noLocationCount} tone="warn" />}
+      {rosterGroup !== "cubs" && (
+        <div className="panel">
+          <h2>Roster by Location <small>Click a location to filter the roster below</small></h2>
+          <div className="location-kpi-row">
+            {locationCounts.map(({ location, count }) => (
+              <KpiCard
+                key={location}
+                label={location}
+                value={count}
+                active={locationFilter === location}
+                onClick={() => setLocationFilter(locationFilter === location ? "All" : location)}
+              />
+            ))}
+            {noLocationCount > 0 && <KpiCard label="No Location Set" value={noLocationCount} tone="warn" />}
+          </div>
         </div>
-      </div>
+      )}
 
       {filterControls}
 
@@ -2673,7 +2685,7 @@ function ActivitySignature({ activity, className }) {
   return <div className={`activity-signature no-print ${className || ""}`}>{parts.join(" · ")}</div>;
 }
 
-function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange, initialTab }) {
+function AthleteDetail({ athleteId, rangeDays, onBack, backLabel = "Team Overview", dataVersion, onDataChange, initialTab }) {
   const [activeTab, setActiveTab] = useState(initialTab || "overview");
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
@@ -2711,7 +2723,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
   return (
     <div>
       <div className="crumb no-print">
-        <button onClick={onBack}>&larr; Team Overview</button>
+        <button onClick={onBack}>&larr; {backLabel}</button>
         <span>/ {lastFirstName(athlete.name)}</span>
       </div>
 
@@ -5750,6 +5762,13 @@ function App({ userEmail, onLogout }) {
   const [leagueFilter, setLeagueFilter] = useState("All");
   const [locationFilter, setLocationFilter] = useState("All");
   const [search, setSearch] = useState("");
+  // Separate filter state for the Cubs Roster tab, so switching tabs never carries one roster's
+  // filters over onto the other.
+  const [cubsPositionFilter, setCubsPositionFilter] = useState("All");
+  const [cubsStatusFilter, setCubsStatusFilter] = useState("All");
+  const [cubsLeagueFilter, setCubsLeagueFilter] = useState("All");
+  const [cubsLocationFilter, setCubsLocationFilter] = useState("All");
+  const [cubsSearch, setCubsSearch] = useState("");
   const [rangeDays, setRangeDays] = useState(30);
   const [dataVersion, setDataVersion] = useState(0);
 
@@ -5765,6 +5784,7 @@ function App({ userEmail, onLogout }) {
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goHelp = () => setView("help");
+  const goCubsRoster = () => setView("cubsroster");
 
   const welcomeKey = `dstWelcomeSeen:${userEmail}`;
   const [showWelcome, setShowWelcome] = useState(() => {
@@ -5780,6 +5800,14 @@ function App({ userEmail, onLogout }) {
   const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : "");
   // Opening a different page or athlete should land at the top, not wherever the list was scrolled to.
   React.useEffect(() => { window.scrollTo(0, 0); }, [view, selectedId]);
+  // Which roster list "Back" returns to — only "team" and "cubsroster" are tracked (every other
+  // entry point into an athlete profile already lands back on Team Overview, unchanged).
+  const [returnView, setReturnView] = useState("team");
+  const goBack = () => {
+    setView(returnView);
+    setSelectedId(null);
+  };
+
   const editPeriodization = (id) => {
     setSelectedId(id);
     setProfileTab("plan");
@@ -5787,6 +5815,7 @@ function App({ userEmail, onLogout }) {
   };
 
   const selectAthlete = (id) => {
+    setReturnView(view === "cubsroster" ? "cubsroster" : "team");
     setSelectedId(id);
     setProfileTab("");
     setView("athlete");
@@ -5795,6 +5824,7 @@ function App({ userEmail, onLogout }) {
   // Roster-row badge/ticker links (performance ticker, assessment flag) jump straight to that
   // athlete's tab instead of just the overview.
   const openAthleteTab = (id, tab) => {
+    setReturnView(view === "cubsroster" ? "cubsroster" : "team");
     setSelectedId(id);
     setProfileTab(tab);
     setView("athlete");
@@ -5809,6 +5839,7 @@ function App({ userEmail, onLogout }) {
         onGoPlayers={goPlayers}
         onGoNews={goNews}
         onGoHelp={goHelp}
+        onGoCubsRoster={goCubsRoster}
         userEmail={userEmail}
         onLogout={onLogout}
       />
@@ -5845,11 +5876,44 @@ function App({ userEmail, onLogout }) {
             }
           />
         )}
+        {view === "cubsroster" && (
+          <TeamOverview
+            rosterGroup="cubs"
+            positionFilter={cubsPositionFilter}
+            statusFilter={cubsStatusFilter}
+            leagueFilter={cubsLeagueFilter}
+            locationFilter={cubsLocationFilter}
+            setLocationFilter={setCubsLocationFilter}
+            search={cubsSearch}
+            rangeDays={rangeDays}
+            onSelect={selectAthlete}
+            onOpenTab={openAthleteTab}
+            dataVersion={dataVersion}
+            onDataChange={bumpVersion}
+            filterControls={
+              <FilterControls
+                positionFilter={cubsPositionFilter}
+                setPositionFilter={setCubsPositionFilter}
+                statusFilter={cubsStatusFilter}
+                setStatusFilter={setCubsStatusFilter}
+                leagueFilter={cubsLeagueFilter}
+                setLeagueFilter={setCubsLeagueFilter}
+                locationFilter={cubsLocationFilter}
+                setLocationFilter={setCubsLocationFilter}
+                search={cubsSearch}
+                setSearch={setCubsSearch}
+                rangeDays={rangeDays}
+                setRangeDays={setRangeDays}
+              />
+            }
+          />
+        )}
         {view === "athlete" && (
           <AthleteDetail
             athleteId={selectedId}
             rangeDays={rangeDays}
-            onBack={goHome}
+            onBack={goBack}
+            backLabel={returnView === "cubsroster" ? "Cubs Roster" : "Team Overview"}
             dataVersion={dataVersion}
             onDataChange={bumpVersion}
             initialTab={profileTab}
