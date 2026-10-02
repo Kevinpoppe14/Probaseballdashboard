@@ -1965,14 +1965,25 @@ function jumpMomentumOf(t) {
   return typeof v === "number" ? round2(v) : null;
 }
 
+// Hawkin reports this as a negative displacement (how far below standing height the dip went);
+// shown here as a positive depth since that's the more natural read on a KPI trend chart ("how
+// deep" rather than "how negative"). Falls back to the raw Hawkin record (in meters) for tests
+// synced before countermovementDepth was stored as its own field, same as jumpMomentumOf above.
+function countermovementDepthOf(t) {
+  if (typeof t.countermovementDepth === "number") return Math.abs(round2(t.countermovementDepth));
+  const v = t.raw && t.raw["Countermovement Depth(m)"];
+  return typeof v === "number" ? Math.abs(round2(v * 39.3701)) : null;
+}
+
 const FORCE_KPI_METRICS = [
   { key: "bodyWeightLbs", label: "Body Weight", unit: "lbs", getValue: (t) => (typeof t.systemWeight === "number" ? round2(t.systemWeight / N_TO_LBF) : null) },
   { key: "jumpHeight", label: "Jump Height", unit: "in", getValue: (t) => (typeof t.jumpHeight === "number" ? t.jumpHeight : null) },
   { key: "jumpMomentum", label: "Jump Momentum", unit: "kg·m/s", getValue: jumpMomentumOf },
   { key: "peakPower", label: "Peak Power", unit: "W", getValue: (t) => (typeof t.peakPower === "number" ? t.peakPower : null) },
+  { key: "countermovementDepth", label: "Countermovement Depth", unit: "in", getValue: countermovementDepthOf },
   { key: "relativePeakPower", label: "Relative Peak Power", unit: "W/kg", getValue: (t) => (typeof t.relativePeakPower === "number" ? t.relativePeakPower : null) },
   { key: "takeoffVelocity", label: "Takeoff Velocity", unit: "m/s", getValue: (t) => (typeof t.takeoffVelocity === "number" ? t.takeoffVelocity : null) },
-  { key: "totalImpulse", label: "Total Impulse", unit: "Ns", getValue: (t) => (typeof t.totalImpulse === "number" ? t.totalImpulse : null) },
+  { key: "totalImpulse", label: "Propulsive Net Impulse", unit: "Ns", getValue: (t) => (typeof t.totalImpulse === "number" ? t.totalImpulse : null) },
   { key: "mRSI", label: "mRSI", unit: "", getValue: (t) => (typeof t.rsiModified === "number" ? t.rsiModified : null) },
 ];
 

@@ -274,6 +274,9 @@ module.exports = async (req, res) => {
         relativePeakPower: metricValue(test, ["peak relative propulsive power"]),
         takeoffVelocity: metricValue(test, ["takeoff velocity"]),
         totalImpulse: metricValue(test, ["propulsive net impulse"], ["relative"]),
+        // Hawkin reports this in meters as a negative displacement; converted to inches here same as
+        // jump height, sign left as-is (the dashboard takes the magnitude where it displays this).
+        countermovementDepth: jumpHeightInInches(findMetricEntry(test, ["countermovement depth"])),
         brakingRfd: metricValue(test, ["braking rfd"], ["avg", "l|r"]),
         // "Concentric" and "Propulsive" are the same jump phase in Hawkin's naming.
         concentricImpulse: metricValue(test, ["propulsive impulse"], ["net", "relative", "p1", "p2"]),
