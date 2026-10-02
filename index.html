@@ -2938,6 +2938,86 @@ const EVOLT_FIELD_DEFS = [
 ];
 const EVOLT_NUMERIC_KEYS = ["weightKg", "bodyFatPct", "skeletalMuscleKg", "visceralFat", "bodyWaterPct", "bmr"];
 
+// ---- VALD ForceDecks CSV import (Cubs Roster force plate tests) --------------------------
+// VALD's export shares no field names or units with Hawkin's, and several values the rest of the
+// app expects aren't exported directly - they're derived here from what VALD does give (e.g. jump
+// momentum = bodyweight x takeoff velocity). Two things VALD's standard CMJ export has no honest
+// equivalent for: a true NET impulse for either phase (only raw per-sub-phase concentric impulse
+// is given) - so Propulsive Net Impulse and Braking Net Impulse are left blank for VALD-sourced
+// tests rather than filled with a number that isn't really that metric.
+const VALD_G = 9.80665;
+
+const VALD_FIELD_DEFS = [
+  { key: "athleteName", label: "Athlete Name", required: true, guesses: ["name"], excludes: ["external"] },
+  { key: "date", label: "Test Date", required: true, guesses: ["date"] },
+  { key: "testType", label: "Test Type", required: false, guesses: ["test type"] },
+  { key: "bodyWeightKg", label: "Body Weight (kg)", required: false, guesses: ["bw [kg]", "bodyweight in kilograms", "kilograms"] },
+  { key: "jumpHeightCm", label: "Jump Height (cm)", required: false, guesses: ["jump height"] },
+  { key: "countermovementDepthCm", label: "Countermovement Depth (cm)", required: false, guesses: ["countermovement depth"] },
+  { key: "peakPowerW", label: "Peak Power (W)", required: false, guesses: ["peak power"] },
+  { key: "p1ConcentricImpulse", label: "P1 Concentric Impulse (Ns)", required: false, guesses: ["p1 concentric impulse"] },
+  { key: "p2ConcentricImpulse", label: "P2 Concentric Impulse (Ns)", required: false, guesses: ["p2 concentric impulse"] },
+  { key: "takeoffVelocity", label: "Takeoff Velocity (m/s)", required: false, guesses: ["takeoff"] },
+  { key: "rsiModified", label: "RSI-Modified", required: false, guesses: ["rsi-modified", "rsi modified"] },
+];
+const VALD_NUMERIC_KEYS = [
+  "bodyWeightKg", "jumpHeightCm", "countermovementDepthCm", "peakPowerW",
+  "p1ConcentricImpulse", "p2ConcentricImpulse", "takeoffVelocity", "rsiModified",
+];
+
+// VALD's "CMJ" is the hands-on-hips test the MLB norms apply to; every other CMJ variant (e.g.
+// "ABCMJ" = arm-swing) is kept out of the Positional CMJ Profile the same way Hawkin's non-
+// "Countermovement Jump" variants are - tagged so it's still visible/countable, just excluded.
+function valdTestType(code) {
+  return (code || "").trim().toUpperCase() === "CMJ" ? "Countermovement Jump" : "Arm Swing Countermovement Jump";
+}
+
+function resolveValdAthlete(rawName) {
+  const athlete = window.AthleteStore.findAthleteByName(rawName);
+  return athlete ? { status: "matched", athlete } : { status: "no-match" };
+}
+
+// Converts one mapped VALD row into the same normalized force-test shape every other source
+// produces, plus a synthetic Hawkin-field-named `raw` blob - the Positional CMJ Profile
+// (cmj_norms.js) only scores tests that carry a `.raw` object shaped like Hawkin's API response,
+// so this is what lets a VALD-sourced test show up there at all.
+function valdTransformEntry(entry) {
+  const bwKg = typeof entry.bodyWeightKg === "number" ? entry.bodyWeightKg : null;
+  const jumpHeightM = typeof entry.jumpHeightCm === "number" ? entry.jumpHeightCm / 100 : null;
+  const depthIn = typeof entry.countermovementDepthCm === "number" ? round2(entry.countermovementDepthCm * 0.393701) : null;
+  const peakPowerW = typeof entry.peakPowerW === "number" ? entry.peakPowerW : null;
+  const p1 = typeof entry.p1ConcentricImpulse === "number" ? entry.p1ConcentricImpulse : null;
+  const p2 = typeof entry.p2ConcentricImpulse === "number" ? entry.p2ConcentricImpulse : null;
+  const concentricImpulse = p1 !== null && p2 !== null ? round2(p1 + p2) : null;
+  const relativePeakPower = bwKg && peakPowerW !== null ? round2(peakPowerW / bwKg) : null;
+  const jumpMomentum = bwKg && typeof entry.takeoffVelocity === "number" ? round2(bwKg * entry.takeoffVelocity) : null;
+  const systemWeightN = bwKg ? round2(bwKg * VALD_G) : null;
+  const rsiModified = typeof entry.rsiModified === "number" ? entry.rsiModified : null;
+
+  return {
+    athleteId: entry.athleteId,
+    date: entry.date,
+    testType: valdTestType(entry.testType),
+    source: "vald-import",
+    jumpHeight: jumpHeightM !== null ? round2(jumpHeightM * 39.3701) : null,
+    countermovementDepth: depthIn,
+    peakPower: peakPowerW,
+    relativePeakPower,
+    takeoffVelocity: typeof entry.takeoffVelocity === "number" ? entry.takeoffVelocity : null,
+    rsiModified,
+    systemWeight: systemWeightN,
+    jumpMomentum,
+    concentricImpulse,
+    raw: {
+      "System Weight(N)": systemWeightN,
+      "Jump Height(m)": jumpHeightM,
+      "Jump Momentum(kg.m/s)": jumpMomentum,
+      "Peak Relative Propulsive Power(W/kg)": relativePeakPower,
+      "mRSI": rsiModified,
+    },
+  };
+}
+
 function guessMapping(headers, fieldDefs) {
   const mapping = {};
   fieldDefs.forEach((f) => {
@@ -2980,7 +3060,7 @@ function resolveEvoltAthlete(rawName) {
   return { status: "no-match" };
 }
 
-function CsvImporter({ title, description, fieldDefs, numericKeys, saveEntry, onImported, dedupe, resolveAthlete }) {
+function CsvImporter({ title, description, fieldDefs, numericKeys, saveEntry, onImported, dedupe, resolveAthlete, transformEntry }) {
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState([]);
   const [rawRows, setRawRows] = useState([]);
@@ -3058,7 +3138,7 @@ function CsvImporter({ title, description, fieldDefs, numericKeys, saveEntry, on
         if (val === undefined || val === null || val === "") return;
         entry[f.key] = numericKeys.includes(f.key) ? round2(Number(val)) : val;
       });
-      entries.push(entry);
+      entries.push(transformEntry ? transformEntry(entry) : entry);
     });
 
     const beforeDedupe = entries.length;
@@ -3758,6 +3838,7 @@ function ImportPage({ onImported, onSelect }) {
         <button className={`pill-tab ${source === "manual" ? "active" : ""}`} onClick={() => setSource("manual")}>Manual Entry</button>
         <button className={`pill-tab ${source === "mlb" ? "active" : ""}`} onClick={() => setSource("mlb")}>MLB Profiles &amp; Photos</button>
         <button className={`pill-tab ${source === "plansheet" ? "active" : ""}`} onClick={() => setSource("plansheet")}>Player Plan Sheet Sync</button>
+        <button className={`pill-tab ${source === "vald" ? "active" : ""}`} onClick={() => setSource("vald")}>VALD (Cubs Roster)</button>
       </div>
 
       {source === "mlb" && <MlbLinkerPanel onImported={onImported} />}
@@ -3805,6 +3886,37 @@ function ImportPage({ onImported, onSelect }) {
           saveEntry={(entry) => window.AthleteStore.addBodyComp(entry)}
           onImported={onImported}
           resolveAthlete={resolveEvoltAthlete}
+        />
+      )}
+      {source === "vald" && (
+        <CsvImporter
+          title="VALD ForceDecks — Cubs Roster Force Plate Tests"
+          description="Upload a CSV test export from VALD ForceDecks. Rows are matched against the existing roster only (nobody new gets created) — map the columns below and confirm the guesses before importing. Only hands-on-hips CMJ counts toward the Positional CMJ Profile's MLB norms; other CMJ variants (e.g. arm-swing) are kept on file but excluded the same way Hawkin's are. If an athlete already has a test for a given date and test type, that row is skipped; otherwise the highest jump height for that date/type is kept."
+          fieldDefs={VALD_FIELD_DEFS}
+          numericKeys={VALD_NUMERIC_KEYS}
+          saveEntry={(entry) => window.AthleteStore.addForceTest(entry)}
+          onImported={onImported}
+          resolveAthlete={resolveValdAthlete}
+          transformEntry={valdTransformEntry}
+          dedupe={(allEntries) => {
+            const storedKeys = new Map();
+            const hasStored = (entry) => {
+              if (!storedKeys.has(entry.athleteId)) {
+                storedKeys.set(entry.athleteId, new Set(window.AthleteStore.getForceTests(entry.athleteId).map((t) => `${t.date}|${t.testType}`)));
+              }
+              return storedKeys.get(entry.athleteId).has(`${entry.date}|${entry.testType}`);
+            };
+            const entries = allEntries.filter((entry) => !hasStored(entry));
+            const best = new Map();
+            entries.forEach((entry) => {
+              const key = `${entry.athleteId}|${entry.date}|${entry.testType}`;
+              const existing = best.get(key);
+              const jumpHeight = typeof entry.jumpHeight === "number" ? entry.jumpHeight : -Infinity;
+              const existingJumpHeight = existing && typeof existing.jumpHeight === "number" ? existing.jumpHeight : -Infinity;
+              if (!existing || jumpHeight > existingJumpHeight) best.set(key, entry);
+            });
+            return Array.from(best.values());
+          }}
         />
       )}
       {source === "manual" && <ManualEntryForm onImported={onImported} />}
