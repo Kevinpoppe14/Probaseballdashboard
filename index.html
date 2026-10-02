@@ -698,9 +698,17 @@ function KpiCard({ label, value, tone, onClick, active }) {
 // api/send-athlete-email.js). Renders as a button that expands into an inline compose panel,
 // matching how the rest of this app handles "click to reveal an editable form" (e.g. Contact
 // Info's "Edit" button) rather than introducing a new floating-modal pattern.
+// A Cubs 40-man athlete who isn't also a DST client (no dstLocation on file) has their plan built
+// and run by the Cubs' own strength & conditioning staff, not DST — so anything sent about their
+// Player Plan should say that instead, same as the plan/report header itself (see PlanHeader).
+function isCubsOnlyAthlete(athlete) {
+  return athlete.rosterGroup === CUBS_ROSTER_GROUP && !athlete.dstLocation;
+}
+
 function EmailToAthleteButton({ athlete, tab, tabLabel }) {
   const [open, setOpen] = useState(false);
   if (!athlete) return null;
+  const provider = tab === "plan" && isCubsOnlyAthlete(athlete) ? "Chicago Cubs Strength & Conditioning" : "Dynamic Sports Training";
   return (
     <React.Fragment>
       <button
@@ -715,7 +723,7 @@ function EmailToAthleteButton({ athlete, tab, tabLabel }) {
         <EmailComposer
           title={`Email ${tabLabel} to ${athlete.name}`}
           defaultTo={athlete.email || ""}
-          defaultSubject={`Your ${tabLabel} from Dynamic Sports Training`}
+          defaultSubject={`Your ${tabLabel} from ${provider}`}
           defaultBody={`Hi ${(athlete.name || "").split(/\s+/)[0] || athlete.name},\n\nAttached is your latest ${tabLabel.toLowerCase()}. Let me know if you have any questions.\n`}
           attachmentNote={`A PDF of this ${tabLabel.toLowerCase()} will be attached, sent from your own email address.`}
           renderPdf={() => renderTabToPdf(tab)}
@@ -1040,6 +1048,7 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
 function EmailTeamReportButton({ team, defaultRecipients }) {
   const [open, setOpen] = useState(false);
   const dateText = new Date().toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
+  const provider = team === "Chicago Cubs" ? "Chicago Cubs Strength & Conditioning" : "Dynamic Sports Training";
   return (
     <React.Fragment>
       <button type="button" className="btn btn-secondary no-print" onClick={() => setOpen(true)} title={`Email the ${team} report to its contacts`}>
@@ -1049,8 +1058,8 @@ function EmailTeamReportButton({ team, defaultRecipients }) {
         <EmailComposer
           title={`Email ${team} Report`}
           defaultTo={defaultRecipients || ""}
-          defaultSubject={`${team} player reports - Dynamic Sports Training`}
-          defaultBody={`Hi,\n\nAttached is the latest ${team} player report from Dynamic Sports Training, covering each player's periodization, performance metrics and coaching notes.\n\nLet me know if you have any questions.\n\nThank you,`}
+          defaultSubject={`${team} player reports - ${provider}`}
+          defaultBody={`Hi,\n\nAttached is the latest ${team} player report from ${provider}, covering each player's periodization, performance metrics and coaching notes.\n\nLet me know if you have any questions.\n\nThank you,`}
           attachmentNote="A PDF with one page per player will be attached, sent from your own email address."
           renderPdf={renderTeamReportToPdf}
           filename={`${team.replace(/[^a-z0-9]+/gi, "_")}-team-report-${dateText}.pdf`}
@@ -1166,15 +1175,27 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, userEmail, onLogout }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, userEmail, onLogout, cubsTheme }) {
   return (
-    <div className="topbar">
+    <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
-        <img className="brand-logo" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
-        <div>
-          <h1>Professional Baseball Dashboard</h1>
-          <span>Advanced Player Development</span>
-        </div>
+        {cubsTheme ? (
+          <React.Fragment>
+            <img className="brand-logo" src="https://www.mlbstatic.com/team-logos/112.svg" alt="Chicago Cubs" />
+            <div>
+              <h1>Chicago Cubs Strength &amp; Conditioning</h1>
+              <span>Player Development</span>
+            </div>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <img className="brand-logo" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
+            <div>
+              <h1>Professional Baseball Dashboard</h1>
+              <span>Advanced Player Development</span>
+            </div>
+          </React.Fragment>
+        )}
       </div>
       <div className="nav-tabs">
         <button
@@ -2044,7 +2065,12 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                 <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
                 <th title="Red: no assessment on file. Yellow: latest one is 3+ weeks old. Green: current. Click to jump to it.">Assessment</th>
                 {ROSTER_COLUMNS.slice(2).map((col) => (
-                  <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
+                  <SortableHeader
+                    key={col.key}
+                    column={locationFilter === CUBS_LOCATION_LABEL && col.key === "location" ? { ...col, label: "Location" } : col}
+                    sortConfig={sortConfig}
+                    onSort={handleSort}
+                  />
                 ))}
                 <th></th>
               </tr>
@@ -6031,6 +6057,10 @@ function App({ userEmail, onLogout }) {
     setView("athlete");
   };
 
+  // The whole app chrome goes Cubs-branded while Team Overview is actually showing the Chicago
+  // Cubs roster (not just whenever a Cubs athlete happens to be selected elsewhere).
+  const cubsTheme = view === "team" && locationFilter === CUBS_LOCATION_LABEL;
+
   return (
     <div className="app">
       <TopBar
@@ -6042,6 +6072,7 @@ function App({ userEmail, onLogout }) {
         onGoHelp={goHelp}
         userEmail={userEmail}
         onLogout={onLogout}
+        cubsTheme={cubsTheme}
       />
       {showWelcome && <WelcomeModal onClose={closeWelcome} onOpenGuide={() => { closeWelcome(); goHelp(); }} />}
       <div className="main">

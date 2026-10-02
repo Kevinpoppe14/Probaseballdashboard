@@ -8,6 +8,8 @@
   --primary: #b5283a;
   --dst-black: #1a1a1a;
   --dst-red: #a52a34;
+  --cubs-blue: #0e3386;
+  --cubs-red: #cc3433;
   --good: #22c55e;
   --warn: #f59e0b;
   --danger: #ef4444;
@@ -467,6 +469,10 @@ tbody tr:hover {
 .nav-tab:not(.active):hover {
   color: var(--text);
 }
+
+/* Chicago Cubs roster view — same chrome, Cubs identity instead of DST's */
+.topbar.cubs-theme { border-bottom-color: var(--cubs-blue); }
+.topbar.cubs-theme .nav-tab.active { background: var(--cubs-blue); }
 
 /* --- Pill sub-tabs (Import page: source switcher) --- */
 .pill-tabs {
@@ -1613,6 +1619,12 @@ tbody tr:hover {
   width: auto;
   display: block;
 }
+
+/* Cubs Roster plan/report (see PlanHeader's isCubsOnly) — Cubs identity instead of DST's */
+.period-header-cubs .ph-photo { border-color: var(--cubs-blue); }
+.ph-org-cubs { display: flex; align-items: center; gap: 10px; }
+.ph-org-logo { height: 64px; width: auto; display: block; }
+.ph-org-name { font-size: 13px; font-weight: 700; line-height: 1.3; color: var(--cubs-blue); text-align: right; text-transform: uppercase; letter-spacing: 0.3px; }
 
 @media (max-width: 900px) {
   .period-header { grid-template-columns: 1fr; justify-items: center; text-align: center; }

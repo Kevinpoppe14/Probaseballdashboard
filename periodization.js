@@ -497,8 +497,12 @@
     const initials = athlete.name.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
     const showPhoto = !!athlete.photoUrl && !photoBroken;
     const Logo = typeof TeamLogo === "function" ? TeamLogo : null; // shared team-logo component from the main app
+    // A Cubs 40-man athlete who isn't also a DST client (no dstLocation on file) has their plan
+    // run by the Cubs' own strength & conditioning staff, not DST, so this plan/report (also used
+    // as-is for the team report's per-athlete sheet) is branded as theirs instead.
+    const isCubsOnly = athlete.rosterGroup === "cubs-40man" && !athlete.dstLocation;
     return (
-      <div className="panel period-header">
+      <div className={`panel period-header${isCubsOnly ? " period-header-cubs" : ""}`}>
         <div className="ph-left">
           <div className="ph-pics">
             {athlete.team && Logo && <span className="ph-team"><Logo team={athlete.team} size={104} /></span>}
@@ -522,9 +526,18 @@
           </div>
         </div>
         <div className="ph-right">
-          {/* light-lettered copy for the dark screen; the original artwork is swapped in when printing on white paper */}
-          <img className="ph-logo-screen" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
-          <img className="ph-logo-print" src="assets/dst-logo.png" alt="Dynamic Sports Training" />
+          {isCubsOnly ? (
+            <div className="ph-org-cubs">
+              <img className="ph-org-logo" src="https://www.mlbstatic.com/team-logos/112.svg" alt="Chicago Cubs" />
+              <div className="ph-org-name">Chicago Cubs<br />Strength &amp; Conditioning</div>
+            </div>
+          ) : (
+            <React.Fragment>
+              {/* light-lettered copy for the dark screen; the original artwork is swapped in when printing on white paper */}
+              <img className="ph-logo-screen" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
+              <img className="ph-logo-print" src="assets/dst-logo.png" alt="Dynamic Sports Training" />
+            </React.Fragment>
+          )}
         </div>
       </div>
     );
