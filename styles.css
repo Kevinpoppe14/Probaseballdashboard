@@ -1435,6 +1435,21 @@ tbody tr:hover {
   color: var(--text-dim);
 }
 
+.goal-col-remove {
+  float: right;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.goal-add-col {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .goal-item {
   display: flex;
   align-items: center;

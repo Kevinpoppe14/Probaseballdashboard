@@ -46,15 +46,31 @@
   }
 
   function newPlan() {
-    return { startDate: mondayOfToday(), weeks: 16, lanes: defaultLanes(), blocks: [], goals: { physical: [], skill: [] }, actionPlan: "" };
+    return { startDate: mondayOfToday(), weeks: 16, lanes: defaultLanes(), blocks: [], goals: { physical: [] }, actionPlan: "" };
   }
 
+  // Physical Goals is the only goal column every plan starts with. Skill Goals and Habits are
+  // opt-in — a coach adds either one only when it's relevant to that athlete, rather than every
+  // plan defaulting to three columns whether they're used or not.
+  const OPTIONAL_GOAL_COLUMNS = [
+    { key: "skill", label: "Skill Goals", placeholder: "e.g. Develop a usable changeup — press Enter" },
+    { key: "habits", label: "Habits", placeholder: "e.g. Sleep 8+ hours a night — press Enter" },
+  ];
+
   // Goals and the action plan live on the plan too, but older saved plans don't have them yet.
-  const goalsOf = (plan) => ({ physical: (plan.goals && plan.goals.physical) || [], skill: (plan.goals && plan.goals.skill) || [] });
+  // A missing key means that column was never added (an older plan that already had a non-null
+  // skill array — even an empty one — keeps showing that column, so nothing already visible to a
+  // coach disappears because of this change).
+  const goalsOf = (plan) => {
+    const g = (plan && plan.goals) || {};
+    const out = { physical: g.physical || [] };
+    OPTIONAL_GOAL_COLUMNS.forEach((c) => { if (g[c.key]) out[c.key] = g[c.key]; });
+    return out;
+  };
   const actionPlanOf = (plan) => plan.actionPlan || "";
   const hasGoalContent = (plan) => {
     const g = goalsOf(plan);
-    return g.physical.length > 0 || g.skill.length > 0 || actionPlanOf(plan).trim().length > 0;
+    return Object.keys(g).some((k) => g[k].length > 0) || actionPlanOf(plan).trim().length > 0;
   };
 
   // Lay out blocks that overlap within a lane on separate stacked rows.
@@ -224,7 +240,7 @@
   // ---- goals + action plan -------------------------------------------------------------------
   // One editable list of goals (type + Enter to add, tick to mark achieved, edit in place, x to remove).
   // Order = priority: drag the grip on the left of a goal to reorder; #1 is the top priority.
-  function GoalList({ title, items, placeholder, onChange }) {
+  function GoalList({ title, items, placeholder, onChange, onRemove }) {
     const [draft, setDraft] = useState("");
     const [order, setOrder] = useState(null); // ids in their live (mid-drag) order, or null when not dragging
     const rowRefs = useRef({});
@@ -293,7 +309,19 @@
     const doneCount = items.filter((g) => g.done).length;
     return (
       <div className="goal-col">
-        <h3>{title}{items.length > 0 && <small>{doneCount} of {items.length} achieved</small>}</h3>
+        <h3>
+          {title}{items.length > 0 && <small>{doneCount} of {items.length} achieved</small>}
+          {onRemove && (
+            <button
+              type="button"
+              className="btn-link no-print goal-col-remove"
+              title={`Remove the ${title} column${items.length ? " (and its goals)" : ""}`}
+              onClick={() => { if (!items.length || window.confirm(`Remove ${title}? This also deletes its ${items.length} goal${items.length === 1 ? "" : "s"}.`)) onRemove(); }}
+            >
+              Remove
+            </button>
+          )}
+        </h3>
         {items.length > 0 ? (
           <div className="goal-body">
             <div className="priority-bracket" title="Drag goals up or down — the top goal is the highest priority"><span>Priority</span></div>
@@ -337,17 +365,41 @@
       </div>
     );
   }
-  // Physical Goals + Skill Goals side by side, then the coach's Action Plan underneath.
+  // Physical Goals is always there; Skill Goals and Habits are columns a coach can add (or
+  // remove) as needed — see OPTIONAL_GOAL_COLUMNS. The coach's Action Plan sits underneath.
   function GoalsSection({ plan, onSave }) {
     const goals = goalsOf(plan);
+    const addColumn = (key) => onSave({ goals: { ...goals, [key]: [] } });
+    const removeColumn = (key) => {
+      const next = { ...goals };
+      delete next[key];
+      onSave({ goals: next });
+    };
+    const toAdd = OPTIONAL_GOAL_COLUMNS.filter((c) => !goals[c.key]);
     return (
       <React.Fragment>
         <div className="panel period-goals">
           <h2>Goals <small>What we're working toward this offseason</small></h2>
           <div className="goal-cols">
             <GoalList title="Physical Goals" items={goals.physical} placeholder="e.g. Add 8 lbs lean mass — press Enter" onChange={(list) => onSave({ goals: { ...goals, physical: list } })} />
-            <GoalList title="Skill Goals" items={goals.skill} placeholder="e.g. Develop a usable changeup — press Enter" onChange={(list) => onSave({ goals: { ...goals, skill: list } })} />
+            {OPTIONAL_GOAL_COLUMNS.map((c) => goals[c.key] && (
+              <GoalList
+                key={c.key}
+                title={c.label}
+                items={goals[c.key]}
+                placeholder={c.placeholder}
+                onChange={(list) => onSave({ goals: { ...goals, [c.key]: list } })}
+                onRemove={() => removeColumn(c.key)}
+              />
+            ))}
           </div>
+          {toAdd.length > 0 && (
+            <div className="goal-add-col no-print">
+              {toAdd.map((c) => (
+                <button key={c.key} type="button" className="btn btn-secondary" onClick={() => addColumn(c.key)}>+ Add {c.label}</button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="panel period-action">
           <h2>Action Plan <small>Rough plan for addressing these goals</small></h2>
@@ -384,12 +436,13 @@
         </div>
       </div>
     );
+    const hasAnyGoals = Object.keys(goals).some((k) => goals[k].length > 0);
     return (
       <div className="period-goals-ro">
-        {(goals.physical.length > 0 || goals.skill.length > 0) && (
+        {hasAnyGoals && (
           <div className="goal-cols">
             {list("Physical Goals", goals.physical)}
-            {list("Skill Goals", goals.skill)}
+            {OPTIONAL_GOAL_COLUMNS.map((c) => goals[c.key] && <React.Fragment key={c.key}>{list(c.label, goals[c.key])}</React.Fragment>)}
           </div>
         )}
         {actionPlanOf(plan).trim() && (
