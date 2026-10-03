@@ -323,7 +323,7 @@
     }
 
     if (braking !== null && hp("propulsiveNetImpulse") !== null && braking <= 40 && hp("propulsiveNetImpulse") - braking >= 20) {
-      items.push({ tone: "warn", text: `Braking is the limiter (braking net impulse ${ord(braking)} vs propulsive ${ord(hp("propulsiveNetImpulse"))} percentile). Emphasize eccentric strength and deceleration — tempo/eccentric squats, drop landings, depth drops — so the athlete can load faster and deeper.` });
+      items.push({ tone: "warn", text: `Braking is the limiter (braking net impulse ${ord(braking)} vs propulsive ${ord(hp("propulsiveNetImpulse"))} percentile). Emphasize eccentric strength and deceleration — tempo and eccentric squats — so the athlete can load faster and deeper.` });
     }
 
     const jh = hp("jumpHeight"), mom = hp("jumpMomentum");
@@ -336,9 +336,6 @@
     if (isPitcher) {
       const low = ["propulsiveNetImpulse", "peakRelPropPower"].filter((k) => hp(k) !== null && hp(k) < 47.5).map((k) => by[k].label.toLowerCase());
       items.push({ tone: low.length ? "warn" : "info", text: `Pitchers: in Division I pitchers, CMJ propulsive impulse and peak power correlated with fastball velocity (r = 0.71 and 0.68). ${low.length ? `${first}'s ${low.join(" and ")} ${low.length > 1 ? "are" : "is"} below the pitcher median — a velocity-development priority.` : "Both are at or above the pitcher median."}` });
-    } else {
-      if (!ctx.hasDropJump) items.push({ tone: "info", text: "No recent drop jump on file. Drop jump RSI relates to first-step quickness, base stealing and defensive range — worth adding to the battery." });
-      if (profile.groupKey === "outfield") items.push({ tone: "info", text: "Outfielders: hamstring weakness is consistently linked to strains. Add the standing 90:20 hamstring test (VALD also reports Nordic peak force under 377 N carries ~2.5x strain risk)." });
     }
 
     const days = Math.round((Date.now() - dayMs(profile.lastDate)) / 864e5);

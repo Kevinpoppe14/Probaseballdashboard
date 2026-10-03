@@ -2571,8 +2571,7 @@ function PositionalProfilePanel({ athlete }) {
       </div>
     );
   }
-  const hasDropJump = tests.some((t) => /drop jump/i.test(t.testType || "") && (Date.now() - new Date(`${t.date}T00:00:00`).getTime()) / 864e5 <= 90);
-  const recs = N.recommendations(profile, { name: athlete.name, hasDropJump });
+  const recs = N.recommendations(profile, { name: athlete.name });
   // Short enough that the outward-pointing labels on the left/right points of the radar don't run
   // past the edge of the chart and get clipped.
   const radarLabel = { peakRelPropPower: "Rel. Power", propulsiveNetImpulse: "Prop. Impulse", brakingNetImpulse: "Braking Impulse", jumpMomentum: "Jump Mom." };
