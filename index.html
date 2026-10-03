@@ -650,7 +650,7 @@ function ContactInfoPanel({ athlete, onChanged }) {
         <div className="location-kpi-row">
           <KpiCard label="Date of Birth" value={athlete.dob ? `${athlete.dob}${age != null ? ` (age ${age})` : ""}` : "—"} />
           <KpiCard label="Gender" value={athlete.gender || "—"} />
-          <KpiCard label="Email" value={athlete.email ? <a href={`mailto:${athlete.email}`}>{athlete.email}</a> : "—"} />
+          <KpiCard label="Email" value={athlete.email ? <a href={`mailto:${athlete.email}`} style={{ fontSize: 15, fontWeight: 400, wordBreak: "break-all" }}>{athlete.email}</a> : "—"} />
         </div>
         <button className="btn-link no-print" style={{ marginTop: 8 }} onClick={startEdit}>Edit contact info</button>
       </div>
