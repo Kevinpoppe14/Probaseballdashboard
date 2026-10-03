@@ -1,5 +1,6 @@
 :root {
   --bg: #0a0a0a;
+  --bg-gradient-start: #1c1c1c;
   --panel: #161616;
   --panel-2: #1c1c1c55;
   --border: #2c2c2c;
@@ -15,6 +16,53 @@
   --danger: #ef4444;
   --info: #38bdf8;
   --neutral: #6b7280;
+
+  /* Surfaces built up from the base palette above — introduced so the light theme below can
+     repaint every on-screen surface (inputs, muted headers, row hover, badge pills, tooltips)
+     without hunting down one-off hex values scattered through the file. The periodization
+     Gantt timeline, the percentile/positional-profile bar charts, the print stylesheet, and the
+     black branded topbar/bottom-menu are deliberately left out of this system — they stay a
+     fixed dark (or paper-white, for print) canvas in both themes. */
+  --input-bg: #111111;
+  --input-border: #3a3a3a;
+  --btn-bg: #1e1e1e;
+  --surface-muted: #202020;
+  --surface-hover: #1c1c1c;
+  --row-hover: #241417;
+  --overlay-soft: rgba(255, 255, 255, 0.03);
+  --badge-good-bg: #14351f;
+  --badge-warn-bg: #3a2a0d;
+  --badge-danger-bg: #3a1414;
+  --badge-info-bg: #0e2f3f;
+  --chart-grid: #2a2a2a;
+  --chart-axis: #9a9a9a;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f5f7;
+  --bg-gradient-start: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #ffffff;
+  --border: #dcdfe4;
+  --text: #1a1a1a;
+  --text-dim: #666666;
+  --dst-black: #1a1a1a;
+
+  --input-bg: #ffffff;
+  --input-border: #c7cbd1;
+  --btn-bg: #eef0f3;
+  --surface-muted: #eceef1;
+  --surface-hover: #eceef1;
+  --row-hover: #fbecec;
+  --overlay-soft: rgba(0, 0, 0, 0.035);
+  --badge-good-bg: #dcfce7;
+  --badge-warn-bg: #fef3c7;
+  --badge-danger-bg: #fee2e2;
+  --badge-info-bg: #e0f2fe;
+  --chart-grid: #dddddd;
+  --chart-axis: #555555;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -26,7 +74,7 @@ html, body, #root {
 body {
   margin: 0;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: radial-gradient(circle at top left, #1c1c1c, var(--bg));
+  background: radial-gradient(circle at top left, var(--bg-gradient-start), var(--bg));
   color: var(--text);
 }
 
@@ -70,6 +118,10 @@ body {
 }
 .login-note { color: var(--text-dim); font-size: 12px; margin: 16px 0 0; }
 
+/* Branded chrome (black bar, logo, red/blue accent) stays fixed regardless of the light/dark
+   toggle — re-pinning --text/--text-dim here means .brand h1/span, .nav-tab, and the account
+   email (all of which just read those variables for their color) stay readable on the dark bar
+   in light mode too, instead of resolving to the light theme's near-black text color. */
 .topbar {
   display: flex;
   align-items: center;
@@ -79,10 +131,35 @@ body {
   background: linear-gradient(90deg, #000000, var(--dst-black));
   border-bottom: 3px solid var(--dst-red);
   flex-wrap: wrap;
+  --text: #f2f2f2;
+  --text-dim: #9a9a9a;
+  /* `color` is what actually inherits down to children like .brand h1 that have no color rule of
+     their own — redefining the --text custom property above isn't enough on its own, since an
+     element with no `color: var(--text)` of its own just inherits its parent's already-resolved
+     color (here, body's, which would be the light theme's dark text) rather than re-reading the
+     variable through this element's scope. */
+  color: var(--text);
 }
 
 .topbar-account { display: flex; align-items: center; gap: 10px; }
 .topbar-account-email { font-size: 12px; color: var(--text-dim); }
+
+.theme-toggle {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid #3a3a3a;
+  color: #f2f2f2;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle:hover { background: rgba(255, 255, 255, 0.16); }
 
 .brand {
   display: flex;
@@ -115,8 +192,8 @@ body {
 }
 
 .controls select, .controls input {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 7px 10px;
   border-radius: 6px;
@@ -335,7 +412,7 @@ thead th {
 
 tbody td {
   padding: 10px 10px;
-  border-bottom: 1px solid #232323;
+  border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 
@@ -345,7 +422,7 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: #241417;
+  background: var(--row-hover);
 }
 
 .badge {
@@ -359,10 +436,10 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
-.badge.good { background: #14351f; color: var(--good); }
-.badge.warn { background: #3a2a0d; color: var(--warn); }
-.badge.danger { background: #3a1414; color: var(--danger); }
-.badge.info { background: #0e2f3f; color: var(--info); }
+.badge.good { background: var(--badge-good-bg); color: var(--good); }
+.badge.warn { background: var(--badge-warn-bg); color: var(--warn); }
+.badge.danger { background: var(--badge-danger-bg); color: var(--danger); }
+.badge.info { background: var(--badge-info-bg); color: var(--info); }
 .badge-link { text-decoration: none; cursor: pointer; }
 .badge-link:hover { filter: brightness(1.2); }
 
@@ -375,7 +452,7 @@ tbody tr:hover {
 .week-ticker-down { color: var(--danger); }
 .week-ticker-flat { color: var(--text-dim); }
 .week-ticker-empty { color: var(--text-dim); }
-.badge.neutral { background: #202020; color: var(--neutral); }
+.badge.neutral { background: var(--surface-muted); color: var(--neutral); }
 
 .metric-strip {
   display: grid;
@@ -416,6 +493,9 @@ tbody tr:hover {
   justify-content: center;
   font-weight: 700;
   font-size: 16px;
+  /* the circle itself is a fixed dark badge regardless of theme, so the jersey number needs its
+     own fixed light color too, rather than inheriting the light theme's dark text onto it */
+  color: #f2f2f2;
 }
 
 .who h2 { margin: 0; font-size: 20px; }
@@ -512,7 +592,7 @@ tbody tr:hover {
   font-weight: 600;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: #1e1e1e;
+  background: var(--btn-bg);
   color: var(--text);
 }
 
@@ -529,7 +609,7 @@ tbody tr:hover {
 
 .btn-primary:hover:not(:disabled) { background: #8f2029; }
 
-.btn-secondary:hover { background: #2a2a2a; }
+.btn-secondary:hover { background: var(--surface-hover); }
 
 .btn-link {
   background: none;
@@ -543,7 +623,7 @@ tbody tr:hover {
 
 /* --- File input / importer --- */
 .file-drop {
-  border: 1px dashed #3a3a3a;
+  border: 1px dashed var(--input-border);
   border-radius: 8px;
   padding: 18px;
   display: flex;
@@ -565,12 +645,12 @@ tbody tr:hover {
 
 .mapping-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid #232323;
+  border-bottom: 1px solid var(--border);
 }
 
 .mapping-table select {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 6px 8px;
   border-radius: 6px;
@@ -582,9 +662,9 @@ tbody tr:hover {
 .required-mark { color: var(--dst-red); margin-left: 4px; }
 
 .success-banner {
-  background: #14351f;
+  background: var(--badge-good-bg);
   color: var(--good);
-  border: 1px solid #1e5030;
+  border: 1px solid var(--good);
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 13px;
@@ -621,8 +701,8 @@ tbody tr:hover {
 }
 
 .field input, .field select {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 8px 10px;
   border-radius: 6px;
@@ -648,8 +728,8 @@ tbody tr:hover {
 .store-stats strong { color: var(--text); }
 
 .field textarea {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 8px 10px;
   border-radius: 6px;
@@ -711,13 +791,12 @@ tbody tr:hover {
   padding: 4px 6px;
   border-radius: 6px;
   cursor: pointer;
-  color-scheme: dark;
 }
 
 .inline-select:hover,
 .inline-select:focus {
-  background-color: #1c1c1c;
-  border-color: #3a3a3a;
+  background-color: var(--surface-hover);
+  border-color: var(--input-border);
   outline: none;
 }
 
@@ -732,8 +811,8 @@ tbody tr:hover {
 }
 
 .note-entry {
-  background: #141414;
-  border: 1px solid #2a2a2a;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
 }
@@ -1021,7 +1100,28 @@ tbody tr:hover {
 
 .period-chip button:hover { color: var(--danger, #f87171); }
 
-.period-scroll { overflow-x: auto; padding: 0; }
+/* The drag-to-schedule timeline below is a dense custom-drawn canvas (white handles/ghost/cursor
+   overlays, colored blocks with white text) — rather than re-theme every one of those overlays,
+   it keeps one fixed dark look regardless of the light/dark toggle, the same way a code editor's
+   minimap or a scheduling tool's grid often stays dark even in an otherwise light theme.
+   Re-pinning --text/--text-dim/--border here (not just --bg) means every descendant that already
+   reads those variables for its own color/border falls back to the dark-mode values automatically,
+   without needing a theme override for each individual rule inside the canvas. */
+.period-scroll {
+  overflow-x: auto;
+  padding: 0;
+  background: var(--dst-black);
+  --text: #f2f2f2;
+  --text-dim: #9a9a9a;
+  --border: #2c2c2c;
+  --panel: #161616;
+  --input-bg: #111111;
+  --input-border: #3a3a3a;
+  /* see the .topbar comment above about why `color` needs setting explicitly, not just the custom
+     property — anything in here with no color of its own (e.g. .period-lane-name) otherwise keeps
+     inheriting the light theme's dark text straight through this dark canvas. */
+  color: var(--text);
+}
 
 .period-grid { position: relative; }
 
@@ -1309,7 +1409,7 @@ tbody tr:hover {
   height: 12px;
   min-width: 3px;
   border-radius: 3px;
-  background: #2a2a2a;
+  background: var(--surface-muted);
 }
 
 .period-seg.done { background: var(--primary); }
@@ -1492,7 +1592,7 @@ tbody tr:hover {
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--overlay-soft);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
@@ -1501,10 +1601,21 @@ tbody tr:hover {
 /* inputs that live outside a .field wrapper need the dark input look explicitly */
 .goal-item .goal-text,
 .goal-add input,
-.period-action textarea,
+.period-action textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+/* lives inside .period-scroll, which re-pins --input-bg/--input-border/--text to their dark-mode
+   values, so this resolves to the same fixed dark input look regardless of the page theme */
 .period-lane-label input {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 7px 10px;
   border-radius: 6px;
@@ -1734,14 +1845,13 @@ tbody tr:hover {
 .range-custom label { display: inline-flex; align-items: center; gap: 6px; }
 
 .range-custom input[type="date"] {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 6px 8px;
   border-radius: 6px;
   font-size: 13px;
   font-family: inherit;
-  color-scheme: dark;
 }
 
 /* Automated captions: plan position under the progress bar, CMJ summary above the metrics */
@@ -1749,7 +1859,7 @@ tbody tr:hover {
   margin: 12px 0 4px;
   padding: 8px 12px;
   border-left: 3px solid var(--dst-red);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--overlay-soft);
   font-size: 13px;
   line-height: 1.55;
   color: var(--text);
@@ -1768,7 +1878,7 @@ tbody tr:hover {
 .news-sep { width: 1px; background: var(--border); margin: 0 6px; align-self: stretch; }
 
 .news-progress { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; font-size: 12px; color: var(--text-dim); }
-.news-progress-bar { flex: 0 0 220px; height: 8px; border-radius: 4px; background: #2a2a2a; overflow: hidden; }
+.news-progress-bar { flex: 0 0 220px; height: 8px; border-radius: 4px; background: var(--surface-muted); overflow: hidden; }
 .news-progress-bar span { display: block; height: 100%; background: var(--primary); transition: width 0.3s ease; }
 
 .news-card {
@@ -1784,7 +1894,7 @@ tbody tr:hover {
 .news-card:hover { border-color: var(--dst-red); }
 
 .news-thumb-link { flex-shrink: 0; }
-.news-thumb { width: 132px; height: 88px; object-fit: cover; border-radius: 8px; display: block; background: #111; }
+.news-thumb { width: 132px; height: 88px; object-fit: cover; border-radius: 8px; display: block; background: var(--surface-muted); }
 
 .news-body { min-width: 0; flex: 1; }
 
@@ -1797,7 +1907,7 @@ tbody tr:hover {
   text-transform: uppercase;
   padding: 2px 7px;
   border-radius: 999px;
-  background: #202020;
+  background: var(--surface-muted);
   color: var(--text-dim);
 }
 
@@ -1860,8 +1970,8 @@ tbody tr:hover {
 
 .news-topic-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
 .news-topic-edit input {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 7px 10px;
   border-radius: 6px;
@@ -1881,6 +1991,9 @@ tbody tr:hover {
   padding: 10px 24px;
   background: linear-gradient(90deg, #000000, var(--dst-black));
   border-top: 3px solid var(--dst-red);
+  --text: #f2f2f2;
+  --text-dim: #9a9a9a;
+  color: var(--text);
 }
 
 .bottom-menu .nav-tab { padding: 8px 16px; }
@@ -1893,7 +2006,7 @@ tbody tr:hover {
   font-size: 13px;
   line-height: 1.5;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--overlay-soft);
 }
 
 .email-status.working { border-color: var(--warn); color: var(--warn); }
@@ -2019,7 +2132,7 @@ tbody tr:hover {
 }
 
 .assess-table thead th {
-  background: #1c1c1c;
+  background: var(--surface-muted);
   color: var(--text-dim);
   font-size: 11px;
   text-transform: none;
@@ -2034,8 +2147,8 @@ tbody tr:hover {
 /* Body region findings: clickable pills instead of static slash-separated text */
 .assess-tagrow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .assess-tag {
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text-dim);
   padding: 3px 8px;
   border-radius: 999px;
@@ -2044,7 +2157,7 @@ tbody tr:hover {
   cursor: pointer;
   line-height: 1.3;
 }
-.assess-tag:hover { border-color: #5a5a5a; }
+.assess-tag:hover { border-color: var(--text-dim); }
 .assess-tag.active { background: var(--dst-red); border-color: var(--dst-red); color: #fff; font-weight: 600; }
 .assess-tag-qualifier { font-size: 10px; padding: 2px 7px; opacity: 0.85; }
 .assess-tag-qualifier.active { opacity: 1; }
@@ -2052,8 +2165,8 @@ tbody tr:hover {
 .assess-cell {
   width: 100%;
   box-sizing: border-box;
-  background: #111111;
-  border: 1px solid #3a3a3a;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   color: var(--text);
   padding: 4px 6px;
   border-radius: 5px;
@@ -2092,11 +2205,15 @@ tbody tr:hover {
 .assess-subsection:first-child { margin-top: 0; }
 
 .assess-subhead {
+  /* stays a fixed dark bar (not theme-reactive): the print stylesheet below forces its text white
+     without touching this background, assuming it stays dark on paper too — so the text color is
+     pinned here too, rather than left to inherit the light theme's dark text onto a dark bar */
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   background: #202020;
+  color: #f2f2f2;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-bottom: none;
@@ -2272,7 +2389,7 @@ tbody tr:hover {
 .trend-spark svg { display: block; overflow: visible; }
 .trend-tooltip {
   position: absolute; transform: translate(-50%, calc(-100% - 8px)); z-index: 50; pointer-events: none;
-  background: #0b0b0b; border: 1px solid #3a3a3a; border-radius: 6px; padding: 4px 8px;
+  background: var(--panel); border: 1px solid var(--input-border); border-radius: 6px; padding: 4px 8px;
   font-size: 11px; color: var(--text); white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 .percentile-trend-empty { display: block; text-align: center; color: var(--text-dim); }

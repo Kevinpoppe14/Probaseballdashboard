@@ -53,6 +53,16 @@
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useMemo } = React;
+
+// Light/dark theme — read by any chart below that needs to pick axis/grid colors manually
+// (CSS variables repaint everything else; Recharts' stroke/fill props are plain SVG attributes,
+// not CSS, so they can't just reference var(--chart-axis) the way the rest of the app does).
+const ThemeContext = React.createContext("dark");
+function useTheme() { return React.useContext(ThemeContext); }
+function useChartColors() {
+  const theme = useTheme();
+  return theme === "light" ? { grid: "#dddddd", axis: "#555555" } : { grid: "#2a2a2a", axis: "#9a9a9a" };
+}
 const {
   ResponsiveContainer,
   LineChart,
@@ -1177,7 +1187,7 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, userEmail, onLogout, cubsTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -1218,6 +1228,16 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp,
       </div>
       {onLogout && (
         <div className="topbar-account">
+          {onToggleTheme && (
+            <button
+              className="theme-toggle"
+              onClick={onToggleTheme}
+              title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+              aria-label="Toggle light/dark mode"
+            >
+              {theme === "light" ? "☀️" : "\u{1F319}"}
+            </button>
+          )}
           <span className="topbar-account-email">{userEmail}</span>
           <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoHelp}>Help</button>
           <button className="btn-link" onClick={onLogout}>Log out</button>
@@ -2337,6 +2357,8 @@ function CmjSummary({ tests, athleteId }) {
 }
 
 function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, showCounts = false, yearLines }) {
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
   const hasData = data.some((d) => typeof d[dataKey] === "number");
   const withValue = data.filter((d) => typeof d[dataKey] === "number").length;
   const trend = showTrend ? computeLinearTrend(data, dataKey) : null;
@@ -2358,14 +2380,14 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
       {hasData ? (
         <ResponsiveContainer width="100%" height={160}>
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-            <XAxis {...axisProps} stroke="#9a9a9a" fontSize={10} />
-            <YAxis stroke="#9a9a9a" fontSize={10} width={40} domain={domain} />
-            <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} labelFormatter={(ts) => axisDateLabel(ts, true)} />
+            <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+            <XAxis {...axisProps} stroke={axis} fontSize={10} />
+            <YAxis stroke={axis} fontSize={10} width={40} domain={domain} />
+            <Tooltip contentStyle={theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" }} labelFormatter={(ts) => axisDateLabel(ts, true)} />
             {/* no draw-in animation: charts are always in their final state (matters for printing / emailed PDFs) */}
             <Line type="monotone" dataKey={dataKey} stroke={color || "#b5283a"} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
             {showTrend && <Line type="monotone" dataKey="__trend" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls isAnimationActive={false} />}
-            {(yearLines || []).map((ts) => <ReferenceLine key={ts} x={ts} stroke="#fff" strokeOpacity={0.5} />)}
+            {(yearLines || []).map((ts) => <ReferenceLine key={ts} x={ts} stroke={theme === "light" ? "#555555" : "#fff"} strokeOpacity={0.5} />)}
           </LineChart>
         </ResponsiveContainer>
       ) : (
@@ -2495,6 +2517,7 @@ function offseasonSpark(trendPoints, key) {
 function PositionalProfilePanel({ athlete }) {
   const N = window.CmjNorms;
   const [groupKey, setGroupKey] = useState(() => (N ? N.defaultGroupFor(athlete.position) : "allPosition"));
+  const theme = useTheme();
   if (!N) return null;
   const chartLineColor = isCubsOnlyAthlete(athlete) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const tests = window.AthleteStore.getForceTests(athlete.id);
@@ -2542,12 +2565,12 @@ function PositionalProfilePanel({ athlete }) {
         <div className="profile-radar">
           <ResponsiveContainer width="100%" height={320}>
             <RadarChart data={radarData} outerRadius="58%" margin={{ top: 16, right: 36, bottom: 16, left: 36 }}>
-              <PolarGrid stroke="#2e2e2e" />
-              <PolarAngleAxis dataKey="metric" tick={{ fill: "#bbb", fontSize: 10 }} />
-              <PolarRadiusAxis domain={[0, 100]} tickCount={5} tick={{ fill: "#666", fontSize: 9 }} axisLine={false} />
+              <PolarGrid stroke={theme === "light" ? "#dddddd" : "#2e2e2e"} />
+              <PolarAngleAxis dataKey="metric" tick={{ fill: theme === "light" ? "#444" : "#bbb", fontSize: 10 }} />
+              <PolarRadiusAxis domain={[0, 100]} tickCount={5} tick={{ fill: theme === "light" ? "#777" : "#666", fontSize: 9 }} axisLine={false} />
               <Radar name="MLB median" dataKey="median" stroke="#6b7280" strokeDasharray="4 3" fill="none" isAnimationActive={false} />
               <Radar name="Percentile" dataKey="pct" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.35} isAnimationActive={false} />
-              <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} formatter={(v, n) => [n === "Percentile" ? ordinal(v) : "50th", n]} />
+              <Tooltip contentStyle={theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" }} formatter={(v, n) => [n === "Percentile" ? ordinal(v) : "50th", n]} />
             </RadarChart>
           </ResponsiveContainer>
           <p className="timestamp-note" style={{ textAlign: "center" }}>Hawkin MLB percentile by metric · dashed ring = MLB median</p>
@@ -2614,6 +2637,10 @@ function PositionalProfilePanel({ athlete }) {
 }
 
 function ForcePlatePanel({ athleteId, range }) {
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
+  const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
+  const refLineColor = theme === "light" ? "#555555" : "#fff";
   const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = allTests.filter((t) => dateInRange(t.date, range));
@@ -2672,14 +2699,14 @@ function ForcePlatePanel({ athleteId, range }) {
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-          <XAxis {...axisProps} stroke="#9a9a9a" fontSize={12} />
-          <YAxis yAxisId="jump" stroke="#9a9a9a" fontSize={12} domain={jumpDomain} />
-          <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} labelFormatter={tooltipLabelFormatter} />
+          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+          <XAxis {...axisProps} stroke={axis} fontSize={12} />
+          <YAxis yAxisId="jump" stroke={axis} fontSize={12} domain={jumpDomain} />
+          <Tooltip contentStyle={tooltipStyle} labelFormatter={tooltipLabelFormatter} />
           <Legend />
           <Line yAxisId="jump" type="monotone" dataKey="jumpHeight" name="Jump Height (in)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="jump" type="monotone" dataKey="jumpTrend" name="Jump Height Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
-          {yearLines.map((ts) => <ReferenceLine key={ts} yAxisId="jump" x={ts} stroke="#fff" strokeOpacity={0.5} />)}
+          {yearLines.map((ts) => <ReferenceLine key={ts} yAxisId="jump" x={ts} stroke={refLineColor} strokeOpacity={0.5} />)}
         </LineChart>
       </ResponsiveContainer>
 
@@ -2731,6 +2758,9 @@ function ForcePlatePanel({ athleteId, range }) {
 }
 
 function BodyCompPanel({ athleteId }) {
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
+  const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
   const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const scans = window.AthleteStore.getBodyComp(athleteId);
   if (!scans.length) {
@@ -2768,11 +2798,11 @@ function BodyCompPanel({ athleteId }) {
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-          <XAxis dataKey="date" stroke="#9a9a9a" fontSize={12} />
-          <YAxis yAxisId="fat" stroke="#9a9a9a" fontSize={12} domain={fatDomain} />
-          <YAxis yAxisId="muscle" orientation="right" stroke="#9a9a9a" fontSize={12} domain={muscleDomain} />
-          <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
+          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+          <XAxis dataKey="date" stroke={axis} fontSize={12} />
+          <YAxis yAxisId="fat" stroke={axis} fontSize={12} domain={fatDomain} />
+          <YAxis yAxisId="muscle" orientation="right" stroke={axis} fontSize={12} domain={muscleDomain} />
+          <Tooltip contentStyle={tooltipStyle} />
           <Legend />
           <Line yAxisId="fat" type="monotone" dataKey="bodyFatPct" name="Body Fat (%)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="fat" type="monotone" dataKey="bodyFatTrend" name="Body Fat Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
@@ -2824,6 +2854,9 @@ function ActivitySignature({ activity, className }) {
 }
 
 function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange, initialTab }) {
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
+  const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
   const [activeTab, setActiveTab] = useState(initialTab || "overview");
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
@@ -2930,11 +2963,11 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
           {radarData.length ? (
             <ResponsiveContainer width="100%" height={240}>
               <RadarChart data={radarData} outerRadius="75%">
-                <PolarGrid stroke="#253048" />
-                <PolarAngleAxis dataKey="metric" stroke="#9a9a9a" fontSize={11} />
-                <PolarRadiusAxis domain={[0, 5]} stroke="#253048" tick={false} />
+                <PolarGrid stroke={theme === "light" ? "#dddddd" : "#253048"} />
+                <PolarAngleAxis dataKey="metric" stroke={axis} fontSize={11} />
+                <PolarRadiusAxis domain={[0, 5]} stroke={theme === "light" ? "#dddddd" : "#253048"} tick={false} />
                 <Radar dataKey="value" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.45} />
-                <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
+                <Tooltip contentStyle={tooltipStyle} />
               </RadarChart>
             </ResponsiveContainer>
           ) : (
@@ -2949,12 +2982,12 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
           {loadChartData.length ? (
             <ResponsiveContainer width="100%" height={260}>
               <ComposedChart data={loadChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                <XAxis dataKey="date" stroke="#9a9a9a" fontSize={12} />
-                <YAxis stroke="#9a9a9a" fontSize={12} />
-                <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                <XAxis dataKey="date" stroke={axis} fontSize={12} />
+                <YAxis stroke={axis} fontSize={12} />
+                <Tooltip contentStyle={tooltipStyle} />
                 <Legend />
-                <Bar dataKey="load" name="sRPE Load (AU)" fill="#4b4b4b" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="load" name="sRPE Load (AU)" fill={theme === "light" ? "#9a9a9a" : "#4b4b4b"} radius={[3, 3, 0, 0]} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
@@ -5396,6 +5429,8 @@ function findResearchEntry(athlete) {
 }
 
 function ResearchLineChart({ title, unit, data, lines, trendKey, height }) {
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
   const hasData = data.some((d) => lines.some((l) => typeof d[l.key] === "number"));
   const trend = trendKey ? computeLinearTrend(data, trendKey) : null;
   const chartData = data.map((d, i) => ({ ...d, __trend: trend ? trend[i] : null }));
@@ -5403,10 +5438,11 @@ function ResearchLineChart({ title, unit, data, lines, trendKey, height }) {
   const tip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
     const row = payload[0].payload;
+    const tipBg = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
     return (
-      <div style={{ background: "#141414", border: "1px solid #3a3a3a", padding: "6px 10px", fontSize: 12 }}>
+      <div style={{ ...tipBg, padding: "6px 10px", fontSize: 12 }}>
         <div><strong>{row.date}</strong>{row.matchup ? ` · ${row.matchup}` : ""}</div>
-        {row.play && <div style={{ color: "#9a9a9a" }}>{row.play}</div>}
+        {row.play && <div style={{ color: axis }}>{row.play}</div>}
         {lines.map((l) => (
           typeof row[l.key] === "number" ? <div key={l.key} style={{ color: l.color }}>{l.name}: {fmt2(row[l.key])}</div> : null
         ))}
@@ -5419,9 +5455,9 @@ function ResearchLineChart({ title, unit, data, lines, trendKey, height }) {
       {hasData ? (
         <ResponsiveContainer width="100%" height={height || 220}>
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-            <XAxis dataKey="date" stroke="#9a9a9a" fontSize={11} tickFormatter={(d) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? shortDate(d) : d)} minTickGap={24} />
-            <YAxis stroke="#9a9a9a" fontSize={11} width={40} domain={domain} />
+            <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+            <XAxis dataKey="date" stroke={axis} fontSize={11} tickFormatter={(d) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? shortDate(d) : d)} minTickGap={24} />
+            <YAxis stroke={axis} fontSize={11} width={40} domain={domain} />
             <Tooltip content={tip} />
             {lines.length > 1 && <Legend />}
             {lines.map((l) => (
@@ -5672,6 +5708,9 @@ function MlbResearchPanel({ athlete, range }) {
 const MLB_TREND_YEARS = 6; // current season + 5 prior, for the year-over-year charts
 
 function MlbStatsPanel({ athlete, onChanged }) {
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
+  const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
   const chartLineColor = isCubsOnlyAthlete(athlete) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const [idInput, setIdInput] = useState(athlete.mlbamId || "");
   const [loading, setLoading] = useState(false);
@@ -5879,10 +5918,10 @@ function MlbStatsPanel({ athlete, onChanged }) {
               <h2>Fastball Velocity <small>Year over year — average &amp; peak</small></h2>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={fastballYoYData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                  <XAxis dataKey="date" stroke="#9a9a9a" fontSize={11} />
-                  <YAxis stroke="#9a9a9a" fontSize={11} domain={fastballYoYDomain} />
-                  <Tooltip contentStyle={{ background: "#141414", border: "1px solid #3a3a3a" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                  <XAxis dataKey="date" stroke={axis} fontSize={11} />
+                  <YAxis stroke={axis} fontSize={11} domain={fastballYoYDomain} />
+                  <Tooltip contentStyle={tooltipStyle} />
                   <Legend />
                   <Line type="monotone" dataKey="avg" name="Avg (mph)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
                   <Line type="monotone" dataKey="peak" name="Peak (mph)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} connectNulls />
@@ -6044,6 +6083,18 @@ function App({ userEmail, onLogout }) {
     setShowWelcome(false);
   };
 
+  // Light/dark theme — remembered per user (same `${userEmail}` keying as the welcome popup above),
+  // so each coach's choice sticks on their own login rather than being one shared app-wide setting.
+  const themeKey = `themePref:${userEmail}`;
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem(themeKey) || "dark"; } catch (e) { return "dark"; }
+  });
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem(themeKey, theme); } catch (e) {}
+  }, [theme, themeKey]);
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
   // Which tab the profile opens on: normally Overview, or the Player Plan tab when arriving from an
   // "Edit plan" link on the team report (or whatever tab a deep link asked for).
   const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : "");
@@ -6074,6 +6125,7 @@ function App({ userEmail, onLogout }) {
   const cubsTheme = view === "team" && locationFilter === CUBS_LOCATION_LABEL;
 
   return (
+    <ThemeContext.Provider value={theme}>
     <div className="app">
       <TopBar
         view={view}
@@ -6085,6 +6137,8 @@ function App({ userEmail, onLogout }) {
         userEmail={userEmail}
         onLogout={onLogout}
         cubsTheme={cubsTheme}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
       {showWelcome && <WelcomeModal onClose={closeWelcome} onOpenGuide={() => { closeWelcome(); goHelp(); }} />}
       <div className="main">
@@ -6142,6 +6196,7 @@ function App({ userEmail, onLogout }) {
       </div>
       <BottomMenu view={view} onGoImport={goImport} />
     </div>
+    </ThemeContext.Provider>
   );
 }
 
