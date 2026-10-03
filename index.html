@@ -1139,11 +1139,11 @@ const HELP_SECTIONS = [
     title: "Player Profiles and athlete pages",
     items: [
       "The Player Profiles page lists athletes as cards; either it or the roster gets you to an individual profile.",
-      "Each profile has tabs: Overview, Player Plan, Statcast Metrics, Performance Metrics, Biomechanical Assessment, and Body Composition.",
+      "Each profile has tabs: Player Plan, Statcast Metrics, Performance Metrics, Biomechanical Assessment, and Body Composition. The Player Plan is the profile's home page.",
       "Performance Metrics shows force plate trends (jump height, peak power, body weight and more) with a summary of what's moving.",
       "Biomechanical Assessment: start a New Assessment, fill it in, and it saves automatically. It prints to a single landscape page.",
       "Player Plan holds the periodization planner and weekly plan. Use Print / Save PDF for a copy.",
-      "Contact Info (date of birth, gender, email) is on the Overview tab. Athlete emails are clickable.",
+      "Contact Info (date of birth, gender, email) is at the top of the Player Plan. Athlete emails are clickable.",
     ],
   },
   {
@@ -2897,7 +2897,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
   const { grid, axis } = useChartColors();
   const theme = useTheme();
   const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
-  const [activeTab, setActiveTab] = useState(initialTab || "overview");
+  const [activeTab, setActiveTab] = useState(initialTab || "plan");
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
@@ -2986,7 +2986,6 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
       </div>
 
       <div className="pill-tabs no-print">
-        <button className={`pill-tab ${activeTab === "overview" ? "active" : ""}`} onClick={() => setActiveTab("overview")}>Overview</button>
         <button className={`pill-tab ${activeTab === "plan" ? "active" : ""}`} onClick={() => setActiveTab("plan")}>Player Plan</button>
         <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
         <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} onClick={() => setActiveTab("performance")}>Performance Metrics</button>
@@ -2994,9 +2993,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
         <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
       </div>
 
-      <div className={activeTab === "overview" ? "" : "tab-hidden"}>
+      <div className={activeTab === "plan" ? "" : "tab-hidden"}>
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
       {athlete.rosterGroup === CUBS_ROSTER_GROUP && <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />}
+      {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
       <div className="charts-grid">
         <div className="panel">
           <h2>Today's Wellness Breakdown</h2>
@@ -3074,10 +3074,6 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
           <div className="empty-state">No wellness check-ins yet.</div>
         )}
       </div>
-      </div>
-
-      <div className={activeTab === "plan" ? "" : "tab-hidden"}>
-        {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
       </div>
 
       <div className={activeTab === "statcast" ? "" : "tab-hidden"} data-tab-content="statcast">
@@ -6135,7 +6131,7 @@ function App({ userEmail, onLogout }) {
   }, [theme, themeKey]);
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
-  // Which tab the profile opens on: normally Overview, or the Player Plan tab when arriving from an
+  // Which tab the profile opens on: normally the Player Plan, or the tab an
   // "Edit plan" link on the team report (or whatever tab a deep link asked for).
   const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : "");
   // Opening a different page or athlete should land at the top, not wherever the list was scrolled to.
