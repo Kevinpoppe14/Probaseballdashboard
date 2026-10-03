@@ -64,7 +64,7 @@ function useChartColors() {
   return theme === "light" ? { grid: "#dddddd", axis: "#555555" } : { grid: "#2a2a2a", axis: "#9a9a9a" };
 }
 const {
-  ResponsiveContainer,
+  ResponsiveContainer: RechartsResponsiveContainer,
   LineChart,
   Line,
   ComposedChart,
@@ -82,6 +82,34 @@ const {
   PolarRadiusAxis,
   Radar,
 } = Recharts;
+
+// Every chart in the app goes through this wrapper: click a chart to open it larger in a window
+// (the same chart, just taller), click outside or press Esc to close. Keeps every chart the same
+// base size on the page, so one chart never looks bigger than another just because of its data.
+function ResponsiveContainer(props) {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  return (
+    <>
+      <div className="zoom-chart" title="Click to enlarge" onClick={() => setOpen(true)}>
+        <RechartsResponsiveContainer {...props} />
+      </div>
+      {open && (
+        <div className="zoom-overlay no-print" onClick={() => setOpen(false)}>
+          <div className="zoom-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="zoom-close" onClick={() => setOpen(false)} aria-label="Close">×</button>
+            <RechartsResponsiveContainer {...props} width="100%" height={Math.round(window.innerHeight * 0.7)} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function getRoster() {
   return window.AthleteStore.allAthletes();
@@ -235,6 +263,19 @@ function dateInRange(dateKey, range) {
 }
 
 // Human-readable name of a range, e.g. "Last 90 days" or "Jan 5, 2026 – Mar 1, 2026".
+// One test per calendar day for the trend charts: the highest jump height that day wins, so a
+// session with several jumps plots a single point rather than a vertical stack of them.
+function oneTestPerDay(tests) {
+  const best = new Map();
+  tests.forEach((t) => {
+    const cur = best.get(t.date);
+    const jh = typeof t.jumpHeight === "number" ? t.jumpHeight : -Infinity;
+    const curJh = cur && typeof cur.jumpHeight === "number" ? cur.jumpHeight : -Infinity;
+    if (!cur || jh > curJh) best.set(t.date, t);
+  });
+  return Array.from(best.values()).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
 function rangeLabel(range) {
   const r = parseRange(range);
   if (r.key === "custom") {
@@ -2402,7 +2443,7 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
 function AthletePerformanceGraphs({ athleteId, range }) {
   const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
-  const tests = allTests.filter((t) => dateInRange(t.date, range));
+  const tests = oneTestPerDay(allTests.filter((t) => dateInRange(t.date, range)));
   if (!allTests.length) {
     return <div className="empty-state">No force plate tests on file for this athlete yet.</div>;
   }
@@ -2643,7 +2684,7 @@ function ForcePlatePanel({ athleteId, range }) {
   const refLineColor = theme === "light" ? "#555555" : "#fff";
   const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
-  const tests = allTests.filter((t) => dateInRange(t.date, range));
+  const tests = oneTestPerDay(allTests.filter((t) => dateInRange(t.date, range)));
   if (!allTests.length) {
     return (
       <div className="panel">
@@ -2697,7 +2738,7 @@ function ForcePlatePanel({ athleteId, range }) {
         <KpiCard label="Latest Jump Height" value={latest.jumpHeight != null ? `${fmt2(latest.jumpHeight)} in` : "—"} />
         <KpiCard label="Latest RSI-Modified" value={latest.rsiModified != null ? fmt2(latest.rsiModified) : "—"} />
       </div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={160}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={grid} />
           <XAxis {...axisProps} stroke={axis} fontSize={12} />
