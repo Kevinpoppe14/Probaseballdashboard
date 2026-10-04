@@ -758,8 +758,9 @@ function FacilityForm({ initial, onSave, onCancel }) {
 // training DST itself provides, so this field has no meaning for the rest of the roster.
 function OffseasonFacilityPanel({ athlete, onChanged }) {
   const [editing, setEditing] = useState(false);
-  const [choice, setChoice] = useState("");
-  const [adding, setAdding] = useState(false);
+  const [value, setValue] = useState("");
+  // Set when the typed name isn't in the directory yet: the coach either saves its details to the database or keeps just the name.
+  const [unsaved, setUnsaved] = useState(null);
   const current = (athlete.offseasonFacility || "").trim();
   const match = findFacilityByName(current);
   const directory = window.AthleteStore.allOffseasonFacilities();
@@ -767,17 +768,26 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
   const assign = (name) => {
     window.AthleteStore.updateAthlete(athlete.id, { offseasonFacility: (name || "").trim() });
     setEditing(false);
-    setAdding(false);
+    setUnsaved(null);
     onChanged();
   };
 
   const startEdit = () => {
-    setChoice(current);
-    setAdding(false);
+    setValue(current);
+    setUnsaved(null);
     setEditing(true);
   };
 
-  // A facility added from here goes into the shared directory and is assigned to this athlete at once.
+  // A name that's already in the directory is assigned as-is; a new name asks whether to add it to the database.
+  const saveValue = () => {
+    const name = value.trim();
+    if (!name) return assign("");
+    const known = findFacilityByName(name);
+    if (known) return assign(known.name);
+    setUnsaved(name);
+  };
+
+  // Facility details entered here go into the shared directory and are assigned to this athlete at once.
   const saveNewFacility = (rec) => {
     const saved = window.AthleteStore.saveOffseasonFacility(rec);
     assign(saved.name);
@@ -795,25 +805,37 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
     );
   }
 
+  if (unsaved) {
+    return (
+      <div className="panel">
+        <h2>Off-Season Training Facility / Contact</h2>
+        <div className="facility-note" style={{ marginTop: 0, marginBottom: 10 }}>
+          “{unsaved}” isn’t in the facility database yet. Add its address and contact to save it for everyone, or keep just the name for this athlete.
+        </div>
+        <FacilityForm initial={{ name: unsaved }} onSave={saveNewFacility} onCancel={() => setUnsaved(null)} />
+        <button className="btn-link" style={{ marginTop: 8 }} onClick={() => assign(unsaved)}>Keep name only</button>
+      </div>
+    );
+  }
+
   return (
     <div className="panel">
       <h2>Off-Season Training Facility / Contact</h2>
-      {!adding ? (
-        <React.Fragment>
-          <div className="field">
-            <select value={choice} onChange={(e) => (e.target.value === "__new__" ? setAdding(true) : setChoice(e.target.value))} style={{ width: "100%" }}>
-              <option value="">— None —</option>
-              {current && !match && <option value={current}>{current} (not in directory)</option>}
-              {directory.map((f) => <option key={f.id} value={f.name}>{f.name}</option>)}
-              <option value="__new__">+ Add new facility…</option>
-            </select>
-          </div>
-          <button className="btn-link" style={{ marginRight: 10, marginTop: 8 }} onClick={() => assign(choice)}>Save</button>
-          <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setEditing(false)}>Cancel</button>
-        </React.Fragment>
-      ) : (
-        <FacilityForm initial={null} onSave={saveNewFacility} onCancel={() => setAdding(false)} />
-      )}
+      <div className="field">
+        <input
+          list="facility-directory-names"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") saveValue(); }}
+          placeholder="Type or pick a facility"
+          style={{ width: "100%" }}
+        />
+        <datalist id="facility-directory-names">
+          {directory.map((f) => <option key={f.id} value={f.name} />)}
+        </datalist>
+      </div>
+      <button className="btn-link" style={{ marginRight: 10, marginTop: 8 }} onClick={saveValue}>Save</button>
+      <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setEditing(false)}>Cancel</button>
     </div>
   );
 }
@@ -1417,7 +1439,7 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -1452,9 +1474,11 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
         <button className={`nav-tab ${view === "teamreport" ? "active" : ""}`} onClick={onGoTeamReport}>
           Team Reports
         </button>
-        <button className={`nav-tab ${view === "facilities" ? "active" : ""}`} onClick={onGoFacilities}>
-          Facilities
-        </button>
+        {(showFacilities || view === "facilities") && (
+          <button className={`nav-tab ${view === "facilities" ? "active" : ""}`} onClick={onGoFacilities}>
+            Facilities
+          </button>
+        )}
         <button className={`nav-tab ${view === "news" ? "active" : ""}`} onClick={onGoNews}>
           In the News
         </button>
@@ -6203,6 +6227,7 @@ function App({ userEmail, onLogout }) {
         onGoPlayers={goPlayers}
         onGoNews={goNews}
         onGoFacilities={goFacilities}
+        showFacilities={locationFilter === CUBS_LOCATION_LABEL}
         onGoHelp={goHelp}
         userEmail={userEmail}
         onLogout={onLogout}
