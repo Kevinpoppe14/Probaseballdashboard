@@ -2535,6 +2535,8 @@ tbody tr:hover {
 .ppt-block:hover { color: var(--text); }
 .ppt-block.active { color: var(--text); border-color: var(--dst-red); background: rgba(165, 42, 52, 0.16); }
 .ppt-block.now small { color: var(--dst-red); }
+.ppt-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
+.period-lane-name { cursor: pointer; }
 .ppt-empty { padding: 14px 0; display: flex; flex-direction: column; gap: 10px; }
 .ppt-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ppt-program-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

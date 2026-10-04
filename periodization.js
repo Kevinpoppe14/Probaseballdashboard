@@ -366,21 +366,22 @@
   // Correctives, Throwing…) is a section; its blocks, in order, are the tabs. A tab opens that block's program,
   // or the program builder to make one. Anything built or changed here is saved to the Programs list as the
   // athlete's own program, named with their last name in front, and linked to the block.
-  function PlanProgramTabs({ plan, athlete, onLinkProgram, onLog }) {
+  // The panel is the program builder itself: the open tab's program is always editable, like a sheet with one
+  // tab per block. `nav` ({ laneId, blockId }) and `dirty` are held by the board, so clicking a row name or a
+  // block's Program button on the chart can jump straight to that program.
+  function PlanProgramTabs({ plan, athlete, onLinkProgram, nav, onNav, dirty, setDirty, panelRef }) {
     const kit = window.ProgramBuilderKit;
     const store = window.AthleteStore;
     const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
-    const [laneId, setLaneId] = useState(null);
-    const [blockId, setBlockId] = useState(null);
-    const [editing, setEditing] = useState(false);
+    const [rev, setRev] = useState(0); // bumped to reload the builder from what's saved
     if (!kit || !lanes.length) return null;
 
     const p = planProgress(plan);
     const wk = p.state === "active" ? p.week - 1 : null;
-    const lane = lanes.find((l) => l.id === laneId) || lanes.find((l) => /strength/i.test(l.name)) || lanes[0];
+    const lane = lanes.find((l) => l.id === nav.laneId) || lanes.find((l) => /strength/i.test(l.name)) || lanes[0];
     const blocks = plan.blocks.filter((b) => b.lane === lane.id).sort((a, b) => a.start - b.start);
     const isNow = (b) => wk != null && b.start <= wk && wk < b.start + b.len;
-    const block = blocks.find((b) => b.id === blockId) || blocks.find(isNow) || blocks[0];
+    const block = blocks.find((b) => b.id === nav.blockId) || blocks.find(isNow) || blocks[0];
     const program = block ? programById(block.programId) : null;
     const weeksText = (b) => `Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}`;
 
@@ -394,77 +395,54 @@
       if (!own) { delete next.id; if (program) next.basedOn = program.id; }
       const saved = store.saveProgram(next);
       if (!program || saved.id !== program.id) onLinkProgram(block.id, saved.id);
-      setEditing(false);
+      setDirty(false);
+      setRev((r) => r + 1);
     };
-
-    const exportPdf = async () => {
-      const cubs = !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete);
-      const { pdf, fits } = await window.buildProgramPdf(program, athlete.name, cubs);
-      if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
-      pdf.save(`${[athlete.name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
-    };
-
-    const pick = (fn) => { setEditing(false); fn(); };
-    const current = program && block ? currentProgramWeek(plan, block, program) : null;
+    const reload = () => { setDirty(false); setRev((r) => r + 1); };
 
     return (
-      <div className="panel period-program-tabs no-print">
-        <h2>Programs <small>Pick a section, then a block, to open or build its program</small></h2>
+      <div className="panel period-program-tabs no-print" ref={panelRef}>
+        <h2>Program builder <small>Pick a section, then a tab, to edit that block's program</small></h2>
         <div className="pill-tabs ppt-sections">
           {lanes.map((l) => (
-            <button key={l.id} className={`pill-tab ${l.id === lane.id ? "active" : ""}`} onClick={() => pick(() => { setLaneId(l.id); setBlockId(null); })}>{l.name}</button>
+            <button key={l.id} className={`pill-tab ${l.id === lane.id ? "active" : ""}`} onClick={() => onNav({ laneId: l.id, blockId: null })}>{l.name}</button>
           ))}
         </div>
         <div className="ppt-blocks">
           {blocks.map((b) => (
-            <button key={b.id} className={`ppt-block ${block && b.id === block.id ? "active" : ""} ${isNow(b) ? "now" : ""}`} onClick={() => pick(() => setBlockId(b.id))}>
+            <button key={b.id} className={`ppt-block ${block && b.id === block.id ? "active" : ""} ${isNow(b) ? "now" : ""}`} onClick={() => onNav({ laneId: lane.id, blockId: b.id })}>
               <strong>{b.label || "Untitled"}</strong>
-              <small>{weeksText(b)}{programById(b.programId) ? " · program" : ""}{isNow(b) ? " · now" : ""}</small>
+              <small>{weeksText(b)}{programById(b.programId) ? " · program" : " · no program yet"}{isNow(b) ? " · now" : ""}</small>
             </button>
           ))}
         </div>
 
-        {block && editing && (
+        {block && (
+          <div className="ppt-note">
+            {!program && (
+              <React.Fragment>
+                <span>No program for <strong>{block.label || "this block"}</strong> yet. Build it below, or</span>
+                <select value="" onChange={(e) => e.target.value && onLinkProgram(block.id, e.target.value)}>
+                  <option value="">link an existing program…</option>
+                  {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+              </React.Fragment>
+            )}
+            {program && !own && <span>Shared program. Saving here makes {athlete.name}'s own copy, “{withLast(program.name)}”, and leaves the shared one unchanged.</span>}
+            {program && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={() => { if (!dirty || window.confirm("Unlink this program and lose your unsaved changes?")) { onLinkProgram(block.id, null); reload(); } }}>Unlink from this block</button>}
+          </div>
+        )}
+
+        {block && (
           <kit.ProgramEditor
-            key={`${block.id}-${program ? program.id : "new"}`}
+            key={`${block.id}-${program ? program.id : "new"}-${rev}`}
             initial={program || { name: withLast(block.label || lane.name), description: "", weeks: [kit.newWeek(1)] }}
             onSave={save}
-            onCancel={() => setEditing(false)}
+            onCancel={reload}
+            cancelLabel="Discard changes"
             onDelete={null}
+            onDirty={() => { if (!dirty) setDirty(true); }}
           />
-        )}
-
-        {block && !editing && !program && (
-          <div className="ppt-empty">
-            <div>No program for <strong>{block.label || "this block"}</strong> yet.</div>
-            <div className="ppt-actions">
-              <button className="btn" onClick={() => setEditing(true)}>Build a program</button>
-              <select value="" onChange={(e) => e.target.value && onLinkProgram(block.id, e.target.value)}>
-                <option value="">or link an existing program…</option>
-                {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-              </select>
-            </div>
-          </div>
-        )}
-
-        {block && !editing && program && (
-          <div className="ppt-program">
-            <div className="ppt-program-head">
-              <strong>{program.name}</strong>
-              {!own && <small>Shared program. Editing it here saves {athlete.name}'s own copy as “{withLast(program.name)}”.</small>}
-              <span className="ppt-actions">
-                <button className="btn" onClick={() => setEditing(true)}>{own ? "Edit program" : "Edit for this athlete"}</button>
-                {window.buildProgramPdf && <button className="btn btn-secondary" onClick={exportPdf}>Export PDF</button>}
-                <button className="btn-link" onClick={() => onLinkProgram(block.id, null)}>Unlink</button>
-              </span>
-            </div>
-            {(program.weeks || []).map((w, wi) => (
-              <div className={`program-modal-week ${current === wi + 1 ? "current" : ""}`} key={wi}>
-                <h3>{w.name || `Week ${wi + 1}`}{current === wi + 1 && <small>This week</small>}</h3>
-                <ProgramWeekView week={w} log={(plan.programLog || {})[program.id] || {}} onLog={(key, val) => onLog(program.id, key, val)} />
-              </div>
-            ))}
-          </div>
         )}
       </div>
     );
@@ -1073,7 +1051,22 @@
       saveText({ programLog: all });
     };
 
-    const [openProgramBlock, setOpenProgramBlock] = useState(null); // id of the block whose program pop-up is open
+    // Program builder panel under the chart: which section (row) and tab (block) is open, and whether it has
+    // unsaved edits. Clicking a row name or a block's Program button on the chart jumps to it.
+    const [progNav, setProgNav] = useState({ laneId: null, blockId: null });
+    const [progDirty, setProgDirty] = useState(false);
+    const progPanelRef = useRef(null);
+    const laneClickTimer = useRef(null);
+    const goProgram = (next, scroll) => {
+      const same = next.laneId === progNav.laneId && next.blockId === progNav.blockId;
+      if (!same && progDirty && !window.confirm("Leave this program without saving your changes?")) return;
+      if (!same) { setProgDirty(false); setProgNav(next); }
+      if (scroll && progPanelRef.current) progPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    const setOpenProgramBlock = (blockId) => {
+      const b = planRef.current.blocks.find((x) => x.id === blockId);
+      if (b) goProgram({ laneId: b.lane, blockId: b.id }, true);
+    };
     const laneById = (id) => plan.lanes.find((l) => l.id === id);
     const blockColor = (b) => b.color || (laneById(b.lane) ? laneById(b.lane).color : PALETTE[7]);
     const shownBlocks = draft || plan.blocks;
@@ -1554,7 +1547,12 @@
                         }}
                       />
                     ) : (
-                      <span className="period-lane-name" title="Double-click to rename" onDoubleClick={() => setRenamingLane(lane.id)}>{lane.name}</span>
+                      <span
+                        className="period-lane-name"
+                        title="Click to open this section's programs · double-click to rename"
+                        onClick={() => { clearTimeout(laneClickTimer.current); laneClickTimer.current = setTimeout(() => goProgram({ laneId: lane.id, blockId: null }, true), 260); }}
+                        onDoubleClick={() => { clearTimeout(laneClickTimer.current); setRenamingLane(lane.id); }}
+                      >{lane.name}</span>
                     )}
                     <button className="period-lane-x no-print" title="Delete this row" onClick={() => deleteLane(lane)}>×</button>
                   </div>
@@ -1605,7 +1603,7 @@
                           {b.programId && programById(b.programId) && (
                             <button
                               className="period-block-program no-print"
-                              title={`Open the program: ${programById(b.programId).name}`}
+                              title={`Edit the program: ${programById(b.programId).name}`}
                               onPointerDown={(e) => e.stopPropagation()}
                               onDoubleClick={(e) => e.stopPropagation()}
                               onClick={(e) => { e.stopPropagation(); setOpenProgramBlock(b.id); }}
@@ -1665,7 +1663,7 @@
                 {allPrograms().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {single.programId && programById(single.programId) && (
-                <button className="btn-link" style={{ marginTop: 6 }} onClick={() => setOpenProgramBlock(single.id)}>Open program</button>
+                <button className="btn-link" style={{ marginTop: 6 }} onClick={() => setOpenProgramBlock(single.id)}>Edit program in the builder below</button>
               )}
             </div>
             <div className="period-swatches">
@@ -1690,14 +1688,9 @@
           </div>
         )}
 
-        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId })} onLog={logWeight} />
+        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId })} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
 
         <PlanPrograms plan={plan} onLog={logWeight} />
-        {(() => {
-          const b = openProgramBlock && plan.blocks.find((x) => x.id === openProgramBlock);
-          const program = b && programById(b.programId);
-          return program ? <ProgramModal program={program} athlete={athlete} currentNo={currentProgramWeek(plan, b, program)} onClose={() => setOpenProgramBlock(null)} log={(plan.programLog || {})[program.id] || {}} onLog={(key, val) => logWeight(program.id, key, val)} /> : null;
-        })()}
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>

@@ -1140,9 +1140,27 @@ function ProgramPdfButton({ program, disabled }) {
 }
 
 // Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
-function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
+function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
-  const edit = (fn) => setDraft((d) => { const c = JSON.parse(JSON.stringify(d)); fn(c); return c; });
+  const edit = (fn) => { if (onDirty) onDirty(); setDraft((d) => { const c = JSON.parse(JSON.stringify(d)); fn(c); return c; }); };
+
+  // Swapping an exercise in one week: once the name box is left, offer to make the same swap in every later
+  // week, for exercises with the old name on the same day.
+  const nameAtFocus = React.useRef(null);
+  const offerSwapForward = (wi, si, ei) => {
+    const was = nameAtFocus.current;
+    nameAtFocus.current = null;
+    if (!was || was.wi !== wi || was.si !== si || was.ei !== ei) return;
+    const oldName = (was.name || "").trim();
+    const newName = (((draft.weeks[wi].sessions[si] || {}).exercises[ei] || {}).name || "").trim();
+    if (!oldName || !newName || oldName.toLowerCase() === newName.toLowerCase()) return;
+    const same = (e) => (e.name || "").trim().toLowerCase() === oldName.toLowerCase();
+    const later = draft.weeks.map((w, i) => i).filter((i) => i > wi && ((draft.weeks[i].sessions[si] || {}).exercises || []).some(same));
+    if (!later.length) return;
+    const names = later.map((i) => draft.weeks[i].name || `Week ${i + 1}`).join(", ");
+    if (!window.confirm(`Also change "${oldName}" to "${newName}" in the following weeks (${names})?`)) return;
+    edit((d) => later.forEach((i) => d.weeks[i].sessions[si].exercises.forEach((e) => { if (same(e)) e.name = newName; })));
+  };
   const canSave = (draft.name || "").trim().length > 0;
 
   const save = () => {
@@ -1220,7 +1238,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
                     <div className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""}`} key={ex.id || ei}>
                       <div className="program-ex-top">
                         <strong className="superset-label">{labels[ei]}</strong>
-                        {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names" })}
+                        {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names", onFocus: () => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }, onBlur: () => offerSwapForward(wi, si, ei) })}
                         {input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "program-ex-tempo", maxLength: 6, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
                         {window.AthleteStore.findExerciseByName(ex.name) && (
                           <button className="exercise-view-btn" title="View this exercise from the library" onClick={() => window.openExercise(ex.name)}>▶</button>
@@ -1286,7 +1304,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
 
       <div className="facility-form-actions">
         <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
-        <button className="btn-link" onClick={onCancel}>Cancel</button>
+        <button className="btn-link" onClick={onCancel}>{cancelLabel || "Cancel"}</button>
         {initial && initial.id && onDelete && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={onDelete}>Delete program</button>}
       </div>
     </div>
