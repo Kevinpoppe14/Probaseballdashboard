@@ -1144,6 +1144,16 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   const edit = (fn) => { if (onDirty) onDirty(); setDraft((d) => { const c = JSON.parse(JSON.stringify(d)); fn(c); return c; }); };
 
+  // Clicking into a week highlights it and dims the others, to keep your place in a long program.
+  const [focusWeek, setFocusWeek] = useState(null);
+  // The same inside a day: clicking into an exercise highlights its superset (the A's, the B's…) and dims the
+  // day's other supersets.
+  const [focusSet, setFocusSet] = useState(null); // { wi, si, letter }
+  const pickSet = (wi, si, label) => {
+    const letter = label.replace(/\d+\.$/, "");
+    setFocusSet((f) => (f && f.wi === wi && f.si === si && f.letter === letter ? f : { wi, si, letter }));
+  };
+
   // Swapping an exercise in one week: once the name box is left, offer to make the same swap in every later
   // week, for exercises with the old name on the same day.
   const nameAtFocus = React.useRef(null);
@@ -1228,8 +1238,16 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
         </div>
       </div>
 
+      {(focusSet || (focusWeek != null && draft.weeks.length > 1)) && (
+        <button className="btn-link program-show-all" onClick={() => { setFocusWeek(null); setFocusSet(null); }}>Show everything at full brightness</button>
+      )}
       {draft.weeks.map((week, wi) => (
-        <div className="program-week" key={wi}>
+        <div
+          className={`program-week ${focusWeek === wi ? "focused" : focusWeek != null ? "dimmed" : ""}`}
+          key={wi}
+          onMouseDown={() => setFocusWeek(wi)}
+          onFocusCapture={() => setFocusWeek(wi)}
+        >
           <div className="program-week-head">
             {input(week.name, (v) => edit((d) => { d.weeks[wi].name = v; }), { className: "program-week-name", "aria-label": "Week name" })}
             <button className="btn-link" disabled={draft.weeks.length === 1} onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>Remove week</button>
@@ -1253,7 +1271,12 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                     onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].warmup = e.target.value; })}
                   />
                   {session.exercises.map((ex, ei) => (
-                    <div className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""}`} key={ex.id || ei}>
+                    <div
+                      className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""} ${focusSet && focusSet.wi === wi && focusSet.si === si ? (focusSet.letter === labels[ei].replace(/\d+\.$/, "") ? "set-focused" : "set-dimmed") : ""}`}
+                      key={ex.id || ei}
+                      onMouseDown={() => pickSet(wi, si, labels[ei])}
+                      onFocusCapture={() => pickSet(wi, si, labels[ei])}
+                    >
                       <div className="program-ex-top">
                         <strong className="superset-label">{labels[ei]}</strong>
                         {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names", onFocus: () => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }, onBlur: () => offerSwapForward(wi, si, ei) })}

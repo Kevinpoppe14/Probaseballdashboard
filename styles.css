@@ -2460,6 +2460,18 @@ tbody tr:hover {
 .indiv-empty { color: var(--text-dim); text-align: center; }
 @media (max-width: 700px) { .indiv-swaps { grid-template-columns: 1fr; } }
 
+/* the week being worked on is outlined; the others dim until clicked */
+.program-week { transition: opacity 0.15s, border-color 0.15s; }
+.program-week.focused { border: 2px solid var(--dst-red); box-shadow: 0 0 12px rgba(165, 42, 52, 0.25); }
+.program-week.dimmed { opacity: 0.45; }
+.program-week.dimmed:hover { opacity: 0.7; }
+.program-show-all { display: inline-block; margin-top: 10px; }
+/* inside a day, the superset being worked on stays bright and the day's other supersets dim */
+.program-ex { transition: opacity 0.15s; }
+.program-ex.set-focused { background: rgba(165, 42, 52, 0.12); border-radius: 4px; }
+.program-ex.set-dimmed { opacity: 0.45; }
+.program-ex.set-dimmed:hover { opacity: 0.75; }
+
 /* suggested next phase */
 .program-next { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .program-next-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--dst-red); border-radius: 12px; font-size: 12px; }
