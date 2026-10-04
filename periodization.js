@@ -608,10 +608,10 @@
               ) : (
                 <div className="ph-name">{athlete.name}</div>
               )}
+              {athlete.team && <div className="ph-teamname">{athlete.team}</div>}
             </div>
             {extra && <div className="ph-extra">{extra}</div>}
           </div>
-          {athlete.team && <div className="ph-teamname">{athlete.team}</div>}
         </div>
         <div className="ph-center">
           <h1>{title}</h1>

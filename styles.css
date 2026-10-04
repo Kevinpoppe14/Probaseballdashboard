@@ -1371,10 +1371,14 @@ tbody tr:hover {
   .period-action textarea { min-height: 0; overflow: hidden !important; }
 
   /* the page is narrow, so the mobile "stacked" header rule would kick in — keep the 3-part header on paper */
-  :is(.period-wrap, .report-sheet) .period-header { grid-template-columns: 1fr auto 1fr !important; justify-items: stretch !important; text-align: left !important; }
-  :is(.period-wrap, .report-sheet) .ph-left { align-items: flex-start !important; }
+  /* the left block spans the whole header so the percentile block (50% of it, margin-left:auto) lands on the right half of the page;
+     the DST logo is lifted to the top-right corner so it doesn't take a grid column */
+  :is(.period-wrap, .report-sheet) .period-header { grid-template-columns: 1fr !important; justify-items: stretch !important; text-align: left !important; position: relative !important; }
+  :is(.period-wrap, .report-sheet) .ph-left { grid-column: 1 / -1 !important; width: 100% !important; align-items: flex-start !important; }
+  :is(.period-wrap, .report-sheet) .ph-pics { width: 100% !important; }
+  :is(.period-wrap, .report-sheet) .ph-extra { width: 50% !important; min-width: 0 !important; margin-left: auto !important; }
   :is(.period-wrap, .report-sheet) .ph-center { text-align: center !important; }
-  :is(.period-wrap, .report-sheet) .ph-right { justify-self: end !important; }
+  :is(.period-wrap, .report-sheet) .ph-right { position: absolute !important; top: 14px !important; right: 16px !important; justify-self: auto !important; }
   /* Shadows, opacity and filters make Chrome turn text and shapes into pictures inside the PDF, which
      prints soft and blurry. Keep everything flat so it stays sharp vector text and solid fills. */
   :is(.period-wrap, .report-sheet), :is(.period-wrap, .report-sheet) * { text-shadow: none !important; box-shadow: none !important; opacity: 1 !important; filter: none !important; }
@@ -2367,7 +2371,9 @@ tbody tr:hover {
   box-shadow: 0 0 0 1px rgba(165, 42, 52, 0.25), 0 0 14px rgba(165, 42, 52, 0.18);
 }
 .period-header-cubs { box-shadow: 0 0 0 1px rgba(14, 51, 134, 0.25), 0 0 14px rgba(14, 51, 134, 0.18); }
-.ph-pics { width: 100%; }
+.ph-pics { width: 100%; align-items: flex-start; }
+/* the team logo sits level with the 112px photo (logo is 104px, so 4px down centers it) */
+.ph-pics .ph-team { margin-top: 4px; }
 .ph-extra { width: 50%; min-width: 380px; margin-left: auto; text-align: left; font-size: 12px; }
 @media (max-width: 900px) { .ph-extra { width: 100%; min-width: 0; margin-left: 0; } }
 .cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
