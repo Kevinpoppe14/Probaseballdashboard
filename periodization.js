@@ -76,23 +76,26 @@
   // Automatic overview of the plan: dates, goals in priority order, then each timeline row's blocks.
   // Shown in the Action Plan until a coach edits it, which saves their own text instead.
   function planOverview(plan) {
-    const lines = [];
+    const paras = [];
     const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const joinList = (xs) => xs.length <= 2 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")}, and ${xs[xs.length - 1]}`;
     if (plan.blocks.length) {
-      lines.push(`Offseason plan: ${fmtMD(plan.startDate)} – ${fmtMD(addDaysISO(plan.startDate, plan.weeks * 7 - 1))} (${plural(plan.weeks, "week")}).`);
+      paras.push(`This offseason plan runs from ${fmtMD(plan.startDate)} to ${fmtMD(addDaysISO(plan.startDate, plan.weeks * 7 - 1))}, ${plural(plan.weeks, "week")} in total.`);
     }
     const g = goalsOf(plan);
-    const goalCols = [["Physical goals", g.physical], ...OPTIONAL_GOAL_COLUMNS.filter((c) => g[c.key]).map((c) => [c.label, g[c.key]])];
+    const goalCols = [["physical goals", g.physical], ...OPTIONAL_GOAL_COLUMNS.filter((c) => g[c.key]).map((c) => [c.label.toLowerCase(), g[c.key]])];
     goalCols.forEach(([title, items]) => {
-      if (items.length) lines.push(`${title}: ${items.map((x, i) => `${i + 1}. ${x.text}${x.done ? " (achieved)" : ""}`).join("; ")}.`);
+      if (!items.length) return;
+      const texts = items.map((x) => `${x.text}${x.done ? " (achieved)" : ""}`);
+      paras.push(`The ${title}, in priority order, ${items.length === 1 ? "is" : "are"} ${joinList(texts)}.`);
     });
+    const wk = (b) => `${b.len > 1 ? "weeks" : "week"} ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}`;
     plan.lanes.forEach((lane) => {
       const bs = plan.blocks.filter((b) => b.lane === lane.id).sort((a, b) => a.start - b.start);
       if (!bs.length) return;
-      const wk = (b) => `${b.len > 1 ? "weeks" : "week"} ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}`;
-      lines.push(`${lane.name}: ${bs.map((b) => `${b.label || "Untitled"} (${wk(b)})`).join("; ")}.`);
+      paras.push(`Under ${lane.name.toLowerCase()}, the plan moves through ${joinList(bs.map((b) => `${b.label || "Untitled"} (${wk(b)})`))}.`);
     });
-    return lines.join("\n");
+    return paras.join("\n\n");
   }
   const actionPlanText = (plan) => actionPlanOf(plan).trim() ? actionPlanOf(plan) : planOverview(plan);
 
