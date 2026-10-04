@@ -706,6 +706,121 @@ const programCounts = (p) => {
   return { weeks, sessions, exercises };
 };
 
+// Draws a program as a one-page landscape PDF: athlete and program name top left, DST logo top middle,
+// then one row per week with its days side by side. The text size steps down until every week fits on the page.
+// Returns { pdf, fontSize, fits }.
+async function buildProgramPdf(program, athleteName) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+  const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
+  const M = 28, headH = 44, gutter = 46, pad = 4;
+
+  let logo = null;
+  try {
+    logo = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = "assets/dst-logo.png"; });
+  } catch (e) { /* no logo file: the page still exports without it */ }
+  let logoW = 0;
+  if (logo) {
+    const h = 38;
+    logoW = (h * logo.naturalWidth) / logo.naturalHeight;
+    pdf.addImage(logo, "PNG", (W - logoW) / 2, M, logoW, h);
+  }
+  const leftW = (W - logoW) / 2 - M - 12; // names stay clear of the centered logo
+  const oneLine = (text) => pdf.splitTextToSize(text, leftW)[0];
+  pdf.setTextColor(20);
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(15);
+  pdf.text(oneLine(athleteName || program.name), M, M + 15);
+  if (athleteName) {
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(11);
+    pdf.text(oneLine(program.name), M, M + 31);
+  }
+
+  const loadTxt = (e) => {
+    if (e.loadUnit === "bodyweight") return "BW";
+    if (!e.load) return "";
+    if (e.loadUnit === "RPE") return `RPE ${e.load}`;
+    if (e.loadUnit === "% 1RM") return `${e.load}% 1RM`;
+    if (e.loadUnit === "other") return e.load;
+    return `${e.load} lbs`;
+  };
+  const exText = (e, label) => {
+    const detail = [[e.sets, e.reps].filter(Boolean).join(" x "), loadTxt(e), e.rest && `rest ${e.rest}`].filter(Boolean).join(", ");
+    return `${label} ${e.name}${detail ? ` - ${detail}` : ""}${e.notes ? ` (${e.notes})` : ""}`;
+  };
+
+  const weeks = program.weeks || [];
+  const maxDays = Math.max(1, ...weeks.map((w) => (w.sessions || []).length));
+  const top = M + headH + 8;
+  const availH = H - M - top;
+  const colW = (W - 2 * M - gutter) / maxDays;
+
+  const layout = (fs) => {
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
+    const lineH = fs * 1.2;
+    const rows = weeks.map((w) => {
+      const cells = (w.sessions || []).map((s, si) => {
+        const named = (s.exercises || []).filter((e) => (e.name || "").trim());
+        const labels = window.exerciseLabels(named);
+        const lines = named.flatMap((e, i) => pdf.splitTextToSize(exText(e, labels[i]), colW - 2 * pad));
+        return { name: s.name || `Day ${si + 1}`, lines };
+      });
+      const h = pad * 2 + lineH * (1 + Math.max(0, ...cells.map((c) => c.lines.length))) + 2;
+      return { name: w.name || "", cells, h };
+    });
+    return { rows, lineH, total: rows.reduce((t, r) => t + r.h, 0) };
+  };
+
+  let fs = 10, plan = layout(fs);
+  while (plan.total > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
+  const fits = plan.total <= availH;
+
+  pdf.setDrawColor(170); pdf.setLineWidth(0.5);
+  let y = top;
+  plan.rows.forEach((row) => {
+    pdf.rect(M, y, gutter, row.h);
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(Math.min(fs + 1, 10));
+    pdf.text(pdf.splitTextToSize(row.name, gutter - 2 * pad), M + pad, y + pad + plan.lineH * 0.8);
+    for (let i = 0; i < maxDays; i++) {
+      const x = M + gutter + i * colW;
+      pdf.rect(x, y, colW, row.h);
+      const cell = row.cells[i];
+      if (!cell) continue;
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
+      pdf.text(pdf.splitTextToSize(cell.name, colW - 2 * pad)[0], x + pad, y + pad + plan.lineH * 0.8);
+      pdf.setFont("helvetica", "normal");
+      cell.lines.forEach((line, li) => pdf.text(line, x + pad, y + pad + plan.lineH * (li + 1.8) + 2));
+    }
+    y += row.h;
+  });
+  return { pdf, fontSize: fs, fits };
+}
+
+// "Export PDF" with an optional athlete name for the page's top-left corner.
+function ProgramPdfButton({ program, disabled }) {
+  const [athleteId, setAthleteId] = useState("");
+  const athletes = window.AthleteStore.allAthletes()
+    .filter((a) => (a.status || "active").toLowerCase() !== "alumni")
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+  const run = async () => {
+    const athlete = athletes.find((a) => String(a.id) === athleteId);
+    const name = athlete ? athlete.name : "";
+    const { pdf, fits } = await buildProgramPdf(program, name);
+    if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
+    pdf.save(`${[name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+  };
+
+  return (
+    <span className="program-pdf">
+      <select value={athleteId} onChange={(e) => setAthleteId(e.target.value)} title="Athlete name to print on the PDF">
+        <option value="">No athlete name</option>
+        {athletes.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+      </select>
+      <button className="btn-link" disabled={disabled} onClick={run}>Export PDF</button>
+    </span>
+  );
+}
+
 // Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
 function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
   const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })));
@@ -823,6 +938,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
       <div className="facility-form-actions">
         <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
         <button className="btn-link" onClick={onCancel}>Cancel</button>
+        <ProgramPdfButton program={{ name: (draft.name || "").trim() || "Program", weeks: draft.weeks }} />
         {initial && initial.id && onDelete && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={onDelete}>Delete program</button>}
       </div>
     </div>
@@ -880,6 +996,7 @@ function ProgramsPage() {
               {p.description && <div className="facility-notes" style={{ marginTop: 6 }}>{p.description}</div>}
               <div className="facility-card-actions no-print">
                 <button className="btn-link" onClick={() => setEditing(p)}>Edit</button>
+                <ProgramPdfButton program={p} />
               </div>
             </div>
           );
