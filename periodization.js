@@ -236,6 +236,7 @@
           return (
             <div className="program-view-session" key={si}>
               <h4>{s.name || `Session ${si + 1}`}</h4>
+              {(s.warmup || "").trim() && <div className="program-view-warmup"><strong>Warm-up:</strong> {s.warmup}</div>}
               {rows.length === 0 ? <div className="program-view-empty">No exercises entered.</div> : (
                 <table className="program-view-table">
                   <thead><tr><th>Exercise</th><th>{onLog ? "Sets, reps and weight used" : "Sets and reps"}</th><th>Rest</th><th>Notes</th></tr></thead>

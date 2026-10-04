@@ -950,12 +950,13 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const availH = H - M - top;
   const colW = (W - 2 * M - gutter) / maxDays;
 
-  // Under each exercise name, every set group is a small column, as on the training sheets: the reps on top
-  // ("5", or "3x1"), an empty box for the weight the athlete used, and the prescribed intensity in a colored
-  // cell underneath. A rule is drawn between superset groups (A, B, C…).
+  // Beside each exercise name, every set group is its reps ("5", or "3x1") followed by a line for writing in
+  // the weight used, with the prescribed intensity in a colored cell under the line. A rule is drawn between
+  // superset groups (A, B, C…).
   const layout = (fs) => {
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
-    const lineH = fs * 1.25, repsH = fs * 1.0, boxH = fs * 1.35, pctH = fs * 1.05, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), indent = fs;
+    // each set group is its reps followed by a write-in line, with the intensity in a colored cell under the line
+    const lineH = fs * 1.25, rowH = fs * 1.6, pctH = fs * 1.05, lineW = fs * 4.6, sp = fs * 0.9, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), indent = fs;
     const textW = colW - 2 * pad;
     const rows = weeks.map((w) => {
       const cells = (w.sessions || []).map((s, si) => {
@@ -966,18 +967,19 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
           let cur = [], x = indent;
           Rx.groups(e).forEach((g) => {
             const reps = Rx.repsText(g), int = Rx.intensityText(e, g);
-            const bw = Math.max(pdf.getTextWidth(reps), pdf.getTextWidth(int), fs * 3) + 4;
-            if (cur.length && x + bw > textW) { rxLines.push(cur); cur = []; x = indent; }
-            cur.push({ reps, int, x, bw });
-            x += bw; // boxes butt up against each other like spreadsheet cells
+            const rw = pdf.getTextWidth(reps) * 1.08 + 2.5; // reps are drawn bold
+            const bw = rw + lineW + sp;
+            if (cur.length && x + bw - sp > textW) { rxLines.push(cur); cur = []; x = indent; }
+            cur.push({ reps, int, x, bw, rw });
+            x += bw;
           });
           if (cur.length) rxLines.push(cur);
           const hasInt = rxLines.some((ln) => ln.some((b) => b.int));
-          const rxH = repsH + boxH + (hasInt ? pctH : 0) + 2;
+          const rxH = rowH + (hasInt ? pctH : 0) + 2;
           // When the boxes fit in one row and leave room, they sit to the right of the exercise name (as on the
           // sheets), which keeps each exercise short; otherwise they go on their own rows under the name.
-          const rowW = rxLines.length === 1 ? rxLines[0].reduce((t, b) => t + b.bw, 0) : Infinity;
-          const side = rowW <= textW * 0.6;
+          const rowW = rxLines.length === 1 ? rxLines[0].reduce((t, b) => t + b.bw, 0) - sp : Infinity;
+          const side = rowW <= textW * 0.66;
           if (side) { let bx = textW - rowW; rxLines[0].forEach((b) => { b.x = bx; bx += b.bw; }); }
           const lines = pdf.splitTextToSize(exText(e, labels[i]), side ? textW - rowW - 4 : textW);
           // rest goes at the bottom right, under the exercise's sets and reps
@@ -987,18 +989,22 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
           const bodyH = side ? Math.max(lines.length * lineH, rxTotal) : lines.length * lineH + rxTotal;
           return { label: labels[i], lines, rxLines, rxH, side, bodyH, hasInt, rest, newGroup: i > 0 && !e.linked };
         });
-        const h = items.reduce((t, it) => t + it.bodyH + (it.newGroup ? gap * 2 : 0), 0);
-        return { name: s.name || `Day ${si + 1}`, items, h };
+        // optional warm-up for the day, printed above the first superset
+        const warm = (s.warmup || "").trim();
+        const warmLines = warm ? pdf.splitTextToSize(`WARM-UP: ${warm}`, textW) : [];
+        const warmH = warmLines.length ? warmLines.length * lineH + gap * 2 : 0;
+        const h = warmH + items.reduce((t, it) => t + it.bodyH + (it.newGroup ? gap * 2 : 0), 0);
+        return { name: s.name || `Day ${si + 1}`, items, h, warmLines };
       });
       return { name: w.name || "", cells, h: bandH + pad * 2 + Math.max(lineH, ...cells.map((c) => c.h)) };
     });
-    return { rows, lineH, repsH, boxH, pctH, bandH, gap, total: rows.reduce((t, r) => t + r.h, 0) };
+    return { rows, lineH, rowH, pctH, lineW, bandH, gap, total: rows.reduce((t, r) => t + r.h, 0) };
   };
 
   let fs = 10, plan = layout(fs);
   while (plan.total > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
   const fits = plan.total <= availH;
-  const { lineH, repsH, boxH, pctH, bandH, gap } = plan;
+  const { lineH, rowH, pctH, lineW, bandH, gap } = plan;
 
   pdf.setDrawColor(...theme); pdf.setLineWidth(1.5);
   pdf.line(M, top - 5, W - M, top - 5);
@@ -1019,6 +1025,14 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
         pdf.text(pdf.splitTextToSize(cell.name.toUpperCase(), colW - 2 * pad)[0], x + colW / 2, y + lineH * 0.8 + 1.5, { align: "center" });
         pdf.setFontSize(fs);
         let cy = y + bandH + pad;
+        if (cell.warmLines.length) {
+          pdf.setFont("helvetica", "bolditalic"); pdf.setTextColor(20);
+          cell.warmLines.forEach((line) => { pdf.text(line, x + pad, cy + lineH * 0.8); cy += lineH; });
+          cy += gap;
+          pdf.setDrawColor(...theme); pdf.setLineWidth(1);
+          pdf.line(x, cy, x + colW, cy);
+          cy += gap;
+        }
         cell.items.forEach((it) => {
           if (it.newGroup) {
             cy += gap;
@@ -1051,16 +1065,15 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
           it.rxLines.forEach((boxes) => {
             pdf.setDrawColor(40); pdf.setLineWidth(0.5);
             boxes.forEach((b) => {
-              const bx = x + pad + b.x, mid = bx + b.bw / 2;
-              pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs * 0.95); pdf.setTextColor(20);
-              pdf.text(b.reps, mid, cy + repsH * 0.8, { align: "center" });
-              pdf.setFillColor(255); pdf.rect(bx, cy + repsH, b.bw, boxH, "FD");
-              if (it.hasInt) {
-                pdf.setFillColor(...(b.int ? C.pct : [255, 255, 255])); pdf.rect(bx, cy + repsH + boxH, b.bw, pctH, "FD");
-                if (b.int) {
-                  pdf.setFont("helvetica", "bolditalic"); pdf.setFontSize(fs * 0.85); pdf.setTextColor(0);
-                  pdf.text(b.int, mid, cy + repsH + boxH + pctH * 0.76, { align: "center" });
-                }
+              const bx = x + pad + b.x, lx = bx + b.rw, base = cy + rowH - 2;
+              pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs); pdf.setTextColor(20);
+              pdf.text(b.reps, bx, base);
+              pdf.setDrawColor(40); pdf.setLineWidth(0.6);
+              pdf.line(lx, base + 1, lx + lineW, base + 1);
+              if (b.int) {
+                pdf.setFillColor(...C.pct); pdf.rect(lx, base + 1.6, lineW, pctH, "F");
+                pdf.setFont("helvetica", "bolditalic"); pdf.setFontSize(fs * 0.85); pdf.setTextColor(0);
+                pdf.text(b.int, lx + lineW / 2, base + 1.6 + pctH * 0.76, { align: "center" });
               }
             });
             pdf.setFontSize(fs);
@@ -1128,14 +1141,14 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
     const week = draft.weeks[wi];
     const copyOf = (d) => d.weeks[wi].sessions[si].exercises.map((e) => ({ ...e, id: newExercise().id }));
     if (target === "new") {
-      edit((d) => { const s = d.weeks[wi].sessions; s.push({ name: `Day ${s.length + 1}`, exercises: copyOf(d) }); });
+      edit((d) => { const s = d.weeks[wi].sessions; s.push({ name: `Day ${s.length + 1}`, warmup: s[si].warmup || "", exercises: copyOf(d) }); });
       return;
     }
     const ti = Number(target);
     const dest = week.sessions[ti];
     const hasWork = dest.exercises.some((e) => (e.name || "").trim());
     if (hasWork && !window.confirm(`Replace the exercises in ${dest.name || `Day ${ti + 1}`} with a copy of ${week.sessions[si].name || `Day ${si + 1}`}?`)) return;
-    edit((d) => { d.weeks[wi].sessions[ti].exercises = copyOf(d); });
+    edit((d) => { d.weeks[wi].sessions[ti].exercises = copyOf(d); d.weeks[wi].sessions[ti].warmup = d.weeks[wi].sessions[si].warmup || ""; });
   };
 
   const input = (value, onChange, props = {}) => (
@@ -1178,6 +1191,13 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
                     {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
                     <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
                   </div>
+                  <textarea
+                    className="program-warmup"
+                    rows={2}
+                    value={session.warmup || ""}
+                    placeholder="Warm-up (optional), shown above A1"
+                    onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].warmup = e.target.value; })}
+                  />
                   {session.exercises.map((ex, ei) => (
                     <div className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""}`} key={ex.id || ei}>
                       <div className="program-ex-top">
