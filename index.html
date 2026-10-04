@@ -926,9 +926,12 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   }
   const leftW = (W - logoW) / 2 - M - 12; // names stay clear of the centered logo
   const oneLine = (text) => pdf.splitTextToSize(text, leftW)[0];
-  // page color: Cubs blue for Cubs-only athletes, DST red otherwise
-  const theme = cubsLogo ? [14, 51, 134] : [165, 42, 52];
-  const tint = cubsLogo ? [231, 236, 247] : [248, 233, 234];
+  // Colors. DST follows its training sheets: yellow week blocks, black day bars, red accents and a bright cyan
+  // cell for the prescribed intensity. Cubs-only athletes get Cubs blue and red instead.
+  const C = cubsLogo
+    ? { week: [14, 51, 134], weekText: 255, day: [204, 52, 51], dayText: 255, accent: [14, 51, 134], pct: [214, 226, 247], label: [14, 51, 134] }
+    : { week: [255, 242, 0], weekText: 0, day: [0, 0, 0], dayText: 255, accent: [200, 16, 46], pct: [0, 255, 255], label: [0, 0, 0] };
+  const theme = C.accent;
   pdf.setTextColor(...theme);
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(15);
   pdf.text(oneLine(athleteName || program.name), M, M + 15);
@@ -947,11 +950,12 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const availH = H - M - top;
   const colW = (W - 2 * M - gutter) / maxDays;
 
-  // Under each exercise name, its set groups read "5 (50%) ___  3 (60%) ___  3x1 (70%) ___": every group is
-  // followed by a blank for the weight the athlete used. A rule is drawn between superset groups (A, B, C…).
+  // Under each exercise name, every set group is a small column, as on the training sheets: the reps on top
+  // ("5", or "3x1"), an empty box for the weight the athlete used, and the prescribed intensity in a colored
+  // cell underneath. A rule is drawn between superset groups (A, B, C…).
   const layout = (fs) => {
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
-    const lineH = fs * 1.25, rxH = lineH * 1.2, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), blankW = fs * 2.8, indent = fs;
+    const lineH = fs * 1.25, repsH = fs * 1.0, boxH = fs * 1.35, pctH = fs * 1.05, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), indent = fs;
     const textW = colW - 2 * pad;
     const rows = weeks.map((w) => {
       const cells = (w.sessions || []).map((s, si) => {
@@ -961,26 +965,36 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
           const rxLines = [];
           let cur = [], x = indent;
           Rx.groups(e).forEach((g) => {
-            const t = Rx.groupText(e, g), tw = pdf.getTextWidth(t);
-            if (cur.length && x + tw + 2 + blankW > textW) { rxLines.push(cur); cur = []; x = indent; }
-            cur.push({ t, x, tw });
-            x += tw + 2 + blankW + fs * 0.9;
+            const reps = Rx.repsText(g), int = Rx.intensityText(e, g);
+            const bw = Math.max(pdf.getTextWidth(reps), pdf.getTextWidth(int), fs * 3) + 4;
+            if (cur.length && x + bw > textW) { rxLines.push(cur); cur = []; x = indent; }
+            cur.push({ reps, int, x, bw });
+            x += bw; // boxes butt up against each other like spreadsheet cells
           });
           if (cur.length) rxLines.push(cur);
-          return { label: labels[i], lines: pdf.splitTextToSize(exText(e, labels[i]), textW), rxLines, newGroup: i > 0 && !e.linked };
+          const hasInt = rxLines.some((ln) => ln.some((b) => b.int));
+          const rxH = repsH + boxH + (hasInt ? pctH : 0) + 2;
+          // When the boxes fit in one row and leave room, they sit to the right of the exercise name (as on the
+          // sheets), which keeps each exercise short; otherwise they go on their own rows under the name.
+          const rowW = rxLines.length === 1 ? rxLines[0].reduce((t, b) => t + b.bw, 0) : Infinity;
+          const side = rowW <= textW * 0.6;
+          if (side) { let bx = textW - rowW; rxLines[0].forEach((b) => { b.x = bx; bx += b.bw; }); }
+          const lines = pdf.splitTextToSize(exText(e, labels[i]), side ? textW - rowW - 4 : textW);
+          const bodyH = side ? Math.max(lines.length * lineH, rxH) : lines.length * lineH + rxLines.length * rxH;
+          return { label: labels[i], lines, rxLines, rxH, side, bodyH, hasInt, newGroup: i > 0 && !e.linked };
         });
-        const h = items.reduce((t, it) => t + it.lines.length * lineH + it.rxLines.length * rxH + (it.newGroup ? gap * 2 : 0), 0);
+        const h = items.reduce((t, it) => t + it.bodyH + (it.newGroup ? gap * 2 : 0), 0);
         return { name: s.name || `Day ${si + 1}`, items, h };
       });
       return { name: w.name || "", cells, h: bandH + pad * 2 + Math.max(lineH, ...cells.map((c) => c.h)) };
     });
-    return { rows, lineH, rxH, bandH, gap, blankW, total: rows.reduce((t, r) => t + r.h, 0) };
+    return { rows, lineH, repsH, boxH, pctH, bandH, gap, total: rows.reduce((t, r) => t + r.h, 0) };
   };
 
   let fs = 10, plan = layout(fs);
   while (plan.total > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
   const fits = plan.total <= availH;
-  const { lineH, rxH, bandH, gap, blankW } = plan;
+  const { lineH, repsH, boxH, pctH, bandH, gap } = plan;
 
   pdf.setDrawColor(...theme); pdf.setLineWidth(1.5);
   pdf.line(M, top - 5, W - M, top - 5);
@@ -988,17 +1002,17 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   let y = top;
   plan.rows.forEach((row) => {
     // week name: solid colored block down the left
-    pdf.setFillColor(...theme); pdf.rect(M, y, gutter, row.h, "F");
-    pdf.setTextColor(255); pdf.setFont("helvetica", "bold"); pdf.setFontSize(Math.min(fs + 1, 10));
+    pdf.setFillColor(...C.week); pdf.rect(M, y, gutter, row.h, "F");
+    pdf.setTextColor(C.weekText); pdf.setFont("helvetica", "bold"); pdf.setFontSize(Math.min(fs + 1, 10));
     pdf.text(pdf.splitTextToSize(row.name, gutter - 2 * pad), M + pad, y + pad + lineH * 0.8);
     for (let i = 0; i < maxDays; i++) {
       const x = M + gutter + i * colW;
       const cell = row.cells[i];
       if (cell) {
-        // day name on a tinted band
-        pdf.setFillColor(...tint); pdf.rect(x, y, colW, bandH, "F");
-        pdf.setTextColor(...theme); pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
-        pdf.text(pdf.splitTextToSize(cell.name, colW - 2 * pad)[0], x + pad, y + lineH * 0.8 + 1.5);
+        // day name centered on a solid bar
+        pdf.setFillColor(...C.day); pdf.rect(x, y, colW, bandH, "F");
+        pdf.setTextColor(C.dayText); pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
+        pdf.text(pdf.splitTextToSize(cell.name.toUpperCase(), colW - 2 * pad)[0], x + colW / 2, y + lineH * 0.8 + 1.5, { align: "center" });
         pdf.setFontSize(fs);
         let cy = y + bandH + pad;
         cell.items.forEach((it) => {
@@ -1008,31 +1022,46 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
             pdf.line(x + pad, cy, x + colW - pad, cy);
             cy += gap;
           }
+          const itemTop = cy;
           it.lines.forEach((line, li) => {
             const base = cy + lineH * 0.8;
             if (li === 0) {
-              pdf.setFont("helvetica", "bold"); pdf.setTextColor(...theme);
-              pdf.text(it.label, x + pad, base);
+              // superset label as a small solid tag, like the label cells on the sheets
+              pdf.setFont("helvetica", "bold");
+              const tag = it.label.replace(/\.$/, "");
+              const tagW = pdf.getTextWidth(tag) + 3;
+              pdf.setFillColor(...C.label); pdf.rect(x + pad, base - fs * 0.82, tagW, fs * 1.08, "F");
+              pdf.setTextColor(255); pdf.text(tag, x + pad + 1.5, base);
               const lw = pdf.getTextWidth(`${it.label} `);
               pdf.setFont("helvetica", "normal"); pdf.setTextColor(20);
-              pdf.text(line.slice(it.label.length).trimStart(), x + pad + lw, base);
+              pdf.text(line.slice(it.label.length).trimStart(), x + pad + Math.max(lw, tagW + 2.5), base);
             } else {
               pdf.setFont("helvetica", "normal"); pdf.setTextColor(20);
               pdf.text(line, x + pad, base);
             }
             cy += lineH;
           });
-          // set groups, each followed by a blank for the weight used
-          it.rxLines.forEach((toks) => {
-            const base = cy + rxH * 0.78;
-            pdf.setFont("helvetica", "normal"); pdf.setTextColor(60);
-            pdf.setDrawColor(120); pdf.setLineWidth(0.5);
-            toks.forEach((tok) => {
-              pdf.text(tok.t, x + pad + tok.x, base);
-              pdf.line(x + pad + tok.x + tok.tw + 2, base + 1, x + pad + tok.x + tok.tw + 2 + blankW, base + 1);
+          // set groups: reps, an empty box for the weight used, then the intensity in a colored cell underneath
+          if (it.side) cy = itemTop;
+          it.rxLines.forEach((boxes) => {
+            pdf.setDrawColor(40); pdf.setLineWidth(0.5);
+            boxes.forEach((b) => {
+              const bx = x + pad + b.x, mid = bx + b.bw / 2;
+              pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs * 0.95); pdf.setTextColor(20);
+              pdf.text(b.reps, mid, cy + repsH * 0.8, { align: "center" });
+              pdf.setFillColor(255); pdf.rect(bx, cy + repsH, b.bw, boxH, "FD");
+              if (it.hasInt) {
+                pdf.setFillColor(...(b.int ? C.pct : [255, 255, 255])); pdf.rect(bx, cy + repsH + boxH, b.bw, pctH, "FD");
+                if (b.int) {
+                  pdf.setFont("helvetica", "bolditalic"); pdf.setFontSize(fs * 0.85); pdf.setTextColor(0);
+                  pdf.text(b.int, mid, cy + repsH + boxH + pctH * 0.76, { align: "center" });
+                }
+              }
             });
-            cy += rxH;
+            pdf.setFontSize(fs);
+            cy += it.rxH;
           });
+          cy = itemTop + it.bodyH;
         });
       }
       pdf.setDrawColor(170); pdf.setLineWidth(0.5);

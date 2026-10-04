@@ -2483,8 +2483,12 @@ tbody tr:hover {
 /* tempo and prescription where a program is read */
 .program-tempo { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 .program-rx { display: flex; flex-wrap: wrap; gap: 6px 14px; }
-.program-rx-group { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; white-space: nowrap; }
-.program-rx-weight { width: 58px; font-size: 12px; padding: 3px 4px; box-sizing: border-box; text-align: center; }
+.program-rx-group { display: inline-flex; flex-direction: column; align-items: stretch; gap: 0; white-space: nowrap; min-width: 58px; text-align: center; }
+.program-rx-reps { font-weight: 600; padding-bottom: 2px; }
+.program-rx-weight { width: 100%; min-width: 58px; font-size: 12px; padding: 3px 4px; box-sizing: border-box; text-align: center; border-radius: 0; }
+/* intensity under the weight box: the bright cell from the training sheets (blue-tinted on the Cubs theme) */
+.program-rx-pct { background: #00ffff; color: #000; font-size: 11px; font-style: italic; padding: 1px 4px; border: 1px solid #111; border-top: none; }
+.cubs-theme .program-rx-pct { background: #d6e2f7; }
 .program-ex-nums input, .program-ex-nums select, .program-ex-notes { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; }
 .program-ex-notes { margin-top: 4px; }
 .program-day-actions { display: flex; gap: 14px; margin-top: 10px; align-items: center; flex-wrap: wrap; }

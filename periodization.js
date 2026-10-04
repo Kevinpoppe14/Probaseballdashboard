@@ -207,9 +207,13 @@
       if (unit === "RPE") return `RPE ${v}`;
       return ""; // "No intensity": nothing shown even if a number was typed earlier
     },
-    groupText(e, g) {
+    // just the sets and reps of one group: "5", or "3x1" for three sets of one
+    repsText(g) {
       const sets = `${g.sets || ""}`.trim(), reps = `${g.reps || ""}`.trim();
-      const base = sets && sets !== "1" ? (reps ? `${sets}x${reps}` : `${sets} sets`) : reps;
+      return sets && sets !== "1" ? (reps ? `${sets}x${reps}` : `${sets} sets`) : reps;
+    },
+    groupText(e, g) {
+      const base = ProgramRx.repsText(g);
       const int = ProgramRx.intensityText(e, g);
       return `${base}${int ? ` (${int})` : ""}`;
     },
@@ -249,7 +253,7 @@
                           <div className="program-rx">
                             {ProgramRx.groups(e).map((g, gi) => (
                               <span className="program-rx-group" key={gi}>
-                                <span>{ProgramRx.groupText(e, g)}</span>
+                                <span className="program-rx-reps">{ProgramRx.repsText(g)}</span>
                                 {onLog && (
                                   <input
                                     className="program-rx-weight"
@@ -261,6 +265,8 @@
                                     onBlur={(ev) => { const v = ev.target.value.trim(); if (v !== ((log || {})[ProgramRx.logKey(e, gi)] || "")) onLog(ProgramRx.logKey(e, gi), v); }}
                                   />
                                 )}
+                                {/* the prescribed intensity sits under the weight box, as on the training sheets */}
+                                {ProgramRx.intensityText(e, g) && <span className="program-rx-pct">{ProgramRx.intensityText(e, g)}</span>}
                               </span>
                             ))}
                             {ProgramRx.groups(e).length === 0 && "—"}
