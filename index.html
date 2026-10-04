@@ -1133,12 +1133,11 @@ function ProgramsPage() {
           return (
             <div className="facility-card" key={p.id}>
               <div className="facility-card-head">
-                <strong>{p.name}</strong>
+                <button className="program-name-link" title="Open this program" onClick={() => setEditing(p)}>{p.name}</button>
                 <span className="facility-used">{c.weeks} wk · {c.sessions} days · {c.exercises} exercises</span>
               </div>
               {p.description && <div className="facility-notes" style={{ marginTop: 6 }}>{p.description}</div>}
               <div className="facility-card-actions no-print">
-                <button className="btn-link" onClick={() => setEditing(p)}>Edit</button>
                 <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes</button>
                 <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>
                 <ProgramPdfButton program={p} />

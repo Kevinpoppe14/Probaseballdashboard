@@ -2387,6 +2387,8 @@ tbody tr:hover {
 .program-session-name { font-size: 14px; font-weight: 600; background: transparent; border: none; border-bottom: 1px dashed var(--border); padding: 2px 0; }
 .program-exercises { overflow-x: auto; margin-top: 8px; }
 .program-ex-row { display: grid; grid-template-columns: 34px minmax(160px, 2fr) 60px 60px 80px 100px 80px minmax(120px, 1.5fr) 58px 28px; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 860px; }
+.program-name-link { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: var(--text); cursor: pointer; text-align: left; }
+.program-name-link:hover { color: var(--dst-red); text-decoration: underline; }
 .program-pdf { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .program-pdf select { font-size: 12px; padding: 3px 5px; max-width: 170px; }
 .facility-card-actions { align-items: center; flex-wrap: wrap; }
