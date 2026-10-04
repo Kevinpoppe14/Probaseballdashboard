@@ -73,6 +73,29 @@
     return Object.keys(g).some((k) => g[k].length > 0) || actionPlanOf(plan).trim().length > 0;
   };
 
+  // Automatic overview of the plan: dates, goals in priority order, then each timeline row's blocks.
+  // Shown in the Action Plan until a coach edits it, which saves their own text instead.
+  function planOverview(plan) {
+    const lines = [];
+    const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    if (plan.blocks.length) {
+      lines.push(`Offseason plan: ${fmtMD(plan.startDate)} – ${fmtMD(addDaysISO(plan.startDate, plan.weeks * 7 - 1))} (${plural(plan.weeks, "week")}).`);
+    }
+    const g = goalsOf(plan);
+    const goalCols = [["Physical goals", g.physical], ...OPTIONAL_GOAL_COLUMNS.filter((c) => g[c.key]).map((c) => [c.label, g[c.key]])];
+    goalCols.forEach(([title, items]) => {
+      if (items.length) lines.push(`${title}: ${items.map((x, i) => `${i + 1}. ${x.text}${x.done ? " (achieved)" : ""}`).join("; ")}.`);
+    });
+    plan.lanes.forEach((lane) => {
+      const bs = plan.blocks.filter((b) => b.lane === lane.id).sort((a, b) => a.start - b.start);
+      if (!bs.length) return;
+      const wk = (b) => `${b.len > 1 ? "weeks" : "week"} ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}`;
+      lines.push(`${lane.name}: ${bs.map((b) => `${b.label || "Untitled"} (${wk(b)})`).join("; ")}.`);
+    });
+    return lines.join("\n");
+  }
+  const actionPlanText = (plan) => actionPlanOf(plan).trim() ? actionPlanOf(plan) : planOverview(plan);
+
   // Lay out blocks that overlap within a lane on separate stacked rows.
   function packRows(blocks) {
     const sorted = [...blocks].sort((a, b) => a.start - b.start || b.len - a.len);
@@ -402,13 +425,25 @@
           )}
         </div>
         <div className="panel period-action">
-          <h2>Action Plan <small>Rough plan for addressing these goals</small></h2>
+          <h2>
+            Action Plan <small>{actionPlanOf(plan) ? "Your edited plan" : "Automatic overview of the timeline and goals — edit to make it your own"}</small>
+            {actionPlanOf(plan) && (
+              <button
+                type="button"
+                className="btn-link no-print goal-col-remove"
+                title="Discard your edits and show the automatic overview again"
+                onClick={() => { if (window.confirm("Replace your action plan with the automatic overview of the timeline and goals?")) onSave({ actionPlan: "" }); }}
+              >
+                Use automatic overview
+              </button>
+            )}
+          </h2>
           <textarea
-            rows={6}
-            key={actionPlanOf(plan)}
-            defaultValue={actionPlanOf(plan)}
-            placeholder="e.g. Phase 1 (wks 1–4): rebuild general strength base, daily shoulder care. Phase 2: add speed work, begin throwing build-up..."
-            onBlur={(e) => { if (e.target.value !== actionPlanOf(plan)) onSave({ actionPlan: e.target.value }); }}
+            rows={8}
+            key={actionPlanText(plan)}
+            defaultValue={actionPlanText(plan)}
+            placeholder="Describe how you'll address these goals..."
+            onBlur={(e) => { if (e.target.value !== actionPlanOf(plan) && e.target.value !== planOverview(plan)) onSave({ actionPlan: e.target.value }); }}
             onKeyDown={(e) => e.stopPropagation()}
           />
         </div>
@@ -445,10 +480,10 @@
             {OPTIONAL_GOAL_COLUMNS.map((c) => goals[c.key] && <React.Fragment key={c.key}>{list(c.label, goals[c.key])}</React.Fragment>)}
           </div>
         )}
-        {actionPlanOf(plan).trim() && (
+        {actionPlanText(plan).trim() && (
           <div className="action-ro">
             <h3>Action Plan</h3>
-            <div className="action-ro-text">{actionPlanOf(plan)}</div>
+            <div className="action-ro-text">{actionPlanText(plan)}</div>
           </div>
         )}
       </div>
