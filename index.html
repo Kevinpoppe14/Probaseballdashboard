@@ -2962,10 +2962,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, initialTab 
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
+      <PositionalProfilePanel athlete={athlete} />
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
       {athlete.rosterGroup === CUBS_ROSTER_GROUP && <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />}
       {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
-      <PlayerPlanPanel athleteId={athlete.id} />
       <NotesPanel athleteId={athlete.id} />
       </div>
 
@@ -5899,69 +5899,6 @@ function MlbStatsPanel({ athlete, onChanged }) {
             <div style={{ marginTop: 14 }}>
               <MiniTrendChart title="Sprint Speed" unit="ft/s, year over year" data={sprintYoYData} dataKey="sprintSpeed" showTrend={false} color={chartLineColor} />
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PlayerPlanPanel({ athleteId }) {
-  const plans = window.AthleteStore.getPlayerPlans(athleteId);
-  if (!plans.length) {
-    return (
-      <div className="panel">
-        <h2>Player Plan</h2>
-        <div className="empty-state">No player plan synced for this athlete yet.</div>
-      </div>
-    );
-  }
-  return (
-    <div className="panel">
-      <h2>Player Plan</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Focus Area</th>
-            <th>Goal</th>
-            <th>Target Date</th>
-            <th>Status</th>
-            <th>Coach</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {plans.map((p, i) => (
-            <tr key={i} style={{ cursor: "default" }}>
-              <td>{p.focusArea || "—"}</td>
-              <td>{p.goal || "—"}</td>
-              <td>{p.targetDate || "—"}</td>
-              <td><Badge tone={planStatusTone(p.status)}>{p.status || "No Status"}</Badge></td>
-              <td>{p.coach || "—"}</td>
-              <td>{p.notes || "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {plans.some((p) => p.extra && Object.keys(p.extra).length) && (
-        <div style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 13 }}>Additional Plan Data</h2>
-          {plans.map((p, i) =>
-            p.extra && Object.keys(p.extra).length ? (
-              <table key={i} style={{ marginBottom: 12 }}>
-                <thead>
-                  <tr>
-                    {Object.keys(p.extra).map((label) => <th key={label}>{label}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={{ cursor: "default" }}>
-                    {Object.values(p.extra).map((val, vi) => <td key={vi}>{val}</td>)}
-                  </tr>
-                </tbody>
-              </table>
-            ) : null
           )}
         </div>
       )}
