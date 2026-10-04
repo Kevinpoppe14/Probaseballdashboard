@@ -2460,6 +2460,12 @@ tbody tr:hover {
 .indiv-empty { color: var(--text-dim); text-align: center; }
 @media (max-width: 700px) { .indiv-swaps { grid-template-columns: 1fr; } }
 
+/* suggested next phase */
+.program-next { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.program-next-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--dst-red); border-radius: 12px; font-size: 12px; }
+.program-next-chip button { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 0; font-size: 11px; }
+.program-chain { margin-top: 6px; font-size: 12px; color: var(--text-dim); }
+
 .program-editor-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .program-editor-top h2 { margin: 0; }
 .program-editor-top .program-pdf select { font-size: 13px; padding: 5px 8px; max-width: 220px; }
@@ -2537,6 +2543,7 @@ tbody tr:hover {
 .ppt-block.now small { color: var(--dst-red); }
 .ppt-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
 .period-lane-name { cursor: pointer; }
+.ppt-suggest { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
 .ppt-empty { padding: 14px 0; display: flex; flex-direction: column; gap: 10px; }
 .ppt-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ppt-program-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

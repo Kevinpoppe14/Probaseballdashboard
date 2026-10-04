@@ -1165,7 +1165,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
 
   const save = () => {
     if (!canSave) return;
-    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks };
+    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [] };
     if (initial && initial.id) rec.id = initial.id;
     onSave(rec);
   };
@@ -1208,6 +1208,24 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
         <label className="facility-field wide"><span>Description</span>
           <textarea rows={2} value={draft.description || ""} onChange={(e) => edit((d) => { d.description = e.target.value; })} placeholder="Goal, who it's for, how it fits in the plan" />
         </label>
+        {/* suggested next phase(s): only ever offered as a suggestion when assigning or building, never applied automatically */}
+        <div className="facility-field wide"><span>Suggested next phase (optional, a suggestion only)</span>
+          <div className="program-next">
+            {(draft.nextProgramIds || []).map((id) => {
+              const p = window.AthleteStore.allPrograms().find((x) => x.id === id);
+              return (
+                <span className="program-next-chip" key={id}>
+                  {p ? p.name : "(deleted program)"}
+                  <button title="Remove this suggestion" onClick={() => edit((d) => { d.nextProgramIds = (d.nextProgramIds || []).filter((x) => x !== id); })}>✕</button>
+                </span>
+              );
+            })}
+            <select value="" onChange={(e) => e.target.value && edit((d) => { d.nextProgramIds = [...(d.nextProgramIds || []), e.target.value]; })}>
+              <option value="">+ Add a suggested next program…</option>
+              {window.AthleteStore.allPrograms().filter((p) => p.id !== (initial && initial.id) && !(draft.nextProgramIds || []).includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        </div>
       </div>
 
       {draft.weeks.map((week, wi) => (
@@ -1351,7 +1369,7 @@ function ProgramIndividualize({ program, athlete, onDone }) {
   const save = () => {
     const finalWeeks = JSON.parse(JSON.stringify(weeks));
     finalWeeks.forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => { e.name = shownName(e); })));
-    const saved = S.saveProgram({ name: newName, description: program.description || "", weeks: finalWeeks, folder: program.folder || "", basedOn: program.id, athleteId: athlete.id });
+    const saved = S.saveProgram({ name: newName, description: program.description || "", weeks: finalWeeks, folder: program.folder || "", basedOn: program.id, athleteId: athlete.id, nextProgramIds: program.nextProgramIds || [] });
     // the athlete's chart now points at their own copy instead of the shared program
     const plan = S.getPeriodization(athlete.id);
     if (plan && (plan.blocks || []).some((b) => b.programId === program.id)) {
@@ -1440,9 +1458,18 @@ function ProgramIndividualize({ program, athlete, onDone }) {
 }
 
 // Assign one program to several athletes at once. Each gets a block on their periodization chart, linked to the program.
-function ProgramAssignPanel({ program, onClose }) {
+// The programs suggested to follow this one. An athlete's own copy falls back to its original's suggestions.
+const suggestedNextPrograms = (program) => {
+  const all = window.AthleteStore.allPrograms();
+  const base = program && program.basedOn ? all.find((p) => p.id === program.basedOn) : null;
+  const ids = (program && program.nextProgramIds && program.nextProgramIds.length ? program.nextProgramIds : (base && base.nextProgramIds) || []);
+  return ids.map((id) => all.find((p) => p.id === id)).filter(Boolean);
+};
+window.suggestedNextPrograms = suggestedNextPrograms;
+
+function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
   const lib = window.PeriodizationLib;
-  const [startDate, setStartDate] = useState(() => lib.mondayOfToday());
+  const [startDate, setStartDate] = useState(() => initialStart || lib.mondayOfToday());
   const [laneName, setLaneName] = useState("Strength");
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(() => new Set());
@@ -1524,6 +1551,23 @@ function ProgramAssignPanel({ program, onClose }) {
           {result.failed.length > 0 && <div>Couldn't be placed (start date is beyond the chart's limit): {result.failed.join(", ")}.</div>}
         </div>
       )}
+      {result && onAssignOther && suggestedNextPrograms(program).length > 0 && (() => {
+        // the week after this program ends, offered as the start date for the suggested next phase
+        const d = new Date(`${startDate}T00:00:00`);
+        d.setDate(d.getDate() + Math.max(1, weeks) * 7);
+        const nextStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return (
+          <div className="indiv-offer">
+            <strong>Suggested next phase</strong>
+            <span>Only a suggestion. Nothing is assigned unless you choose it; the start date will be set to the week after this program ends ({nextStart}).</span>
+            <div className="indiv-offer-list">
+              {suggestedNextPrograms(program).map((p) => (
+                <button className="btn btn-secondary" key={p.id} onClick={() => onAssignOther(p, nextStart)}>Assign “{p.name}” next</button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       {assigned.length > 0 && (
         <div className="indiv-offer">
           <strong>Individualize this program?</strong>
@@ -1560,7 +1604,7 @@ function ProgramsPage({ nav, setNav }) {
   const assigning = (nav.assigningId && programs.find((p) => p.id === nav.assigningId)) || null;
   // Opening a screen adds a step to the Back history; closing one (save, cancel, done) steps back out of it.
   const setEditing = (x) => (x ? setNav((n) => ({ ...n, editingId: x.id || "new" })) : window.history.back());
-  const setAssigning = (p) => (p ? setNav((n) => ({ ...n, assigningId: p.id })) : window.history.back());
+  const setAssigning = (p) => (p ? setNav((n) => ({ ...n, assigningId: p.id, assignStart: null })) : window.history.back());
   const setFolder = (f, opts) => setNav((n) => ({ ...n, folder: f }), opts);
   const bump = () => setVersion((v) => v + 1);
 
@@ -1569,7 +1613,18 @@ function ProgramsPage({ nav, setNav }) {
   const parentOf = (f) => (f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "");
   const leafOf = (f) => f.slice(f.lastIndexOf("/") + 1);
   const subfolders = folders.filter((f) => parentOf(f) === folder);
-  const here = programs.filter((p) => (p.folder || "") === folder);
+  // Search: by program name or coach, and a coach picker. While either is in use the list covers every folder.
+  const [query, setQuery] = useState("");
+  const [coach, setCoach] = useState("");
+  const coachName = (email) => USER_DISPLAY_NAMES[email] || email;
+  const coaches = [...new Set(programs.map((p) => p.createdBy).filter(Boolean))].sort((a, b) => coachName(a).localeCompare(coachName(b)));
+  const q = query.trim().toLowerCase();
+  const searching = !!q || !!coach;
+  const here = searching
+    ? programs.filter((p) =>
+        (!coach || (coach === "__none__" ? !p.createdBy : p.createdBy === coach)) &&
+        (!q || [p.name, p.createdBy, p.createdBy && coachName(p.createdBy)].some((v) => (v || "").toLowerCase().includes(q))))
+    : programs.filter((p) => (p.folder || "") === folder);
   const countIn = (f) => programs.filter((p) => inFolder(p.folder || "", f)).length;
   const cleanName = (raw) => (raw || "").replace(/\//g, " ").trim();
 
@@ -1651,7 +1706,17 @@ function ProgramsPage({ nav, setNav }) {
     );
   }
 
-  if (assigning) return <ProgramAssignPanel program={assigning} onClose={() => setAssigning(null)} />;
+  if (assigning) {
+    return (
+      <ProgramAssignPanel
+        key={assigning.id}
+        program={assigning}
+        initialStart={nav.assignStart}
+        onClose={() => setAssigning(null)}
+        onAssignOther={(p, start) => setNav((n) => ({ ...n, assigningId: p.id, assignStart: start }))}
+      />
+    );
+  }
 
   const section = nav.section || "programs";
   const sectionTabs = (
@@ -1684,7 +1749,18 @@ function ProgramsPage({ nav, setNav }) {
         {folder && <button className="btn-link" onClick={deleteFolder}>Delete folder</button>}
         <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setEditing({})}>+ New program{folder ? ` in ${leafOf(folder)}` : ""}</button>
       </div>
-      {subfolders.length > 0 && (
+      {/* search by name, and by the coach who wrote the program; both look across every folder */}
+      <div className="facility-toolbar program-search">
+        <input className="facility-search" value={query} placeholder="Search programs by name or coach" onChange={(e) => setQuery(e.target.value)} />
+        <select value={coach} onChange={(e) => setCoach(e.target.value)} title="Show programs written by one coach">
+          <option value="">All coaches</option>
+          {coaches.map((c) => <option key={c} value={c}>{coachName(c)}</option>)}
+          {programs.some((p) => !p.createdBy) && <option value="__none__">No coach recorded</option>}
+        </select>
+        {searching && <button className="btn-link" onClick={() => { setQuery(""); setCoach(""); }}>Clear</button>}
+      </div>
+      {searching && <div className="facility-note" style={{ marginTop: 0, marginBottom: 10 }}>{here.length} program{here.length === 1 ? "" : "s"} found across all folders.</div>}
+      {!searching && subfolders.length > 0 && (
         <div className="program-folders">
           {subfolders.map((f) => (
             <button
@@ -1700,7 +1776,7 @@ function ProgramsPage({ nav, setNav }) {
           ))}
         </div>
       )}
-      {here.length === 0 && <div className="empty-state">{folder ? "No programs in this folder yet." : subfolders.length ? "No unfiled programs. Open a folder, or create a program here." : "No programs yet. Create one to get started."}</div>}
+      {here.length === 0 && <div className="empty-state">{searching ? "No programs match that search." : folder ? "No programs in this folder yet." : subfolders.length ? "No unfiled programs. Open a folder, or create a program here." : "No programs yet. Create one to get started."}</div>}
       <div className="facility-list">
         {here.map((p) => {
           const c = programCounts(p);
@@ -1717,6 +1793,7 @@ function ProgramsPage({ nav, setNav }) {
                 <button className="program-name-link" title="Open this program" onClick={() => setEditing(p)}>{p.name}</button>
                 <span className="facility-used">{c.weeks} wk · {c.sessions} days · {c.exercises} exercises</span>
               </div>
+              {searching && <div className="program-created">In {p.folder ? p.folder.replace(/\//g, " › ") : "All programs (no folder)"}</div>}
               {p.createdBy && (
                 <div className="program-created">
                   Created by {USER_DISPLAY_NAMES[p.createdBy] || p.createdBy}
@@ -1724,6 +1801,20 @@ function ProgramsPage({ nav, setNav }) {
                 </div>
               )}
               {p.description && <div className="facility-notes" style={{ marginTop: 6 }}>{p.description}</div>}
+              {(() => {
+                const next = suggestedNextPrograms(p);
+                const prev = programs.filter((x) => x.id !== p.id && (x.nextProgramIds || []).includes(p.id));
+                if (!next.length && !prev.length) return null;
+                const links = (list) => list.map((x, i) => (
+                  <React.Fragment key={x.id}>{i > 0 && ", "}<button className="exercise-link" onClick={() => setEditing(x)}>{x.name}</button></React.Fragment>
+                ));
+                return (
+                  <div className="program-chain">
+                    {prev.length > 0 && <div>Follows: {links(prev)}</div>}
+                    {next.length > 0 && <div>Suggested next: {links(next)}</div>}
+                  </div>
+                );
+              })()}
               <div className="facility-card-actions no-print">
                 <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes</button>
                 <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>

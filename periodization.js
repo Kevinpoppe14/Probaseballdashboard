@@ -426,6 +426,19 @@
                   <option value="">link an existing program…</option>
                   {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
+                {/* a suggestion only: what the program on the block before this one lists as its next phase */}
+                {(() => {
+                  const prev = blocks[blocks.indexOf(block) - 1];
+                  const prevProgram = prev && programById(prev.programId);
+                  const next = prevProgram && window.suggestedNextPrograms ? window.suggestedNextPrograms(prevProgram) : [];
+                  if (!next.length) return null;
+                  return (
+                    <span className="ppt-suggest">
+                      Suggested after {prevProgram.name}:
+                      {next.map((x) => <button className="btn btn-secondary" key={x.id} onClick={() => onLinkProgram(block.id, x.id)}>Use “{x.name}”</button>)}
+                    </span>
+                  );
+                })()}
               </React.Fragment>
             )}
             {program && !own && <span>Shared program. Saving here makes {athlete.name}'s own copy, “{withLast(program.name)}”, and leaves the shared one unchanged.</span>}
