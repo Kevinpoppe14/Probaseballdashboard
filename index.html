@@ -709,20 +709,37 @@ const programCounts = (p) => {
 // Draws a program as a one-page landscape PDF: athlete and program name top left, DST logo top middle,
 // then one row per week with its days side by side. The text size steps down until every week fits on the page.
 // Returns { pdf, fontSize, fits }.
-async function buildProgramPdf(program, athleteName) {
+async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
   const M = 28, headH = 44, gutter = 46, pad = 4;
 
-  let logo = null;
-  try {
-    logo = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = "assets/dst-logo.png"; });
-  } catch (e) { /* no logo file: the page still exports without it */ }
+  // Cubs-only athletes get the Cubs logo; everyone else gets DST's. The Cubs logo is an SVG, which the PDF
+  // library can't place directly, so it's drawn onto a canvas first. If it can't be loaded, DST's is used.
+  const loadImg = (src, cors) => new Promise((res, rej) => { const im = new Image(); if (cors) im.crossOrigin = "anonymous"; im.onload = () => res(im); im.onerror = rej; im.src = src; });
+  let logo = null, logoRatio = 1;
+  if (cubsLogo) {
+    try {
+      const im = await loadImg("https://www.mlbstatic.com/team-logos/112.svg", true);
+      const c = document.createElement("canvas");
+      c.width = 400; c.height = Math.round((400 * (im.naturalHeight || 1)) / (im.naturalWidth || 1));
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      logo = c.toDataURL("image/png");
+      logoRatio = c.width / c.height;
+    } catch (e) { logo = null; }
+  }
+  if (!logo) {
+    try {
+      const im = await loadImg("assets/dst-logo.png");
+      logo = im;
+      logoRatio = im.naturalWidth / im.naturalHeight;
+    } catch (e) { /* no logo file: the page still exports without it */ }
+  }
   let logoW = 0;
   if (logo) {
     const h = 38;
-    logoW = (h * logo.naturalWidth) / logo.naturalHeight;
+    logoW = h * logoRatio;
     pdf.addImage(logo, "PNG", (W - logoW) / 2, M, logoW, h);
   }
   const leftW = (W - logoW) / 2 - M - 12; // names stay clear of the centered logo
@@ -805,7 +822,7 @@ function ProgramPdfButton({ program, disabled }) {
   const run = async () => {
     const athlete = athletes.find((a) => String(a.id) === athleteId);
     const name = athlete ? athlete.name : "";
-    const { pdf, fits } = await buildProgramPdf(program, name);
+    const { pdf, fits } = await buildProgramPdf(program, name, !!athlete && isCubsOnlyAthlete(athlete));
     if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
     pdf.save(`${[name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
   };
