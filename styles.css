@@ -1382,7 +1382,7 @@ tbody tr:hover {
   .period-block.selected { outline: none !important; }
   .period-cursor { display: none !important; }
   .period-week.cursor { background: none !important; }
-  .period-scroll { overflow: visible !important; }
+  .period-scroll { overflow: visible !important; background: #fff !important; }
   :is(.period-wrap, .report-sheet) .panel { break-inside: avoid; }
   :is(.period-wrap, .report-sheet) > .panel:last-child { margin-bottom: 0 !important; }
 }
@@ -2356,6 +2356,14 @@ tbody tr:hover {
      above) read as something to act on. */
   .assess-lrselect-pass.assess-mark-set { color: #000 !important; }
 }
+
+/* Compact CMJ profile beside the athlete photo in the Player Plan header */
+.ph-extra { width: 380px; max-width: 100%; text-align: left; font-size: 12px; }
+.cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
+.cmj-mini .profile-controls { margin-bottom: 6px; }
+.cmj-mini .profile-row { grid-template-columns: minmax(110px, 1.3fr) minmax(70px, 0.9fr) 1.2fr 46px; gap: 6px; font-size: 11px; }
+.cmj-mini .profile-head { font-size: 9px; }
+.cmj-mini .norm-bar-wrap { gap: 4px; }
 
 /* Click-to-enlarge charts */
 .zoom-chart { cursor: zoom-in; }

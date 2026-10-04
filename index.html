@@ -2556,7 +2556,7 @@ function offseasonSpark(trendPoints, key) {
   return trendPoints.map((p) => ({ year: p.offseason, value: p[key] }));
 }
 
-function PositionalProfilePanel({ athlete, planView = false }) {
+function PositionalProfilePanel({ athlete, planView = false, compact = false }) {
   const N = window.CmjNorms;
   const [groupKey, setGroupKey] = useState(() => (N ? N.defaultGroupFor(athlete.position) : "allPosition"));
   const theme = useTheme();
@@ -2583,7 +2583,7 @@ function PositionalProfilePanel({ athlete, planView = false }) {
   const trendPoints = N.offseasonTrend(tests, groupKey);
 
   return (
-    <div className="panel">
+    <div className={compact ? "cmj-mini" : "panel"}>
       <h2>
         Positional CMJ Profile{" "}
         <small>
@@ -2653,11 +2653,13 @@ function PositionalProfilePanel({ athlete, planView = false }) {
               </div>
             );
           })}
-          <div className="profile-legend">
-            {Object.entries(BAND_COLORS).map(([k, c]) => <span key={k}><i style={{ background: c }} />{k}</span>)}
-            <span className="timestamp-note">Jump Height and Relative Peak Power show the Hawkin–VALD span when both have a norm, rather than averaging two differently-built MLB samples into one number.</span>
-          </div>
-          {trendPoints && (
+          {!compact && (
+            <div className="profile-legend">
+              {Object.entries(BAND_COLORS).map(([k, c]) => <span key={k}><i style={{ background: c }} />{k}</span>)}
+              <span className="timestamp-note">Jump Height and Relative Peak Power show the Hawkin–VALD span when both have a norm, rather than averaging two differently-built MLB samples into one number.</span>
+            </div>
+          )}
+          {!compact && trendPoints && (
             <p className="timestamp-note">
               Offseason trend: one point per Sep 1 – May 31 offseason (in-season Jun–Aug CMJs aren't included), scored against
               the same {profile.groupLabel} norms as the bar — only as far back as this athlete has tracked data. A gap means no
@@ -2969,10 +2971,9 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, initialTab 
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
-      <PositionalProfilePanel athlete={athlete} planView />
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
       {athlete.rosterGroup === CUBS_ROSTER_GROUP && <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />}
-      {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
+      {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} headerExtra={<PositionalProfilePanel athlete={athlete} planView compact />} />}
       <NotesPanel athleteId={athlete.id} />
       </div>
 

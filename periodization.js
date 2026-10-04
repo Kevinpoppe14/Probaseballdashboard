@@ -583,7 +583,7 @@
   // ---- header: athlete photo + team logo (left), title (center), DST logo (right) -------------
   // Also used by the team report (one sheet per athlete) with its own title/subtitle; `onOpen` makes
   // the name a link to the athlete's profile.
-  function PlanHeader({ athlete, plan, title = "Individualized Player Plan", subtitle, onOpen }) {
+  function PlanHeader({ athlete, plan, title = "Individualized Player Plan", subtitle, onOpen, extra }) {
     const [photoBroken, setPhotoBroken] = useState(false);
     const initials = athlete.name.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
     const showPhoto = !!athlete.photoUrl && !photoBroken;
@@ -602,6 +602,7 @@
             ) : (
               <div className="ph-photo ph-initials">{initials}</div>
             )}
+            {extra && <div className="ph-extra">{extra}</div>}
           </div>
           {onOpen ? (
             <button className="ph-name ph-name-link" onClick={onOpen} title="Open this athlete's profile">{athlete.name}</button>
@@ -635,7 +636,7 @@
   }
 
   // ---- the board for one athlete -------------------------------------------------------------
-  function PlannerBoard({ athlete }) {
+  function PlannerBoard({ athlete, headerExtra }) {
     const store = window.AthleteStore;
     const [plan, setPlanState] = useState(() => store.getPeriodization(athlete.id) || newPlan());
     const [past, setPast] = useState([]);
@@ -1048,7 +1049,7 @@
 
     return (
       <div className="period-wrap" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
-        <PlanHeader athlete={athlete} plan={plan} />
+        <PlanHeader athlete={athlete} plan={plan} extra={headerExtra} />
 
         <div className="panel period-toolbar no-print">
           <div className="period-toolbar-row">
