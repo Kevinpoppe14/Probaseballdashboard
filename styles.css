@@ -2387,6 +2387,21 @@ tbody tr:hover {
 .program-session-name { font-size: 14px; font-weight: 600; background: transparent; border: none; border-bottom: 1px dashed var(--border); padding: 2px 0; }
 .program-exercises { overflow-x: auto; margin-top: 8px; }
 .program-ex-row { display: grid; grid-template-columns: 34px minmax(160px, 2fr) 60px 60px 80px 100px 80px minmax(120px, 1.5fr) 58px 28px; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 860px; }
+/* days of a week sit side by side as columns; the row scrolls sideways when there are more than fit */
+.program-days { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding: 10px 0 6px; }
+.program-day { flex: 1 0 260px; max-width: 360px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel); }
+.program-day .program-session-name { width: 100%; min-width: 0; }
+.program-ex { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.program-ex.superset-linked { margin-top: 4px; padding-top: 4px; border-top: none; border-left: 3px solid var(--dst-red); padding-left: 6px; }
+.program-ex-top { display: flex; align-items: center; gap: 6px; }
+.program-ex-name { flex: 1; min-width: 0; }
+.program-ex-nums { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.6fr 1.2fr; gap: 4px; margin-top: 4px; }
+.program-ex-nums input, .program-ex-nums select, .program-ex-notes { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; }
+.program-ex-notes { margin-top: 4px; }
+.program-day-actions { display: flex; gap: 14px; margin-top: 10px; }
+.program-add-day { flex: 0 0 auto; align-self: stretch; min-width: 90px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; color: var(--text-dim); cursor: pointer; }
+.program-add-day:hover { color: var(--text); border-color: var(--text-dim); }
+
 /* supersets: a linked exercise sits tight under the one above, with a bar tying the group together */
 .superset-label { color: var(--dst-red); font-size: 13px; white-space: nowrap; }
 .program-ex-row.superset-linked { margin-top: -3px; }

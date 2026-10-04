@@ -689,8 +689,16 @@ function ContactInfoPanel({ athlete, onChanged }) {
 // A program is a reusable template: weeks, each with sessions, each with exercises (sets / reps / load / rest).
 const LOAD_UNITS = ["lbs", "% 1RM", "RPE", "bodyweight", "other"];
 const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`, name: "", sets: "", reps: "", load: "", loadUnit: "lbs", rest: "", notes: "" });
-const newSession = (n) => ({ name: `Session ${n}`, exercises: [newExercise()] });
-const newWeek = (n) => ({ name: `Week ${n}`, sessions: [newSession(1)] });
+const DEFAULT_DAYS = 4;
+const newSession = (n) => ({ name: `Day ${n}`, exercises: [newExercise()] });
+const newWeek = (n) => ({ name: `Week ${n}`, sessions: Array.from({ length: DEFAULT_DAYS }, (_, i) => newSession(i + 1)) });
+// A week added to a program starts as a copy of the week before it: same days, exercises and supersets.
+const copyWeek = (week, n) => {
+  const c = JSON.parse(JSON.stringify(week));
+  c.name = `Week ${n}`;
+  c.sessions.forEach((s) => s.exercises.forEach((e) => { e.id = newExercise().id; }));
+  return c;
+};
 const programCounts = (p) => {
   const weeks = (p.weeks || []).length;
   const sessions = (p.weeks || []).reduce((s, w) => s + (w.sessions || []).length, 0);
@@ -734,49 +742,56 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
             <button className="btn-link" disabled={draft.weeks.length === 1} onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>Remove week</button>
           </div>
 
-          {week.sessions.map((session, si) => (
-            <div className="program-session" key={si}>
-              <div className="program-session-head">
-                {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Session name" })}
-                <button className="btn-link" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>Remove session</button>
-              </div>
-              <div className="program-exercises">
-                <div className="program-ex-row program-ex-head">
-                  <span /><span>Exercise</span><span>Sets</span><span>Reps</span><span>Load</span><span>Unit</span><span>Rest</span><span>Notes</span><span /><span />
-                </div>
-                {session.exercises.map((ex, ei) => (
-                  <div className={`program-ex-row ${ei > 0 && ex.linked ? "superset-linked" : ""}`} key={ex.id || ei}>
-                    <strong className="superset-label">{window.exerciseLabels(session.exercises)[ei]}</strong>
-                    {input(ex.name, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].name = v; }), { placeholder: "Exercise" })}
-                    {input(ex.sets, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].sets = v; }), { placeholder: "3" })}
-                    {input(ex.reps, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].reps = v; }), { placeholder: "8" })}
-                    {input(ex.load, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].load = v; }), { placeholder: "135" })}
-                    <select value={ex.loadUnit || "lbs"} onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].loadUnit = e.target.value; })}>
-                      {LOAD_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                    {input(ex.rest, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].rest = v; }), { placeholder: "60s" })}
-                    {input(ex.notes, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].notes = v; }), { placeholder: "Tempo, cues" })}
-                    {ei > 0 ? (
-                      <button
-                        className={`superset-toggle ${ex.linked ? "on" : ""}`}
-                        title={ex.linked ? "Superset with the exercise above. Click to separate." : "Superset with the exercise above"}
-                        onClick={() => edit((d) => { const e = d.weeks[wi].sessions[si].exercises[ei]; e.linked = !e.linked; })}
-                      >
-                        {ex.linked ? "Linked" : "Link"}
-                      </button>
-                    ) : <span />}
-                    <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
+          <div className="program-days">
+            {week.sessions.map((session, si) => {
+              const labels = window.exerciseLabels(session.exercises);
+              const setEx = (ei, key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei][key] = v; });
+              return (
+                <div className="program-day" key={si}>
+                  <div className="program-session-head">
+                    {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
+                    <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
                   </div>
-                ))}
-              </div>
-              <button className="btn-link" style={{ marginRight: 14 }} onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>+ Add exercise</button>
-              <button className="btn-link" title="Adds an exercise linked to the one above (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>+ Add to superset</button>
-            </div>
-          ))}
-          <button className="btn-link" onClick={() => edit((d) => { d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add session</button>
+                  {session.exercises.map((ex, ei) => (
+                    <div className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""}`} key={ex.id || ei}>
+                      <div className="program-ex-top">
+                        <strong className="superset-label">{labels[ei]}</strong>
+                        {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name" })}
+                        {ei > 0 && (
+                          <button
+                            className={`superset-toggle ${ex.linked ? "on" : ""}`}
+                            title={ex.linked ? "Superset with the exercise above. Click to separate." : "Superset with the exercise above"}
+                            onClick={() => edit((d) => { const e = d.weeks[wi].sessions[si].exercises[ei]; e.linked = !e.linked; })}
+                          >
+                            {ex.linked ? "Linked" : "Link"}
+                          </button>
+                        )}
+                        <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
+                      </div>
+                      <div className="program-ex-nums">
+                        {input(ex.sets, (v) => setEx(ei, "sets", v), { placeholder: "Sets", title: "Sets" })}
+                        {input(ex.reps, (v) => setEx(ei, "reps", v), { placeholder: "Reps", title: "Reps" })}
+                        {input(ex.load, (v) => setEx(ei, "load", v), { placeholder: "Load", title: "Load" })}
+                        <select value={ex.loadUnit || "lbs"} title="Load unit" onChange={(e) => setEx(ei, "loadUnit", e.target.value)}>
+                          {LOAD_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </select>
+                        {input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", title: "Rest" })}
+                      </div>
+                      {input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: tempo, cues", className: "program-ex-notes" })}
+                    </div>
+                  ))}
+                  <div className="program-day-actions">
+                    <button className="btn-link" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>+ Exercise</button>
+                    <button className="btn-link" title="Adds an exercise linked to the one above (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>+ Superset</button>
+                  </div>
+                </div>
+              );
+            })}
+            <button className="program-add-day" onClick={() => edit((d) => { d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>
+          </div>
         </div>
       ))}
-      <button className="btn-link" onClick={() => edit((d) => { d.weeks.push(newWeek(d.weeks.length + 1)); })}>+ Add week</button>
+      <button className="btn-link" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
       <div className="facility-form-actions">
         <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
@@ -833,7 +848,7 @@ function ProgramsPage() {
             <div className="facility-card" key={p.id}>
               <div className="facility-card-head">
                 <strong>{p.name}</strong>
-                <span className="facility-used">{c.weeks} wk · {c.sessions} sessions · {c.exercises} exercises</span>
+                <span className="facility-used">{c.weeks} wk · {c.sessions} days · {c.exercises} exercises</span>
               </div>
               {p.description && <div className="facility-notes" style={{ marginTop: 6 }}>{p.description}</div>}
               <div className="facility-card-actions no-print">
