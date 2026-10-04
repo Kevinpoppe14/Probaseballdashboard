@@ -169,6 +169,19 @@
       .sort((a, b) => plan.lanes.indexOf(a.lane) - plan.lanes.indexOf(b.lane));
   }
 
+  // Superset labels for a session's exercises: A1, A2, B1... An exercise marked `linked` joins the group of the
+  // exercise above it; any other exercise starts the next letter.
+  function exerciseLabels(exercises) {
+    let group = -1, n = 0;
+    return (exercises || []).map((e, i) => {
+      if (i > 0 && e.linked) n += 1;
+      else { group += 1; n = 1; }
+      const letter = (group >= 26 ? String.fromCharCode(64 + Math.floor(group / 26)) : "") + String.fromCharCode(65 + (group % 26));
+      return `${letter}${n}.`;
+    });
+  }
+  window.exerciseLabels = exerciseLabels;
+
   const loadText = (e) => {
     if (e.loadUnit === "bodyweight") return "Bodyweight";
     if (!e.load) return "—";
@@ -184,6 +197,7 @@
       <div className="program-view">
         {(week.sessions || []).map((s, si) => {
           const rows = (s.exercises || []).filter((e) => (e.name || "").trim());
+          const labels = exerciseLabels(rows);
           return (
             <div className="program-view-session" key={si}>
               <h4>{s.name || `Session ${si + 1}`}</h4>
@@ -192,8 +206,8 @@
                   <thead><tr><th>Exercise</th><th>Sets × Reps</th><th>Load</th><th>Rest</th><th>Notes</th></tr></thead>
                   <tbody>
                     {rows.map((e, ei) => (
-                      <tr key={e.id || ei}>
-                        <td>{e.name}</td>
+                      <tr key={e.id || ei} className={ei > 0 && e.linked ? "superset-linked" : ""}>
+                        <td><strong className="superset-label">{labels[ei]}</strong> {e.name}</td>
                         <td>{[e.sets, e.reps].filter(Boolean).join(" × ") || "—"}</td>
                         <td>{loadText(e)}</td>
                         <td>{e.rest || "—"}</td>

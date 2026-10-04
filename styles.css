@@ -2386,7 +2386,14 @@ tbody tr:hover {
 .program-session { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .program-session-name { font-size: 14px; font-weight: 600; background: transparent; border: none; border-bottom: 1px dashed var(--border); padding: 2px 0; }
 .program-exercises { overflow-x: auto; margin-top: 8px; }
-.program-ex-row { display: grid; grid-template-columns: minmax(160px, 2fr) 60px 60px 80px 100px 80px minmax(120px, 1.5fr) 28px; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 760px; }
+.program-ex-row { display: grid; grid-template-columns: 34px minmax(160px, 2fr) 60px 60px 80px 100px 80px minmax(120px, 1.5fr) 58px 28px; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 860px; }
+/* supersets: a linked exercise sits tight under the one above, with a bar tying the group together */
+.superset-label { color: var(--dst-red); font-size: 13px; white-space: nowrap; }
+.program-ex-row.superset-linked { margin-top: -3px; }
+.program-ex-row.superset-linked .superset-label { border-left: 3px solid var(--dst-red); padding-left: 5px; }
+.superset-toggle { font-size: 11px; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; }
+.superset-toggle.on { border-color: var(--dst-red); color: var(--dst-red); }
+.program-view-table tr.superset-linked td { border-top: none; }
 .program-ex-row input, .program-ex-row select { width: 100%; box-sizing: border-box; }
 .program-ex-head { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; }
 .program-editor .facility-form-actions { flex-wrap: wrap; }
