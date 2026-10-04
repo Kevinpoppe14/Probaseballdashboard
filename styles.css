@@ -2435,6 +2435,34 @@ tbody tr:hover {
 
 .program-name-link { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: var(--text); cursor: pointer; text-align: left; }
 .program-name-link:hover { color: var(--dst-red); text-decoration: underline; }
+/* Individualize a program for one athlete */
+.indiv-offer { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--dst-red); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.indiv-offer-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.indiv-done { color: var(--text-dim); }
+.indiv-heading { margin: 18px 0 8px; font-size: 15px; }
+.indiv-heading small { margin-left: 8px; font-weight: 400; color: var(--text-dim); }
+.indiv-swaps { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 6px 20px; }
+.indiv-swap { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
+.indiv-swap-from { font-size: 13px; min-width: 0; }
+.indiv-swap-from small { display: block; color: var(--text-dim); font-size: 11px; }
+.indiv-arrow { color: var(--text-dim); }
+.indiv-swap input { width: 100%; box-sizing: border-box; }
+.indiv-day { margin-top: 12px; }
+.indiv-day h4 { margin: 0 0 4px; font-size: 14px; }
+.indiv-grid-wrap { overflow-x: auto; }
+.indiv-grid { border-collapse: collapse; font-size: 13px; }
+.indiv-grid th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-dim); padding: 4px 10px 4px 0; white-space: nowrap; }
+.indiv-grid td { padding: 3px 10px 3px 0; border-top: 1px solid var(--border); vertical-align: middle; }
+.indiv-ex { min-width: 220px; }
+.indiv-cell { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.indiv-cell input { width: 44px; text-align: center; padding: 4px 2px; box-sizing: border-box; }
+.indiv-other { font-size: 10px; color: var(--text-dim); }
+.indiv-empty { color: var(--text-dim); text-align: center; }
+@media (max-width: 700px) { .indiv-swaps { grid-template-columns: 1fr; } }
+
+.program-editor-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.program-editor-top h2 { margin: 0; }
+.program-editor-top .program-pdf select { font-size: 13px; padding: 5px 8px; max-width: 220px; }
 .program-pdf { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .program-pdf select { font-size: 12px; padding: 3px 5px; max-width: 170px; }
 .facility-card-actions { align-items: center; flex-wrap: wrap; }

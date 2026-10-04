@@ -1096,7 +1096,10 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
       <datalist id="exercise-library-names">
         {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
       </datalist>
-      <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
+      <div className="program-editor-top">
+        <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
+        <ProgramPdfButton program={{ name: (draft.name || "").trim() || "Program", weeks: draft.weeks }} />
+      </div>
       <div className="facility-form-grid">
         <label className="facility-field wide"><span>Program name *</span>
           {input(draft.name, (v) => edit((d) => { d.name = v; }), { placeholder: "e.g. Off-season strength, Phase 1" })}
@@ -1180,7 +1183,6 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
       <div className="facility-form-actions">
         <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
         <button className="btn-link" onClick={onCancel}>Cancel</button>
-        <ProgramPdfButton program={{ name: (draft.name || "").trim() || "Program", weeks: draft.weeks }} />
         {initial && initial.id && onDelete && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={onDelete}>Delete program</button>}
       </div>
     </div>
@@ -1193,6 +1195,123 @@ const athletesOnProgram = (programId) =>
     const plan = window.AthleteStore.getPeriodization(id);
     return plan && (plan.blocks || []).some((b) => b.programId === programId);
   });
+
+// "Sykora" from "Travis Sykora"; a trailing Jr. / Sr. / II / III is skipped.
+const athleteLastName = (name) => {
+  const parts = (name || "").trim().split(/\s+/).filter((p) => !/^(jr\.?|sr\.?|ii|iii|iv)$/i.test(p));
+  return parts[parts.length - 1] || (name || "").trim();
+};
+
+// Individualize an assigned program for one athlete: swap exercises, adjust sets and reps week by week, then
+// save it as a new program named "<Last name> - <Program>" and point the athlete's chart at that copy.
+function ProgramIndividualize({ program, athlete, onDone }) {
+  const S = window.AthleteStore;
+  const [weeks, setWeeks] = useState(() => JSON.parse(JSON.stringify(program.weeks || [])));
+  const [swaps, setSwaps] = useState({}); // original exercise name -> replacement
+  const newName = `${athleteLastName(athlete.name)} - ${program.name}`;
+  const named = (e) => (e.name || "").trim();
+  const shownName = (e) => (swaps[named(e)] != null && swaps[named(e)].trim() ? swaps[named(e)].trim() : named(e));
+
+  // every exercise in the program, once, in the order it first appears, with the days it's used on
+  const unique = [];
+  weeks.forEach((w) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e) => {
+    if (!named(e)) return;
+    let u = unique.find((x) => x.name === named(e));
+    if (!u) { u = { name: named(e), days: [] }; unique.push(u); }
+    const day = s.name || `Day ${si + 1}`;
+    if (!u.days.includes(day)) u.days.push(day);
+  })));
+  const changed = unique.filter((u) => swaps[u.name] && swaps[u.name].trim() && swaps[u.name].trim() !== u.name).length;
+
+  const maxDays = Math.max(0, ...weeks.map((w) => (w.sessions || []).length));
+  const setCell = (wi, si, ei, key, v) => setWeeks((ws) => { const c = JSON.parse(JSON.stringify(ws)); c[wi].sessions[si].exercises[ei][key] = v; return c; });
+
+  const save = () => {
+    const finalWeeks = JSON.parse(JSON.stringify(weeks));
+    finalWeeks.forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => { e.name = shownName(e); })));
+    const saved = S.saveProgram({ name: newName, description: program.description || "", weeks: finalWeeks, folder: program.folder || "", basedOn: program.id, athleteId: athlete.id });
+    // the athlete's chart now points at their own copy instead of the shared program
+    const plan = S.getPeriodization(athlete.id);
+    if (plan && (plan.blocks || []).some((b) => b.programId === program.id)) {
+      const next = JSON.parse(JSON.stringify(plan));
+      next.blocks.forEach((b) => { if (b.programId === program.id) { b.programId = saved.id; if (b.label === program.name) b.label = saved.name; } });
+      S.setPeriodization(athlete.id, next);
+    }
+    onDone(saved);
+  };
+
+  return (
+    <div className="panel">
+      <datalist id="individualize-exercise-names">
+        {S.allExercises().map((e) => <option key={e.id} value={e.name} />)}
+      </datalist>
+      <h2>Individualize for {athlete.name} <small>saves as “{newName}”</small></h2>
+
+      <h3 className="indiv-heading">1. Exercises <small>Type a replacement to swap an exercise everywhere it appears. Leave blank to keep it.</small></h3>
+      <div className="indiv-swaps">
+        {unique.map((u) => (
+          <div className="indiv-swap" key={u.name}>
+            <div className="indiv-swap-from">
+              {S.findExerciseByName(u.name) ? <button className="exercise-link" onClick={() => window.openExercise(u.name)}>{u.name}</button> : u.name}
+              <small>{u.days.join(", ")}</small>
+            </div>
+            <span className="indiv-arrow">→</span>
+            <input list="individualize-exercise-names" value={swaps[u.name] || ""} placeholder="Keep as is" onChange={(e) => setSwaps((s) => ({ ...s, [u.name]: e.target.value }))} />
+          </div>
+        ))}
+        {unique.length === 0 && <div className="empty-state">This program has no exercises yet.</div>}
+      </div>
+
+      <h3 className="indiv-heading">2. Sets and reps by week <small>{changed ? `${changed} exercise${changed === 1 ? "" : "s"} swapped. ` : ""}Each box is sets × reps.</small></h3>
+      {Array.from({ length: maxDays }, (_, si) => {
+        const rows = Math.max(0, ...weeks.map((w) => ((w.sessions[si] || {}).exercises || []).length));
+        const dayName = ((weeks.find((w) => w.sessions[si]) || {}).sessions || [])[si];
+        return (
+          <div className="indiv-day" key={si}>
+            <h4>{(dayName && dayName.name) || `Day ${si + 1}`}</h4>
+            <div className="indiv-grid-wrap">
+              <table className="indiv-grid">
+                <thead><tr><th>Exercise</th>{weeks.map((w, wi) => <th key={wi}>{w.name || `Week ${wi + 1}`}</th>)}</tr></thead>
+                <tbody>
+                  {Array.from({ length: rows }, (_, ei) => {
+                    const first = weeks.map((w) => ((w.sessions[si] || {}).exercises || [])[ei]).find((e) => e && named(e));
+                    if (!first) return null;
+                    const labels = window.exerciseLabels(((weeks.find((w) => w.sessions[si]) || {}).sessions[si] || {}).exercises || []);
+                    return (
+                      <tr key={ei}>
+                        <td className="indiv-ex"><strong className="superset-label">{labels[ei]}</strong> {shownName(first)}</td>
+                        {weeks.map((w, wi) => {
+                          const e = ((w.sessions[si] || {}).exercises || [])[ei];
+                          if (!e || !named(e)) return <td key={wi} className="indiv-empty">—</td>;
+                          const other = shownName(e) !== shownName(first);
+                          return (
+                            <td key={wi}>
+                              {other && <div className="indiv-other">{shownName(e)}</div>}
+                              <span className="indiv-cell">
+                                <input value={e.sets || ""} aria-label="Sets" onChange={(ev) => setCell(wi, si, ei, "sets", ev.target.value)} />
+                                <span>×</span>
+                                <input value={e.reps || ""} aria-label="Reps" onChange={(ev) => setCell(wi, si, ei, "reps", ev.target.value)} />
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="facility-form-actions">
+        <button className="btn" onClick={save}>Save as “{newName}”</button>
+        <button className="btn-link" onClick={() => onDone(null)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
 
 // Assign one program to several athletes at once. Each gets a block on their periodization chart, linked to the program.
 function ProgramAssignPanel({ program, onClose }) {
@@ -1213,15 +1332,32 @@ function ProgramAssignPanel({ program, onClose }) {
   const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const pickShown = () => setPicked((s) => { const n = new Set(s); shown.forEach((a) => { if (!already.has(String(a.id))) n.add(a.id); }); return n; });
 
+  const [assigned, setAssigned] = useState([]); // athletes assigned in this visit, offered for individualizing
+  const [individualizing, setIndividualizing] = useState(null); // athlete whose copy is being edited
+  const [individualized, setIndividualized] = useState({}); // athlete id -> name of the saved copy
+
   const assign = () => {
     const out = { added: [], created: [], already: [], failed: [] };
+    const done = [];
     athletes.filter((a) => picked.has(a.id)).forEach((a) => {
       const r = lib.assignProgram(a.id, program, { startDate, laneName });
       (out[r] || out.failed).push(a.name);
+      if (r === "added" || r === "created") done.push(a);
     });
     setResult(out);
+    setAssigned((prev) => [...prev, ...done.filter((a) => !prev.some((p) => p.id === a.id))]);
     setPicked(new Set());
   };
+
+  if (individualizing) {
+    return (
+      <ProgramIndividualize
+        program={program}
+        athlete={individualizing}
+        onDone={(saved) => { if (saved) setIndividualized((m) => ({ ...m, [individualizing.id]: saved.name })); setIndividualizing(null); }}
+      />
+    );
+  }
 
   return (
     <div className="panel">
@@ -1260,6 +1396,18 @@ function ProgramAssignPanel({ program, onClose }) {
           {result.created.length > 0 && <div>New periodization chart started for: {result.created.join(", ")}.</div>}
           {result.already.length > 0 && <div>Already on the chart, left as is: {result.already.join(", ")}.</div>}
           {result.failed.length > 0 && <div>Couldn't be placed (start date is beyond the chart's limit): {result.failed.join(", ")}.</div>}
+        </div>
+      )}
+      {assigned.length > 0 && (
+        <div className="indiv-offer">
+          <strong>Individualize this program?</strong>
+          <span>Pick an athlete to swap exercises and adjust sets and reps. Their own copy is saved and linked to their chart.</span>
+          <div className="indiv-offer-list">
+            {assigned.map((a) => (individualized[a.id]
+              ? <span className="indiv-done" key={a.id}>✓ {a.name}: saved as “{individualized[a.id]}”</span>
+              : <button className="btn btn-secondary" key={a.id} onClick={() => setIndividualizing(a)}>Individualize for {a.name}</button>
+            ))}
+          </div>
         </div>
       )}
       <div className="facility-form-actions">
