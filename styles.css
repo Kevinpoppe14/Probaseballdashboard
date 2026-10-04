@@ -2378,6 +2378,31 @@ tbody tr:hover {
 @media (max-width: 900px) { .ph-extra { width: 100%; min-width: 0; margin-left: 0; } }
 .cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
 
+/* Training program builder (Programs tab) */
+.program-editor .facility-form-grid { margin-bottom: 8px; }
+.program-week { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-top: 14px; }
+.program-week-head, .program-session-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.program-week-name { font-size: 16px; font-weight: 700; background: transparent; border: none; border-bottom: 1px dashed var(--border); padding: 2px 0; }
+.program-session { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.program-session-name { font-size: 14px; font-weight: 600; background: transparent; border: none; border-bottom: 1px dashed var(--border); padding: 2px 0; }
+.program-exercises { overflow-x: auto; margin-top: 8px; }
+.program-ex-row { display: grid; grid-template-columns: minmax(160px, 2fr) 60px 60px 80px 100px 80px minmax(120px, 1.5fr) 28px; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 760px; }
+.program-ex-row input, .program-ex-row select { width: 100%; box-sizing: border-box; }
+.program-ex-head { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; }
+.program-editor .facility-form-actions { flex-wrap: wrap; }
+
+/* A program week shown on the player plan (the block's attached program) */
+.period-programs { user-select: text; }
+.period-program + .period-program { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.period-program h3 { margin: 0 0 8px; font-size: 15px; }
+.period-program h3 small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+.program-view-session { margin-top: 10px; }
+.program-view-session h4 { margin: 0 0 4px; font-size: 13px; }
+.program-view-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.program-view-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-dim); padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border); }
+.program-view-table td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.program-view-empty { font-size: 12px; color: var(--text-dim); }
+
 /* Cubs player plan: Off-Season Training Facility and Programming by sit side by side */
 .offseason-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .offseason-row > .panel { margin-bottom: 16px; }

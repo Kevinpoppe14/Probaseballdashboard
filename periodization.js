@@ -149,6 +149,92 @@
 
   const blockColorIn = (plan, b) => b.color || ((plan.lanes.find((l) => l.id === b.lane) || {}).color) || PALETTE[7];
 
+  // ---- programs attached to blocks (programs are built on the Programs tab) ---------------------
+  const allPrograms = () => (window.AthleteStore.allPrograms ? window.AthleteStore.allPrograms() : []);
+  const programById = (id) => (id ? allPrograms().find((p) => p.id === id) : null) || null;
+
+  // Program weeks in play during one plan week. Week 1 of the program lines up with the block's first
+  // week; a program shorter than its block starts over from its first week.
+  function programWeeksAt(plan, weekIdx) {
+    return plan.blocks
+      .filter((b) => b.programId && b.start <= weekIdx && weekIdx < b.start + b.len)
+      .map((b) => {
+        const program = programById(b.programId);
+        const lane = plan.lanes.find((l) => l.id === b.lane);
+        if (!program || !lane || !(program.weeks || []).length) return null;
+        const n = (weekIdx - b.start) % program.weeks.length;
+        return { block: b, lane, program, week: program.weeks[n], weekNo: n + 1 };
+      })
+      .filter(Boolean)
+      .sort((a, b) => plan.lanes.indexOf(a.lane) - plan.lanes.indexOf(b.lane));
+  }
+
+  const loadText = (e) => {
+    if (e.loadUnit === "bodyweight") return "Bodyweight";
+    if (!e.load) return "—";
+    if (e.loadUnit === "RPE") return `RPE ${e.load}`;
+    if (e.loadUnit === "% 1RM") return `${e.load}% 1RM`;
+    if (e.loadUnit === "other") return e.load;
+    return `${e.load} lbs`;
+  };
+
+  // One program week, read-only: a table of exercises per session.
+  function ProgramWeekView({ week }) {
+    return (
+      <div className="program-view">
+        {(week.sessions || []).map((s, si) => {
+          const rows = (s.exercises || []).filter((e) => (e.name || "").trim());
+          return (
+            <div className="program-view-session" key={si}>
+              <h4>{s.name || `Session ${si + 1}`}</h4>
+              {rows.length === 0 ? <div className="program-view-empty">No exercises entered.</div> : (
+                <table className="program-view-table">
+                  <thead><tr><th>Exercise</th><th>Sets × Reps</th><th>Load</th><th>Rest</th><th>Notes</th></tr></thead>
+                  <tbody>
+                    {rows.map((e, ei) => (
+                      <tr key={e.id || ei}>
+                        <td>{e.name}</td>
+                        <td>{[e.sets, e.reps].filter(Boolean).join(" × ") || "—"}</td>
+                        <td>{loadText(e)}</td>
+                        <td>{e.rest || "—"}</td>
+                        <td>{e.notes || ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // The program week each attached block is on: this week while the plan is running, week 1 before it starts.
+  function PlanPrograms({ plan }) {
+    const p = planProgress(plan);
+    if (p.state === "complete") return null;
+    const items = programWeeksAt(plan, p.state === "active" ? p.week - 1 : 0);
+    if (!items.length) return null;
+    return (
+      <div className="panel period-programs no-print">
+        <h2>
+          {p.state === "active" ? "This week's program" : "First week's program"}{" "}
+          <small>{p.state === "active" ? `Week ${p.week} of ${plan.weeks}` : `Plan starts ${fmtMD(plan.startDate)}`}</small>
+        </h2>
+        {items.map(({ block, lane, program, week, weekNo }) => (
+          <div className="period-program" key={block.id}>
+            <h3>
+              {lane.name}: {block.label || "Untitled"}{" "}
+              <small>{program.name} · {week.name || `Week ${weekNo}`} ({weekNo} of {program.weeks.length})</small>
+            </h3>
+            <ProgramWeekView week={week} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   // Automated one-paragraph "where are they now" caption, built from the plan and today's date:
   // current week, current phase (the block in the "Phase" row), what's next, and how much is left.
   function planCaption(plan, name) {
@@ -563,7 +649,7 @@
         const lane = plan.lanes.find((l) => l.id === b.lane);
         const name = lane ? lane.name : "Other";
         if (lane) laneColors[name] = lane.color;
-        return { laneName: name, relStart: b.start - minStart, len: b.len, label: b.label, notes: b.notes, color: b.color || null };
+        return { laneName: name, relStart: b.start - minStart, len: b.len, label: b.label, notes: b.notes, color: b.color || null, programId: b.programId || null };
       }),
       laneColors,
     };
@@ -585,7 +671,7 @@
       const start = target + cb.relStart;
       if (start >= MAX_WEEKS) return;
       const lane = laneFor(cb.laneName);
-      created.push({ id: uid(), lane: lane.id, start, len: Math.min(cb.len, MAX_WEEKS - start), label: cb.label, notes: cb.notes, color: cb.color });
+      created.push({ id: uid(), lane: lane.id, start, len: Math.min(cb.len, MAX_WEEKS - start), label: cb.label, notes: cb.notes, color: cb.color, ...(cb.programId ? { programId: cb.programId } : {}) });
     });
     const weeks = clamp(Math.max(plan.weeks, maxEnd(created)), 1, MAX_WEEKS);
     return { plan: { ...plan, lanes, weeks, blocks: [...plan.blocks, ...created] }, ids: created.map((b) => b.id) };
@@ -1276,6 +1362,14 @@
               <label>Notes (sets / reps / volume / intent, anything for this block)</label>
               <textarea key={single.id + "n" + single.notes} rows={3} defaultValue={single.notes} onBlur={(e) => e.target.value !== single.notes && updateBlock(single.id, { notes: e.target.value })} />
             </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label>Program (built on the Programs tab)</label>
+              <select value={single.programId || ""} onChange={(e) => updateBlock(single.id, { programId: e.target.value || null })}>
+                <option value="">— None —</option>
+                {single.programId && !programById(single.programId) && <option value={single.programId}>(deleted program)</option>}
+                {allPrograms().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
             <div className="period-swatches">
               <span>Color</span>
               <button className={`period-swatch clear ${!single.color ? "on" : ""}`} title="Use the row's color" onClick={() => updateBlock(single.id, { color: null })}>row</button>
@@ -1297,6 +1391,8 @@
             </div>
           </div>
         )}
+
+        <PlanPrograms plan={plan} />
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>

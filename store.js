@@ -26,6 +26,7 @@
       periodTemplates: [], // reusable planner layouts: { id, name, weeks, lanes, blocks }
       assessments: [], // dated movement/physical assessments (see assessment.js) — one athlete can have several over time
       offseasonFacilities: [], // shared directory of off-season training facilities: { id, name, address1, city, ... } (see migration_004)
+      programs: [], // reusable training program templates: { id, name, description, weeks: [{ name, sessions: [{ name, exercises: [...] }] }] } (see migration_005)
     };
   }
 
@@ -266,12 +267,12 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
-        fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"),
+        fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"), fetchTable("programs"),
       ]);
     const cloudIsEmpty = ![athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments]
       .some((rows) => rows.length > 0);
@@ -298,6 +299,7 @@
     periodTemplates.forEach((r) => next.periodTemplates.push(r.data));
     assessments.forEach((r) => next.assessments.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
     offseasonFacilityRows.forEach((r) => next.offseasonFacilities.push({ ...r.data, id: r.id }));
+    programRows.forEach((r) => next.programs.push({ ...r.data, id: r.id }));
     const syncedAtRow = appMeta.find((r) => r.key === "playerPlansSyncedAt");
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
     state = next;
@@ -667,6 +669,30 @@
     return full;
   }
 
+  // ---- training programs ------------------------------------------------------------------------
+  function allPrograms() {
+    return [...state.programs].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }
+
+  // Adds a new program (no id yet) or replaces the one with the same id. The whole document is stored each time.
+  function saveProgram(rec) {
+    const id = rec.id != null ? String(rec.id) : randomId();
+    const { id: _ignored, ...data } = rec;
+    const full = { ...data, id };
+    const idx = state.programs.findIndex((p) => p.id === id);
+    if (idx === -1) state.programs.push(full);
+    else state.programs[idx] = full;
+    persistLocal();
+    syncUpsert("programs", id, undefined, data);
+    return full;
+  }
+
+  function deleteProgram(id) {
+    state.programs = state.programs.filter((p) => p.id !== id);
+    persistLocal();
+    syncDelete("programs", id);
+  }
+
   function deleteOffseasonFacility(id) {
     state.offseasonFacilities = state.offseasonFacilities.filter((f) => f.id !== id);
     persistLocal();
@@ -715,6 +741,9 @@
     allOffseasonFacilities,
     saveOffseasonFacility,
     deleteOffseasonFacility,
+    allPrograms,
+    saveProgram,
+    deleteProgram,
     counts,
     clearAll,
   };

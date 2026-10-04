@@ -685,6 +685,157 @@ function ContactInfoPanel({ athlete, onChanged }) {
 
 // Cubs Roster only (see rosterGroup) — DST clients don't have an "off-season" distinct from the
 // training DST itself provides, so this field has no meaning for the rest of the roster.
+// ---- Training programs ----------------------------------------------------------------------
+// A program is a reusable template: weeks, each with sessions, each with exercises (sets / reps / load / rest).
+const LOAD_UNITS = ["lbs", "% 1RM", "RPE", "bodyweight", "other"];
+const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`, name: "", sets: "", reps: "", load: "", loadUnit: "lbs", rest: "", notes: "" });
+const newSession = (n) => ({ name: `Session ${n}`, exercises: [newExercise()] });
+const newWeek = (n) => ({ name: `Week ${n}`, sessions: [newSession(1)] });
+const programCounts = (p) => {
+  const weeks = (p.weeks || []).length;
+  const sessions = (p.weeks || []).reduce((s, w) => s + (w.sessions || []).length, 0);
+  const exercises = (p.weeks || []).reduce((s, w) => s + (w.sessions || []).reduce((t, x) => t + (x.exercises || []).length, 0), 0);
+  return { weeks, sessions, exercises };
+};
+
+// Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
+function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
+  const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })));
+  const edit = (fn) => setDraft((d) => { const c = JSON.parse(JSON.stringify(d)); fn(c); return c; });
+  const canSave = (draft.name || "").trim().length > 0;
+
+  const save = () => {
+    if (!canSave) return;
+    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks };
+    if (initial && initial.id) rec.id = initial.id;
+    onSave(rec);
+  };
+
+  const input = (value, onChange, props = {}) => (
+    <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
+  );
+
+  return (
+    <div className="panel program-editor">
+      <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
+      <div className="facility-form-grid">
+        <label className="facility-field wide"><span>Program name *</span>
+          {input(draft.name, (v) => edit((d) => { d.name = v; }), { placeholder: "e.g. Off-season strength, Phase 1" })}
+        </label>
+        <label className="facility-field wide"><span>Description</span>
+          <textarea rows={2} value={draft.description || ""} onChange={(e) => edit((d) => { d.description = e.target.value; })} placeholder="Goal, who it's for, how it fits in the plan" />
+        </label>
+      </div>
+
+      {draft.weeks.map((week, wi) => (
+        <div className="program-week" key={wi}>
+          <div className="program-week-head">
+            {input(week.name, (v) => edit((d) => { d.weeks[wi].name = v; }), { className: "program-week-name", "aria-label": "Week name" })}
+            <button className="btn-link" disabled={draft.weeks.length === 1} onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>Remove week</button>
+          </div>
+
+          {week.sessions.map((session, si) => (
+            <div className="program-session" key={si}>
+              <div className="program-session-head">
+                {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Session name" })}
+                <button className="btn-link" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>Remove session</button>
+              </div>
+              <div className="program-exercises">
+                <div className="program-ex-row program-ex-head">
+                  <span>Exercise</span><span>Sets</span><span>Reps</span><span>Load</span><span>Unit</span><span>Rest</span><span>Notes</span><span />
+                </div>
+                {session.exercises.map((ex, ei) => (
+                  <div className="program-ex-row" key={ex.id || ei}>
+                    {input(ex.name, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].name = v; }), { placeholder: "Exercise" })}
+                    {input(ex.sets, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].sets = v; }), { placeholder: "3" })}
+                    {input(ex.reps, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].reps = v; }), { placeholder: "8" })}
+                    {input(ex.load, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].load = v; }), { placeholder: "135" })}
+                    <select value={ex.loadUnit || "lbs"} onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].loadUnit = e.target.value; })}>
+                      {LOAD_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                    {input(ex.rest, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].rest = v; }), { placeholder: "60s" })}
+                    {input(ex.notes, (v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].notes = v; }), { placeholder: "Tempo, cues" })}
+                    <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
+                  </div>
+                ))}
+              </div>
+              <button className="btn-link" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>+ Add exercise</button>
+            </div>
+          ))}
+          <button className="btn-link" onClick={() => edit((d) => { d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add session</button>
+        </div>
+      ))}
+      <button className="btn-link" onClick={() => edit((d) => { d.weeks.push(newWeek(d.weeks.length + 1)); })}>+ Add week</button>
+
+      <div className="facility-form-actions">
+        <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
+        <button className="btn-link" onClick={onCancel}>Cancel</button>
+        {initial && initial.id && onDelete && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={onDelete}>Delete program</button>}
+      </div>
+    </div>
+  );
+}
+
+// Programs tab: every saved program, plus the editor.
+function ProgramsPage() {
+  const [editing, setEditing] = useState(null); // null = list, {} = new, record = editing that one
+  const [version, setVersion] = useState(0);
+  const programs = window.AthleteStore.allPrograms();
+
+  const save = (rec) => {
+    window.AthleteStore.saveProgram(rec);
+    setEditing(null);
+    setVersion((v) => v + 1);
+  };
+
+  const remove = (p) => {
+    if (!window.confirm(`Delete the program "${p.name}"? This can't be undone.`)) return;
+    window.AthleteStore.deleteProgram(p.id);
+    setEditing(null);
+    setVersion((v) => v + 1);
+  };
+
+  if (editing) {
+    return (
+      <ProgramEditor
+        key={editing.id || "new"}
+        initial={editing.id ? editing : null}
+        onSave={save}
+        onCancel={() => setEditing(null)}
+        onDelete={editing.id ? () => remove(editing) : null}
+      />
+    );
+  }
+
+  return (
+    <div className="panel" key={version}>
+      <h2>Programs <small>{programs.length} saved</small></h2>
+      <div className="facility-toolbar">
+        <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Reusable training programs. Build one here, then attach it to a plan block.</span>
+        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setEditing({})}>+ New program</button>
+      </div>
+      {programs.length === 0 && <div className="empty-state">No programs yet. Create one to get started.</div>}
+      <div className="facility-list">
+        {programs.map((p) => {
+          const c = programCounts(p);
+          return (
+            <div className="facility-card" key={p.id}>
+              <div className="facility-card-head">
+                <strong>{p.name}</strong>
+                <span className="facility-used">{c.weeks} wk · {c.sessions} sessions · {c.exercises} exercises</span>
+              </div>
+              {p.description && <div className="facility-notes" style={{ marginTop: 6 }}>{p.description}</div>}
+              <div className="facility-card-actions no-print">
+                <button className="btn-link" onClick={() => setEditing(p)}>Edit</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ---- Off-season facility directory -------------------------------------------------------------
 // Every facility lives in one shared list (AthleteStore.allOffseasonFacilities). An athlete's
 // facility is the facility's name, matched against that list, so the address is looked up by name.
@@ -1623,7 +1774,7 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -1657,6 +1808,9 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
         </button>
         <button className={`nav-tab ${view === "teamreport" ? "active" : ""}`} onClick={onGoTeamReport}>
           Team Reports
+        </button>
+        <button className={`nav-tab ${view === "programs" ? "active" : ""}`} onClick={onGoPrograms}>
+          Programs
         </button>
         {(showFacilities || view === "facilities") && (
           <button className={`nav-tab ${view === "facilities" ? "active" : ""}`} onClick={onGoFacilities}>
@@ -6354,6 +6508,7 @@ function App({ userEmail, onLogout }) {
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goFacilities = () => setView("facilities");
+  const goPrograms = () => setView("programs");
   const goHelp = () => setView("help");
 
   const welcomeKey = `dstWelcomeSeen:${userEmail}`;
@@ -6417,6 +6572,7 @@ function App({ userEmail, onLogout }) {
         onGoNews={goNews}
         onGoFacilities={goFacilities}
         showFacilities={locationFilter === CUBS_LOCATION_LABEL}
+        onGoPrograms={goPrograms}
         onGoHelp={goHelp}
         userEmail={userEmail}
         onLogout={onLogout}
@@ -6473,6 +6629,7 @@ function App({ userEmail, onLogout }) {
           ? <window.NewsPage dataVersion={dataVersion} />
           : <div className="panel"><div className="empty-state">The In the News page didn't load — make sure news.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>)}
         {view === "facilities" && <OffseasonFacilitiesPage />}
+        {view === "programs" && <ProgramsPage />}
         {view === "help" && <HelpPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}
       </div>
