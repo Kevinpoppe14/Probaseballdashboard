@@ -2362,7 +2362,14 @@ tbody tr:hover {
 .ph-photo-col .ph-name { text-align: center; }
 
 /* Compact CMJ profile beside the athlete photo in the Player Plan header */
-.ph-extra { width: 380px; max-width: 100%; text-align: left; font-size: 12px; }
+.period-header {
+  border: 2px solid var(--dst-red);
+  box-shadow: 0 0 0 1px rgba(165, 42, 52, 0.25), 0 0 14px rgba(165, 42, 52, 0.18);
+}
+.period-header-cubs { box-shadow: 0 0 0 1px rgba(14, 51, 134, 0.25), 0 0 14px rgba(14, 51, 134, 0.18); }
+.ph-pics { width: 100%; }
+.ph-extra { width: 50%; min-width: 380px; margin-left: auto; text-align: left; font-size: 12px; }
+@media (max-width: 900px) { .ph-extra { width: 100%; min-width: 0; margin-left: 0; } }
 .cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
 .cmj-mini .profile-controls { margin-bottom: 6px; }
 .cmj-mini .profile-row { grid-template-columns: minmax(110px, 1.3fr) minmax(70px, 0.9fr) 1.2fr 46px; gap: 6px; font-size: 11px; }

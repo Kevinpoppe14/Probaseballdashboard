@@ -598,15 +598,15 @@
           <div className="ph-pics">
             {athlete.team && Logo && <span className="ph-team"><Logo team={athlete.team} size={104} /></span>}
             <div className="ph-photo-col">
-              {onOpen ? (
-                <button className="ph-name ph-name-link" onClick={onOpen} title="Open this athlete's profile">{athlete.name}</button>
-              ) : (
-                <div className="ph-name">{athlete.name}</div>
-              )}
               {showPhoto ? (
                 <img className="ph-photo" src={athlete.photoUrl} alt={athlete.name} onError={() => setPhotoBroken(true)} />
               ) : (
                 <div className="ph-photo ph-initials">{initials}</div>
+              )}
+              {onOpen ? (
+                <button className="ph-name ph-name-link" onClick={onOpen} title="Open this athlete's profile">{athlete.name}</button>
+              ) : (
+                <div className="ph-name">{athlete.name}</div>
               )}
             </div>
             {extra && <div className="ph-extra">{extra}</div>}
