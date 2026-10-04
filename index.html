@@ -1090,10 +1090,63 @@ function ProgramsPage() {
   const [assigning, setAssigning] = useState(null); // the program being assigned to athletes, if any
   const [editing, setEditing] = useState(null); // null = list, {} = new, record = editing that one
   const [version, setVersion] = useState(0);
-  const programs = window.AthleteStore.allPrograms();
+  const [folder, setFolder] = useState(""); // path of the folder being viewed; "" is the top level
+  const S = window.AthleteStore;
+  const programs = S.allPrograms();
+  const folders = S.getProgramFolders();
+  const bump = () => setVersion((v) => v + 1);
+
+  // ---- folders: paths like "Strength/Lower Body" ----
+  const inFolder = (path, f) => path === f || path.startsWith(`${f}/`);
+  const parentOf = (f) => (f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "");
+  const leafOf = (f) => f.slice(f.lastIndexOf("/") + 1);
+  const subfolders = folders.filter((f) => parentOf(f) === folder);
+  const here = programs.filter((p) => (p.folder || "") === folder);
+  const countIn = (f) => programs.filter((p) => inFolder(p.folder || "", f)).length;
+  const cleanName = (raw) => (raw || "").replace(/\//g, " ").trim();
+
+  const addFolder = () => {
+    const name = cleanName(window.prompt(folder ? `New subfolder in ${leafOf(folder)}:` : "New folder name:"));
+    if (!name) return;
+    const path = folder ? `${folder}/${name}` : name;
+    if (folders.some((f) => f.toLowerCase() === path.toLowerCase())) { window.alert("A folder with that name is already here."); return; }
+    S.setProgramFolders([...folders, path]);
+    bump();
+  };
+
+  // Re-roots everything under `from` (the folder, its subfolders and their programs) onto `to`.
+  const moveTree = (from, to, keepSelf) => {
+    const swap = (path) => (path === from ? to : `${to}${to ? "/" : ""}${path.slice(from.length + 1)}`);
+    S.setProgramFolders(folders.filter((f) => keepSelf || f !== from).map((f) => (inFolder(f, from) ? swap(f) : f)).filter(Boolean));
+    programs.filter((p) => inFolder(p.folder || "", from)).forEach((p) => S.saveProgram({ ...p, folder: swap(p.folder) }));
+  };
+
+  const renameFolder = () => {
+    const name = cleanName(window.prompt("Rename this folder:", leafOf(folder)));
+    if (!name || name === leafOf(folder)) return;
+    const path = parentOf(folder) ? `${parentOf(folder)}/${name}` : name;
+    if (folders.some((f) => f.toLowerCase() === path.toLowerCase())) { window.alert("A folder with that name is already here."); return; }
+    moveTree(folder, path, true);
+    setFolder(path);
+    bump();
+  };
+
+  const deleteFolder = () => {
+    const n = countIn(folder);
+    const subs = folders.filter((f) => f !== folder && inFolder(f, folder)).length;
+    const where = parentOf(folder) ? leafOf(parentOf(folder)) : "the top level";
+    const moved = [n && `${n} program${n === 1 ? "" : "s"}`, subs && `${subs} subfolder${subs === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
+    if (!window.confirm(`Delete the folder "${leafOf(folder)}"?${moved ? ` Its ${moved} will move up to ${where}; no programs are deleted.` : ""}`)) return;
+    moveTree(folder, parentOf(folder), false);
+    setFolder(parentOf(folder));
+    bump();
+  };
+
+  const moveProgram = (p, to) => { S.saveProgram({ ...p, folder: to }); bump(); };
 
   const save = (rec) => {
-    window.AthleteStore.saveProgram(rec);
+    // an edited program stays in its folder; a new one goes in the folder being viewed
+    window.AthleteStore.saveProgram({ ...rec, folder: editing && editing.id ? (editing.folder || "") : folder });
     setEditing(null);
     setVersion((v) => v + 1);
   };
@@ -1122,13 +1175,38 @@ function ProgramsPage() {
   return (
     <div className="panel" key={version}>
       <h2>Programs <small>{programs.length} saved</small></h2>
-      <div className="facility-toolbar">
-        <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Reusable training programs. Build one here, then attach it to a plan block.</span>
-        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setEditing({})}>+ New program</button>
+      <div className="program-crumbs">
+        <button className={`program-crumb ${folder === "" ? "here" : ""}`} onClick={() => setFolder("")}>All programs</button>
+        {folder && folder.split("/").map((part, i, parts) => {
+          const path = parts.slice(0, i + 1).join("/");
+          return (
+            <React.Fragment key={path}>
+              <span className="program-crumb-sep">›</span>
+              <button className={`program-crumb ${path === folder ? "here" : ""}`} onClick={() => setFolder(path)}>{part}</button>
+            </React.Fragment>
+          );
+        })}
       </div>
-      {programs.length === 0 && <div className="empty-state">No programs yet. Create one to get started.</div>}
+      <div className="facility-toolbar">
+        <button className="btn-link" onClick={addFolder}>{folder ? "+ New subfolder" : "+ New folder"}</button>
+        {folder && <button className="btn-link" onClick={renameFolder}>Rename folder</button>}
+        {folder && <button className="btn-link" onClick={deleteFolder}>Delete folder</button>}
+        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setEditing({})}>+ New program{folder ? ` in ${leafOf(folder)}` : ""}</button>
+      </div>
+      {subfolders.length > 0 && (
+        <div className="program-folders">
+          {subfolders.map((f) => (
+            <button className="program-folder" key={f} onClick={() => setFolder(f)}>
+              <span className="program-folder-icon" aria-hidden="true" />
+              <strong>{leafOf(f)}</strong>
+              <small>{countIn(f)} program{countIn(f) === 1 ? "" : "s"}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {here.length === 0 && <div className="empty-state">{folder ? "No programs in this folder yet." : subfolders.length ? "No unfiled programs. Open a folder, or create a program here." : "No programs yet. Create one to get started."}</div>}
       <div className="facility-list">
-        {programs.map((p) => {
+        {here.map((p) => {
           const c = programCounts(p);
           return (
             <div className="facility-card" key={p.id}>
@@ -1140,6 +1218,11 @@ function ProgramsPage() {
               <div className="facility-card-actions no-print">
                 <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes</button>
                 <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>
+                <select className="program-copy-day" style={{ marginLeft: 0, maxWidth: 150 }} value="" title="Move this program to another folder" onChange={(e) => e.target.value !== "" && moveProgram(p, e.target.value === "__top__" ? "" : e.target.value)}>
+                  <option value="">Move to…</option>
+                  {(p.folder || "") !== "" && <option value="__top__">All programs (no folder)</option>}
+                  {folders.filter((f) => f !== (p.folder || "")).map((f) => <option key={f} value={f}>{f.replace(/\//g, " › ")}</option>)}
+                </select>
                 <ProgramPdfButton program={p} />
               </div>
             </div>

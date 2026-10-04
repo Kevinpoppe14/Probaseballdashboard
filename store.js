@@ -26,6 +26,7 @@
       periodTemplates: [], // reusable planner layouts: { id, name, weeks, lanes, blocks }
       assessments: [], // dated movement/physical assessments (see assessment.js) — one athlete can have several over time
       offseasonFacilities: [], // shared directory of off-season training facilities: { id, name, address1, city, ... } (see migration_004)
+      programFolders: null, // folder paths for the Programs tab; null until a coach changes them (then the defaults apply)
       programs: [], // reusable training program templates: { id, name, description, weeks: [{ name, sessions: [{ name, exercises: [...] }] }] } (see migration_005)
     };
   }
@@ -302,6 +303,8 @@
     programRows.forEach((r) => next.programs.push({ ...r.data, id: r.id }));
     const syncedAtRow = appMeta.find((r) => r.key === "playerPlansSyncedAt");
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
+    const foldersRow = appMeta.find((r) => r.key === "programFolders");
+    next.programFolders = foldersRow && Array.isArray(foldersRow.value) ? foldersRow.value : null;
     state = next;
     persistLocal();
   }
@@ -687,6 +690,18 @@
     return full;
   }
 
+  // Folders for organizing programs: a list of paths ("Strength", "Strength/Lower Body"), kept in app_meta so
+  // an empty folder still exists. A program's own `folder` field says which path it sits in.
+  const DEFAULT_PROGRAM_FOLDERS = ["Speed", "Strength"];
+  function getProgramFolders() {
+    return [...(state.programFolders || DEFAULT_PROGRAM_FOLDERS)].sort((a, b) => a.localeCompare(b));
+  }
+  function setProgramFolders(list) {
+    state.programFolders = [...new Set(list)];
+    persistLocal();
+    syncUpsertMeta("programFolders", state.programFolders);
+  }
+
   function deleteProgram(id) {
     state.programs = state.programs.filter((p) => p.id !== id);
     persistLocal();
@@ -744,6 +759,8 @@
     allPrograms,
     saveProgram,
     deleteProgram,
+    getProgramFolders,
+    setProgramFolders,
     counts,
     clearAll,
   };
