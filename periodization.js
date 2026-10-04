@@ -231,7 +231,15 @@
 
   // The whole program in a pop-up, opened by clicking into a block that has one linked.
   // `currentNo` (1-based) marks the program week the athlete is on right now, when there is one.
-  function ProgramModal({ program, currentNo, onClose }) {
+  function ProgramModal({ program, currentNo, onClose, athlete }) {
+    // Same one-page PDF as the program builder's export, with this athlete's name (and the Cubs logo for Cubs-only athletes).
+    const exportPdf = async () => {
+      const name = athlete ? athlete.name : "";
+      const cubs = !!athlete && !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete);
+      const { pdf, fits } = await window.buildProgramPdf(program, name, cubs);
+      if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
+      pdf.save(`${[name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+    };
     useEffect(() => {
       const onKey = (e) => { if (e.key === "Escape") onClose(); };
       window.addEventListener("keydown", onKey);
@@ -242,6 +250,7 @@
         <div className="zoom-modal program-modal" onClick={(e) => e.stopPropagation()}>
           <button className="zoom-close" onClick={onClose} aria-label="Close">×</button>
           <h2>{program.name}</h2>
+          {window.buildProgramPdf && <button className="btn program-modal-pdf" onClick={exportPdf}>Export PDF{athlete ? ` for ${athlete.name}` : ""}</button>}
           {program.description && <p className="program-modal-desc">{program.description}</p>}
           {(program.weeks || []).map((w, wi) => (
             <div className={`program-modal-week ${currentNo === wi + 1 ? "current" : ""}`} key={wi}>
@@ -403,7 +412,7 @@
   }
 
   // Read-only, fluid-width copy of the timeline for the player profile and team report.
-  function ReadonlyTimeline({ plan }) {
+  function ReadonlyTimeline({ plan, athlete }) {
     const p = planProgress(plan);
     const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
     const pct = (weeks) => `${(weeks / plan.weeks) * 100}%`;
@@ -412,7 +421,7 @@
     const openedProgram = opened && programById(opened.programId);
     return (
       <div className="period-ro">
-        {openedProgram && <ProgramModal program={openedProgram} currentNo={currentProgramWeek(plan, opened, openedProgram)} onClose={() => setOpenBlock(null)} />}
+        {openedProgram && <ProgramModal program={openedProgram} athlete={athlete} currentNo={currentProgramWeek(plan, opened, openedProgram)} onClose={() => setOpenBlock(null)} />}
         <div className="period-ro-row period-ro-head">
           <div className="period-ro-label" />
           <div className="period-ro-track period-ro-weeks">
@@ -691,7 +700,7 @@
     const body = (
       <React.Fragment>
         {hasBlocks && <PlanProgress plan={plan} name={(getRoster().find((a) => a.id === athleteId) || {}).name} />}
-        {hasBlocks && <ReadonlyTimeline plan={plan} />}
+        {hasBlocks && <ReadonlyTimeline plan={plan} athlete={getRoster().find((a) => a.id === athleteId)} />}
         {goalsToShow && <GoalsReadOnly plan={plan} lead={offseasonLead(getRoster().find((a) => a.id === athleteId))} />}
       </React.Fragment>
     );
@@ -1502,7 +1511,7 @@
         {(() => {
           const b = openProgramBlock && plan.blocks.find((x) => x.id === openProgramBlock);
           const program = b && programById(b.programId);
-          return program ? <ProgramModal program={program} currentNo={currentProgramWeek(plan, b, program)} onClose={() => setOpenProgramBlock(null)} /> : null;
+          return program ? <ProgramModal program={program} athlete={athlete} currentNo={currentProgramWeek(plan, b, program)} onClose={() => setOpenProgramBlock(null)} /> : null;
         })()}
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />

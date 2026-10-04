@@ -2472,6 +2472,7 @@ tbody tr:hover {
 .period-ro-block[data-has-program] { cursor: pointer; text-decoration: underline dotted; }
 .program-modal { user-select: text; text-align: left; }
 .program-modal h2 { margin: 0 0 6px; }
+.program-modal-pdf { margin: 4px 0 10px; }
 .program-modal-desc { color: var(--text-dim); margin: 0 0 10px; white-space: pre-wrap; }
 .program-modal-week { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
 .program-modal-week.current { border-color: var(--dst-red); }
