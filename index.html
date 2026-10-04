@@ -926,11 +926,11 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   }
   const leftW = (W - logoW) / 2 - M - 12; // names stay clear of the centered logo
   const oneLine = (text) => pdf.splitTextToSize(text, leftW)[0];
-  // Colors. DST follows its training sheets: yellow week blocks, black day bars, red accents and a bright cyan
+  // Colors. DST follows its training sheets: black week blocks, red day bars, red accents and a bright cyan
   // cell for the prescribed intensity. Cubs-only athletes get Cubs blue and red instead.
   const C = cubsLogo
     ? { week: [14, 51, 134], weekText: 255, day: [204, 52, 51], dayText: 255, accent: [14, 51, 134], pct: [214, 226, 247], label: [14, 51, 134] }
-    : { week: [255, 242, 0], weekText: 0, day: [0, 0, 0], dayText: 255, accent: [200, 16, 46], pct: [0, 255, 255], label: [0, 0, 0] };
+    : { week: [0, 0, 0], weekText: 255, day: [200, 16, 46], dayText: 255, accent: [200, 16, 46], pct: [0, 255, 255], label: [0, 0, 0] };
   const theme = C.accent;
   pdf.setTextColor(...theme);
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(15);
@@ -942,7 +942,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
 
   const Rx = window.ProgramRx;
   // first line of an exercise: label, name, tempo just right of the name, then rest and notes
-  const exText = (e, label) => `${label} ${e.name}${e.tempo ? `  ${e.tempo}` : ""}${e.rest ? ` - rest ${e.rest}` : ""}${e.notes ? ` (${e.notes})` : ""}`;
+  const exText = (e, label) => `${label} ${e.name}${e.tempo ? `  ${e.tempo}` : ""}${e.notes ? ` (${e.notes})` : ""}`;
 
   const weeks = program.weeks || [];
   const maxDays = Math.max(1, ...weeks.map((w) => (w.sessions || []).length));
@@ -980,8 +980,12 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
           const side = rowW <= textW * 0.6;
           if (side) { let bx = textW - rowW; rxLines[0].forEach((b) => { b.x = bx; bx += b.bw; }); }
           const lines = pdf.splitTextToSize(exText(e, labels[i]), side ? textW - rowW - 4 : textW);
-          const bodyH = side ? Math.max(lines.length * lineH, rxH) : lines.length * lineH + rxLines.length * rxH;
-          return { label: labels[i], lines, rxLines, rxH, side, bodyH, hasInt, newGroup: i > 0 && !e.linked };
+          // rest goes at the bottom right, under the exercise's sets and reps
+          const rest = (e.rest || "").trim() ? `Rest ${e.rest.trim()}` : "";
+          const restH = rest ? fs * 1.05 + 2 : 0;
+          const rxTotal = rxLines.length * rxH + restH;
+          const bodyH = side ? Math.max(lines.length * lineH, rxTotal) : lines.length * lineH + rxTotal;
+          return { label: labels[i], lines, rxLines, rxH, side, bodyH, hasInt, rest, newGroup: i > 0 && !e.linked };
         });
         const h = items.reduce((t, it) => t + it.bodyH + (it.newGroup ? gap * 2 : 0), 0);
         return { name: s.name || `Day ${si + 1}`, items, h };
@@ -1018,8 +1022,9 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
         cell.items.forEach((it) => {
           if (it.newGroup) {
             cy += gap;
-            pdf.setDrawColor(...theme); pdf.setLineWidth(0.4);
-            pdf.line(x + pad, cy, x + colW - pad, cy);
+            // a solid rule across the whole day column separates one superset from the next
+            pdf.setDrawColor(...theme); pdf.setLineWidth(1);
+            pdf.line(x, cy, x + colW, cy);
             cy += gap;
           }
           const itemTop = cy;
@@ -1061,6 +1066,11 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
             pdf.setFontSize(fs);
             cy += it.rxH;
           });
+          if (it.rest) {
+            pdf.setFont("helvetica", "italic"); pdf.setFontSize(fs * 0.85); pdf.setTextColor(70);
+            pdf.text(it.rest, x + colW - pad, cy + fs * 0.75, { align: "right" });
+            pdf.setFontSize(fs);
+          }
           cy = itemTop + it.bodyH;
         });
       }
