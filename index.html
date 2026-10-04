@@ -2893,10 +2893,7 @@ function ActivitySignature({ activity, className }) {
   return <div className={`activity-signature no-print ${className || ""}`}>{parts.join(" · ")}</div>;
 }
 
-function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange, initialTab }) {
-  const { grid, axis } = useChartColors();
-  const theme = useTheme();
-  const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
+function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, initialTab }) {
   const [activeTab, setActiveTab] = useState(initialTab || "plan");
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
@@ -2906,35 +2903,6 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
   // the Player Plan (see PlanHeader in periodization.js for that one's own independent check).
   const isCubsOnly = isCubsOnlyAthlete(athlete);
   const chartLineColor = isCubsOnly ? CUBS_CHART_COLOR : DST_CHART_COLOR;
-  const wellnessSeries = useMemo(
-    () => window.AthleteStore.getWellnessSeries(athlete),
-    [athlete, dataVersion]
-  );
-  const loadWindow = lastN(athlete.load || [], rangeDays);
-  const latestWellness = wellnessSeries.length ? wellnessSeries[wellnessSeries.length - 1] : null;
-
-  const loadChartData = loadWindow.map((l) => ({
-    date: shortDate(l.date),
-    load: l.srpeLoad,
-  }));
-
-  const radarData = latestWellness
-    ? [
-        { metric: "Sleep Qual.", value: latestWellness.sleepQuality, fullMark: 5 },
-        { metric: "Mood", value: latestWellness.mood, fullMark: 5 },
-        { metric: "Low Soreness", value: 6 - latestWellness.soreness, fullMark: 5 },
-        { metric: "Low Fatigue", value: 6 - latestWellness.fatigue, fullMark: 5 },
-        { metric: "Low Stress", value: 6 - latestWellness.stress, fullMark: 5 },
-      ]
-    : [];
-
-  const recentRows = lastN(wellnessSeries, 10)
-    .map((w) => {
-      const l = (athlete.load || []).find((x) => x.date === w.date) || {};
-      return { ...w, ...l };
-    })
-    .reverse();
-
   return (
     <div className={isCubsOnly ? "cubs-theme" : ""}>
       <div className="crumb no-print">
@@ -2997,83 +2965,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, dataVersion, onDataChange
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
       {athlete.rosterGroup === CUBS_ROSTER_GROUP && <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />}
       {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
-      <div className="charts-grid">
-        <div className="panel">
-          <h2>Today's Wellness Breakdown</h2>
-          {radarData.length ? (
-            <ResponsiveContainer width="100%" height={240}>
-              <RadarChart data={radarData} outerRadius="75%">
-                <PolarGrid stroke={theme === "light" ? "#dddddd" : "#253048"} />
-                <PolarAngleAxis dataKey="metric" stroke={axis} fontSize={11} />
-                <PolarRadiusAxis domain={[0, 5]} stroke={theme === "light" ? "#dddddd" : "#253048"} tick={false} />
-                <Radar dataKey="value" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.45} />
-                <Tooltip contentStyle={tooltipStyle} />
-              </RadarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="empty-state">No wellness check-ins yet.</div>
-          )}
-        </div>
-
-        <div className="panel" style={{ gridColumn: "1 / -1" }}>
-          <h2>
-            Training Load <small>Daily sRPE load (AU)</small>
-          </h2>
-          {loadChartData.length ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={loadChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                <XAxis dataKey="date" stroke={axis} fontSize={12} />
-                <YAxis stroke={axis} fontSize={12} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Legend />
-                <Bar dataKey="load" name="sRPE Load (AU)" fill={theme === "light" ? "#9a9a9a" : "#4b4b4b"} radius={[3, 3, 0, 0]} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="empty-state">No training load data for this athlete (GPS/session-RPE feed not connected).</div>
-          )}
-        </div>
-      </div>
-
       <PlayerPlanPanel athleteId={athlete.id} />
       <NotesPanel athleteId={athlete.id} />
-
-      <div className="panel">
-        <h2>Recent Wellness Entries</h2>
-        {recentRows.length ? (
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Sleep (hrs)</th>
-                <th>Soreness</th>
-                <th>Fatigue</th>
-                <th>Stress</th>
-                <th>Session RPE</th>
-                <th>Duration</th>
-                <th>Load (AU)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentRows.map((r) => (
-                <tr key={r.date} style={{ cursor: "default" }}>
-                  <td>{shortDate(r.date)}</td>
-                  <td>{fmt2(r.sleepHours) ?? "—"}</td>
-                  <td>{r.soreness != null ? `${r.soreness}/5` : "—"}</td>
-                  <td>{r.fatigue != null ? `${r.fatigue}/5` : "—"}</td>
-                  <td>{r.stress != null ? `${r.stress}/5` : "—"}</td>
-                  <td>{r.isRestDay ? "Rest" : r.sessionRPE ?? "—"}</td>
-                  <td>{r.isRestDay ? "—" : r.durationMin ? `${r.durationMin} min` : "—"}</td>
-                  <td>{fmt2(r.srpeLoad) ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty-state">No wellness check-ins yet.</div>
-        )}
-      </div>
       </div>
 
       <div className={activeTab === "statcast" ? "" : "tab-hidden"} data-tab-content="statcast">
