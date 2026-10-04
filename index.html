@@ -2537,6 +2537,7 @@ function combinedPercentile(r) {
   if (r.hawkinPct !== null) return { type: "point", pct: r.hawkinPct, title: "Hawkin MLB norm" };
   return { type: "point", pct: r.valdPct, title: "VALD MLB norm" };
 }
+const hasNorm = (c) => (c.type === "range" ? c.lo != null && c.hi != null : c.pct != null);
 
 function formatProfileValue(r) {
   if (r.value === null) return "—";
@@ -2555,7 +2556,7 @@ function offseasonSpark(trendPoints, key) {
   return trendPoints.map((p) => ({ year: p.offseason, value: p[key] }));
 }
 
-function PositionalProfilePanel({ athlete }) {
+function PositionalProfilePanel({ athlete, planView = false }) {
   const N = window.CmjNorms;
   const [groupKey, setGroupKey] = useState(() => (N ? N.defaultGroupFor(athlete.position) : "allPosition"));
   const theme = useTheme();
@@ -2577,7 +2578,7 @@ function PositionalProfilePanel({ athlete }) {
   const radarLabel = { peakRelPropPower: "Rel. Power", propulsiveNetImpulse: "Prop. Impulse", brakingNetImpulse: "Braking Impulse", jumpMomentum: "Jump Mom." };
   const radarData = profile.rows.filter((r) => r.hawkinPct !== null).map((r) => ({ metric: radarLabel[r.key] || r.label, pct: Math.round(r.hawkinPct), median: 50 }));
   const bodyMassRow = profile.rows.find((r) => r.key === "bodyMassKg");
-  const hawkinRows = profile.rows.filter((r) => r.hawkin);
+  const hawkinRows = profile.rows.filter((r) => r.hawkin && hasNorm(combinedPercentile(r)));
   const range = profile.firstDate === profile.lastDate ? shortDate(profile.lastDate) : `${shortDate(profile.firstDate)} – ${shortDate(profile.lastDate)}`;
   const trendPoints = N.offseasonTrend(tests, groupKey);
 
@@ -2601,20 +2602,22 @@ function PositionalProfilePanel({ athlete }) {
         </span>
       </div>
 
-      <div className="profile-layout">
-        <div className="profile-radar">
-          <ResponsiveContainer width="100%" height={320}>
-            <RadarChart data={radarData} outerRadius="58%" margin={{ top: 16, right: 36, bottom: 16, left: 36 }}>
-              <PolarGrid stroke={theme === "light" ? "#dddddd" : "#2e2e2e"} />
-              <PolarAngleAxis dataKey="metric" tick={{ fill: theme === "light" ? "#444" : "#bbb", fontSize: 10 }} />
-              <PolarRadiusAxis domain={[0, 100]} tickCount={5} tick={{ fill: theme === "light" ? "#777" : "#666", fontSize: 9 }} axisLine={false} />
-              <Radar name="MLB median" dataKey="median" stroke="#6b7280" strokeDasharray="4 3" fill="none" isAnimationActive={false} />
-              <Radar name="Percentile" dataKey="pct" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.35} isAnimationActive={false} />
-              <Tooltip contentStyle={theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" }} formatter={(v, n) => [n === "Percentile" ? ordinal(v) : "50th", n]} />
-            </RadarChart>
-          </ResponsiveContainer>
-          <p className="timestamp-note" style={{ textAlign: "center" }}>Hawkin MLB percentile by metric · dashed ring = MLB median</p>
-        </div>
+      <div className="profile-layout" style={planView ? { gridTemplateColumns: "1fr" } : undefined}>
+        {!planView && (
+          <div className="profile-radar">
+            <ResponsiveContainer width="100%" height={320}>
+              <RadarChart data={radarData} outerRadius="58%" margin={{ top: 16, right: 36, bottom: 16, left: 36 }}>
+                <PolarGrid stroke={theme === "light" ? "#dddddd" : "#2e2e2e"} />
+                <PolarAngleAxis dataKey="metric" tick={{ fill: theme === "light" ? "#444" : "#bbb", fontSize: 10 }} />
+                <PolarRadiusAxis domain={[0, 100]} tickCount={5} tick={{ fill: theme === "light" ? "#777" : "#666", fontSize: 9 }} axisLine={false} />
+                <Radar name="MLB median" dataKey="median" stroke="#6b7280" strokeDasharray="4 3" fill="none" isAnimationActive={false} />
+                <Radar name="Percentile" dataKey="pct" stroke={chartLineColor} fill={chartLineColor} fillOpacity={0.35} isAnimationActive={false} />
+                <Tooltip contentStyle={theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" }} formatter={(v, n) => [n === "Percentile" ? ordinal(v) : "50th", n]} />
+              </RadarChart>
+            </ResponsiveContainer>
+            <p className="timestamp-note" style={{ textAlign: "center" }}>Hawkin MLB percentile by metric · dashed ring = MLB median</p>
+          </div>
+        )}
 
         <div className="profile-table">
           <div className="profile-row profile-head">
@@ -2624,7 +2627,7 @@ function PositionalProfilePanel({ athlete }) {
               {trendPoints && <small> {trendPoints[0].offseason}{trendPoints.length > 1 ? `–${trendPoints[trendPoints.length - 1].offseason}` : ""}</small>}
             </span>
           </div>
-          {bodyMassRow && bodyMassRow.value !== null && (() => {
+          {bodyMassRow && bodyMassRow.value !== null && hasNorm(combinedPercentile(bodyMassRow)) && (() => {
             const c = combinedPercentile(bodyMassRow);
             const spark = offseasonSpark(trendPoints, "bodyMassKg");
             return (
@@ -2664,14 +2667,18 @@ function PositionalProfilePanel({ athlete }) {
         </div>
       </div>
 
-      <h2 style={{ marginTop: 18 }}>Profile Summary &amp; Recommendations</h2>
-      <ul className="profile-recs">
-        {recs.map((r, i) => <li key={i} style={{ borderLeftColor: PROFILE_TONE[r.tone] }}>{r.text}</li>)}
-      </ul>
-      <p className="timestamp-note">
-        Norms: Hawkin Dynamics MLB normative data (CMJ hands on hips) and VALD's 2025 MLB ForceDecks report. Profile averages every
-        hands-on-hips CMJ in the {N.PROFILE_WINDOW_DAYS} days up to the latest one{profile.excludedVariants ? `; ${profile.excludedVariants} arm-swing/weighted/other CMJ variants are left out` : ""}.
-      </p>
+      {!planView && (
+        <React.Fragment>
+          <h2 style={{ marginTop: 18 }}>Profile Summary &amp; Recommendations</h2>
+          <ul className="profile-recs">
+            {recs.map((r, i) => <li key={i} style={{ borderLeftColor: PROFILE_TONE[r.tone] }}>{r.text}</li>)}
+          </ul>
+          <p className="timestamp-note">
+            Norms: Hawkin Dynamics MLB normative data (CMJ hands on hips) and VALD's 2025 MLB ForceDecks report. Profile averages every
+            hands-on-hips CMJ in the {N.PROFILE_WINDOW_DAYS} days up to the latest one{profile.excludedVariants ? `; ${profile.excludedVariants} arm-swing/weighted/other CMJ variants are left out` : ""}.
+          </p>
+        </React.Fragment>
+      )}
     </div>
   );
 }
@@ -2962,7 +2969,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, initialTab 
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
-      <PositionalProfilePanel athlete={athlete} />
+      <PositionalProfilePanel athlete={athlete} planView />
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
       {athlete.rosterGroup === CUBS_ROSTER_GROUP && <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />}
       {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} />}
