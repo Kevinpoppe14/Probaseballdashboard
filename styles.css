@@ -1700,7 +1700,7 @@ tbody tr:hover {
 /* --- Periodization header: athlete photo + team logo (left), title (center), DST logo (right) --- */
 .period-header {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 24px;
   padding: 22px 26px;
@@ -1743,7 +1743,7 @@ tbody tr:hover {
 .ph-name { font-size: 26px; font-weight: 700; line-height: 1.15; }
 .ph-teamname { font-size: 14px; color: var(--text-dim); }
 
-.ph-center { text-align: center; }
+.ph-center { text-align: center; grid-column: 1 / -1; order: -1; }
 .ph-center h1 { margin: 0; font-size: 30px; letter-spacing: 0.4px; }
 .ph-sub { margin-top: 6px; font-size: 12px; color: var(--text-dim); }
 
