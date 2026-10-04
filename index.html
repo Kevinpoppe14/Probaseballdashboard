@@ -1002,8 +1002,92 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
   );
 }
 
+// Athletes whose periodization chart already has a block linked to this program.
+const athletesOnProgram = (programId) =>
+  window.AthleteStore.allPeriodizationAthleteIds().filter((id) => {
+    const plan = window.AthleteStore.getPeriodization(id);
+    return plan && (plan.blocks || []).some((b) => b.programId === programId);
+  });
+
+// Assign one program to several athletes at once. Each gets a block on their periodization chart, linked to the program.
+function ProgramAssignPanel({ program, onClose }) {
+  const lib = window.PeriodizationLib;
+  const [startDate, setStartDate] = useState(() => lib.mondayOfToday());
+  const [laneName, setLaneName] = useState("Strength");
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState(() => new Set());
+  const [result, setResult] = useState(null);
+  const already = new Set(athletesOnProgram(program.id).map(String));
+  const athletes = window.AthleteStore.allAthletes()
+    .filter((a) => (a.status || "active").toLowerCase() !== "alumni")
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const q = query.trim().toLowerCase();
+  const shown = athletes.filter((a) => !q || [a.name, a.team, a.dstLocation, a.position].some((v) => (v || "").toLowerCase().includes(q)));
+  const weeks = (program.weeks || []).length;
+
+  const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const pickShown = () => setPicked((s) => { const n = new Set(s); shown.forEach((a) => { if (!already.has(String(a.id))) n.add(a.id); }); return n; });
+
+  const assign = () => {
+    const out = { added: [], created: [], already: [], failed: [] };
+    athletes.filter((a) => picked.has(a.id)).forEach((a) => {
+      const r = lib.assignProgram(a.id, program, { startDate, laneName });
+      (out[r] || out.failed).push(a.name);
+    });
+    setResult(out);
+    setPicked(new Set());
+  };
+
+  return (
+    <div className="panel">
+      <h2>Assign “{program.name}” <small>{weeks} week{weeks === 1 ? "" : "s"}</small></h2>
+      <div className="facility-form-grid">
+        <label className="facility-field"><span>Starts the week of</span>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </label>
+        <label className="facility-field"><span>Row on the periodization chart</span>
+          <input list="program-assign-lanes" value={laneName} onChange={(e) => setLaneName(e.target.value)} />
+          <datalist id="program-assign-lanes">
+            {["Phase", "Running", "Strength", "Correctives", "Throwing"].map((n) => <option key={n} value={n} />)}
+          </datalist>
+        </label>
+      </div>
+      <div className="facility-toolbar" style={{ marginBottom: 0 }}>
+        <input className="facility-search" value={query} placeholder="Search by name, team, location, or position" onChange={(e) => setQuery(e.target.value)} />
+        <button className="btn-link" onClick={pickShown}>Select all shown</button>
+        <button className="btn-link" onClick={() => setPicked(new Set())}>Clear</button>
+      </div>
+      <div className="program-assign-list">
+        {shown.map((a) => {
+          const has = already.has(String(a.id));
+          return (
+            <label key={a.id}>
+              <input type="checkbox" disabled={has} checked={has || picked.has(a.id)} onChange={() => toggle(a.id)} />
+              <span>{a.name} {has && <small>(already assigned)</small>}</span>
+            </label>
+          );
+        })}
+        {shown.length === 0 && <div className="empty-state">No athletes match that search.</div>}
+      </div>
+      {result && (
+        <div className="program-assign-result">
+          {result.added.length > 0 && <div>Added to the chart for: {result.added.join(", ")}.</div>}
+          {result.created.length > 0 && <div>New periodization chart started for: {result.created.join(", ")}.</div>}
+          {result.already.length > 0 && <div>Already on the chart, left as is: {result.already.join(", ")}.</div>}
+          {result.failed.length > 0 && <div>Couldn't be placed (start date is beyond the chart's limit): {result.failed.join(", ")}.</div>}
+        </div>
+      )}
+      <div className="facility-form-actions">
+        <button className="btn" disabled={picked.size === 0 || !startDate} onClick={assign}>Assign to {picked.size} athlete{picked.size === 1 ? "" : "s"}</button>
+        <button className="btn-link" onClick={onClose}>{result ? "Done" : "Cancel"}</button>
+      </div>
+    </div>
+  );
+}
+
 // Programs tab: every saved program, plus the editor.
 function ProgramsPage() {
+  const [assigning, setAssigning] = useState(null); // the program being assigned to athletes, if any
   const [editing, setEditing] = useState(null); // null = list, {} = new, record = editing that one
   const [version, setVersion] = useState(0);
   const programs = window.AthleteStore.allPrograms();
@@ -1033,6 +1117,8 @@ function ProgramsPage() {
     );
   }
 
+  if (assigning) return <ProgramAssignPanel program={assigning} onClose={() => setAssigning(null)} />;
+
   return (
     <div className="panel" key={version}>
       <h2>Programs <small>{programs.length} saved</small></h2>
@@ -1053,6 +1139,8 @@ function ProgramsPage() {
               {p.description && <div className="facility-notes" style={{ marginTop: 6 }}>{p.description}</div>}
               <div className="facility-card-actions no-print">
                 <button className="btn-link" onClick={() => setEditing(p)}>Edit</button>
+                <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes</button>
+                <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>
                 <ProgramPdfButton program={p} />
               </div>
             </div>

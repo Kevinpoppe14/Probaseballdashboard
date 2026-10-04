@@ -224,6 +224,72 @@
     );
   }
 
+  // The whole program in a pop-up, opened by clicking into a block that has one linked.
+  // `currentNo` (1-based) marks the program week the athlete is on right now, when there is one.
+  function ProgramModal({ program, currentNo, onClose }) {
+    useEffect(() => {
+      const onKey = (e) => { if (e.key === "Escape") onClose(); };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    return ReactDOM.createPortal(
+      <div className="zoom-overlay program-modal-overlay" onClick={onClose}>
+        <div className="zoom-modal program-modal" onClick={(e) => e.stopPropagation()}>
+          <button className="zoom-close" onClick={onClose} aria-label="Close">×</button>
+          <h2>{program.name}</h2>
+          {program.description && <p className="program-modal-desc">{program.description}</p>}
+          {(program.weeks || []).map((w, wi) => (
+            <div className={`program-modal-week ${currentNo === wi + 1 ? "current" : ""}`} key={wi}>
+              <h3>{w.name || `Week ${wi + 1}`}{currentNo === wi + 1 && <small>This week</small>}</h3>
+              <ProgramWeekView week={w} />
+            </div>
+          ))}
+          {!(program.weeks || []).length && <div className="program-view-empty">This program has no weeks yet.</div>}
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  // Which week of its program a block is on today (1-based), or null when the plan isn't on that block now.
+  function currentProgramWeek(plan, block, program) {
+    const p = planProgress(plan);
+    const n = (program.weeks || []).length;
+    if (p.state !== "active" || !n) return null;
+    const wk = p.week - 1;
+    if (wk < block.start || wk >= block.start + block.len) return null;
+    return ((wk - block.start) % n) + 1;
+  }
+
+  // Puts a program on an athlete's periodization chart as a block starting the week of `startDate`, one week
+  // per program week, in the row named `laneName` (added if the plan doesn't have it). An athlete with no plan
+  // gets a new one starting that week; a plan that starts later is extended back to that week.
+  // Returns "added", "created" (new plan), "already" (this program is already on the chart) or "out-of-range".
+  function assignProgram(athleteId, program, { startDate, laneName }) {
+    const store = window.AthleteStore;
+    const existing = store.getPeriodization(athleteId);
+    const plan = existing ? JSON.parse(JSON.stringify(existing)) : { ...newPlan(), startDate };
+    if (plan.blocks.some((b) => b.programId === program.id)) return "already";
+    let start = Math.floor(Math.round((parseISO(startDate) - parseISO(plan.startDate)) / 864e5) / 7);
+    if (start < 0) {
+      const shift = -start;
+      plan.startDate = addDaysISO(plan.startDate, -shift * 7);
+      plan.blocks.forEach((b) => { b.start += shift; });
+      plan.weeks += shift;
+      start = 0;
+    }
+    if (start >= MAX_WEEKS) return "out-of-range";
+    const name = (laneName || "Strength").trim() || "Strength";
+    let lane = plan.lanes.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    if (!lane) { lane = { id: uid(), name, color: PALETTE[plan.lanes.length % PALETTE.length] }; plan.lanes.push(lane); }
+    const len = Math.min(Math.max(1, (program.weeks || []).length), MAX_WEEKS - start);
+    plan.blocks.push({ id: uid(), lane: lane.id, start, len, label: program.name, notes: "", color: null, programId: program.id });
+    plan.weeks = clamp(Math.max(plan.weeks, start + len), 1, MAX_WEEKS);
+    plan.blocks = plan.blocks.filter((b) => b.start < MAX_WEEKS);
+    store.setPeriodization(athleteId, plan);
+    return existing ? "added" : "created";
+  }
+
   // The program week each attached block is on: this week while the plan is running, week 1 before it starts.
   function PlanPrograms({ plan }) {
     const p = planProgress(plan);
@@ -336,8 +402,12 @@
     const p = planProgress(plan);
     const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
     const pct = (weeks) => `${(weeks / plan.weeks) * 100}%`;
+    const [openBlock, setOpenBlock] = useState(null); // block whose linked program is open in a pop-up
+    const opened = openBlock && plan.blocks.find((b) => b.id === openBlock);
+    const openedProgram = opened && programById(opened.programId);
     return (
       <div className="period-ro">
+        {openedProgram && <ProgramModal program={openedProgram} currentNo={currentProgramWeek(plan, opened, openedProgram)} onClose={() => setOpenBlock(null)} />}
         <div className="period-ro-row period-ro-head">
           <div className="period-ro-label" />
           <div className="period-ro-track period-ro-weeks">
@@ -359,7 +429,9 @@
                     key={b.id}
                     className="period-ro-block"
                     style={{ left: `calc(${pct(b.start)} + 1px)`, width: `calc(${pct(b.len)} - 2px)`, top: (rows[b.id] || 0) * 26 + 3, background: blockColorIn(plan, b) }}
-                    title={`${b.label || "Untitled"} · Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}${b.notes ? `\n${b.notes}` : ""}`}
+                    title={`${b.label || "Untitled"} · Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}${b.notes ? `\n${b.notes}` : ""}${programById(b.programId) ? "\nClick to open the program" : ""}`}
+                    onClick={programById(b.programId) ? () => setOpenBlock(b.id) : undefined}
+                    data-has-program={programById(b.programId) ? "1" : undefined}
                   >
                     {b.label || <em>Untitled</em>}
                   </div>
@@ -804,6 +876,7 @@
     // Goal / action-plan edits save straight away without going into the undo history.
     const saveText = (patch) => apply({ ...planRef.current, ...patch });
 
+    const [openProgramBlock, setOpenProgramBlock] = useState(null); // id of the block whose program pop-up is open
     const laneById = (id) => plan.lanes.find((l) => l.id === id);
     const blockColor = (b) => b.color || (laneById(b.lane) ? laneById(b.lane).color : PALETTE[7]);
     const shownBlocks = draft || plan.blocks;
@@ -1332,6 +1405,17 @@
                             <span className="period-block-label">{b.label || <em>Untitled</em>}</span>
                           )}
                           {b.notes ? <span className="period-note-dot" /> : null}
+                          {b.programId && programById(b.programId) && (
+                            <button
+                              className="period-block-program no-print"
+                              title={`Open the program: ${programById(b.programId).name}`}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              onClick={(e) => { e.stopPropagation(); setOpenProgramBlock(b.id); }}
+                            >
+                              Program
+                            </button>
+                          )}
                           <span className="period-handle r" onPointerDown={(e) => onBlockDown(e, b, "resize-r")} />
                         </div>
                       );
@@ -1383,6 +1467,9 @@
                 {single.programId && !programById(single.programId) && <option value={single.programId}>(deleted program)</option>}
                 {allPrograms().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
+              {single.programId && programById(single.programId) && (
+                <button className="btn-link" style={{ marginTop: 6 }} onClick={() => setOpenProgramBlock(single.id)}>Open program</button>
+              )}
             </div>
             <div className="period-swatches">
               <span>Color</span>
@@ -1407,6 +1494,11 @@
         )}
 
         <PlanPrograms plan={plan} />
+        {(() => {
+          const b = openProgramBlock && plan.blocks.find((x) => x.id === openProgramBlock);
+          const program = b && programById(b.programId);
+          return program ? <ProgramModal program={program} currentNo={currentProgramWeek(plan, b, program)} onClose={() => setOpenProgramBlock(null)} /> : null;
+        })()}
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>
@@ -1470,5 +1562,5 @@
   window.PeriodizationBoard = PlannerBoard; // the full editable plan for one athlete (used as a tab on the player profile)
   // planProgress alone (not a component) for the roster page's program-status flag — see
   // ProgramStatusBadge in index.html — so it doesn't have to re-derive "what week is it" itself.
-  window.PeriodizationLib = { planProgress };
+  window.PeriodizationLib = { planProgress, assignProgram, mondayOfToday };
 })();

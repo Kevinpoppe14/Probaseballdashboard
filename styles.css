@@ -2418,6 +2418,22 @@ tbody tr:hover {
 .program-ex-head { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; }
 .program-editor .facility-form-actions { flex-wrap: wrap; }
 
+/* a block with a linked program: a small button on the block opens the program */
+.period-block-program { margin-left: auto; margin-right: 8px; flex: 0 0 auto; font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.7); background: rgba(0, 0, 0, 0.25); color: #fff; cursor: pointer; position: relative; z-index: 2; }
+.period-block-program:hover { background: rgba(0, 0, 0, 0.45); }
+.period-ro-block[data-has-program] { cursor: pointer; text-decoration: underline dotted; }
+.program-modal { user-select: text; text-align: left; }
+.program-modal h2 { margin: 0 0 6px; }
+.program-modal-desc { color: var(--text-dim); margin: 0 0 10px; white-space: pre-wrap; }
+.program-modal-week { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+.program-modal-week.current { border-color: var(--dst-red); }
+.program-modal-week h3 { margin: 0; font-size: 15px; }
+.program-modal-week h3 small { margin-left: 8px; font-weight: 600; color: var(--dst-red); }
+.program-assign-list { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 14px; }
+.program-assign-list label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; }
+.program-assign-list small { color: var(--text-dim); }
+.program-assign-result { margin-top: 12px; font-size: 13px; }
+
 /* A program week shown on the player plan (the block's attached program) */
 .period-programs { user-select: text; }
 .period-program + .period-program { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
