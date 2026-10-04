@@ -997,8 +997,14 @@ function OffseasonFacilitiesPage() {
   const [version, setVersion] = useState(0);
   const facilities = window.AthleteStore.allOffseasonFacilities();
   const q = query.trim().toLowerCase();
-  const shown = facilities.filter((f) => !q || [f.name, f.city, f.state, f.contactName].some((v) => (v || "").toLowerCase().includes(q)));
   const athletes = window.AthleteStore.allAthletes();
+  const countAt = (f) => athletes.filter((a) => ((a.offseasonFacility || "").trim().toLowerCase() === (f.name || "").trim().toLowerCase())).length;
+  // Most athletes first; facilities with the same count are alphabetical.
+  const shown = facilities
+    .filter((f) => !q || [f.name, f.city, f.state, f.contactName].some((v) => (v || "").toLowerCase().includes(q)))
+    .map((f) => ({ f, n: countAt(f) }))
+    .sort((a, b) => b.n - a.n || (a.f.name || "").localeCompare(b.f.name || ""))
+    .map((x) => x.f);
   const athletesAt = (f) => athletes
     .filter((a) => ((a.offseasonFacility || "").trim().toLowerCase() === (f.name || "").trim().toLowerCase()))
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
