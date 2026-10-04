@@ -1086,14 +1086,23 @@ function ProgramAssignPanel({ program, onClose }) {
 }
 
 // Programs tab: every saved program, plus the editor.
-function ProgramsPage() {
-  const [assigning, setAssigning] = useState(null); // the program being assigned to athletes, if any
-  const [editing, setEditing] = useState(null); // null = list, {} = new, record = editing that one
+// Which screen of the Programs page is open. Kept by App (not here) so it's part of the Back history.
+const PROGRAMS_NAV_HOME = { folder: "", editingId: null, assigningId: null };
+
+function ProgramsPage({ nav, setNav }) {
   const [version, setVersion] = useState(0);
-  const [folder, setFolder] = useState(""); // path of the folder being viewed; "" is the top level
   const S = window.AthleteStore;
   const programs = S.allPrograms();
   const folders = S.getProgramFolders();
+  // folder: path of the folder being viewed ("" is the top level). A folder that no longer exists falls back to the top.
+  const folder = nav.folder && folders.includes(nav.folder) ? nav.folder : "";
+  // editing: null = list, {} = new program, record = editing that one. assigning: the program being assigned, if any.
+  const editing = nav.editingId === "new" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
+  const assigning = (nav.assigningId && programs.find((p) => p.id === nav.assigningId)) || null;
+  // Opening a screen adds a step to the Back history; closing one (save, cancel, done) steps back out of it.
+  const setEditing = (x) => (x ? setNav((n) => ({ ...n, editingId: x.id || "new" })) : window.history.back());
+  const setAssigning = (p) => (p ? setNav((n) => ({ ...n, assigningId: p.id })) : window.history.back());
+  const setFolder = (f, opts) => setNav((n) => ({ ...n, folder: f }), opts);
   const bump = () => setVersion((v) => v + 1);
 
   // ---- folders: paths like "Strength/Lower Body" ----
@@ -1127,7 +1136,7 @@ function ProgramsPage() {
     const path = parentOf(folder) ? `${parentOf(folder)}/${name}` : name;
     if (folders.some((f) => f.toLowerCase() === path.toLowerCase())) { window.alert("A folder with that name is already here."); return; }
     moveTree(folder, path, true);
-    setFolder(path);
+    setFolder(path, { replace: true });
     bump();
   };
 
@@ -1138,7 +1147,7 @@ function ProgramsPage() {
     const moved = [n && `${n} program${n === 1 ? "" : "s"}`, subs && `${subs} subfolder${subs === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
     if (!window.confirm(`Delete the folder "${leafOf(folder)}"?${moved ? ` Its ${moved} will move up to ${where}; no programs are deleted.` : ""}`)) return;
     moveTree(folder, parentOf(folder), false);
-    setFolder(parentOf(folder));
+    setFolder(parentOf(folder), { replace: true });
     bump();
   };
 
@@ -3884,8 +3893,10 @@ function ActivitySignature({ activity, className }) {
   return <div className={`activity-signature no-print ${className || ""}`}>{parts.join(" · ")}</div>;
 }
 
-function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, initialTab }) {
-  const [activeTab, setActiveTab] = useState(initialTab || "plan");
+function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
+  // the open tab is kept by App so that switching tabs is a step in the Back history
+  const activeTab = tab || "plan";
+  const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
@@ -6936,7 +6947,8 @@ function App({ userEmail, onLogout }) {
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goFacilities = () => setView("facilities");
-  const goPrograms = () => setView("programs");
+  const [programsNav, setProgramsNav] = useState(PROGRAMS_NAV_HOME);
+  const goPrograms = () => { setProgramsNav(PROGRAMS_NAV_HOME); setView("programs"); };
   const goHelp = () => setView("help");
 
   const welcomeKey = `dstWelcomeSeen:${userEmail}`;
@@ -6965,6 +6977,54 @@ function App({ userEmail, onLogout }) {
   const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : "");
   // Opening a different page or athlete should land at the top, not wherever the list was scrolled to.
   React.useEffect(() => { window.scrollTo(0, 0); }, [view, selectedId]);
+
+  // Back: every page change (a different tab, or a different athlete) is recorded in the browser's history, so the
+  // in-app Back button and the browser's own back button both return to the page that was open before.
+  const navIdx = React.useRef(0);
+  const navFromPop = React.useRef(false);
+  const navFirst = React.useRef(true);
+  // Screens inside the Programs page (which folder is open, which program is being edited or assigned) are part
+  // of the same history, so Back steps out of a program to its folder, then to the Programs page.
+  const programsKey = JSON.stringify(programsNav);
+  const tabKey = profileTab || "plan"; // the athlete profile's open tab is a Back step too
+  const navNow = React.useRef({ view, selectedId, programsKey, tabKey });
+  navNow.current = { view, selectedId, programsKey, tabKey };
+  const navReplace = React.useRef(false); // set when a change should overwrite the current history entry (a renamed or deleted folder)
+  const [canGoBack, setCanGoBack] = useState(false);
+  const updateProgramsNav = (updater, opts) => {
+    if (opts && opts.replace) navReplace.current = true;
+    setProgramsNav(updater);
+  };
+  React.useEffect(() => {
+    window.history.replaceState({ dst: true, idx: 0, view, selectedId, profileTab, programsNav }, "");
+    const onPop = (e) => {
+      const s = e.state;
+      if (!s || !s.dst) return;
+      const nextKey = JSON.stringify(s.programsNav || PROGRAMS_NAV_HOME);
+      navFromPop.current = s.view !== navNow.current.view || s.selectedId !== navNow.current.selectedId || nextKey !== navNow.current.programsKey || (s.profileTab || "plan") !== navNow.current.tabKey;
+      navIdx.current = s.idx;
+      setView(s.view);
+      setSelectedId(s.selectedId);
+      setProfileTab(s.profileTab || "");
+      setProgramsNav(s.programsNav || PROGRAMS_NAV_HOME);
+      setCanGoBack(s.idx > 0);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  React.useEffect(() => {
+    if (navFirst.current) { navFirst.current = false; return; }
+    if (navFromPop.current) { navFromPop.current = false; return; }
+    if (navReplace.current) {
+      navReplace.current = false;
+      window.history.replaceState({ dst: true, idx: navIdx.current, view, selectedId, profileTab, programsNav }, "");
+      return;
+    }
+    navIdx.current += 1;
+    window.history.pushState({ dst: true, idx: navIdx.current, view, selectedId, profileTab, programsNav }, "");
+    setCanGoBack(true);
+  }, [view, selectedId, programsKey, tabKey]);
+
   const editPeriodization = (id) => {
     setSelectedId(id);
     setProfileTab("plan");
@@ -7010,6 +7070,9 @@ function App({ userEmail, onLogout }) {
       />
       {showWelcome && <WelcomeModal onClose={closeWelcome} onOpenGuide={() => { closeWelcome(); goHelp(); }} />}
       <div className="main">
+        {canGoBack && (
+          <button className="nav-back no-print" onClick={() => window.history.back()} title="Go back to the previous page">&larr; Back</button>
+        )}
         {view === "team" && (
           <TeamOverview
             positionFilter={positionFilter}
@@ -7048,7 +7111,8 @@ function App({ userEmail, onLogout }) {
             onBack={goHome}
             dataVersion={dataVersion}
             onDataChange={bumpVersion}
-            initialTab={profileTab}
+            tab={profileTab}
+            onTabChange={setProfileTab}
           />
         )}
         {view === "teamreport" && <TeamReportPage onSelect={selectAthlete} dataVersion={dataVersion} onEditPeriodization={editPeriodization} />}
@@ -7057,7 +7121,7 @@ function App({ userEmail, onLogout }) {
           ? <window.NewsPage dataVersion={dataVersion} />
           : <div className="panel"><div className="empty-state">The In the News page didn't load — make sure news.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>)}
         {view === "facilities" && <OffseasonFacilitiesPage />}
-        {view === "programs" && <ProgramsPage />}
+        {view === "programs" && <ProgramsPage nav={programsNav} setNav={updateProgramsNav} />}
         {view === "help" && <HelpPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}
       </div>

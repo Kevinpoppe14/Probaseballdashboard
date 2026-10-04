@@ -2400,6 +2400,10 @@ tbody tr:hover {
 .program-folder-icon { position: relative; width: 22px; height: 15px; border-radius: 2px 3px 3px 3px; background: var(--dst-red); flex: 0 0 auto; margin-top: 3px; }
 .program-folder-icon::before { content: ""; position: absolute; left: 0; top: -4px; width: 10px; height: 5px; border-radius: 2px 2px 0 0; background: var(--dst-red); }
 
+/* app-wide Back button, above the page content */
+.nav-back { display: inline-block; margin: 0 0 12px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.nav-back:hover { border-color: var(--dst-red); }
+
 .program-card { cursor: grab; }
 .program-card:active { cursor: grabbing; }
 .program-folder.drop-over { border-color: var(--dst-red); background: rgba(165, 42, 52, 0.18); }
