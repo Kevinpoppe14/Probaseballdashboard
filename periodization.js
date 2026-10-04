@@ -207,7 +207,12 @@
                   <tbody>
                     {rows.map((e, ei) => (
                       <tr key={e.id || ei} className={ei > 0 && e.linked ? "superset-linked" : ""}>
-                        <td><strong className="superset-label">{labels[ei]}</strong> {e.name}</td>
+                        <td>
+                          <strong className="superset-label">{labels[ei]}</strong>{" "}
+                          {window.AthleteStore.findExerciseByName && window.AthleteStore.findExerciseByName(e.name) && window.openExercise
+                            ? <button className="exercise-link" title="View this exercise" onClick={() => window.openExercise(e.name)}>{e.name}</button>
+                            : e.name}
+                        </td>
                         <td>{[e.sets, e.reps].filter(Boolean).join(" × ") || "—"}</td>
                         <td>{loadText(e)}</td>
                         <td>{e.rest || "—"}</td>

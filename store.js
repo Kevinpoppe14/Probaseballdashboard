@@ -26,6 +26,7 @@
       periodTemplates: [], // reusable planner layouts: { id, name, weeks, lanes, blocks }
       assessments: [], // dated movement/physical assessments (see assessment.js) — one athlete can have several over time
       offseasonFacilities: [], // shared directory of off-season training facilities: { id, name, address1, city, ... } (see migration_004)
+      exercises: [], // exercise library: { id, name, videoUrl, tier, pattern, region, laterality, equipment: [], cues } (see migration_006)
       programFolders: null, // folder paths for the Programs tab; null until a coach changes them (then the defaults apply)
       programs: [], // reusable training program templates: { id, name, description, weeks: [{ name, sessions: [{ name, exercises: [...] }] }] } (see migration_005)
     };
@@ -268,12 +269,12 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
-        fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"), fetchTable("programs"),
+        fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"), fetchTable("programs"), fetchTable("exercises"),
       ]);
     const cloudIsEmpty = ![athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments]
       .some((rows) => rows.length > 0);
@@ -301,6 +302,7 @@
     assessments.forEach((r) => next.assessments.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
     offseasonFacilityRows.forEach((r) => next.offseasonFacilities.push({ ...r.data, id: r.id }));
     programRows.forEach((r) => next.programs.push({ ...r.data, id: r.id }));
+    exerciseRows.forEach((r) => next.exercises.push({ ...r.data, id: r.id }));
     const syncedAtRow = appMeta.find((r) => r.key === "playerPlansSyncedAt");
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
     const foldersRow = appMeta.find((r) => r.key === "programFolders");
@@ -698,6 +700,34 @@
     return full;
   }
 
+  // ---- exercise library ------------------------------------------------------------------------
+  // Programs link to the library by exercise name, so names are compared without case or extra spaces.
+  const exerciseKey = (name) => (name || "").trim().toLowerCase().replace(/\s+/g, " ");
+  function allExercises() {
+    return [...state.exercises].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }
+  function findExerciseByName(name) {
+    const key = exerciseKey(name);
+    if (!key) return null;
+    return state.exercises.find((e) => exerciseKey(e.name) === key) || null;
+  }
+  function saveExercise(rec) {
+    const id = rec.id != null ? String(rec.id) : randomId();
+    const { id: _ignored, ...data } = rec;
+    const full = { ...data, id };
+    const idx = state.exercises.findIndex((e) => e.id === id);
+    if (idx === -1) state.exercises.push(full);
+    else state.exercises[idx] = full;
+    persistLocal();
+    syncUpsert("exercises", id, undefined, data);
+    return full;
+  }
+  function deleteExercise(id) {
+    state.exercises = state.exercises.filter((e) => e.id !== id);
+    persistLocal();
+    syncDelete("exercises", id);
+  }
+
   // Folders for organizing programs: a list of paths ("Strength", "Strength/Lower Body"), kept in app_meta so
   // an empty folder still exists. A program's own `folder` field says which path it sits in.
   const DEFAULT_PROGRAM_FOLDERS = ["Speed", "Strength"];
@@ -769,6 +799,10 @@
     deleteProgram,
     getProgramFolders,
     setProgramFolders,
+    allExercises,
+    findExerciseByName,
+    saveExercise,
+    deleteExercise,
     counts,
     clearAll,
   };

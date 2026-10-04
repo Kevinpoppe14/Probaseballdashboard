@@ -685,6 +685,184 @@ function ContactInfoPanel({ athlete, onChanged }) {
 
 // Cubs Roster only (see rosterGroup) — DST clients don't have an "off-season" distinct from the
 // training DST itself provides, so this field has no meaning for the rest of the roster.
+// ---- Exercise library -----------------------------------------------------------------------
+// Exercises in programs link to the library by name. Videos are never stored here, only linked and embedded.
+const EXERCISE_TIERS = ["Main Lift", "Secondary", "Accessory", "Power / Plyometric", "Speed", "Core", "Arm Care", "Mobility / Prep", "Conditioning"];
+const EXERCISE_PATTERNS = ["Squat", "Hinge", "Lunge / Single-Leg", "Horizontal Push", "Vertical Push", "Horizontal Pull", "Vertical Pull", "Rotation", "Anti-Rotation", "Carry", "Jump", "Sprint", "Med Ball Throw", "Isolation"];
+const EXERCISE_REGIONS = ["Lower Body", "Upper Body", "Core", "Full Body"];
+const EXERCISE_LATERALITY = ["Bilateral", "Unilateral"];
+const EXERCISE_EQUIPMENT = ["Barbell", "Trap Bar", "Dumbbell", "Kettlebell", "Cable", "Band", "Med Ball", "Landmine", "Machine", "Sled", "Bodyweight"];
+const exerciseTags = (e) => [e.tier, e.pattern, e.region, e.laterality, ...(e.equipment || [])].filter(Boolean);
+
+// Turns a YouTube or Vimeo link (including YouTube Shorts) into its embeddable player address; null for anything else.
+function videoEmbed(url) {
+  const u = (url || "").trim();
+  let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{6,})/i);
+  if (m) return { src: `https://www.youtube.com/embed/${m[1]}`, vertical: /\/shorts\//i.test(u) };
+  m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+  if (m) return { src: `https://player.vimeo.com/video/${m[1]}`, vertical: false };
+  return null;
+}
+
+// Opens an exercise's library entry from anywhere (a program, the plan, the library itself).
+window.openExercise = (name) => window.dispatchEvent(new CustomEvent("dst-open-exercise", { detail: name }));
+
+// One exercise: tags, embedded video, coaching cues.
+function ExerciseDetails({ exercise }) {
+  const embed = videoEmbed(exercise.videoUrl);
+  return (
+    <div className="exercise-details">
+      <h2>{exercise.name}</h2>
+      <div className="exercise-tags">
+        {exerciseTags(exercise).map((t, i) => <span className={`exercise-tag ${i === 0 && exercise.tier ? "tier" : ""}`} key={t}>{t}</span>)}
+      </div>
+      {embed ? (
+        <div className={`exercise-video ${embed.vertical ? "vertical" : ""}`}>
+          <iframe src={embed.src} title={exercise.name} referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+        </div>
+      ) : exercise.videoUrl ? (
+        <div className="facility-note">This link can't be embedded. <a href={exercise.videoUrl} target="_blank" rel="noopener noreferrer">Open the video in a new tab</a></div>
+      ) : (
+        <div className="facility-note">No video linked yet.</div>
+      )}
+      {embed && <a className="exercise-open-link" href={exercise.videoUrl} target="_blank" rel="noopener noreferrer">Open the video in a new tab</a>}
+      {exercise.cues && <div className="exercise-cues"><strong>Coaching cues</strong><div>{exercise.cues}</div></div>}
+    </div>
+  );
+}
+
+// Mounted once by App: shows the pop-up whenever something calls window.openExercise(name).
+function ExerciseViewerHost() {
+  const [name, setName] = useState(null);
+  React.useEffect(() => {
+    const onOpen = (e) => setName(e.detail);
+    const onKey = (e) => { if (e.key === "Escape") setName(null); };
+    window.addEventListener("dst-open-exercise", onOpen);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("dst-open-exercise", onOpen); window.removeEventListener("keydown", onKey); };
+  }, []);
+  const exercise = name ? window.AthleteStore.findExerciseByName(name) : null;
+  if (!exercise) return null;
+  return ReactDOM.createPortal(
+    <div className="zoom-overlay exercise-overlay" onClick={() => setName(null)}>
+      <div className="zoom-modal exercise-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="zoom-close" onClick={() => setName(null)} aria-label="Close">×</button>
+        <ExerciseDetails exercise={exercise} />
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
+  const [draft, setDraft] = useState(() => ({ equipment: [], ...(initial || {}) }));
+  const set = (key, v) => setDraft((d) => ({ ...d, [key]: v }));
+  const name = (draft.name || "").trim();
+  const clash = name && window.AthleteStore.allExercises().some((e) => e.id !== draft.id && (e.name || "").trim().toLowerCase() === name.toLowerCase());
+  const pick = (label, key, options) => (
+    <label className="facility-field"><span>{label}</span>
+      <select value={draft[key] || ""} onChange={(e) => set(key, e.target.value)}>
+        <option value="">—</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+  const submit = () => {
+    const rec = { name, videoUrl: (draft.videoUrl || "").trim(), tier: draft.tier || "", pattern: draft.pattern || "", region: draft.region || "", laterality: draft.laterality || "", equipment: draft.equipment || [], cues: (draft.cues || "").trim() };
+    if (draft.id) rec.id = draft.id;
+    onSave(rec);
+  };
+  return (
+    <div className="panel">
+      <h2>{draft.id ? "Edit exercise" : "Add an exercise"}</h2>
+      <div className="facility-form-grid">
+        <label className="facility-field wide"><span>Exercise name * (programs link to it by this name)</span>
+          <input value={draft.name || ""} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Trap Bar Deadlift" />
+        </label>
+        <label className="facility-field wide"><span>Video link (YouTube, YouTube Shorts, or Vimeo)</span>
+          <input value={draft.videoUrl || ""} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
+        </label>
+        {pick("Tier", "tier", EXERCISE_TIERS)}
+        {pick("Movement pattern", "pattern", EXERCISE_PATTERNS)}
+        {pick("Body region", "region", EXERCISE_REGIONS)}
+        {pick("Bilateral / unilateral", "laterality", EXERCISE_LATERALITY)}
+        <div className="facility-field wide"><span>Equipment</span>
+          <div className="exercise-equipment">
+            {EXERCISE_EQUIPMENT.map((q) => (
+              <label key={q}>
+                <input type="checkbox" checked={(draft.equipment || []).includes(q)} onChange={() => set("equipment", (draft.equipment || []).includes(q) ? draft.equipment.filter((x) => x !== q) : [...(draft.equipment || []), q])} />
+                {q}
+              </label>
+            ))}
+          </div>
+        </div>
+        <label className="facility-field wide"><span>Coaching cues</span>
+          <textarea rows={3} value={draft.cues || ""} onChange={(e) => set("cues", e.target.value)} />
+        </label>
+      </div>
+      {clash && <div className="facility-note">An exercise with this name is already in the library.</div>}
+      {draft.videoUrl && !videoEmbed(draft.videoUrl) && <div className="facility-note">This link can't be embedded, so it will open in a new tab instead.</div>}
+      <div className="facility-form-actions">
+        <button className="btn" disabled={!name || clash} onClick={submit}>Save exercise</button>
+        <button className="btn-link" onClick={onCancel}>Cancel</button>
+        {draft.id && onDelete && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={onDelete}>Delete exercise</button>}
+      </div>
+    </div>
+  );
+}
+
+// Exercise Library section of the Programs tab: search, filter by tier, add / edit, click a name to view.
+function ExerciseLibrary({ sectionTabs }) {
+  const S = window.AthleteStore;
+  const [editing, setEditing] = useState(null); // null = list, {} = new, record = editing
+  const [query, setQuery] = useState("");
+  const [tier, setTier] = useState("");
+  const [, setVersion] = useState(0);
+  const all = S.allExercises();
+  const q = query.trim().toLowerCase();
+  const shown = all.filter((e) => (!tier || e.tier === tier) && (!q || [e.name, ...exerciseTags(e)].some((v) => (v || "").toLowerCase().includes(q))));
+
+  if (editing) {
+    return (
+      <ExerciseForm
+        key={editing.id || "new"}
+        initial={editing}
+        onSave={(rec) => { S.saveExercise(rec); setEditing(null); }}
+        onCancel={() => setEditing(null)}
+        onDelete={() => { if (window.confirm(`Delete "${editing.name}" from the exercise library? Programs keep the exercise name, but it will no longer link to a video.`)) { S.deleteExercise(editing.id); setEditing(null); } }}
+      />
+    );
+  }
+
+  return (
+    <div className="panel">
+      {sectionTabs}
+      <h2>Exercise Library <small>{all.length} exercise{all.length === 1 ? "" : "s"}</small></h2>
+      <div className="facility-toolbar">
+        <input className="facility-search" value={query} placeholder="Search by name or tag" onChange={(e) => setQuery(e.target.value)} />
+        <select value={tier} onChange={(e) => setTier(e.target.value)}>
+          <option value="">All tiers</option>
+          {EXERCISE_TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button className="btn" onClick={() => setEditing({})}>+ Add exercise</button>
+      </div>
+      {shown.length === 0 && <div className="empty-state">{all.length ? "No exercises match." : "No exercises yet. Add one, and any program exercise with the same name will link to it."}</div>}
+      <div className="exercise-list">
+        {shown.map((e) => (
+          <div className="exercise-row" key={e.id}>
+            <button className="program-name-link" onClick={() => window.openExercise(e.name)}>{e.name}</button>
+            <div className="exercise-tags">
+              {exerciseTags(e).map((t, i) => <span className={`exercise-tag ${i === 0 && e.tier ? "tier" : ""}`} key={t}>{t}</span>)}
+              {!e.videoUrl && <span className="exercise-tag novideo">No video</span>}
+            </div>
+            <button className="btn-link" onClick={() => setEditing(e)}>Edit</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---- Training programs ----------------------------------------------------------------------
 // A program is a reusable template: weeks, each with sessions, each with exercises (sets / reps / load / rest).
 const LOAD_UNITS = ["lbs", "% 1RM", "RPE", "bodyweight", "other"];
@@ -914,6 +1092,10 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
 
   return (
     <div className="panel program-editor">
+      {/* exercise names suggest from the library; a name that matches links to its library entry */}
+      <datalist id="exercise-library-names">
+        {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
+      </datalist>
       <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
       <div className="facility-form-grid">
         <label className="facility-field wide"><span>Program name *</span>
@@ -945,7 +1127,10 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
                     <div className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""}`} key={ex.id || ei}>
                       <div className="program-ex-top">
                         <strong className="superset-label">{labels[ei]}</strong>
-                        {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name" })}
+                        {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names" })}
+                        {window.AthleteStore.findExerciseByName(ex.name) && (
+                          <button className="exercise-view-btn" title="View this exercise from the library" onClick={() => window.openExercise(ex.name)}>▶</button>
+                        )}
                         {ei > 0 && (
                           <button
                             className={`superset-toggle ${ex.linked ? "on" : ""}`}
@@ -1087,7 +1272,7 @@ function ProgramAssignPanel({ program, onClose }) {
 
 // Programs tab: every saved program, plus the editor.
 // Which screen of the Programs page is open. Kept by App (not here) so it's part of the Back history.
-const PROGRAMS_NAV_HOME = { folder: "", editingId: null, assigningId: null };
+const PROGRAMS_NAV_HOME = { section: "programs", folder: "", editingId: null, assigningId: null };
 
 function ProgramsPage({ nav, setNav }) {
   const [version, setVersion] = useState(0);
@@ -1194,8 +1379,18 @@ function ProgramsPage({ nav, setNav }) {
 
   if (assigning) return <ProgramAssignPanel program={assigning} onClose={() => setAssigning(null)} />;
 
+  const section = nav.section || "programs";
+  const sectionTabs = (
+    <div className="pill-tabs program-sections">
+      <button className={`pill-tab ${section === "programs" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "programs" }))}>Programs</button>
+      <button className={`pill-tab ${section === "exercises" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "exercises" }))}>Exercise Library</button>
+    </div>
+  );
+  if (section === "exercises") return <ExerciseLibrary sectionTabs={sectionTabs} />;
+
   return (
     <div className="panel" key={version}>
+      {sectionTabs}
       <h2>Programs <small>{programs.length} saved</small></h2>
       <div className="program-crumbs">
         <button className={`program-crumb ${folder === "" ? "here" : ""} ${dropOver === "" ? "drop-over" : ""}`} onClick={() => setFolder("")} {...dropTarget("")}>All programs</button>
@@ -7068,6 +7263,7 @@ function App({ userEmail, onLogout }) {
         theme={theme}
         onToggleTheme={toggleTheme}
       />
+      <ExerciseViewerHost />
       {showWelcome && <WelcomeModal onClose={closeWelcome} onOpenGuide={() => { closeWelcome(); goHelp(); }} />}
       <div className="main">
         {canGoBack && (
