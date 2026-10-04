@@ -2377,6 +2377,9 @@ tbody tr:hover {
 .ph-extra { width: 50%; min-width: 380px; margin-left: auto; text-align: left; font-size: 12px; }
 @media (max-width: 900px) { .ph-extra { width: 100%; min-width: 0; margin-left: 0; } }
 .cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
+
+/* opening sentence of the Action Plan (facility / contact), set above the plan text */
+.action-lead { margin: 0 0 10px; font-weight: 600; }
 .cmj-mini .profile-controls { margin-bottom: 6px; }
 .cmj-mini .profile-row { grid-template-columns: minmax(110px, 1.3fr) minmax(70px, 0.9fr) 1.2fr 46px; gap: 6px; font-size: 11px; }
 .cmj-mini .profile-head { font-size: 9px; }

@@ -99,6 +99,15 @@
   }
   const actionPlanText = (plan) => actionPlanOf(plan).trim() ? actionPlanOf(plan) : planOverview(plan);
 
+  // Opening sentence of the Action Plan, built from the athlete's off-season facility / contact.
+  // It sits above the text rather than inside it, so it always matches the profile and isn't saved with edits.
+  const offseasonLead = (athlete) => {
+    const facility = ((athlete && athlete.offseasonFacility) || "").trim().replace(/\.$/, "");
+    if (!facility) return "";
+    const first = ((athlete && athlete.name) || "").trim().split(/\s+/)[0];
+    return `This off-season, ${first} will be training at ${facility}.`;
+  };
+
   // Lay out blocks that overlap within a lane on separate stacked rows.
   function packRows(blocks) {
     const sorted = [...blocks].sort((a, b) => a.start - b.start || b.len - a.len);
@@ -393,7 +402,7 @@
   }
   // Physical Goals is always there; Skill Goals and Habits are columns a coach can add (or
   // remove) as needed — see OPTIONAL_GOAL_COLUMNS. The coach's Action Plan sits underneath.
-  function GoalsSection({ plan, onSave }) {
+  function GoalsSection({ plan, onSave, lead }) {
     const goals = goalsOf(plan);
     const addColumn = (key) => onSave({ goals: { ...goals, [key]: [] } });
     const removeColumn = (key) => {
@@ -441,6 +450,7 @@
               </button>
             )}
           </h2>
+          {lead && <p className="action-lead">{lead}</p>}
           <textarea
             rows={8}
             key={actionPlanText(plan)}
@@ -455,7 +465,7 @@
   }
 
   // Read-only goals + action plan (profile / team report).
-  function GoalsReadOnly({ plan }) {
+  function GoalsReadOnly({ plan, lead }) {
     const goals = goalsOf(plan);
     const list = (title, items) => items.length > 0 && (
       <div className="goal-col">
@@ -483,10 +493,11 @@
             {OPTIONAL_GOAL_COLUMNS.map((c) => goals[c.key] && <React.Fragment key={c.key}>{list(c.label, goals[c.key])}</React.Fragment>)}
           </div>
         )}
-        {actionPlanText(plan).trim() && (
+        {(lead || actionPlanText(plan).trim()) && (
           <div className="action-ro">
             <h3>Action Plan</h3>
-            <div className="action-ro-text">{actionPlanText(plan)}</div>
+            {lead && <p className="action-lead">{lead}</p>}
+            {actionPlanText(plan).trim() && <div className="action-ro-text">{actionPlanText(plan)}</div>}
           </div>
         )}
       </div>
@@ -504,7 +515,7 @@
       <React.Fragment>
         {hasBlocks && <PlanProgress plan={plan} name={(getRoster().find((a) => a.id === athleteId) || {}).name} />}
         {hasBlocks && <ReadonlyTimeline plan={plan} />}
-        {goalsToShow && <GoalsReadOnly plan={plan} />}
+        {goalsToShow && <GoalsReadOnly plan={plan} lead={offseasonLead(getRoster().find((a) => a.id === athleteId))} />}
       </React.Fragment>
     );
     if (bare) return body;
@@ -1287,7 +1298,7 @@
           </div>
         )}
 
-        <GoalsSection plan={plan} onSave={saveText} />
+        <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>
     );
   }
