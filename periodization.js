@@ -182,17 +182,48 @@
   }
   window.exerciseLabels = exerciseLabels;
 
-  const loadText = (e) => {
-    if (e.loadUnit === "bodyweight") return "Bodyweight";
-    if (!e.load) return "—";
-    if (e.loadUnit === "RPE") return `RPE ${e.load}`;
-    if (e.loadUnit === "% 1RM") return `${e.load}% 1RM`;
-    if (e.loadUnit === "other") return e.load;
-    return `${e.load} lbs`;
+  // ---- exercise prescription ---------------------------------------------------------------------
+  // An exercise is prescribed as one or more set groups, each { sets, reps, intensity }, with one intensity unit for
+  // the exercise (%, RIR or RPE). It reads "5 (50%)  3 (60%)  3x1 (70%)": reps, or sets x reps, then the intensity.
+  // The weight itself is never part of the program; the athlete writes it in when doing the work.
+  // Older programs stored a single sets / reps / load per exercise; normalize() turns those into one set group.
+  const ProgramRx = {
+    UNITS: ["%", "RIR", "RPE", ""],
+    normalize(e) {
+      if (Array.isArray(e.groups)) return e;
+      const { sets, reps, load, loadUnit, ...rest } = e;
+      const pct = loadUnit === "% 1RM" || loadUnit === "RPE";
+      return { ...rest, tempo: e.tempo || "", intensityUnit: loadUnit === "RPE" ? "RPE" : "%", groups: [{ sets: sets || "", reps: reps || "", intensity: pct ? load || "" : "" }] };
+    },
+    groups(e) {
+      return ProgramRx.normalize(e).groups.filter((g) => `${g.sets || ""}${g.reps || ""}`.trim());
+    },
+    intensityText(e, g) {
+      const v = `${g.intensity || ""}`.trim();
+      if (!v) return "";
+      const unit = ProgramRx.normalize(e).intensityUnit;
+      if (unit === "%") return `${v.replace(/%$/, "")}%`;
+      if (unit === "RIR") return `${v} RIR`;
+      if (unit === "RPE") return `RPE ${v}`;
+      return ""; // "No intensity": nothing shown even if a number was typed earlier
+    },
+    groupText(e, g) {
+      const sets = `${g.sets || ""}`.trim(), reps = `${g.reps || ""}`.trim();
+      const base = sets && sets !== "1" ? (reps ? `${sets}x${reps}` : `${sets} sets`) : reps;
+      const int = ProgramRx.intensityText(e, g);
+      return `${base}${int ? ` (${int})` : ""}`;
+    },
+    text(e) {
+      return ProgramRx.groups(e).map((g) => ProgramRx.groupText(e, g)).join("  ");
+    },
+    // where an athlete's written-in weight for one set group is kept
+    logKey: (e, gi) => `${e.id}|${gi}`,
   };
+  window.ProgramRx = ProgramRx;
 
-  // One program week, read-only: a table of exercises per session.
-  function ProgramWeekView({ week }) {
+  // One program week: a table of exercises per session. With `onLog`, each set group gets a box for the weight
+  // the athlete actually used (`log` holds what's been entered so far).
+  function ProgramWeekView({ week, log, onLog }) {
     return (
       <div className="program-view">
         {(week.sessions || []).map((s, si) => {
@@ -203,7 +234,7 @@
               <h4>{s.name || `Session ${si + 1}`}</h4>
               {rows.length === 0 ? <div className="program-view-empty">No exercises entered.</div> : (
                 <table className="program-view-table">
-                  <thead><tr><th>Exercise</th><th>Sets × Reps</th><th>Load</th><th>Rest</th><th>Notes</th></tr></thead>
+                  <thead><tr><th>Exercise</th><th>{onLog ? "Sets, reps and weight used" : "Sets and reps"}</th><th>Rest</th><th>Notes</th></tr></thead>
                   <tbody>
                     {rows.map((e, ei) => (
                       <tr key={e.id || ei} className={ei > 0 && e.linked ? "superset-linked" : ""}>
@@ -212,9 +243,29 @@
                           {window.AthleteStore.findExerciseByName && window.AthleteStore.findExerciseByName(e.name) && window.openExercise
                             ? <button className="exercise-link" title="View this exercise" onClick={() => window.openExercise(e.name)}>{e.name}</button>
                             : e.name}
+                          {e.tempo && <span className="program-tempo" title="Tempo: eccentric, pause, concentric (* = explosive)">{e.tempo}</span>}
                         </td>
-                        <td>{[e.sets, e.reps].filter(Boolean).join(" × ") || "—"}</td>
-                        <td>{loadText(e)}</td>
+                        <td>
+                          <div className="program-rx">
+                            {ProgramRx.groups(e).map((g, gi) => (
+                              <span className="program-rx-group" key={gi}>
+                                <span>{ProgramRx.groupText(e, g)}</span>
+                                {onLog && (
+                                  <input
+                                    className="program-rx-weight"
+                                    key={(log || {})[ProgramRx.logKey(e, gi)] || ""}
+                                    defaultValue={(log || {})[ProgramRx.logKey(e, gi)] || ""}
+                                    placeholder="wt"
+                                    aria-label="Weight used"
+                                    onKeyDown={(ev) => ev.stopPropagation()}
+                                    onBlur={(ev) => { const v = ev.target.value.trim(); if (v !== ((log || {})[ProgramRx.logKey(e, gi)] || "")) onLog(ProgramRx.logKey(e, gi), v); }}
+                                  />
+                                )}
+                              </span>
+                            ))}
+                            {ProgramRx.groups(e).length === 0 && "—"}
+                          </div>
+                        </td>
                         <td>{e.rest || "—"}</td>
                         <td>{e.notes || ""}</td>
                       </tr>
@@ -231,7 +282,7 @@
 
   // The whole program in a pop-up, opened by clicking into a block that has one linked.
   // `currentNo` (1-based) marks the program week the athlete is on right now, when there is one.
-  function ProgramModal({ program, currentNo, onClose, athlete }) {
+  function ProgramModal({ program, currentNo, onClose, athlete, log, onLog }) {
     // Same one-page PDF as the program builder's export, with this athlete's name (and the Cubs logo for Cubs-only athletes).
     const exportPdf = async () => {
       const name = athlete ? athlete.name : "";
@@ -255,7 +306,7 @@
           {(program.weeks || []).map((w, wi) => (
             <div className={`program-modal-week ${currentNo === wi + 1 ? "current" : ""}`} key={wi}>
               <h3>{w.name || `Week ${wi + 1}`}{currentNo === wi + 1 && <small>This week</small>}</h3>
-              <ProgramWeekView week={w} />
+              <ProgramWeekView week={w} log={log} onLog={onLog} />
             </div>
           ))}
           {!(program.weeks || []).length && <div className="program-view-empty">This program has no weeks yet.</div>}
@@ -305,7 +356,7 @@
   }
 
   // The program week each attached block is on: this week while the plan is running, week 1 before it starts.
-  function PlanPrograms({ plan }) {
+  function PlanPrograms({ plan, onLog }) {
     const p = planProgress(plan);
     if (p.state === "complete") return null;
     const items = programWeeksAt(plan, p.state === "active" ? p.week - 1 : 0);
@@ -322,7 +373,7 @@
               {lane.name}: {block.label || "Untitled"}{" "}
               <small>{program.name} · {week.name || `Week ${weekNo}`} ({weekNo} of {program.weeks.length})</small>
             </h3>
-            <ProgramWeekView week={week} />
+            <ProgramWeekView week={week} log={(plan.programLog || {})[program.id] || {}} onLog={onLog ? (key, val) => onLog(program.id, key, val) : undefined} />
           </div>
         ))}
       </div>
@@ -421,7 +472,16 @@
     const openedProgram = opened && programById(opened.programId);
     return (
       <div className="period-ro">
-        {openedProgram && <ProgramModal program={openedProgram} athlete={athlete} currentNo={currentProgramWeek(plan, opened, openedProgram)} onClose={() => setOpenBlock(null)} />}
+        {openedProgram && <ProgramModal program={openedProgram} athlete={athlete} log={(plan.programLog || {})[openedProgram.id] || {}} onLog={athlete ? (key, val) => {
+          const store = window.AthleteStore;
+          const cur = store.getPeriodization(athlete.id);
+          if (!cur) return;
+          const all = { ...(cur.programLog || {}) };
+          const one = { ...(all[openedProgram.id] || {}) };
+          if (val) one[key] = val; else delete one[key];
+          all[openedProgram.id] = one;
+          store.setPeriodization(athlete.id, { ...cur, programLog: all });
+        } : undefined} currentNo={currentProgramWeek(plan, opened, openedProgram)} onClose={() => setOpenBlock(null)} />}
         <div className="period-ro-row period-ro-head">
           <div className="period-ro-label" />
           <div className="period-ro-track period-ro-weeks">
@@ -868,7 +928,7 @@
     };
     // Undo/redo only rewind the timeline — goals and the action plan are typed text with their own
     // editing, so they always carry over from the current plan instead of being rolled back.
-    const keepText = (snapshot, current) => ({ ...snapshot, goals: current.goals, actionPlan: current.actionPlan });
+    const keepText = (snapshot, current) => ({ ...snapshot, goals: current.goals, actionPlan: current.actionPlan, programLog: current.programLog });
     const undo = () => {
       if (!past.length) return;
       const current = planRef.current;
@@ -889,6 +949,14 @@
     };
     // Goal / action-plan edits save straight away without going into the undo history.
     const saveText = (patch) => apply({ ...planRef.current, ...patch });
+    // The weight an athlete used for one set group of a linked program, kept on their plan as programLog[programId][key].
+    const logWeight = (programId, key, val) => {
+      const all = { ...(planRef.current.programLog || {}) };
+      const one = { ...(all[programId] || {}) };
+      if (val) one[key] = val; else delete one[key];
+      all[programId] = one;
+      saveText({ programLog: all });
+    };
 
     const [openProgramBlock, setOpenProgramBlock] = useState(null); // id of the block whose program pop-up is open
     const laneById = (id) => plan.lanes.find((l) => l.id === id);
@@ -1507,11 +1575,11 @@
           </div>
         )}
 
-        <PlanPrograms plan={plan} />
+        <PlanPrograms plan={plan} onLog={logWeight} />
         {(() => {
           const b = openProgramBlock && plan.blocks.find((x) => x.id === openProgramBlock);
           const program = b && programById(b.programId);
-          return program ? <ProgramModal program={program} athlete={athlete} currentNo={currentProgramWeek(plan, b, program)} onClose={() => setOpenProgramBlock(null)} /> : null;
+          return program ? <ProgramModal program={program} athlete={athlete} currentNo={currentProgramWeek(plan, b, program)} onClose={() => setOpenProgramBlock(null)} log={(plan.programLog || {})[program.id] || {}} onLog={(key, val) => logWeight(program.id, key, val)} /> : null;
         })()}
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />

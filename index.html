@@ -865,8 +865,12 @@ function ExerciseLibrary({ sectionTabs }) {
 
 // ---- Training programs ----------------------------------------------------------------------
 // A program is a reusable template: weeks, each with sessions, each with exercises (sets / reps / load / rest).
-const LOAD_UNITS = ["lbs", "% 1RM", "RPE", "bodyweight", "other"];
-const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`, name: "", sets: "", reps: "", load: "", loadUnit: "lbs", rest: "", notes: "" });
+// Intensity is prescribed, never the weight itself: a percentage, reps in reserve (RIR), RPE, or nothing.
+const INTENSITY_UNITS = [["%", "% of max"], ["RIR", "RIR"], ["RPE", "RPE"], ["", "No intensity"]];
+const newSetGroup = () => ({ sets: "", reps: "", intensity: "" });
+const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`, name: "", tempo: "", intensityUnit: "%", groups: [newSetGroup()], rest: "", notes: "" });
+// Brings a program saved in the older single sets / reps / load format up to set groups (see ProgramRx in periodization.js).
+const normalizeProgramWeeks = (weeks) => (weeks || []).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => window.ProgramRx.normalize(e)) })) }));
 const DEFAULT_DAYS = 4;
 const newSession = (n) => ({ name: `Day ${n}`, exercises: [newExercise()] });
 const newWeek = (n) => ({ name: `Week ${n}`, sessions: Array.from({ length: DEFAULT_DAYS }, (_, i) => newSession(i + 1)) });
@@ -933,18 +937,9 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     pdf.text(oneLine(program.name), M, M + 31);
   }
 
-  const loadTxt = (e) => {
-    if (e.loadUnit === "bodyweight") return "BW";
-    if (!e.load) return "";
-    if (e.loadUnit === "RPE") return `RPE ${e.load}`;
-    if (e.loadUnit === "% 1RM") return `${e.load}% 1RM`;
-    if (e.loadUnit === "other") return e.load;
-    return `${e.load} lbs`;
-  };
-  const exText = (e, label) => {
-    const detail = [[e.sets, e.reps].filter(Boolean).join(" x "), loadTxt(e), e.rest && `rest ${e.rest}`].filter(Boolean).join(", ");
-    return `${label} ${e.name}${detail ? ` - ${detail}` : ""}${e.notes ? ` (${e.notes})` : ""}`;
-  };
+  const Rx = window.ProgramRx;
+  // first line of an exercise: label, name, tempo just right of the name, then rest and notes
+  const exText = (e, label) => `${label} ${e.name}${e.tempo ? `  ${e.tempo}` : ""}${e.rest ? ` - rest ${e.rest}` : ""}${e.notes ? ` (${e.notes})` : ""}`;
 
   const weeks = program.weeks || [];
   const maxDays = Math.max(1, ...weeks.map((w) => (w.sessions || []).length));
@@ -952,29 +947,40 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const availH = H - M - top;
   const colW = (W - 2 * M - gutter) / maxDays;
 
-  // Each exercise leaves a blank at the right of its first line for writing in the weight used, and a rule
-  // is drawn between superset groups (A, B, C…).
+  // Under each exercise name, its set groups read "5 (50%) ___  3 (60%) ___  3x1 (70%) ___": every group is
+  // followed by a blank for the weight the athlete used. A rule is drawn between superset groups (A, B, C…).
   const layout = (fs) => {
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
-    const lineH = fs * 1.25, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), blankW = fs * 4.2;
-    const textW = colW - 2 * pad - blankW - 4;
+    const lineH = fs * 1.25, rxH = lineH * 1.2, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), blankW = fs * 2.8, indent = fs;
+    const textW = colW - 2 * pad;
     const rows = weeks.map((w) => {
       const cells = (w.sessions || []).map((s, si) => {
         const named = (s.exercises || []).filter((e) => (e.name || "").trim());
         const labels = window.exerciseLabels(named);
-        const items = named.map((e, i) => ({ label: labels[i], lines: pdf.splitTextToSize(exText(e, labels[i]), textW), newGroup: i > 0 && !e.linked }));
-        const h = items.reduce((t, it) => t + it.lines.length * lineH + (it.newGroup ? gap * 2 : 0), 0);
+        const items = named.map((e, i) => {
+          const rxLines = [];
+          let cur = [], x = indent;
+          Rx.groups(e).forEach((g) => {
+            const t = Rx.groupText(e, g), tw = pdf.getTextWidth(t);
+            if (cur.length && x + tw + 2 + blankW > textW) { rxLines.push(cur); cur = []; x = indent; }
+            cur.push({ t, x, tw });
+            x += tw + 2 + blankW + fs * 0.9;
+          });
+          if (cur.length) rxLines.push(cur);
+          return { label: labels[i], lines: pdf.splitTextToSize(exText(e, labels[i]), textW), rxLines, newGroup: i > 0 && !e.linked };
+        });
+        const h = items.reduce((t, it) => t + it.lines.length * lineH + it.rxLines.length * rxH + (it.newGroup ? gap * 2 : 0), 0);
         return { name: s.name || `Day ${si + 1}`, items, h };
       });
       return { name: w.name || "", cells, h: bandH + pad * 2 + Math.max(lineH, ...cells.map((c) => c.h)) };
     });
-    return { rows, lineH, bandH, gap, blankW, total: rows.reduce((t, r) => t + r.h, 0) };
+    return { rows, lineH, rxH, bandH, gap, blankW, total: rows.reduce((t, r) => t + r.h, 0) };
   };
 
   let fs = 10, plan = layout(fs);
   while (plan.total > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
   const fits = plan.total <= availH;
-  const { lineH, bandH, gap, blankW } = plan;
+  const { lineH, rxH, bandH, gap, blankW } = plan;
 
   pdf.setDrawColor(...theme); pdf.setLineWidth(1.5);
   pdf.line(M, top - 5, W - M, top - 5);
@@ -989,12 +995,10 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
       const x = M + gutter + i * colW;
       const cell = row.cells[i];
       if (cell) {
-        // day name on a tinted band, with the "Weight" column heading at the right
+        // day name on a tinted band
         pdf.setFillColor(...tint); pdf.rect(x, y, colW, bandH, "F");
         pdf.setTextColor(...theme); pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
-        pdf.text(pdf.splitTextToSize(cell.name, colW - 2 * pad - blankW)[0], x + pad, y + lineH * 0.8 + 1.5);
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs * 0.8); pdf.setTextColor(110);
-        pdf.text("Weight", x + colW - pad, y + lineH * 0.8 + 1.5, { align: "right" });
+        pdf.text(pdf.splitTextToSize(cell.name, colW - 2 * pad)[0], x + pad, y + lineH * 0.8 + 1.5);
         pdf.setFontSize(fs);
         let cy = y + bandH + pad;
         cell.items.forEach((it) => {
@@ -1012,13 +1016,22 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
               const lw = pdf.getTextWidth(`${it.label} `);
               pdf.setFont("helvetica", "normal"); pdf.setTextColor(20);
               pdf.text(line.slice(it.label.length).trimStart(), x + pad + lw, base);
-              pdf.setDrawColor(120); pdf.setLineWidth(0.5);
-              pdf.line(x + colW - pad - blankW, base + 1, x + colW - pad, base + 1);
             } else {
               pdf.setFont("helvetica", "normal"); pdf.setTextColor(20);
               pdf.text(line, x + pad, base);
             }
             cy += lineH;
+          });
+          // set groups, each followed by a blank for the weight used
+          it.rxLines.forEach((toks) => {
+            const base = cy + rxH * 0.78;
+            pdf.setFont("helvetica", "normal"); pdf.setTextColor(60);
+            pdf.setDrawColor(120); pdf.setLineWidth(0.5);
+            toks.forEach((tok) => {
+              pdf.text(tok.t, x + pad + tok.x, base);
+              pdf.line(x + pad + tok.x + tok.tw + 2, base + 1, x + pad + tok.x + tok.tw + 2 + blankW, base + 1);
+            });
+            cy += rxH;
           });
         });
       }
@@ -1058,7 +1071,7 @@ function ProgramPdfButton({ program, disabled }) {
 
 // Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
 function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
-  const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })));
+  const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   const edit = (fn) => setDraft((d) => { const c = JSON.parse(JSON.stringify(d)); fn(c); return c; });
   const canSave = (draft.name || "").trim().length > 0;
 
@@ -1131,6 +1144,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
                       <div className="program-ex-top">
                         <strong className="superset-label">{labels[ei]}</strong>
                         {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names" })}
+                        {input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "program-ex-tempo", maxLength: 6, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
                         {window.AthleteStore.findExerciseByName(ex.name) && (
                           <button className="exercise-view-btn" title="View this exercise from the library" onClick={() => window.openExercise(ex.name)}>▶</button>
                         )}
@@ -1145,16 +1159,29 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
                         )}
                         <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
                       </div>
+                      {/* set groups: each line is sets x reps at an intensity, so the intensity can change set to set */}
+                      {ex.groups.map((g, gi) => {
+                        const setG = (key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups[gi][key] = v; });
+                        return (
+                          <div className="program-ex-group" key={gi}>
+                            {input(g.sets, (v) => setG("sets", v), { placeholder: "Sets", title: "Sets (leave blank for one set)" })}
+                            <span>×</span>
+                            {input(g.reps, (v) => setG("reps", v), { placeholder: "Reps", title: "Reps" })}
+                            {ex.intensityUnit !== "" && <span>@</span>}
+                            {ex.intensityUnit !== "" && input(g.intensity, (v) => setG("intensity", v), { placeholder: ex.intensityUnit === "%" ? "%" : ex.intensityUnit, title: `Intensity (${ex.intensityUnit})` })}
+                            <button className="btn-link" title="Remove this line" disabled={ex.groups.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>
+                          </div>
+                        );
+                      })}
                       <div className="program-ex-nums">
-                        {input(ex.sets, (v) => setEx(ei, "sets", v), { placeholder: "Sets", title: "Sets" })}
-                        {input(ex.reps, (v) => setEx(ei, "reps", v), { placeholder: "Reps", title: "Reps" })}
-                        {input(ex.load, (v) => setEx(ei, "load", v), { placeholder: "Load", title: "Load" })}
-                        <select value={ex.loadUnit || "lbs"} title="Load unit" onChange={(e) => setEx(ei, "loadUnit", e.target.value)}>
-                          {LOAD_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                        <button className="btn-link" title="Add another line of sets at a different intensity" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); })}>+ Sets</button>
+                        <select value={ex.intensityUnit} title="How intensity is prescribed for this exercise" onChange={(e) => setEx(ei, "intensityUnit", e.target.value)}>
+                          {INTENSITY_UNITS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                         </select>
                         {input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", title: "Rest" })}
                       </div>
-                      {input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: tempo, cues", className: "program-ex-notes" })}
+                      {window.ProgramRx.text(ex) && <div className="program-ex-preview">{window.ProgramRx.text(ex)}</div>}
+                      {input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes" })}
                     </div>
                   ))}
                   <div className="program-day-actions">
@@ -1206,7 +1233,7 @@ const athleteLastName = (name) => {
 // save it as a new program named "<Last name> - <Program>" and point the athlete's chart at that copy.
 function ProgramIndividualize({ program, athlete, onDone }) {
   const S = window.AthleteStore;
-  const [weeks, setWeeks] = useState(() => JSON.parse(JSON.stringify(program.weeks || [])));
+  const [weeks, setWeeks] = useState(() => normalizeProgramWeeks(JSON.parse(JSON.stringify(program.weeks || []))));
   const [swaps, setSwaps] = useState({}); // original exercise name -> replacement
   const newName = `${athleteLastName(athlete.name)} - ${program.name}`;
   const named = (e) => (e.name || "").trim();
@@ -1224,7 +1251,7 @@ function ProgramIndividualize({ program, athlete, onDone }) {
   const changed = unique.filter((u) => swaps[u.name] && swaps[u.name].trim() && swaps[u.name].trim() !== u.name).length;
 
   const maxDays = Math.max(0, ...weeks.map((w) => (w.sessions || []).length));
-  const setCell = (wi, si, ei, key, v) => setWeeks((ws) => { const c = JSON.parse(JSON.stringify(ws)); c[wi].sessions[si].exercises[ei][key] = v; return c; });
+  const setCell = (wi, si, ei, gi, key, v) => setWeeks((ws) => { const c = JSON.parse(JSON.stringify(ws)); c[wi].sessions[si].exercises[ei].groups[gi][key] = v; return c; });
 
   const save = () => {
     const finalWeeks = JSON.parse(JSON.stringify(weeks));
@@ -1262,7 +1289,7 @@ function ProgramIndividualize({ program, athlete, onDone }) {
         {unique.length === 0 && <div className="empty-state">This program has no exercises yet.</div>}
       </div>
 
-      <h3 className="indiv-heading">2. Sets and reps by week <small>{changed ? `${changed} exercise${changed === 1 ? "" : "s"} swapped. ` : ""}Each box is sets × reps.</small></h3>
+      <h3 className="indiv-heading">2. Sets and reps by week <small>{changed ? `${changed} exercise${changed === 1 ? "" : "s"} swapped. ` : ""}Each line is sets × reps @ intensity.</small></h3>
       {Array.from({ length: maxDays }, (_, si) => {
         const rows = Math.max(0, ...weeks.map((w) => ((w.sessions[si] || {}).exercises || []).length));
         const dayName = ((weeks.find((w) => w.sessions[si]) || {}).sessions || [])[si];
@@ -1287,11 +1314,15 @@ function ProgramIndividualize({ program, athlete, onDone }) {
                           return (
                             <td key={wi}>
                               {other && <div className="indiv-other">{shownName(e)}</div>}
-                              <span className="indiv-cell">
-                                <input value={e.sets || ""} aria-label="Sets" onChange={(ev) => setCell(wi, si, ei, "sets", ev.target.value)} />
-                                <span>×</span>
-                                <input value={e.reps || ""} aria-label="Reps" onChange={(ev) => setCell(wi, si, ei, "reps", ev.target.value)} />
-                              </span>
+                              {e.groups.map((g, gi) => (
+                                <span className="indiv-cell" key={gi}>
+                                  <input value={g.sets || ""} aria-label="Sets" placeholder="1" onChange={(ev) => setCell(wi, si, ei, gi, "sets", ev.target.value)} />
+                                  <span>×</span>
+                                  <input value={g.reps || ""} aria-label="Reps" onChange={(ev) => setCell(wi, si, ei, gi, "reps", ev.target.value)} />
+                                  {e.intensityUnit !== "" && <span>@</span>}
+                                  {e.intensityUnit !== "" && <input value={g.intensity || ""} aria-label={`Intensity (${e.intensityUnit})`} placeholder={e.intensityUnit} onChange={(ev) => setCell(wi, si, ei, gi, "intensity", ev.target.value)} />}
+                                </span>
+                              ))}
                             </td>
                           );
                         })}
