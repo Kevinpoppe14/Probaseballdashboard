@@ -597,18 +597,20 @@
         <div className="ph-left">
           <div className="ph-pics">
             {athlete.team && Logo && <span className="ph-team"><Logo team={athlete.team} size={104} /></span>}
-            {showPhoto ? (
-              <img className="ph-photo" src={athlete.photoUrl} alt={athlete.name} onError={() => setPhotoBroken(true)} />
-            ) : (
-              <div className="ph-photo ph-initials">{initials}</div>
-            )}
+            <div className="ph-photo-col">
+              {onOpen ? (
+                <button className="ph-name ph-name-link" onClick={onOpen} title="Open this athlete's profile">{athlete.name}</button>
+              ) : (
+                <div className="ph-name">{athlete.name}</div>
+              )}
+              {showPhoto ? (
+                <img className="ph-photo" src={athlete.photoUrl} alt={athlete.name} onError={() => setPhotoBroken(true)} />
+              ) : (
+                <div className="ph-photo ph-initials">{initials}</div>
+              )}
+            </div>
             {extra && <div className="ph-extra">{extra}</div>}
           </div>
-          {onOpen ? (
-            <button className="ph-name ph-name-link" onClick={onOpen} title="Open this athlete's profile">{athlete.name}</button>
-          ) : (
-            <div className="ph-name">{athlete.name}</div>
-          )}
           {athlete.team && <div className="ph-teamname">{athlete.team}</div>}
         </div>
         <div className="ph-center">
@@ -617,20 +619,13 @@
             {subtitle || (plan ? <React.Fragment>Offseason Periodization &middot; Week 1 starts {fmtMD(plan.startDate)} &middot; {plan.weeks} weeks</React.Fragment> : null)}
           </div>
         </div>
-        <div className="ph-right">
-          {isCubsOnly ? (
-            <div className="ph-org-cubs">
-              <img className="ph-org-logo" src="https://www.mlbstatic.com/team-logos/112.svg" alt="Chicago Cubs" />
-              <div className="ph-org-name">Chicago Cubs<br />Strength &amp; Conditioning</div>
-            </div>
-          ) : (
-            <React.Fragment>
-              {/* light-lettered copy for the dark screen; the original artwork is swapped in when printing on white paper */}
-              <img className="ph-logo-screen" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
-              <img className="ph-logo-print" src="assets/dst-logo.png" alt="Dynamic Sports Training" />
-            </React.Fragment>
-          )}
-        </div>
+        {!isCubsOnly && (
+          <div className="ph-right">
+            {/* light-lettered copy for the dark screen; the original artwork is swapped in when printing on white paper */}
+            <img className="ph-logo-screen" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
+            <img className="ph-logo-print" src="assets/dst-logo.png" alt="Dynamic Sports Training" />
+          </div>
+        )}
       </div>
     );
   }

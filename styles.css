@@ -2357,6 +2357,10 @@ tbody tr:hover {
   .assess-lrselect-pass.assess-mark-set { color: #000 !important; }
 }
 
+/* Athlete name stacked directly above the photo in the Player Plan header */
+.ph-photo-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ph-photo-col .ph-name { text-align: center; }
+
 /* Compact CMJ profile beside the athlete photo in the Player Plan header */
 .ph-extra { width: 380px; max-width: 100%; text-align: left; font-size: 12px; }
 .cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
