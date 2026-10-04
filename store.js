@@ -681,8 +681,16 @@
   function saveProgram(rec) {
     const id = rec.id != null ? String(rec.id) : randomId();
     const { id: _ignored, ...data } = rec;
-    const full = { ...data, id };
     const idx = state.programs.findIndex((p) => p.id === id);
+    // who built it is stamped once, when the program is first saved, and carried along on every later edit
+    if (idx === -1) {
+      if (!data.createdBy && currentUser.email) data.createdBy = currentUser.email;
+      if (!data.createdAt) data.createdAt = new Date().toISOString();
+    } else {
+      if (!data.createdBy && state.programs[idx].createdBy) data.createdBy = state.programs[idx].createdBy;
+      if (!data.createdAt && state.programs[idx].createdAt) data.createdAt = state.programs[idx].createdAt;
+    }
+    const full = { ...data, id };
     if (idx === -1) state.programs.push(full);
     else state.programs[idx] = full;
     persistLocal();
