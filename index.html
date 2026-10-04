@@ -682,26 +682,114 @@ function ContactInfoPanel({ athlete, onChanged }) {
 
 // Cubs Roster only (see rosterGroup) — DST clients don't have an "off-season" distinct from the
 // training DST itself provides, so this field has no meaning for the rest of the roster.
+// ---- Off-season facility directory -------------------------------------------------------------
+// Every facility lives in one shared list (AthleteStore.allOffseasonFacilities). An athlete's
+// facility is the facility's name, matched against that list, so the address is looked up by name.
+const FACILITY_FIELDS = [
+  { key: "name", label: "Facility name", required: true, wide: true, placeholder: "e.g. Driveline Baseball" },
+  { key: "address1", label: "Street address", wide: true, placeholder: "123 Main St" },
+  { key: "address2", label: "Suite / unit", wide: true },
+  { key: "city", label: "City" },
+  { key: "state", label: "State" },
+  { key: "zip", label: "ZIP" },
+  { key: "phone", label: "Facility phone" },
+  { key: "website", label: "Website", placeholder: "https://" },
+  { key: "contactName", label: "Contact name" },
+  { key: "contactEmail", label: "Contact email" },
+  { key: "contactPhone", label: "Contact phone" },
+  { key: "notes", label: "Notes", wide: true, multiline: true },
+];
+
+const facilityAddressLine = (f) => {
+  const cityState = [f.city, [f.state, f.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [f.address1, f.address2, cityState].filter(Boolean).join(", ");
+};
+
+const facilityMapsUrl = (f) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([f.name, facilityAddressLine(f)].filter(Boolean).join(", "))}`;
+
+const findFacilityByName = (name) => {
+  const norm = (name || "").trim().toLowerCase();
+  if (!norm) return null;
+  return window.AthleteStore.allOffseasonFacilities().find((f) => (f.name || "").trim().toLowerCase() === norm) || null;
+};
+
+// Add or edit one facility. Empty fields are dropped so the saved record only holds what was entered.
+function FacilityForm({ initial, onSave, onCancel }) {
+  const [draft, setDraft] = useState(() => ({ ...(initial || {}) }));
+  const canSave = (draft.name || "").trim().length > 0;
+
+  const submit = () => {
+    if (!canSave) return;
+    const rec = {};
+    FACILITY_FIELDS.forEach(({ key }) => {
+      const v = (draft[key] || "").trim();
+      if (v) rec[key] = v;
+    });
+    if (initial && initial.id) rec.id = initial.id;
+    onSave(rec);
+  };
+
+  return (
+    <div className="facility-form">
+      <div className="facility-form-grid">
+        {FACILITY_FIELDS.map((f) => (
+          <label key={f.key} className={`facility-field ${f.wide ? "wide" : ""}`}>
+            <span>{f.label}{f.required ? " *" : ""}</span>
+            {f.multiline ? (
+              <textarea rows={3} value={draft[f.key] || ""} placeholder={f.placeholder || ""}
+                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
+            ) : (
+              <input value={draft[f.key] || ""} placeholder={f.placeholder || ""}
+                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
+            )}
+          </label>
+        ))}
+      </div>
+      <div className="facility-form-actions">
+        <button className="btn" disabled={!canSave} onClick={submit}>Save facility</button>
+        <button className="btn-link" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// Cubs Roster only (see rosterGroup) — DST clients don't have an "off-season" distinct from the
+// training DST itself provides, so this field has no meaning for the rest of the roster.
 function OffseasonFacilityPanel({ athlete, onChanged }) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(athlete.offseasonFacility || "");
+  const [choice, setChoice] = useState("");
+  const [adding, setAdding] = useState(false);
+  const current = (athlete.offseasonFacility || "").trim();
+  const match = findFacilityByName(current);
+  const directory = window.AthleteStore.allOffseasonFacilities();
+
+  const assign = (name) => {
+    window.AthleteStore.updateAthlete(athlete.id, { offseasonFacility: (name || "").trim() });
+    setEditing(false);
+    setAdding(false);
+    onChanged();
+  };
 
   const startEdit = () => {
-    setValue(athlete.offseasonFacility || "");
+    setChoice(current);
+    setAdding(false);
     setEditing(true);
   };
 
-  const save = () => {
-    window.AthleteStore.updateAthlete(athlete.id, { offseasonFacility: value.trim() });
-    setEditing(false);
-    onChanged();
+  // A facility added from here goes into the shared directory and is assigned to this athlete at once.
+  const saveNewFacility = (rec) => {
+    const saved = window.AthleteStore.saveOffseasonFacility(rec);
+    assign(saved.name);
   };
 
   if (!editing) {
     return (
       <div className="panel">
         <h2>Off-Season Training Facility / Contact</h2>
-        <div>{athlete.offseasonFacility ? athlete.offseasonFacility : <Badge tone="warn">Needs Input</Badge>}</div>
+        <div>{current ? current : <Badge tone="warn">Needs Input</Badge>}</div>
+        {match && <FacilityDetails f={match} />}
+        {current && !match && <div className="facility-note">Not in the facility directory yet. Add it on the Facilities page to see its address.</div>}
         <button className="btn-link no-print" style={{ marginTop: 8 }} onClick={startEdit}>Edit</button>
       </div>
     );
@@ -710,16 +798,117 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
   return (
     <div className="panel">
       <h2>Off-Season Training Facility / Contact</h2>
-      <div className="field">
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="e.g. Driveline Baseball — contact: John Smith, 555-1234"
-          style={{ width: "100%" }}
-        />
+      {!adding ? (
+        <React.Fragment>
+          <div className="field">
+            <select value={choice} onChange={(e) => (e.target.value === "__new__" ? setAdding(true) : setChoice(e.target.value))} style={{ width: "100%" }}>
+              <option value="">— None —</option>
+              {current && !match && <option value={current}>{current} (not in directory)</option>}
+              {directory.map((f) => <option key={f.id} value={f.name}>{f.name}</option>)}
+              <option value="__new__">+ Add new facility…</option>
+            </select>
+          </div>
+          <button className="btn-link" style={{ marginRight: 10, marginTop: 8 }} onClick={() => assign(choice)}>Save</button>
+          <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setEditing(false)}>Cancel</button>
+        </React.Fragment>
+      ) : (
+        <FacilityForm initial={null} onSave={saveNewFacility} onCancel={() => setAdding(false)} />
+      )}
+    </div>
+  );
+}
+
+// Address, phone, website and contact for one directory facility. Used on the athlete panel and the Facilities page.
+function FacilityDetails({ f }) {
+  const addr = facilityAddressLine(f);
+  return (
+    <div className="facility-details">
+      {addr && (
+        <div>
+          {addr}{" "}
+          <a className="no-print" href={facilityMapsUrl(f)} target="_blank" rel="noopener noreferrer">Open in Maps</a>
+        </div>
+      )}
+      {f.phone && <div>Phone: {f.phone}</div>}
+      {f.website && <div>Web: <a href={f.website} target="_blank" rel="noopener noreferrer">{f.website}</a></div>}
+      {(f.contactName || f.contactEmail || f.contactPhone) && (
+        <div>
+          Contact: {[f.contactName, f.contactEmail, f.contactPhone].filter(Boolean).join(" · ")}
+        </div>
+      )}
+      {f.notes && <div className="facility-notes">{f.notes}</div>}
+    </div>
+  );
+}
+
+// Facilities tab: the whole shared directory, searchable, with add / edit / delete.
+function OffseasonFacilitiesPage() {
+  const [editing, setEditing] = useState(null); // null = list, {} = new facility, record = editing that one
+  const [query, setQuery] = useState("");
+  const [version, setVersion] = useState(0);
+  const facilities = window.AthleteStore.allOffseasonFacilities();
+  const q = query.trim().toLowerCase();
+  const shown = facilities.filter((f) => !q || [f.name, f.city, f.state, f.contactName].some((v) => (v || "").toLowerCase().includes(q)));
+  const athletes = window.AthleteStore.allAthletes();
+  const usedBy = (f) => athletes.filter((a) => ((a.offseasonFacility || "").trim().toLowerCase() === (f.name || "").trim().toLowerCase())).length;
+
+  const save = (rec) => {
+    const old = editing && editing.id ? editing : null;
+    const saved = window.AthleteStore.saveOffseasonFacility(rec);
+    // Renaming a facility carries the new name over to every athlete already assigned to it.
+    if (old && (old.name || "").trim().toLowerCase() !== saved.name.trim().toLowerCase()) {
+      const oldNorm = (old.name || "").trim().toLowerCase();
+      athletes
+        .filter((a) => (a.offseasonFacility || "").trim().toLowerCase() === oldNorm)
+        .forEach((a) => window.AthleteStore.updateAthlete(a.id, { offseasonFacility: saved.name }));
+    }
+    setEditing(null);
+    setVersion((v) => v + 1);
+  };
+
+  const remove = (f) => {
+    const n = usedBy(f);
+    const msg = `Delete ${f.name} from the facility directory?` +
+      (n ? ` ${n} athlete${n === 1 ? " is" : "s are"} assigned to it; their facility name stays, but it will no longer show an address.` : "");
+    if (!window.confirm(msg)) return;
+    window.AthleteStore.deleteOffseasonFacility(f.id);
+    setVersion((v) => v + 1);
+  };
+
+  if (editing) {
+    return (
+      <div className="panel">
+        <h2>{editing.id ? `Edit ${editing.name}` : "Add an off-season facility"}</h2>
+        <FacilityForm initial={editing.id ? editing : null} onSave={save} onCancel={() => setEditing(null)} />
       </div>
-      <button className="btn-link" style={{ marginRight: 10, marginTop: 8 }} onClick={save}>Save</button>
-      <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setEditing(false)}>Cancel</button>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <h2>Off-Season Facilities <small>{facilities.length} in the directory</small></h2>
+      <div className="facility-toolbar">
+        <input className="facility-search" value={query} placeholder="Search by name, city, or contact" onChange={(e) => setQuery(e.target.value)} />
+        <button className="btn" onClick={() => setEditing({})}>+ Add facility</button>
+      </div>
+      {shown.length === 0 && (
+        <div className="empty-state">{facilities.length ? "No facilities match that search." : "No facilities yet. Add one to start the directory."}</div>
+      )}
+      <div className="facility-list">
+        {shown.map((f) => (
+          <div className="facility-card" key={f.id}>
+            <div className="facility-card-head">
+              <strong>{f.name}</strong>
+              <span className="facility-used">{usedBy(f)} athlete{usedBy(f) === 1 ? "" : "s"}</span>
+            </div>
+            <FacilityDetails f={f} />
+            <div className="facility-card-actions no-print">
+              <button className="btn-link" onClick={() => setEditing(f)}>Edit</button>
+              <button className="btn-link" onClick={() => remove(f)}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1228,7 +1417,7 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -1262,6 +1451,9 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoHelp,
         </button>
         <button className={`nav-tab ${view === "teamreport" ? "active" : ""}`} onClick={onGoTeamReport}>
           Team Reports
+        </button>
+        <button className={`nav-tab ${view === "facilities" ? "active" : ""}`} onClick={onGoFacilities}>
+          Facilities
         </button>
         <button className={`nav-tab ${view === "news" ? "active" : ""}`} onClick={onGoNews}>
           In the News
@@ -5948,6 +6140,7 @@ function App({ userEmail, onLogout }) {
   const goTeamReport = () => setView("teamreport");
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
+  const goFacilities = () => setView("facilities");
   const goHelp = () => setView("help");
 
   const welcomeKey = `dstWelcomeSeen:${userEmail}`;
@@ -6009,6 +6202,7 @@ function App({ userEmail, onLogout }) {
         onGoTeamReport={goTeamReport}
         onGoPlayers={goPlayers}
         onGoNews={goNews}
+        onGoFacilities={goFacilities}
         onGoHelp={goHelp}
         userEmail={userEmail}
         onLogout={onLogout}
@@ -6064,6 +6258,7 @@ function App({ userEmail, onLogout }) {
         {view === "news" && (window.NewsPage
           ? <window.NewsPage dataVersion={dataVersion} />
           : <div className="panel"><div className="empty-state">The In the News page didn't load — make sure news.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>)}
+        {view === "facilities" && <OffseasonFacilitiesPage />}
         {view === "help" && <HelpPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}
       </div>

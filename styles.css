@@ -2380,6 +2380,29 @@ tbody tr:hover {
 
 /* opening sentence of the Action Plan (facility / contact), set above the plan text */
 .action-lead { margin: 0 0 10px; font-weight: 600; }
+
+/* Off-season facility directory (Facilities tab + the athlete's facility picker) */
+.facility-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.facility-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.facility-field.wide { grid-column: 1 / -1; }
+.facility-field > span { font-size: 12px; color: var(--text-dim); }
+.facility-field input,
+.facility-field textarea { width: 100%; box-sizing: border-box; }
+.facility-form-actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+@media (max-width: 700px) { .facility-form-grid { grid-template-columns: 1fr; } }
+
+.facility-details { margin-top: 8px; font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
+.facility-details a { color: var(--dst-red); }
+.facility-notes { white-space: pre-wrap; color: var(--text-dim); margin-top: 4px; }
+.facility-note { margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+
+.facility-toolbar { display: flex; gap: 12px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
+.facility-search { flex: 1; min-width: 200px; }
+.facility-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.facility-card { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; background: var(--panel); }
+.facility-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 16px; }
+.facility-used { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.facility-card-actions { display: flex; gap: 14px; margin-top: 10px; }
 .cmj-mini .profile-controls { margin-bottom: 6px; }
 .cmj-mini .profile-row { grid-template-columns: minmax(110px, 1.3fr) minmax(70px, 0.9fr) 1.2fr 46px; gap: 6px; font-size: 11px; }
 .cmj-mini .profile-head { font-size: 9px; }

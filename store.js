@@ -25,6 +25,7 @@
       periodization: {}, // athleteId -> { startDate, weeks, lanes, blocks } (offseason planner)
       periodTemplates: [], // reusable planner layouts: { id, name, weeks, lanes, blocks }
       assessments: [], // dated movement/physical assessments (see assessment.js) — one athlete can have several over time
+      offseasonFacilities: [], // shared directory of off-season training facilities: { id, name, address1, city, ... } (see migration_004)
     };
   }
 
@@ -265,12 +266,12 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
-        fetchTable("app_meta"), fetchTable("profiles"),
+        fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"),
       ]);
     const cloudIsEmpty = ![athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments]
       .some((rows) => rows.length > 0);
@@ -296,6 +297,7 @@
     periodization.forEach((r) => { next.periodization[r.athlete_id] = r.data; });
     periodTemplates.forEach((r) => next.periodTemplates.push(r.data));
     assessments.forEach((r) => next.assessments.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
+    offseasonFacilityRows.forEach((r) => next.offseasonFacilities.push({ ...r.data, id: r.id }));
     const syncedAtRow = appMeta.find((r) => r.key === "playerPlansSyncedAt");
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
     state = next;
@@ -646,6 +648,31 @@
     };
   }
 
+  // ---- off-season facility directory ---------------------------------------------------------
+  function allOffseasonFacilities() {
+    return [...state.offseasonFacilities].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }
+
+  // Adds a new facility (no id yet) or replaces an existing one with the same id. The record is
+  // stored whole, so a field the coach cleared really goes away instead of lingering in the cloud.
+  function saveOffseasonFacility(rec) {
+    const id = rec.id != null ? String(rec.id) : randomId();
+    const { id: _ignored, ...data } = rec;
+    const full = { ...data, id };
+    const idx = state.offseasonFacilities.findIndex((f) => f.id === id);
+    if (idx === -1) state.offseasonFacilities.push(full);
+    else state.offseasonFacilities[idx] = full;
+    persistLocal();
+    syncUpsert("offseason_facilities", id, undefined, data);
+    return full;
+  }
+
+  function deleteOffseasonFacility(id) {
+    state.offseasonFacilities = state.offseasonFacilities.filter((f) => f.id !== id);
+    persistLocal();
+    syncDelete("offseason_facilities", id);
+  }
+
   function clearAll() {
     state = emptyState();
     persistLocal();
@@ -685,6 +712,9 @@
     getAssessments,
     saveAssessment,
     deleteAssessment,
+    allOffseasonFacilities,
+    saveOffseasonFacility,
+    deleteOffseasonFacility,
     counts,
     clearAll,
   };
