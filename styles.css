@@ -2378,6 +2378,11 @@ tbody tr:hover {
 @media (max-width: 900px) { .ph-extra { width: 100%; min-width: 0; margin-left: 0; } }
 .cmj-mini h2 { font-size: 13px; margin: 0 0 6px; }
 
+/* Cubs player plan: Off-Season Training Facility and Programming by sit side by side */
+.offseason-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.offseason-row > .panel { margin-bottom: 16px; }
+@media (max-width: 700px) { .offseason-row { grid-template-columns: 1fr; } }
+
 /* opening sentence of the Action Plan (facility / contact), set above the plan text */
 .action-lead { margin: 0 0 10px; font-weight: 600; }
 
@@ -2402,6 +2407,8 @@ tbody tr:hover {
 .facility-card { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; background: var(--panel); }
 .facility-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 16px; }
 .facility-used { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.facility-athletes { margin-top: 8px; font-size: 13px; line-height: 1.5; }
+.facility-athletes > span { color: var(--text-dim); }
 .facility-card-actions { display: flex; gap: 14px; margin-top: 10px; }
 
 /* Leaflet map on the Facilities page. Its panes need their own stacking context so they stay under the app's top bar. */

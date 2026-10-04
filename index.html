@@ -801,7 +801,7 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
   if (!editing) {
     return (
       <div className="panel">
-        <h2>Off-Season Training Facility / Contact</h2>
+        <h2>Off-Season Training Facility</h2>
         <div>{current ? current : <Badge tone="warn">Needs Input</Badge>}</div>
         {match && <FacilityDetails f={match} />}
         {current && !match && <div className="facility-note">Not in the facility directory yet. Add it on the Facilities page to see its address.</div>}
@@ -813,7 +813,7 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
   if (unsaved) {
     return (
       <div className="panel">
-        <h2>Off-Season Training Facility / Contact</h2>
+        <h2>Off-Season Training Facility</h2>
         <div className="facility-note" style={{ marginTop: 0, marginBottom: 10 }}>
           “{unsaved}” isn’t in the facility database yet. Add its address and contact to save it for everyone, or keep just the name for this athlete.
         </div>
@@ -825,7 +825,7 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
 
   return (
     <div className="panel">
-      <h2>Off-Season Training Facility / Contact</h2>
+      <h2>Off-Season Training Facility</h2>
       <div className="field">
         <input
           list="facility-directory-names"
@@ -840,6 +840,46 @@ function OffseasonFacilityPanel({ athlete, onChanged }) {
         </datalist>
       </div>
       <button className="btn-link" style={{ marginRight: 10, marginTop: 8 }} onClick={saveValue}>Save</button>
+      <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setEditing(false)}>Cancel</button>
+    </div>
+  );
+}
+
+// Cubs Roster only: who wrote this athlete's off-season programming. Typed in by hand, not picked from a list.
+function OffseasonProgrammingPanel({ athlete, onChanged }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const current = (athlete.offseasonProgrammingBy || "").trim();
+
+  const save = () => {
+    window.AthleteStore.updateAthlete(athlete.id, { offseasonProgrammingBy: value.trim() });
+    setEditing(false);
+    onChanged();
+  };
+
+  if (!editing) {
+    return (
+      <div className="panel">
+        <h2>Programming by</h2>
+        <div>{current ? current : <Badge tone="warn">Needs Input</Badge>}</div>
+        <button className="btn-link no-print" style={{ marginTop: 8 }} onClick={() => { setValue(current); setEditing(true); }}>Edit</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <h2>Programming by</h2>
+      <div className="field">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+          placeholder="Name of the coach or trainer"
+          style={{ width: "100%" }}
+        />
+      </div>
+      <button className="btn-link" style={{ marginRight: 10, marginTop: 8 }} onClick={save}>Save</button>
       <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setEditing(false)}>Cancel</button>
     </div>
   );
@@ -868,7 +908,7 @@ function FacilityDetails({ f }) {
   );
 }
 
-// Looks up coordinates for a street address with OpenStreetMap's Nominatim service (US only).
+// Looks up coordinates for a query with OpenStreetMap's Nominatim service (US only).
 // Resolves to { lat, lng }, or null when the service has no match. Throws on network / rate-limit errors.
 async function geocodeAddress(q) {
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(q)}`;
@@ -876,6 +916,28 @@ async function geocodeAddress(q) {
   if (!res.ok) throw new Error(`geocode failed: HTTP ${res.status}`);
   const rows = await res.json();
   return rows[0] ? { lat: Number(rows[0].lat), lng: Number(rows[0].lon) } : null;
+}
+
+// Bump when the lookup changes, so facilities located under the old rules get another try.
+const GEO_VERSION = 2;
+
+// Tries the most exact form of the address first, then looser ones: without the suite number, then the city alone.
+// A city-only match is marked approximate, since the pin is then only the city's center.
+async function locateFacility(f) {
+  const street = (f.address1 || "").trim().replace(/\.$/, "");
+  const cityState = [f.city, [f.state, f.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const full = facilityAddressLine(f).replace(/\.(?=,|$)/g, "");
+  const attempts = [
+    street && { q: [street, cityState].filter(Boolean).join(", "), approx: false },
+    full && full !== [street, cityState].filter(Boolean).join(", ") && { q: full, approx: false },
+    cityState && { q: cityState, approx: true },
+  ].filter(Boolean);
+  for (let i = 0; i < attempts.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1100));
+    const hit = await geocodeAddress(attempts[i].q);
+    if (hit) return { ...hit, approx: attempts[i].approx };
+  }
+  return null;
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -913,7 +975,8 @@ function FacilityMap({ facilities, color }) {
       const popup = `<strong>${escapeHtml(f.name)}</strong>` +
         (addr ? `<br>${escapeHtml(addr)}` : "") +
         (f.phone ? `<br>${escapeHtml(f.phone)}` : "") +
-        (f.contactName ? `<br>Contact: ${escapeHtml(f.contactName)}` : "");
+        (f.contactName ? `<br>Contact: ${escapeHtml(f.contactName)}` : "") +
+        (f.geo.approx ? `<br><em>Approximate: only the city could be matched</em>` : "");
       L.circleMarker([f.geo.lat, f.geo.lng], { radius: 7, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 })
         .bindPopup(popup)
         .addTo(layerRef.current);
@@ -936,25 +999,36 @@ function OffseasonFacilitiesPage() {
   const q = query.trim().toLowerCase();
   const shown = facilities.filter((f) => !q || [f.name, f.city, f.state, f.contactName].some((v) => (v || "").toLowerCase().includes(q)));
   const athletes = window.AthleteStore.allAthletes();
-  const usedBy = (f) => athletes.filter((a) => ((a.offseasonFacility || "").trim().toLowerCase() === (f.name || "").trim().toLowerCase())).length;
+  const athletesAt = (f) => athletes
+    .filter((a) => ((a.offseasonFacility || "").trim().toLowerCase() === (f.name || "").trim().toLowerCase()))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const usedBy = (f) => athletesAt(f).length;
 
   // Pins need coordinates: any facility whose address has no coordinates yet (or whose address changed) is looked up
   // once, one request a second to respect the geocoding service's limit, and the result is saved on the record.
   const addressKey = facilities.map((f) => `${f.id}:${facilityAddressLine(f)}`).join("|");
-  const pendingGeo = facilities.filter((f) => facilityAddressLine(f) && !(f.geo && f.geo.q === facilityAddressLine(f))).length;
+  const needsGeo = (f) => {
+    const q = facilityAddressLine(f);
+    if (!q) return false;
+    return !(f.geo && f.geo.q === q && (f.geo.lat != null || f.geo.v === GEO_VERSION));
+  };
+  const pendingGeo = facilities.filter(needsGeo).length;
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       for (const f of window.AthleteStore.allOffseasonFacilities()) {
         if (cancelled) return;
+        if (!needsGeo(f)) continue;
         const q = facilityAddressLine(f);
-        if (!q || (f.geo && f.geo.q === q)) continue;
         try {
-          const hit = await geocodeAddress(q);
+          const hit = await locateFacility(f);
           if (cancelled) return;
           const latest = window.AthleteStore.allOffseasonFacilities().find((x) => x.id === f.id);
           if (latest) {
-            window.AthleteStore.saveOffseasonFacility({ ...latest, geo: { q, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null } });
+            window.AthleteStore.saveOffseasonFacility({
+              ...latest,
+              geo: { q, v: GEO_VERSION, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null, approx: hit ? hit.approx : false },
+            });
             setVersion((v) => v + 1);
           }
         } catch (e) {
@@ -1006,7 +1080,7 @@ function OffseasonFacilitiesPage() {
       <div className="facility-map-note">
         {facilities.filter((f) => f.geo && f.geo.lat != null).length} of {facilities.length} on the map
         {pendingGeo > 0 && ` · locating ${pendingGeo} address${pendingGeo === 1 ? "" : "es"}…`}
-        {facilities.some((f) => f.geo && f.geo.q && f.geo.lat == null) && " · some addresses weren't found, so check them with Edit"}
+        {facilities.some((f) => f.geo && f.geo.v === GEO_VERSION && f.geo.lat == null) && " · some addresses weren't found, so check them with Edit"}
       </div>
       <div className="facility-toolbar">
         <input className="facility-search" value={query} placeholder="Search by name, city, or contact" onChange={(e) => setQuery(e.target.value)} />
@@ -1022,6 +1096,11 @@ function OffseasonFacilitiesPage() {
               <strong>{f.name}</strong>
               <span className="facility-used">{usedBy(f)} athlete{usedBy(f) === 1 ? "" : "s"}</span>
             </div>
+            {usedBy(f) > 0 && (
+              <div className="facility-athletes">
+                <span>Training here:</span> {athletesAt(f).map((a) => a.name).join(", ")}
+              </div>
+            )}
             <FacilityDetails f={f} />
             <div className="facility-card-actions no-print">
               <button className="btn-link" onClick={() => setEditing(f)}>Edit</button>
@@ -3287,7 +3366,12 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, initialTab 
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
-      {athlete.rosterGroup === CUBS_ROSTER_GROUP && <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />}
+      {athlete.rosterGroup === CUBS_ROSTER_GROUP && (
+        <div className="offseason-row">
+          <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />
+          <OffseasonProgrammingPanel athlete={athlete} onChanged={onDataChange} />
+        </div>
+      )}
       {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} headerExtra={<PositionalProfilePanel athlete={athlete} planView compact />} />}
       <NotesPanel athleteId={athlete.id} />
       </div>
