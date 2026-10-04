@@ -2524,6 +2524,23 @@ tbody tr:hover {
 .program-assign-list small { color: var(--text-dim); }
 .program-assign-result { margin-top: 12px; font-size: 13px; }
 
+/* Programs by section on an athlete's periodization: section pills, then one tab per block */
+.period-program-tabs { user-select: text; }
+.ppt-sections { margin-bottom: 10px; }
+.ppt-blocks { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.ppt-block { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px 8px 0 0; background: transparent; color: var(--text-dim); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.ppt-block small { font-size: 11px; }
+.ppt-block:hover { color: var(--text); }
+.ppt-block.active { color: var(--text); border-color: var(--dst-red); background: rgba(165, 42, 52, 0.16); }
+.ppt-block.now small { color: var(--dst-red); }
+.ppt-empty { padding: 14px 0; display: flex; flex-direction: column; gap: 10px; }
+.ppt-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ppt-program-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ppt-program-head > strong { font-size: 16px; }
+.ppt-program-head small { color: var(--text-dim); }
+.ppt-program-head .ppt-actions { margin-left: auto; }
+.period-program-tabs .program-editor { margin-top: 4px; }
+
 /* A program week shown on the player plan (the block's attached program) */
 .period-programs { user-select: text; }
 .period-program + .period-program { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }

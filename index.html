@@ -1676,6 +1676,9 @@ function ProgramsPage({ nav, setNav }) {
   );
 }
 
+// The program builder is also used inside an athlete's periodization (see PlanProgramTabs in periodization.js).
+window.ProgramBuilderKit = { ProgramEditor, newWeek, athleteLastName };
+
 // ---- Off-season facility directory -------------------------------------------------------------
 // Every facility lives in one shared list (AthleteStore.allOffseasonFacilities). An athlete's
 // facility is the facility's name, matched against that list, so the address is looked up by name.

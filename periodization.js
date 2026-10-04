@@ -361,6 +361,114 @@
     return existing ? "added" : "created";
   }
 
+  // Programs by section, inside an athlete's periodization. Each row of the chart (Phase, Running, Strength,
+  // Correctives, Throwing…) is a section; its blocks, in order, are the tabs. A tab opens that block's program,
+  // or the program builder to make one. Anything built or changed here is saved to the Programs list as the
+  // athlete's own program, named with their last name in front, and linked to the block.
+  function PlanProgramTabs({ plan, athlete, onLinkProgram, onLog }) {
+    const kit = window.ProgramBuilderKit;
+    const store = window.AthleteStore;
+    const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
+    const [laneId, setLaneId] = useState(null);
+    const [blockId, setBlockId] = useState(null);
+    const [editing, setEditing] = useState(false);
+    if (!kit || !lanes.length) return null;
+
+    const p = planProgress(plan);
+    const wk = p.state === "active" ? p.week - 1 : null;
+    const lane = lanes.find((l) => l.id === laneId) || lanes.find((l) => /strength/i.test(l.name)) || lanes[0];
+    const blocks = plan.blocks.filter((b) => b.lane === lane.id).sort((a, b) => a.start - b.start);
+    const isNow = (b) => wk != null && b.start <= wk && wk < b.start + b.len;
+    const block = blocks.find((b) => b.id === blockId) || blocks.find(isNow) || blocks[0];
+    const program = block ? programById(block.programId) : null;
+    const weeksText = (b) => `Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""}`;
+
+    const last = kit.athleteLastName(athlete.name);
+    const withLast = (n) => ((n || "").toLowerCase().startsWith(last.toLowerCase()) ? n : `${last} - ${n}`);
+    const own = !!program && String(program.athleteId) === String(athlete.id);
+
+    const save = (rec) => {
+      const next = { ...rec, name: withLast(rec.name), athleteId: athlete.id, folder: (program && program.folder) || "" };
+      // a shared program is never changed from here: the athlete gets their own copy instead
+      if (!own) { delete next.id; if (program) next.basedOn = program.id; }
+      const saved = store.saveProgram(next);
+      if (!program || saved.id !== program.id) onLinkProgram(block.id, saved.id);
+      setEditing(false);
+    };
+
+    const exportPdf = async () => {
+      const cubs = !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete);
+      const { pdf, fits } = await window.buildProgramPdf(program, athlete.name, cubs);
+      if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
+      pdf.save(`${[athlete.name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+    };
+
+    const pick = (fn) => { setEditing(false); fn(); };
+    const current = program && block ? currentProgramWeek(plan, block, program) : null;
+
+    return (
+      <div className="panel period-program-tabs no-print">
+        <h2>Programs <small>Pick a section, then a block, to open or build its program</small></h2>
+        <div className="pill-tabs ppt-sections">
+          {lanes.map((l) => (
+            <button key={l.id} className={`pill-tab ${l.id === lane.id ? "active" : ""}`} onClick={() => pick(() => { setLaneId(l.id); setBlockId(null); })}>{l.name}</button>
+          ))}
+        </div>
+        <div className="ppt-blocks">
+          {blocks.map((b) => (
+            <button key={b.id} className={`ppt-block ${block && b.id === block.id ? "active" : ""} ${isNow(b) ? "now" : ""}`} onClick={() => pick(() => setBlockId(b.id))}>
+              <strong>{b.label || "Untitled"}</strong>
+              <small>{weeksText(b)}{programById(b.programId) ? " · program" : ""}{isNow(b) ? " · now" : ""}</small>
+            </button>
+          ))}
+        </div>
+
+        {block && editing && (
+          <kit.ProgramEditor
+            key={`${block.id}-${program ? program.id : "new"}`}
+            initial={program || { name: withLast(block.label || lane.name), description: "", weeks: [kit.newWeek(1)] }}
+            onSave={save}
+            onCancel={() => setEditing(false)}
+            onDelete={null}
+          />
+        )}
+
+        {block && !editing && !program && (
+          <div className="ppt-empty">
+            <div>No program for <strong>{block.label || "this block"}</strong> yet.</div>
+            <div className="ppt-actions">
+              <button className="btn" onClick={() => setEditing(true)}>Build a program</button>
+              <select value="" onChange={(e) => e.target.value && onLinkProgram(block.id, e.target.value)}>
+                <option value="">or link an existing program…</option>
+                {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {block && !editing && program && (
+          <div className="ppt-program">
+            <div className="ppt-program-head">
+              <strong>{program.name}</strong>
+              {!own && <small>Shared program. Editing it here saves {athlete.name}'s own copy as “{withLast(program.name)}”.</small>}
+              <span className="ppt-actions">
+                <button className="btn" onClick={() => setEditing(true)}>{own ? "Edit program" : "Edit for this athlete"}</button>
+                {window.buildProgramPdf && <button className="btn btn-secondary" onClick={exportPdf}>Export PDF</button>}
+                <button className="btn-link" onClick={() => onLinkProgram(block.id, null)}>Unlink</button>
+              </span>
+            </div>
+            {(program.weeks || []).map((w, wi) => (
+              <div className={`program-modal-week ${current === wi + 1 ? "current" : ""}`} key={wi}>
+                <h3>{w.name || `Week ${wi + 1}`}{current === wi + 1 && <small>This week</small>}</h3>
+                <ProgramWeekView week={w} log={(plan.programLog || {})[program.id] || {}} onLog={(key, val) => onLog(program.id, key, val)} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // The program week each attached block is on: this week while the plan is running, week 1 before it starts.
   function PlanPrograms({ plan, onLog }) {
     const p = planProgress(plan);
@@ -1580,6 +1688,8 @@
             </div>
           </div>
         )}
+
+        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId })} onLog={logWeight} />
 
         <PlanPrograms plan={plan} onLog={logWeight} />
         {(() => {
