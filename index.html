@@ -744,11 +744,14 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   }
   const leftW = (W - logoW) / 2 - M - 12; // names stay clear of the centered logo
   const oneLine = (text) => pdf.splitTextToSize(text, leftW)[0];
-  pdf.setTextColor(20);
+  // page color: Cubs blue for Cubs-only athletes, DST red otherwise
+  const theme = cubsLogo ? [14, 51, 134] : [165, 42, 52];
+  const tint = cubsLogo ? [231, 236, 247] : [248, 233, 234];
+  pdf.setTextColor(...theme);
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(15);
   pdf.text(oneLine(athleteName || program.name), M, M + 15);
   if (athleteName) {
-    pdf.setFont("helvetica", "normal"); pdf.setFontSize(11);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(11); pdf.setTextColor(70);
     pdf.text(oneLine(program.name), M, M + 31);
   }
 
@@ -771,41 +774,78 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const availH = H - M - top;
   const colW = (W - 2 * M - gutter) / maxDays;
 
+  // Each exercise leaves a blank at the right of its first line for writing in the weight used, and a rule
+  // is drawn between superset groups (A, B, C…).
   const layout = (fs) => {
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
-    const lineH = fs * 1.2;
+    const lineH = fs * 1.25, bandH = lineH + 3, gap = Math.max(2, fs * 0.35), blankW = fs * 4.2;
+    const textW = colW - 2 * pad - blankW - 4;
     const rows = weeks.map((w) => {
       const cells = (w.sessions || []).map((s, si) => {
         const named = (s.exercises || []).filter((e) => (e.name || "").trim());
         const labels = window.exerciseLabels(named);
-        const lines = named.flatMap((e, i) => pdf.splitTextToSize(exText(e, labels[i]), colW - 2 * pad));
-        return { name: s.name || `Day ${si + 1}`, lines };
+        const items = named.map((e, i) => ({ label: labels[i], lines: pdf.splitTextToSize(exText(e, labels[i]), textW), newGroup: i > 0 && !e.linked }));
+        const h = items.reduce((t, it) => t + it.lines.length * lineH + (it.newGroup ? gap * 2 : 0), 0);
+        return { name: s.name || `Day ${si + 1}`, items, h };
       });
-      const h = pad * 2 + lineH * (1 + Math.max(0, ...cells.map((c) => c.lines.length))) + 2;
-      return { name: w.name || "", cells, h };
+      return { name: w.name || "", cells, h: bandH + pad * 2 + Math.max(lineH, ...cells.map((c) => c.h)) };
     });
-    return { rows, lineH, total: rows.reduce((t, r) => t + r.h, 0) };
+    return { rows, lineH, bandH, gap, blankW, total: rows.reduce((t, r) => t + r.h, 0) };
   };
 
   let fs = 10, plan = layout(fs);
   while (plan.total > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
   const fits = plan.total <= availH;
+  const { lineH, bandH, gap, blankW } = plan;
 
-  pdf.setDrawColor(170); pdf.setLineWidth(0.5);
+  pdf.setDrawColor(...theme); pdf.setLineWidth(1.5);
+  pdf.line(M, top - 5, W - M, top - 5);
+
   let y = top;
   plan.rows.forEach((row) => {
-    pdf.rect(M, y, gutter, row.h);
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(Math.min(fs + 1, 10));
-    pdf.text(pdf.splitTextToSize(row.name, gutter - 2 * pad), M + pad, y + pad + plan.lineH * 0.8);
+    // week name: solid colored block down the left
+    pdf.setFillColor(...theme); pdf.rect(M, y, gutter, row.h, "F");
+    pdf.setTextColor(255); pdf.setFont("helvetica", "bold"); pdf.setFontSize(Math.min(fs + 1, 10));
+    pdf.text(pdf.splitTextToSize(row.name, gutter - 2 * pad), M + pad, y + pad + lineH * 0.8);
     for (let i = 0; i < maxDays; i++) {
       const x = M + gutter + i * colW;
-      pdf.rect(x, y, colW, row.h);
       const cell = row.cells[i];
-      if (!cell) continue;
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
-      pdf.text(pdf.splitTextToSize(cell.name, colW - 2 * pad)[0], x + pad, y + pad + plan.lineH * 0.8);
-      pdf.setFont("helvetica", "normal");
-      cell.lines.forEach((line, li) => pdf.text(line, x + pad, y + pad + plan.lineH * (li + 1.8) + 2));
+      if (cell) {
+        // day name on a tinted band, with the "Weight" column heading at the right
+        pdf.setFillColor(...tint); pdf.rect(x, y, colW, bandH, "F");
+        pdf.setTextColor(...theme); pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
+        pdf.text(pdf.splitTextToSize(cell.name, colW - 2 * pad - blankW)[0], x + pad, y + lineH * 0.8 + 1.5);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs * 0.8); pdf.setTextColor(110);
+        pdf.text("Weight", x + colW - pad, y + lineH * 0.8 + 1.5, { align: "right" });
+        pdf.setFontSize(fs);
+        let cy = y + bandH + pad;
+        cell.items.forEach((it) => {
+          if (it.newGroup) {
+            cy += gap;
+            pdf.setDrawColor(...theme); pdf.setLineWidth(0.4);
+            pdf.line(x + pad, cy, x + colW - pad, cy);
+            cy += gap;
+          }
+          it.lines.forEach((line, li) => {
+            const base = cy + lineH * 0.8;
+            if (li === 0) {
+              pdf.setFont("helvetica", "bold"); pdf.setTextColor(...theme);
+              pdf.text(it.label, x + pad, base);
+              const lw = pdf.getTextWidth(`${it.label} `);
+              pdf.setFont("helvetica", "normal"); pdf.setTextColor(20);
+              pdf.text(line.slice(it.label.length).trimStart(), x + pad + lw, base);
+              pdf.setDrawColor(120); pdf.setLineWidth(0.5);
+              pdf.line(x + colW - pad - blankW, base + 1, x + colW - pad, base + 1);
+            } else {
+              pdf.setFont("helvetica", "normal"); pdf.setTextColor(20);
+              pdf.text(line, x + pad, base);
+            }
+            cy += lineH;
+          });
+        });
+      }
+      pdf.setDrawColor(170); pdf.setLineWidth(0.5);
+      pdf.rect(x, y, colW, row.h);
     }
     y += row.h;
   });
