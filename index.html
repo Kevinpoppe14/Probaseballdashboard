@@ -4892,6 +4892,8 @@ function PlayerPlansSyncPage({ onSelect, onImported }) {
 
 // `embedded` renders the notes inside another panel (e.g. an athlete block on the Team Report)
 // instead of as its own card. Notes are stored per athlete, so they're shared with the player page.
+const USER_DISPLAY_NAMES = { "kevin@dynamicsportstraining.com": "Kevin Poppe" };
+
 function NotesPanel({ athleteId, embedded = false }) {
   const [text, setText] = useState("");
   const [tick, setTick] = useState(0);
@@ -4929,7 +4931,7 @@ function NotesPanel({ athleteId, embedded = false }) {
           {notes.map((n) => (
             <div className="note-entry" key={n.id}>
               <div className="note-meta">
-                <span>{new Date(n.timestamp).toLocaleString()}</span>
+                <span>{new Date(n.timestamp).toLocaleString()}{n.author ? ` · ${USER_DISPLAY_NAMES[n.author] || n.author}` : ""}</span>
                 <button className="btn-link no-print" onClick={() => handleDelete(n.id)}>Delete</button>
               </div>
               <div className="note-text">{n.text}</div>
