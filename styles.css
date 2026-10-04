@@ -2403,6 +2403,10 @@ tbody tr:hover {
 .facility-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 16px; }
 .facility-used { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .facility-card-actions { display: flex; gap: 14px; margin-top: 10px; }
+
+/* Leaflet map on the Facilities page. Its panes need their own stacking context so they stay under the app's top bar. */
+.facility-map { height: 420px; width: 100%; border-radius: 8px; border: 1px solid var(--border); position: relative; z-index: 0; margin-top: 12px; }
+.facility-map-note { font-size: 12px; color: var(--text-dim); margin: 6px 0 4px; }
 .cmj-mini .profile-controls { margin-bottom: 6px; }
 .cmj-mini .profile-row { grid-template-columns: minmax(110px, 1.3fr) minmax(70px, 0.9fr) 1.2fr 46px; gap: 6px; font-size: 11px; }
 .cmj-mini .profile-head { font-size: 9px; }

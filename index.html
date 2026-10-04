@@ -21,6 +21,9 @@
 <!-- html2canvas + jsPDF: client-side PDF snapshot for "Email to Athlete" / "Email Team Report" (see EmailComposer) -->
 <script crossorigin src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script crossorigin src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<!-- Leaflet: the map on the Off-Season Facilities page -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script crossorigin src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <div id="root">
@@ -727,6 +730,8 @@ function FacilityForm({ initial, onSave, onCancel }) {
       if (v) rec[key] = v;
     });
     if (initial && initial.id) rec.id = initial.id;
+    // keep the map coordinates; they're refreshed on the Facilities page if the address itself changes
+    if (initial && initial.geo) rec.geo = initial.geo;
     onSave(rec);
   };
 
@@ -863,6 +868,65 @@ function FacilityDetails({ f }) {
   );
 }
 
+// Looks up coordinates for a street address with OpenStreetMap's Nominatim service (US only).
+// Resolves to { lat, lng }, or null when the service has no match. Throws on network / rate-limit errors.
+async function geocodeAddress(q) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`geocode failed: HTTP ${res.status}`);
+  const rows = await res.json();
+  return rows[0] ? { lat: Number(rows[0].lat), lng: Number(rows[0].lon) } : null;
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Map of every located facility, centered on the continental US. One dot per facility; click for details.
+function FacilityMap({ facilities, color }) {
+  const elRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+  const layerRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!window.L || !elRef.current) return;
+    const map = L.map(elRef.current, { scrollWheelZoom: false }).setView([39.8, -98.6], 4);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+    mapRef.current = map;
+    layerRef.current = L.layerGroup().addTo(map);
+    return () => { map.remove(); mapRef.current = null; layerRef.current = null; };
+  }, []);
+
+  // Re-draw only when the pins actually change (not on every render), so panning and zooming survive typing in the search box.
+  const pinKey = facilities
+    .filter((f) => f.geo && f.geo.lat != null)
+    .map((f) => `${f.id}|${f.name}|${f.geo.lat},${f.geo.lng}|${f.phone || ""}|${f.contactName || ""}|${facilityAddressLine(f)}`)
+    .join(";");
+  React.useEffect(() => {
+    if (!mapRef.current || !layerRef.current) return;
+    layerRef.current.clearLayers();
+    const pts = [];
+    facilities.forEach((f) => {
+      if (!f.geo || f.geo.lat == null || f.geo.lng == null) return;
+      const addr = facilityAddressLine(f);
+      const popup = `<strong>${escapeHtml(f.name)}</strong>` +
+        (addr ? `<br>${escapeHtml(addr)}` : "") +
+        (f.phone ? `<br>${escapeHtml(f.phone)}` : "") +
+        (f.contactName ? `<br>Contact: ${escapeHtml(f.contactName)}` : "");
+      L.circleMarker([f.geo.lat, f.geo.lng], { radius: 7, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 })
+        .bindPopup(popup)
+        .addTo(layerRef.current);
+      pts.push([f.geo.lat, f.geo.lng]);
+    });
+    if (pts.length > 1) mapRef.current.fitBounds(pts, { padding: [30, 30], maxZoom: 7 });
+    else if (pts.length === 1) mapRef.current.setView(pts[0], 7);
+    else mapRef.current.setView([39.8, -98.6], 4);
+  }, [pinKey, color]);
+
+  return <div ref={elRef} className="facility-map" />;
+}
+
 // Facilities tab: the whole shared directory, searchable, with add / edit / delete.
 function OffseasonFacilitiesPage() {
   const [editing, setEditing] = useState(null); // null = list, {} = new facility, record = editing that one
@@ -873,6 +937,35 @@ function OffseasonFacilitiesPage() {
   const shown = facilities.filter((f) => !q || [f.name, f.city, f.state, f.contactName].some((v) => (v || "").toLowerCase().includes(q)));
   const athletes = window.AthleteStore.allAthletes();
   const usedBy = (f) => athletes.filter((a) => ((a.offseasonFacility || "").trim().toLowerCase() === (f.name || "").trim().toLowerCase())).length;
+
+  // Pins need coordinates: any facility whose address has no coordinates yet (or whose address changed) is looked up
+  // once, one request a second to respect the geocoding service's limit, and the result is saved on the record.
+  const addressKey = facilities.map((f) => `${f.id}:${facilityAddressLine(f)}`).join("|");
+  const pendingGeo = facilities.filter((f) => facilityAddressLine(f) && !(f.geo && f.geo.q === facilityAddressLine(f))).length;
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const f of window.AthleteStore.allOffseasonFacilities()) {
+        if (cancelled) return;
+        const q = facilityAddressLine(f);
+        if (!q || (f.geo && f.geo.q === q)) continue;
+        try {
+          const hit = await geocodeAddress(q);
+          if (cancelled) return;
+          const latest = window.AthleteStore.allOffseasonFacilities().find((x) => x.id === f.id);
+          if (latest) {
+            window.AthleteStore.saveOffseasonFacility({ ...latest, geo: { q, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null } });
+            setVersion((v) => v + 1);
+          }
+        } catch (e) {
+          // Network or rate-limit error: leave it unlocated and try again the next time the page opens.
+          console.warn("Facility map: couldn't locate", f.name, e);
+        }
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [addressKey]);
 
   const save = (rec) => {
     const old = editing && editing.id ? editing : null;
@@ -909,6 +1002,12 @@ function OffseasonFacilitiesPage() {
   return (
     <div className="panel">
       <h2>Off-Season Facilities <small>{facilities.length} in the directory</small></h2>
+      <FacilityMap facilities={facilities} color="#0E3386" />
+      <div className="facility-map-note">
+        {facilities.filter((f) => f.geo && f.geo.lat != null).length} of {facilities.length} on the map
+        {pendingGeo > 0 && ` · locating ${pendingGeo} address${pendingGeo === 1 ? "" : "es"}…`}
+        {facilities.some((f) => f.geo && f.geo.q && f.geo.lat == null) && " · some addresses weren't found, so check them with Edit"}
+      </div>
       <div className="facility-toolbar">
         <input className="facility-search" value={query} placeholder="Search by name, city, or contact" onChange={(e) => setQuery(e.target.value)} />
         <button className="btn" onClick={() => setEditing({})}>+ Add facility</button>
