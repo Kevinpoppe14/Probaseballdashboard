@@ -2398,7 +2398,8 @@ tbody tr:hover {
 .program-ex-nums { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.6fr 1.2fr; gap: 4px; margin-top: 4px; }
 .program-ex-nums input, .program-ex-nums select, .program-ex-notes { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; }
 .program-ex-notes { margin-top: 4px; }
-.program-day-actions { display: flex; gap: 14px; margin-top: 10px; }
+.program-day-actions { display: flex; gap: 14px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.program-copy-day { margin-left: auto; font-size: 12px; padding: 3px 5px; max-width: 110px; }
 .program-add-day { flex: 0 0 auto; align-self: stretch; min-width: 90px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; color: var(--text-dim); cursor: pointer; }
 .program-add-day:hover { color: var(--text); border-color: var(--text-dim); }
 

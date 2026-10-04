@@ -719,6 +719,23 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
     onSave(rec);
   };
 
+  // Copies one day's exercises (with their supersets) onto another day in the same week, or into a new day.
+  // The target keeps its own name; anything already entered there is replaced, after a confirm.
+  const copyDay = (wi, si, target) => {
+    if (target === "") return;
+    const week = draft.weeks[wi];
+    const copyOf = (d) => d.weeks[wi].sessions[si].exercises.map((e) => ({ ...e, id: newExercise().id }));
+    if (target === "new") {
+      edit((d) => { const s = d.weeks[wi].sessions; s.push({ name: `Day ${s.length + 1}`, exercises: copyOf(d) }); });
+      return;
+    }
+    const ti = Number(target);
+    const dest = week.sessions[ti];
+    const hasWork = dest.exercises.some((e) => (e.name || "").trim());
+    if (hasWork && !window.confirm(`Replace the exercises in ${dest.name || `Day ${ti + 1}`} with a copy of ${week.sessions[si].name || `Day ${si + 1}`}?`)) return;
+    edit((d) => { d.weeks[wi].sessions[ti].exercises = copyOf(d); });
+  };
+
   const input = (value, onChange, props = {}) => (
     <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
   );
@@ -783,6 +800,16 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete }) {
                   <div className="program-day-actions">
                     <button className="btn-link" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>+ Exercise</button>
                     <button className="btn-link" title="Adds an exercise linked to the one above (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>+ Superset</button>
+                    <select
+                      className="program-copy-day"
+                      value=""
+                      title="Copy this day's exercises to another day"
+                      onChange={(e) => copyDay(wi, si, e.target.value)}
+                    >
+                      <option value="">Copy to…</option>
+                      {week.sessions.map((s, ti) => ti !== si && <option key={ti} value={ti}>{s.name || `Day ${ti + 1}`}</option>)}
+                      <option value="new">New day</option>
+                    </select>
                   </div>
                 </div>
               );
