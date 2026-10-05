@@ -5865,16 +5865,20 @@ let lastProfilesTab = "active"; // remembered while the dashboard stays open, so
 function PlayerProfilesPage({ onSelect, dataVersion }) {
   const [tab, setTabState] = useState(lastProfilesTab);
   const setTab = (t) => { lastProfilesTab = t; setTabState(t); };
-  const count = (status) => getRoster().filter((a) => (a.status || "active").toLowerCase() === status).length;
+  const statusOf = (a) => (a.status || "active").toLowerCase();
+  const count = (status) => getRoster().filter((a) => statusOf(a) === status).length;
+  // Cubs-only players (on the Cubs roster and not also a DST client) have their own roster, apart from Active.
+  const cubsCount = getRoster().filter((a) => statusOf(a) === "active" && isCubsOnlyAthlete(a)).length;
   return (
     <div>
       <div className="pill-tabs no-print">
-        <button className={`pill-tab ${tab === "active" ? "active" : ""}`} onClick={() => setTab("active")}>Active Players ({count("active")})</button>
+        <button className={`pill-tab ${tab === "active" ? "active" : ""}`} onClick={() => setTab("active")}>Active Players ({count("active") - cubsCount})</button>
+        <button className={`pill-tab ${tab === "cubs" ? "active" : ""}`} onClick={() => setTab("cubs")}>Chicago Cubs ({cubsCount})</button>
         <button className={`pill-tab ${tab === "alumni" ? "active" : ""}`} onClick={() => setTab("alumni")}>Alumni ({count("alumni")})</button>
       </div>
-      {tab === "active"
-        ? <PlayerDirectoryPage onSelect={onSelect} dataVersion={dataVersion} />
-        : <AlumniPage onSelect={onSelect} dataVersion={dataVersion} />}
+      {tab === "alumni"
+        ? <AlumniPage onSelect={onSelect} dataVersion={dataVersion} />
+        : <PlayerDirectoryPage key={tab} onSelect={onSelect} dataVersion={dataVersion} cubs={tab === "cubs"} />}
     </div>
   );
 }
@@ -5938,21 +5942,22 @@ function AlumniPage({ onSelect, dataVersion }) {
   );
 }
 
-function PlayerDirectoryPage({ onSelect, dataVersion }) {
+// `cubs` shows the Cubs-only roster (on the Cubs 40-man and not also a DST client); otherwise the active DST roster.
+function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false }) {
   const [search, setSearch] = useState("");
-  const roster = getRoster().filter((a) => (a.status || "active").toLowerCase() === "active");
+  const roster = getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && isCubsOnlyAthlete(a) === cubs);
 
   const filtered = useMemo(() => {
     return roster
       .filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name)));
     // eslint-disable-next-line
-  }, [search, dataVersion]);
+  }, [search, dataVersion, cubs]);
 
   return (
     <div>
       <div className="panel">
-        <h2>Player Profiles</h2>
+        <h2>{cubs ? "Chicago Cubs" : "Player Profiles"}</h2>
         <input
           placeholder="Search athlete..."
           value={search}
