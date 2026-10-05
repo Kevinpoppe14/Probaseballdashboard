@@ -1258,7 +1258,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
               const labels = window.exerciseLabels(session.exercises);
               const setEx = (ei, key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei][key] = v; });
               return (
-                <div className="program-day" key={si}>
+                <div className={`program-day ${focusSet && focusSet.wi === wi && focusSet.si !== si ? "day-dimmed" : ""}`} key={si}>
                   <div className="program-session-head">
                     {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
                     <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>

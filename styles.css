@@ -2471,6 +2471,10 @@ tbody tr:hover {
 .program-ex.set-focused { background: rgba(165, 42, 52, 0.12); border-radius: 4px; }
 .program-ex.set-dimmed { opacity: 0.45; }
 .program-ex.set-dimmed:hover { opacity: 0.75; }
+/* and the other days of that week dim too */
+.program-day { transition: opacity 0.15s; }
+.program-day.day-dimmed { opacity: 0.45; }
+.program-day.day-dimmed:hover { opacity: 0.75; }
 
 /* suggested next phase */
 .program-next { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
