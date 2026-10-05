@@ -906,9 +906,9 @@ const programCounts = (p) => {
   return { weeks, sessions, exercises };
 };
 
-// Draws a program as a one-page landscape PDF: athlete and program name top left, DST logo top middle,
-// then one row per week with its days side by side. The text size steps down until every week fits on the page.
-// Returns { pdf, fontSize, fits }.
+// Draws a program as a landscape PDF: athlete and program name top left, logo top middle, then one row per
+// week with its days side by side. It stays on one page while the text can remain readable; a longer program
+// runs onto more pages, with whole weeks kept together. Returns { pdf, fontSize, fits, pages }.
 async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
@@ -936,12 +936,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
       logoRatio = im.naturalWidth / im.naturalHeight;
     } catch (e) { /* no logo file: the page still exports without it */ }
   }
-  let logoW = 0;
-  if (logo) {
-    const h = 38;
-    logoW = h * logoRatio;
-    pdf.addImage(logo, "PNG", (W - logoW) / 2, M, logoW, h);
-  }
+  const logoW = logo ? 38 * logoRatio : 0;
   const leftW = (W - logoW) / 2 - M - 12; // names stay clear of the centered logo
   const oneLine = (text) => pdf.splitTextToSize(text, leftW)[0];
   // Colors. DST follows its training sheets: black week blocks, red day bars, red accents and a bright cyan
@@ -950,13 +945,23 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     ? { week: [14, 51, 134], weekText: 255, day: [204, 52, 51], dayText: 255, accent: [14, 51, 134], pct: [214, 226, 247], label: [14, 51, 134] }
     : { week: [0, 0, 0], weekText: 255, day: [200, 16, 46], dayText: 255, accent: [200, 16, 46], pct: [0, 255, 255], label: [0, 0, 0] };
   const theme = C.accent;
-  pdf.setTextColor(...theme);
-  pdf.setFont("helvetica", "bold"); pdf.setFontSize(15);
-  pdf.text(oneLine(athleteName || program.name), M, M + 15);
-  if (athleteName) {
-    pdf.setFont("helvetica", "normal"); pdf.setFontSize(11); pdf.setTextColor(70);
-    pdf.text(oneLine(program.name), M, M + 31);
-  }
+  // Page header, repeated on every page: names top left, logo top middle, page number top right when there's more than one.
+  const drawHeader = (pageNo, pageCount) => {
+    if (logo) pdf.addImage(logo, "PNG", (W - logoW) / 2, M, logoW, 38);
+    pdf.setTextColor(...theme);
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(15);
+    pdf.text(oneLine(athleteName || program.name), M, M + 15);
+    if (athleteName) {
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(11); pdf.setTextColor(70);
+      pdf.text(oneLine(program.name), M, M + 31);
+    }
+    if (pageCount > 1) {
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(110);
+      pdf.text(`Page ${pageNo} of ${pageCount}`, W - M, M + 12, { align: "right" });
+    }
+    pdf.setDrawColor(...theme); pdf.setLineWidth(1.5);
+    pdf.line(M, M + headH + 3, W - M, M + headH + 3);
+  };
 
   const Rx = window.ProgramRx;
   // first line of an exercise: label, name, tempo just right of the name, then rest and notes
@@ -1029,16 +1034,36 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     return { rows, lineH, rowH, pctH, lineW, bandH, gap, nameFs, nameLH, noteLH, total: rows.reduce((t, r) => t + r.h, 0) };
   };
 
+  // One page when everything fits at a readable size (READABLE pt or larger). Otherwise the weeks are spread
+  // over as few pages as a readable size allows, and the text is then made as large as that page count permits.
+  const READABLE = 6;
+  const paginate = (p) => {
+    let page = 1, used = 0;
+    p.rows.forEach((row) => { if (used > 0 && used + row.h > availH) { page += 1; used = 0; } row.page = page; used += row.h; });
+    return page;
+  };
   let fs = 10, plan = layout(fs);
-  while (plan.total > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
-  const fits = plan.total <= availH;
+  while (plan.total > availH && fs > READABLE) { fs -= 0.5; plan = layout(fs); }
+  let pages = 1;
+  if (plan.total > availH) {
+    // a single week taller than a page keeps shrinking, so no week is ever cut off
+    while (Math.max(...plan.rows.map((r) => r.h)) > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
+    pages = paginate(plan);
+    for (let bigger = fs + 0.5; bigger <= 10; bigger += 0.5) {
+      const tryPlan = layout(bigger);
+      if (Math.max(...tryPlan.rows.map((r) => r.h)) > availH || paginate(tryPlan) > pages) break;
+      fs = bigger; plan = tryPlan;
+    }
+    pages = paginate(plan);
+  } else plan.rows.forEach((row) => { row.page = 1; });
+  const fits = Math.max(0, ...plan.rows.map((r) => r.h)) <= availH;
   const { lineH, rowH, pctH, lineW, bandH, gap, nameFs, nameLH, noteLH } = plan;
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
 
-  pdf.setDrawColor(...theme); pdf.setLineWidth(1.5);
-  pdf.line(M, top - 5, W - M, top - 5);
-
-  let y = top;
+  drawHeader(1, pages);
+  let y = top, pageNo = 1;
   plan.rows.forEach((row) => {
+    if (row.page !== pageNo) { pdf.addPage(); pageNo = row.page; drawHeader(pageNo, pages); y = top; }
     // week name: solid colored block down the left
     pdf.setFillColor(...C.week); pdf.rect(M, y, gutter, row.h, "F");
     pdf.setTextColor(C.weekText); pdf.setFont("helvetica", "bold"); pdf.setFontSize(Math.min(fs + 1, 10));
@@ -1128,7 +1153,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     }
     y += row.h;
   });
-  return { pdf, fontSize: fs, fits };
+  return { pdf, fontSize: fs, fits, pages };
 }
 
 // Opens a program's PDF in a new browser tab instead of downloading it, so it can be printed or saved from
@@ -1139,9 +1164,16 @@ async function openProgramPdf(program, athleteName, cubsLogo) {
   const tab = window.open("", "_blank");
   if (tab) tab.document.title = `Building ${title}…`;
   try {
-    const { pdf, fits } = await buildProgramPdf(program, athleteName, cubsLogo);
+    const built = await buildProgramPdf(program, athleteName, cubsLogo);
+    const { pdf, fits } = built;
     pdf.setProperties({ title });
-    if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
+    const { pages } = built;
+    // a program too long for one readable page prints on several; the coach is told before it opens
+    if (pages > 1 && !window.confirm(`"${program.name}" is too long to fit on one page at a readable size, so it will print on ${pages} pages. Continue?`)) {
+      if (tab) tab.close();
+      return;
+    }
+    if (!fits) window.alert("One week of this program is too long to fit on a page even at the smallest text size, so part of it is cut off. Try fewer exercises per day.");
     if (tab) tab.location.href = pdf.output("bloburl");
     else pdf.save(`${title.replace(/[\\/:*?"<>|]/g, "")}.pdf`);
   } catch (e) {
