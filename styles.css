@@ -2460,6 +2460,25 @@ tbody tr:hover {
 .indiv-empty { color: var(--text-dim); text-align: center; }
 @media (max-width: 700px) { .indiv-swaps { grid-template-columns: 1fr; } }
 
+/* Week tiles and day tiles are colored differently so they're easy to tell apart while programming, echoing the
+   PDF: a week is a slate tile with a dark header bar, a day is a tile with a red header bar. */
+.program-editor .program-week { background: rgba(100, 116, 139, 0.16); border-color: rgba(100, 116, 139, 0.6); padding: 0 14px 12px; }
+.program-editor .program-week-head { background: #1e293b; margin: 0 -14px; padding: 8px 14px; border-radius: 6px 6px 0 0; }
+.program-editor .program-week-head .program-week-name { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.4); }
+.program-editor .program-week-head .btn-link { color: #cbd5e1; }
+.program-editor .program-day { padding: 0 10px 10px; border-color: rgba(165, 42, 52, 0.55); }
+.program-editor .program-day .program-session-head { background: var(--dst-red); margin: 0 -10px; padding: 6px 10px; border-radius: 6px 6px 0 0; }
+.program-editor .program-day .program-session-name { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.45); }
+.program-editor .program-day .program-session-head .btn-link { color: #fff; }
+
+/* superset label that doubles as a picker for moving the exercise to another superset */
+.superset-pick { flex: 0 0 auto; width: 46px; padding: 3px 2px; font-size: 13px; font-weight: 700; color: var(--dst-red); background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.superset-pick option { color: initial; font-weight: 400; }
+.superset-order { display: inline-flex; flex-direction: column; flex: 0 0 auto; gap: 1px; }
+.superset-order button { font-size: 8px; line-height: 1; padding: 2px 4px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); border-radius: 3px; cursor: pointer; }
+.superset-order button:hover:not(:disabled) { color: var(--text); border-color: var(--dst-red); }
+.superset-order button:disabled { opacity: 0.3; cursor: default; }
+
 /* the week being worked on is outlined; the others dim until clicked */
 .program-week { transition: opacity 0.15s, border-color 0.15s; }
 .program-week.focused { border: 2px solid var(--dst-red); box-shadow: 0 0 12px rgba(165, 42, 52, 0.25); }
@@ -2468,7 +2487,7 @@ tbody tr:hover {
 .program-show-all { display: inline-block; margin-top: 10px; }
 /* inside a day, the superset being worked on stays bright and the day's other supersets dim */
 .program-ex { transition: opacity 0.15s; }
-.program-ex.set-focused { background: rgba(165, 42, 52, 0.12); border-radius: 4px; }
+.program-editor .program-ex.set-focused { background: rgba(165, 42, 52, 0.16); border-color: var(--dst-red); }
 .program-ex.set-dimmed { opacity: 0.45; }
 .program-ex.set-dimmed:hover { opacity: 0.75; }
 /* and the other days of that week dim too */
@@ -2493,8 +2512,14 @@ tbody tr:hover {
 .program-days { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding: 10px 0 6px; }
 .program-day { flex: 1 0 260px; max-width: 360px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel); }
 .program-day .program-session-name { width: 100%; min-width: 0; }
-.program-ex { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
-.program-ex.superset-linked { margin-top: 4px; padding-top: 4px; border-top: none; border-left: 3px solid var(--dst-red); padding-left: 6px; }
+/* Every exercise is its own bordered card, so it's clear where A1 ends and A2 begins. Cards in the same
+   superset sit close together; a wider gap with a rule above it marks the start of the next superset. */
+.program-ex { position: relative; margin-top: 22px; padding: 8px; border: 1px solid rgba(148, 163, 184, 0.55); border-left: 4px solid var(--dst-red); border-radius: 6px; background: rgba(148, 163, 184, 0.08); }
+.program-ex::before { content: ""; position: absolute; left: -4px; right: 0; top: -12px; border-top: 2px solid rgba(148, 163, 184, 0.45); }
+.program-ex.superset-linked { margin-top: 6px; }
+.program-ex.superset-linked::before { display: none; }
+.program-warmup + .program-ex { margin-top: 12px; }
+.program-warmup + .program-ex::before { display: none; }
 .program-ex-top { display: flex; align-items: center; gap: 6px; }
 .program-ex-name { flex: 1; min-width: 0; }
 .program-ex-nums { display: grid; grid-template-columns: auto 1.6fr 1fr; gap: 6px; margin-top: 4px; align-items: center; }

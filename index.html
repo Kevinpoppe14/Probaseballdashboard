@@ -1139,6 +1139,37 @@ function ProgramPdfButton({ program, disabled }) {
   );
 }
 
+// Moves one exercise of a day into another superset. `target` is the letter of an existing superset (the
+// exercise joins the end of it, so a B1 moved to A becomes the next A), or "__new__" to make it a superset of
+// its own right after the one it left. Returns the day's exercises in their new order, re-linked.
+function moveToSuperset(exercises, index, target) {
+  const letters = window.exerciseLabels(exercises).map((l) => l.replace(/\d+\.$/, ""));
+  const groups = [];
+  exercises.forEach((e, i) => {
+    if (i === 0 || letters[i] !== letters[i - 1]) groups.push({ letter: letters[i], items: [] });
+    groups[groups.length - 1].items.push(e);
+  });
+  const moving = exercises[index];
+  const from = groups.find((g) => g.items.includes(moving));
+  from.items = from.items.filter((e) => e !== moving);
+  if (target === "__new__") groups.splice(groups.indexOf(from) + 1, 0, { letter: null, items: [moving] });
+  else (groups.find((g) => g.letter === target) || from).items.push(moving);
+  return groups.filter((g) => g.items.length).flatMap((g) => g.items.map((e, i) => ({ ...e, linked: i > 0 })));
+}
+
+// Swaps an exercise with its neighbor (dir -1 = earlier, 1 = later) inside the same superset, so A2 can become
+// A1. The superset keeps its place and its links; only the two exercises trade positions.
+function swapInSuperset(exercises, index, dir) {
+  const j = index + dir;
+  if (j < 0 || j >= exercises.length) return exercises;
+  const next = exercises.map((e) => ({ ...e }));
+  const linkedAt = [next[index].linked, next[j].linked];
+  [next[index], next[j]] = [next[j], next[index]];
+  next[index].linked = linkedAt[0];
+  next[j].linked = linkedAt[1];
+  return next;
+}
+
 // Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
 function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
@@ -1278,7 +1309,31 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                       onFocusCapture={() => pickSet(wi, si, labels[ei])}
                     >
                       <div className="program-ex-top">
-                        <strong className="superset-label">{labels[ei]}</strong>
+                        {/* the label is a picker: choose another letter to move this exercise into that superset */}
+                        <select
+                          className="superset-pick"
+                          value="__here__"
+                          title="Change which superset this exercise belongs to"
+                          onChange={(e) => e.target.value !== "__here__" && edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises = moveToSuperset(s.exercises, ei, e.target.value); })}
+                        >
+                          <option value="__here__">{labels[ei]}</option>
+                          {[...new Set(labels.map((l) => l.replace(/\d+\.$/, "")))].filter((l) => l !== labels[ei].replace(/\d+\.$/, "")).map((l) => <option key={l} value={l}>Move to {l}</option>)}
+                          <option value="__new__">Its own superset</option>
+                        </select>
+                        {/* order within the superset: move this exercise earlier or later (A2 up to A1) */}
+                        {(() => {
+                          const letter = (i) => (labels[i] || "").replace(/\d+\.$/, "");
+                          const canUp = ei > 0 && letter(ei - 1) === letter(ei);
+                          const canDown = ei < session.exercises.length - 1 && letter(ei + 1) === letter(ei);
+                          if (!canUp && !canDown) return null;
+                          const move = (dir) => edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises = swapInSuperset(s.exercises, ei, dir); });
+                          return (
+                            <span className="superset-order">
+                              <button title="Move earlier in this superset" disabled={!canUp} onClick={() => move(-1)}>▲</button>
+                              <button title="Move later in this superset" disabled={!canDown} onClick={() => move(1)}>▼</button>
+                            </span>
+                          );
+                        })()}
                         {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names", onFocus: () => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }, onBlur: () => offerSwapForward(wi, si, ei) })}
                         {input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "program-ex-tempo", maxLength: 6, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
                         {window.AthleteStore.findExerciseByName(ex.name) && (
