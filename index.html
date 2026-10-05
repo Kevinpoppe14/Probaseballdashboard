@@ -1496,11 +1496,12 @@ const athleteLastName = (name) => {
 
 // Individualize an assigned program for one athlete: swap exercises, adjust sets and reps week by week, then
 // save it as a new program named "<Last name> - <Program>" and point the athlete's chart at that copy.
-function ProgramIndividualize({ program, athlete, onDone }) {
+function ProgramIndividualize({ program, athlete, onDone, skipLink = false }) {
+  const own = String(program.athleteId) === String(athlete.id);
   const S = window.AthleteStore;
   const [weeks, setWeeks] = useState(() => normalizeProgramWeeks(JSON.parse(JSON.stringify(program.weeks || []))));
   const [swaps, setSwaps] = useState({}); // original exercise name -> replacement
-  const newName = `${athleteLastName(athlete.name)} - ${program.name}`;
+  const newName = own ? program.name : `${athleteLastName(athlete.name)} - ${program.name}`;
   const named = (e) => (e.name || "").trim();
   const shownName = (e) => (swaps[named(e)] != null && swaps[named(e)].trim() ? swaps[named(e)].trim() : named(e));
 
@@ -1521,10 +1522,14 @@ function ProgramIndividualize({ program, athlete, onDone }) {
   const save = () => {
     const finalWeeks = JSON.parse(JSON.stringify(weeks));
     finalWeeks.forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => { e.name = shownName(e); })));
-    const saved = S.saveProgram({ name: newName, description: program.description || "", weeks: finalWeeks, folder: program.folder || "", basedOn: program.id, athleteId: athlete.id, nextProgramIds: program.nextProgramIds || [] });
+    // a program that's already this athlete's own is updated in place; a shared one is copied for them
+    const saved = own
+      ? S.saveProgram({ ...program, weeks: finalWeeks })
+      : S.saveProgram({ name: newName, description: program.description || "", weeks: finalWeeks, folder: program.folder || "", basedOn: program.id, athleteId: athlete.id, nextProgramIds: program.nextProgramIds || [] });
     // the athlete's chart now points at their own copy instead of the shared program
+    // (when opened from the athlete's periodization, that page relinks its own block instead)
     const plan = S.getPeriodization(athlete.id);
-    if (plan && (plan.blocks || []).some((b) => b.programId === program.id)) {
+    if (!own && !skipLink && plan && (plan.blocks || []).some((b) => b.programId === program.id)) {
       const next = JSON.parse(JSON.stringify(plan));
       next.blocks.forEach((b) => { if (b.programId === program.id) { b.programId = saved.id; if (b.label === program.name) b.label = saved.name; } });
       S.setPeriodization(athlete.id, next);
@@ -2037,7 +2042,7 @@ function ProgramsPage({ nav, setNav }) {
 }
 
 // The program builder is also used inside an athlete's periodization (see PlanProgramTabs in periodization.js).
-window.ProgramBuilderKit = { ProgramEditor, newWeek, athleteLastName };
+window.ProgramBuilderKit = { ProgramEditor, ProgramIndividualize, newWeek, athleteLastName };
 
 // ---- Off-season facility directory -------------------------------------------------------------
 // Every facility lives in one shared list (AthleteStore.allOffseasonFacilities). An athlete's

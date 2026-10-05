@@ -372,6 +372,7 @@
     const store = window.AthleteStore;
     const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
     const [rev, setRev] = useState(0); // bumped to reload the builder from what's saved
+    const [indivFor, setIndivFor] = useState(null); // block whose program is open in the Individualize screen
     if (!kit || !lanes.length) return null;
 
     const p = planProgress(plan);
@@ -400,7 +401,19 @@
 
     return (
       <div className="panel period-program-tabs no-print" ref={panelRef}>
-        <h2>Program builder <small>Pick a section, then a tab, to edit that block's program</small></h2>
+        <h2 className="ppt-title">
+          <span>Program builder <small>Pick a section, then a tab, to edit that block's program</small></span>
+          {/* the quick swap-exercises / sets-and-reps screen, available any time after a program is assigned */}
+          {block && program && kit.ProgramIndividualize && indivFor !== block.id && (
+            <button
+              className="btn ppt-individualize"
+              title="Swap exercises and adjust sets and reps for this athlete"
+              onClick={() => { if (!dirty || window.confirm("Open Individualize and lose your unsaved changes in the builder?")) { setDirty(false); setIndivFor(block.id); } }}
+            >
+              Individualize
+            </button>
+          )}
+        </h2>
         <div className="pill-tabs ppt-sections">
           {lanes.map((l) => (
             <button key={l.id} className={`pill-tab ${l.id === lane.id ? "active" : ""}`} onClick={() => onNav({ laneId: l.id, blockId: null })}>{l.name}</button>
@@ -415,7 +428,21 @@
           ))}
         </div>
 
-        {block && (
+        {block && program && indivFor === block.id && (
+          <kit.ProgramIndividualize
+            key={`${block.id}-${program.id}`}
+            program={program}
+            athlete={athlete}
+            skipLink
+            onDone={(saved) => {
+              if (saved && saved.id !== program.id) onLinkProgram(block.id, saved.id);
+              setIndivFor(null);
+              setRev((r) => r + 1);
+            }}
+          />
+        )}
+
+        {block && indivFor !== block.id && (
           <div className="ppt-note">
             {!program && (
               <React.Fragment>
@@ -444,7 +471,7 @@
           </div>
         )}
 
-        {block && (
+        {block && indivFor !== block.id && (
           <kit.ProgramEditor
             key={`${block.id}-${program ? program.id : "new"}-${rev}`}
             initial={program || { name: withLast(block.label || lane.name), description: "", weeks: [kit.newWeek(1)] }}
