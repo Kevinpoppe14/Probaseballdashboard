@@ -2522,7 +2522,10 @@ tbody tr:hover {
 .program-warmup + .program-ex::before { display: none; }
 .program-ex-top { display: flex; align-items: center; gap: 6px; }
 .program-ex-name { flex: 1; min-width: 0; }
-.program-ex-nums { display: grid; grid-template-columns: auto 1.6fr 1fr; gap: 6px; margin-top: 4px; align-items: center; }
+.program-ex-nums { display: grid; grid-template-columns: auto 1.5fr 1fr 1fr; gap: 6px; margin-top: 4px; align-items: center; }
+.program-ex-spacer { flex: 1; }
+.program-ex > .program-ex-name { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 13px; font-weight: 600; padding: 6px 6px; }
+.program-editor .program-day { max-width: 420px; }
 .program-warmup { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: 12px; padding: 5px 6px; resize: vertical; }
 .program-view-warmup { font-size: 13px; margin: 2px 0 6px; white-space: pre-wrap; }
 .program-ex-tempo { flex: 0 0 52px; width: 52px; min-width: 0; text-align: center; font-size: 12px; padding: 4px 3px; box-sizing: border-box; }
