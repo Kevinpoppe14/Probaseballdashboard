@@ -2526,6 +2526,9 @@ tbody tr:hover {
 .program-ex-spacer { flex: 1; }
 .program-ex > .program-ex-name { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 13px; font-weight: 600; padding: 6px 6px; }
 .program-editor .program-day { max-width: 420px; }
+/* the name as wrapping text while it isn't being edited */
+.program-ex > .program-ex-name-view { border: 1px solid var(--input-border, var(--border)); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text); cursor: text; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; min-height: 1.3em; }
+.program-ex > .program-ex-name-view.empty { color: var(--text-dim); font-weight: 400; }
 .program-warmup { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: 12px; padding: 5px 6px; resize: vertical; }
 .program-view-warmup { font-size: 13px; margin: 2px 0 6px; white-space: pre-wrap; }
 .program-ex-tempo { flex: 0 0 52px; width: 52px; min-width: 0; text-align: center; font-size: 12px; padding: 4px 3px; box-sizing: border-box; }

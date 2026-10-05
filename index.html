@@ -1157,6 +1157,37 @@ function moveToSuperset(exercises, index, target) {
   return groups.filter((g) => g.items.length).flatMap((g) => g.items.map((e, i) => ({ ...e, linked: i > 0 })));
 }
 
+// Exercise name in the program builder. While it isn't being typed in, the name shows as text that wraps onto
+// as many lines as it needs; clicking (or tabbing into) it turns it into the usual box with library suggestions.
+function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className="program-ex-name"
+        list="exercise-library-names"
+        value={value || ""}
+        placeholder="Exercise"
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => { setEditing(false); onBlur(); }}
+        onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+      />
+    );
+  }
+  return (
+    <div
+      className={`program-ex-name program-ex-name-view ${(value || "").trim() ? "" : "empty"}`}
+      tabIndex={0}
+      title="Click to edit"
+      onClick={() => { onFocus(); setEditing(true); }}
+      onFocus={() => { onFocus(); setEditing(true); }}
+    >
+      {(value || "").trim() || "Exercise"}
+    </div>
+  );
+}
+
 // Swaps an exercise with its neighbor (dir -1 = earlier, 1 = later) inside the same superset, so A2 can become
 // A1. The superset keeps its place and its links; only the two exercises trade positions.
 function swapInSuperset(exercises, index, dir) {
@@ -1350,7 +1381,12 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                         <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
                       </div>
                       {/* the name gets the full width of the card */}
-                      {input(ex.name, (v) => setEx(ei, "name", v), { placeholder: "Exercise", className: "program-ex-name", list: "exercise-library-names", title: ex.name || "", onFocus: () => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }, onBlur: () => offerSwapForward(wi, si, ei) })}
+                      <ExerciseNameField
+                        value={ex.name}
+                        onChange={(v) => setEx(ei, "name", v)}
+                        onFocus={() => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }}
+                        onBlur={() => offerSwapForward(wi, si, ei)}
+                      />
                       {/* set groups: each line is sets x reps at an intensity, so the intensity can change set to set */}
                       {ex.groups.map((g, gi) => {
                         const setG = (key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups[gi][key] = v; });
