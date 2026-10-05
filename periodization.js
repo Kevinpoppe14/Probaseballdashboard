@@ -294,9 +294,7 @@
     const exportPdf = async () => {
       const name = athlete ? athlete.name : "";
       const cubs = !!athlete && !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete);
-      const { pdf, fits } = await window.buildProgramPdf(program, name, cubs);
-      if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
-      pdf.save(`${[name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+      await window.openProgramPdf(program, name, cubs);
     };
     useEffect(() => {
       const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -308,7 +306,7 @@
         <div className="zoom-modal program-modal" onClick={(e) => e.stopPropagation()}>
           <button className="zoom-close" onClick={onClose} aria-label="Close">×</button>
           <h2>{program.name}</h2>
-          {window.buildProgramPdf && <button className="btn program-modal-pdf" onClick={exportPdf}>Export PDF{athlete ? ` for ${athlete.name}` : ""}</button>}
+          {window.buildProgramPdf && <button className="btn program-modal-pdf" onClick={exportPdf}>Print / Save PDF{athlete ? ` for ${athlete.name}` : ""}</button>}
           {program.description && <p className="program-modal-desc">{program.description}</p>}
           {(program.weeks || []).map((w, wi) => (
             <div className={`program-modal-week ${currentNo === wi + 1 ? "current" : ""}`} key={wi}>

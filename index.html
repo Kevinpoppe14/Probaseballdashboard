@@ -1131,7 +1131,27 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   return { pdf, fontSize: fs, fits };
 }
 
-// "Export PDF" with an optional athlete name for the page's top-left corner.
+// Opens a program's PDF in a new browser tab instead of downloading it, so it can be printed or saved from
+// there. The tab is opened straight away (browsers block one opened after a wait) and filled once the PDF is
+// built. If the browser blocks the tab anyway, the PDF downloads as before.
+async function openProgramPdf(program, athleteName, cubsLogo) {
+  const title = [athleteName, program.name].filter(Boolean).join(" - ");
+  const tab = window.open("", "_blank");
+  if (tab) tab.document.title = `Building ${title}…`;
+  try {
+    const { pdf, fits } = await buildProgramPdf(program, athleteName, cubsLogo);
+    pdf.setProperties({ title });
+    if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
+    if (tab) tab.location.href = pdf.output("bloburl");
+    else pdf.save(`${title.replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+  } catch (e) {
+    if (tab) tab.close();
+    throw e;
+  }
+}
+window.openProgramPdf = openProgramPdf;
+
+// "Print / Save PDF" with an optional athlete name for the page's top-left corner.
 function ProgramPdfButton({ program, disabled }) {
   const [athleteId, setAthleteId] = useState("");
   const athletes = window.AthleteStore.allAthletes()
@@ -1141,9 +1161,7 @@ function ProgramPdfButton({ program, disabled }) {
   const run = async () => {
     const athlete = athletes.find((a) => String(a.id) === athleteId);
     const name = athlete ? athlete.name : "";
-    const { pdf, fits } = await buildProgramPdf(program, name, !!athlete && isCubsOnlyAthlete(athlete));
-    if (!fits) window.alert("This program is too long to fit on one page at a readable size, so the bottom of the page is cut off. Try fewer weeks per program.");
-    pdf.save(`${[name, program.name].filter(Boolean).join(" - ").replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+    await openProgramPdf(program, name, !!athlete && isCubsOnlyAthlete(athlete));
   };
 
   return (
@@ -1152,7 +1170,7 @@ function ProgramPdfButton({ program, disabled }) {
         <option value="">No athlete name</option>
         {athletes.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
       </select>
-      <button className="btn-link" disabled={disabled} onClick={run}>Export PDF</button>
+      <button className="btn-link" disabled={disabled} onClick={run} title="Opens the PDF in a new tab, where you can print it or save it">Print / Save PDF</button>
     </span>
   );
 }
@@ -1809,10 +1827,31 @@ function ProgramsPage({ nav, setNav }) {
     onDrop: (e) => {
       e.preventDefault();
       setDropOver(null);
-      const p = programs.find((x) => x.id === e.dataTransfer.getData("application/x-program"));
-      if (p && (p.folder || "") !== path) moveProgram(p, path);
+      // one card, or every selected card when the dragged one is part of the selection
+      const ids = e.dataTransfer.getData("application/x-program").split(",");
+      movePrograms(programs.filter((x) => ids.includes(x.id)), path);
     },
   });
+
+  // Selecting several programs: tick their boxes, then move them together (drag any one of them onto a folder,
+  // or use the Move menu) or delete them together.
+  const [selected, setSelected] = useState(() => new Set());
+  const selectedPrograms = programs.filter((p) => selected.has(p.id));
+  const toggleSelected = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const movePrograms = (list, to) => {
+    list.filter((p) => (p.folder || "") !== to).forEach((p) => S.saveProgram({ ...p, folder: to }));
+    setSelected(new Set());
+    bump();
+  };
+  const deleteSelected = () => {
+    const n = selectedPrograms.length;
+    const assigned = selectedPrograms.filter((p) => athletesOnProgram(p.id).length > 0).length;
+    const warn = assigned ? ` ${assigned} of them ${assigned === 1 ? "is" : "are"} on athletes' periodization charts; those blocks will lose their program.` : "";
+    if (!window.confirm(`Delete ${n} program${n === 1 ? "" : "s"}?${warn} This can't be undone.`)) return;
+    selectedPrograms.forEach((p) => S.deleteProgram(p.id));
+    setSelected(new Set());
+    bump();
+  };
 
   const save = (rec) => {
     // an edited program stays in its folder; a new one goes in the folder being viewed
@@ -1910,20 +1949,50 @@ function ProgramsPage({ nav, setNav }) {
           ))}
         </div>
       )}
+      {here.length > 0 && (
+        <div className="program-bulk">
+          <label className="program-bulk-all">
+            <input
+              type="checkbox"
+              checked={here.every((p) => selected.has(p.id))}
+              onChange={(e) => setSelected((s) => { const n = new Set(s); here.forEach((p) => (e.target.checked ? n.add(p.id) : n.delete(p.id))); return n; })}
+            />
+            Select all shown
+          </label>
+          {selectedPrograms.length > 0 && (
+            <React.Fragment>
+              <strong>{selectedPrograms.length} selected</strong>
+              <select value="" title="Move the selected programs to a folder" onChange={(e) => e.target.value !== "" && movePrograms(selectedPrograms, e.target.value === "__top__" ? "" : e.target.value)}>
+                <option value="">Move selected to…</option>
+                <option value="__top__">All programs (no folder)</option>
+                {folders.map((f) => <option key={f} value={f}>{f.replace(/\//g, " › ")}</option>)}
+              </select>
+              <button className="btn-link program-bulk-delete" onClick={deleteSelected}>Delete selected</button>
+              <button className="btn-link" onClick={() => setSelected(new Set())}>Clear selection</button>
+              <span className="program-bulk-hint">or drag any selected card onto a folder</span>
+            </React.Fragment>
+          )}
+        </div>
+      )}
       {here.length === 0 && <div className="empty-state">{searching ? "No programs match that search." : folder ? "No programs in this folder yet." : subfolders.length ? "No unfiled programs. Open a folder, or create a program here." : "No programs yet. Create one to get started."}</div>}
       <div className="facility-list">
         {here.map((p) => {
           const c = programCounts(p);
           return (
             <div
-              className="facility-card program-card"
+              className={`facility-card program-card ${selected.has(p.id) ? "selected" : ""}`}
               key={p.id}
               draggable
-              title="Drag onto a folder to move it"
-              onDragStart={(e) => { e.dataTransfer.setData("application/x-program", p.id); e.dataTransfer.effectAllowed = "move"; }}
+              title={selected.has(p.id) && selected.size > 1 ? `Drag onto a folder to move all ${selected.size} selected programs` : "Drag onto a folder to move it"}
+              onDragStart={(e) => {
+                const ids = selected.has(p.id) ? [...selected] : [p.id];
+                e.dataTransfer.setData("application/x-program", ids.join(","));
+                e.dataTransfer.effectAllowed = "move";
+              }}
               onDragEnd={() => setDropOver(null)}
             >
               <div className="facility-card-head">
+                <input type="checkbox" className="program-select" checked={selected.has(p.id)} onChange={() => toggleSelected(p.id)} title="Select this program" aria-label={`Select ${p.name}`} />
                 <button className="program-name-link" title="Open this program" onClick={() => setEditing(p)}>{p.name}</button>
                 <span className="facility-used">{c.weeks} wk · {c.sessions} days · {c.exercises} exercises</span>
               </div>
