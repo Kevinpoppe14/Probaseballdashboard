@@ -692,7 +692,10 @@ const EXERCISE_PATTERNS = ["Squat", "Hinge", "Lunge / Single-Leg", "Horizontal P
 const EXERCISE_REGIONS = ["Lower Body", "Upper Body", "Core", "Full Body"];
 const EXERCISE_LATERALITY = ["Bilateral", "Unilateral"];
 const EXERCISE_EQUIPMENT = ["Barbell", "Trap Bar", "Dumbbell", "Kettlebell", "Cable", "Band", "Med Ball", "Landmine", "Machine", "Sled", "Bodyweight"];
-const exerciseTags = (e) => [e.tier, e.pattern, e.region, e.laterality, ...(e.equipment || [])].filter(Boolean);
+// Extra tags an exercise can carry on top of its tier: Arm Care (scap, forearm or rotator cuff work, whatever
+// tier the exercise is) and Elbow Enforcer (the EE series).
+const EXERCISE_EXTRA_TAGS = ["Arm Care", "Elbow Enforcer"];
+const exerciseTags = (e) => [...new Set([e.tier, ...(e.tags || []), e.pattern, e.region, e.laterality, ...(e.equipment || [])].filter(Boolean))];
 
 // Turns a YouTube or Vimeo link (including YouTube Shorts) into its embeddable player address; null for anything else.
 function videoEmbed(url) {
@@ -768,7 +771,7 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
     </label>
   );
   const submit = () => {
-    const rec = { name, videoUrl: (draft.videoUrl || "").trim(), tier: draft.tier || "", pattern: draft.pattern || "", region: draft.region || "", laterality: draft.laterality || "", equipment: draft.equipment || [], cues: (draft.cues || "").trim() };
+    const rec = { name, videoUrl: (draft.videoUrl || "").trim(), tier: draft.tier || "", pattern: draft.pattern || "", region: draft.region || "", laterality: draft.laterality || "", equipment: draft.equipment || [], tags: draft.tags || [], cues: (draft.cues || "").trim() };
     if (draft.id) rec.id = draft.id;
     onSave(rec);
   };
@@ -792,6 +795,16 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
               <label key={q}>
                 <input type="checkbox" checked={(draft.equipment || []).includes(q)} onChange={() => set("equipment", (draft.equipment || []).includes(q) ? draft.equipment.filter((x) => x !== q) : [...(draft.equipment || []), q])} />
                 {q}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="facility-field wide"><span>Tags</span>
+          <div className="exercise-equipment">
+            {EXERCISE_EXTRA_TAGS.map((t) => (
+              <label key={t}>
+                <input type="checkbox" checked={(draft.tags || []).includes(t)} onChange={() => set("tags", (draft.tags || []).includes(t) ? draft.tags.filter((x) => x !== t) : [...(draft.tags || []), t])} />
+                {t}
               </label>
             ))}
           </div>
@@ -820,7 +833,8 @@ function ExerciseLibrary({ sectionTabs }) {
   const [, setVersion] = useState(0);
   const all = S.allExercises();
   const q = query.trim().toLowerCase();
-  const shown = all.filter((e) => (!tier || e.tier === tier) && (!q || [e.name, ...exerciseTags(e)].some((v) => (v || "").toLowerCase().includes(q))));
+  const [tag, setTag] = useState("");
+  const shown = all.filter((e) => (!tier || e.tier === tier) && (!tag || (e.tags || []).includes(tag)) && (!q || [e.name, ...exerciseTags(e)].some((v) => (v || "").toLowerCase().includes(q))));
 
   if (editing) {
     return (
@@ -843,6 +857,10 @@ function ExerciseLibrary({ sectionTabs }) {
         <select value={tier} onChange={(e) => setTier(e.target.value)}>
           <option value="">All tiers</option>
           {EXERCISE_TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={tag} onChange={(e) => setTag(e.target.value)}>
+          <option value="">All tags</option>
+          {EXERCISE_EXTRA_TAGS.map((t) => <option key={t} value={t}>{t} ({all.filter((e) => (e.tags || []).includes(t)).length})</option>)}
         </select>
         <button className="btn" onClick={() => setEditing({})}>+ Add exercise</button>
       </div>
