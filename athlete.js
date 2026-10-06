@@ -35,6 +35,7 @@
   let data = null; // what athlete_portal_get returned
   let plan = null; // data.plan with programLog holding everything logged so far
   let weekIdx = 0, itemIdx = 0, dayIdx = 0;
+  let view = "program"; // "program" (this week's training) or "plan" (the player plan)
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
 
   const programById = (id) => (data.programs || []).find((p) => p.id === id) || null;
@@ -177,9 +178,67 @@
       last ? el("span", { class: "last", title: `Logged in week ${last.week}` }, `Wk ${last.week}: ${last.text}`) : null);
   }
 
+  // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------
+  const menu = () => el("div", { class: "menu", role: "tablist" },
+    [["program", "Program"], ["plan", "My Plan"]].map(([id, text]) => el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, text)));
+  const blockDates = (b) => {
+    const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);
+    const z = new Date(a); z.setDate(z.getDate() + b.len * 7 - 1);
+    const f = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return `Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""} · ${f(a)} – ${f(z)}`;
+  };
+  function planView() {
+    const now = currentWeek();
+    const main = el("main");
+    const started = new Date(new Date().toDateString()) >= parseISO(plan.startDate);
+    const end = parseISO(plan.startDate); end.setDate(end.getDate() + plan.weeks * 7 - 1);
+    const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    main.append(el("div", { class: "card" },
+      el("div", { class: "card-title" }, started ? `Week ${now + 1} of ${plan.weeks}` : `Starts ${fmt(parseISO(plan.startDate))}`),
+      el("div", { class: "bar" }, el("span", { style: `width:${started ? Math.round(((now + 1) / plan.weeks) * 100) : 0}%` })),
+      el("div", { class: "card-sub" }, `${fmt(parseISO(plan.startDate))} – ${fmt(end)}`)));
+
+    const lanes = (plan.lanes || []).filter((l) => (plan.blocks || []).some((b) => b.lane === l.id));
+    if (lanes.length) main.append(el("h2", { class: "section" }, "Timeline"));
+    lanes.forEach((l) => {
+      const blocks = plan.blocks.filter((b) => b.lane === l.id).sort((a, b) => a.start - b.start);
+      main.append(el("div", { class: "card" },
+        el("div", { class: "card-title" }, l.name),
+        blocks.map((b) => {
+          const state = started && b.start <= now && now < b.start + b.len ? "now" : (started && b.start + b.len <= now ? "past" : "");
+          return el("div", { class: `phase ${state}`, style: `border-left-color:${b.color || l.color || "#666"}` },
+            el("div", { class: "phase-name" }, b.label || "Untitled", state === "now" ? el("span", { class: "now-tag" }, "Now") : null),
+            el("div", { class: "phase-when" }, blockDates(b)));
+        })));
+    });
+
+    const goals = plan.goals && typeof plan.goals === "object" ? plan.goals : {};
+    [["physical", "Physical Goals"], ["skill", "Skill Goals"], ["habits", "Habits"]].forEach(([key, title]) => {
+      const items = Array.isArray(goals[key]) ? goals[key].filter((g) => g && (g.text || "").trim()) : [];
+      if (!items.length) return;
+      main.append(el("h2", { class: "section" }, title, el("small", null, `${items.filter((g) => g.done).length} of ${items.length} achieved`)));
+      main.append(el("div", { class: "card" }, items.map((g, i) => el("div", { class: `goal${g.done ? " done" : ""}` },
+        el("span", { class: "goal-rank" }, `${i + 1}`), el("span", { class: "goal-mark" }, g.done ? "✓" : "○"), el("span", null, g.text)))));
+    });
+
+    const facility = (data.athlete.offseasonFacility || "").trim().replace(/\.$/, "");
+    const first = (data.athlete.name || "").trim().split(/\s+/)[0];
+    const lead = facility && first ? `This off-season, ${first} will be training at ${facility}.` : "";
+    const action = typeof plan.actionPlan === "string" ? plan.actionPlan.trim() : "";
+    if (lead || action) {
+      main.append(el("h2", { class: "section" }, "Action Plan"));
+      main.append(el("div", { class: "card action" }, lead ? el("p", { class: "lead" }, lead) : null, action || null));
+    }
+    return main;
+  }
+
   // ---- the page ----------------------------------------------------------------------------------
   function render() {
     derived = [];
+    if (view === "plan") {
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Plan")), menu()), planView());
+      return;
+    }
     const items = itemsAt(weekIdx);
     itemIdx = Math.min(itemIdx, Math.max(0, items.length - 1));
     const item = items[itemIdx];
@@ -189,6 +248,7 @@
 
     const top = el("div", { class: "top" },
       el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Program")),
+      menu(),
       el("div", { class: "weekbar" },
         el("button", { class: "nav", "aria-label": "Previous week", disabled: weekIdx <= 0, onclick: go(() => { weekIdx -= 1; dayIdx = 0; }) }, "‹"),
         el("h1", null, `Week ${weekIdx + 1} of ${plan.weeks}${weekIdx === currentWeek() ? " · This week" : ""}`, el("small", null, weekDates(weekIdx))),
