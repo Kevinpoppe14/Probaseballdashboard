@@ -176,6 +176,11 @@
       if (!window.confirm(`Remove Week ${wi + 1}? The weeks after it move up.`)) return;
       commit(weeks.filter((_, i) => i !== wi));
     };
+    // every day back to OFF with nothing typed in; the weeks themselves stay
+    const clearAll = () => {
+      if (!window.confirm(`Clear the whole throwing progression for ${athlete.name}? Every day in all ${weeks.length} week${weeks.length === 1 ? "" : "s"} goes to OFF and its text is erased.`)) return;
+      commit(weeks.map(() => blankWeek()));
+    };
     const reset = () => {
       if (!window.confirm("Put this athlete back on the base 7-week progression? Their changes will be lost.")) return;
       commit(baseWeeks());
@@ -241,6 +246,7 @@
           <div className="tp-actions no-print">
             <button className="btn btn-primary" onClick={addWeek}>+ Add Week</button>
             <button className="btn btn-secondary" onClick={reset}>Reset to base program</button>
+            <button className="btn btn-secondary" onClick={clearAll}>Clear all</button>
             <span className="timestamp-note">{isSaved ? `${weeks.length} week${weeks.length === 1 ? "" : "s"} saved for ${athlete.name}.` : "Showing the base program. It saves to this athlete as soon as you change something."}</span>
           </div>
           <div className="tp-acr-help">
