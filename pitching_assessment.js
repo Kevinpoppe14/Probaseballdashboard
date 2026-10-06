@@ -128,7 +128,7 @@
     );
   }
 
-  function PitchingForm({ record, athlete, onSave }) {
+  function PitchingForm({ record, athlete, onSave, printTitle }) {
     const [rec, setRec] = useState(record);
     const saveTimer = useRef(null);
     const first = useRef(true);
@@ -163,6 +163,9 @@
 
     return (
       <div className="assess-form pa-form">
+        {/* first printed page: the header and every mechanical checkpoint */}
+        <div className="pa-page">
+        {printTitle}
         <div className="panel assess-header">
           <div className="assess-print-logo"><img src="assets/dst-logo.png" alt="Dynamic Sports Training" /></div>
           <div className="assess-header-grid pa-header-grid">
@@ -186,19 +189,24 @@
               <h2>DST Mechanical Analysis <small>continued</small></h2>
               <CheckTable groups={GROUPS.filter((g) => !g.left)} rec={rec} set={set} />
             </div>
-            <div className="panel">
-              <h2>Flags <small>checkpoints marked Possible Issue or worse</small></h2>
-              {flagged.length === 0 ? <p className="assess-row-note">Nothing flagged yet.</p> : (
-                <ul className="pa-flags">
-                  {flagged.map((f) => (
-                    <li key={f.g + f.t}><span className="pa-dot" style={{ background: RATINGS[f.v - 1].color }} />{f.g}: {f.t} <small>{f.v === 5 ? "Red Flag" : f.v === 3 ? "Possible Issue" : "Between"}</small></li>
-                  ))}
-                </ul>
-              )}
-            </div>
           </div>
         </div>
+        {/* everything marked Possible Issue or worse, across the full width under both columns */}
+        <div className="panel pa-flags-panel">
+          <h2>Flags <small>checkpoints marked Possible Issue or worse</small></h2>
+          {flagged.length === 0 ? <p className="assess-row-note">Nothing flagged yet.</p> : (
+            <ul className="pa-flags">
+              {flagged.map((f) => (
+                <li key={f.g + f.t}><span className="pa-dot" style={{ background: RATINGS[f.v - 1].color }} />{f.g}: {f.t} <small>{f.v === 5 ? "Red Flag" : f.v === 3 ? "Possible Issue" : "Between"}</small></li>
+              ))}
+            </ul>
+          )}
+        </div>
 
+        </div>
+
+        {/* second printed page: pitch movement, injury history and the development plan */}
+        <div className="pa-page">
         <div className="assess-columns pa-columns pa-plan">
           <div className="assess-col">
             <div className="panel">
@@ -257,6 +265,7 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
     );
   }
@@ -284,24 +293,45 @@
       setSelectedId((prev) => (prev === id ? (next.length ? next[next.length - 1].id : null) : prev));
     };
 
-    // Prints on landscape pages: everything else on the page is hidden (the same print rules the Biomechanical
-    // Assessment uses) and the form is laid out at the page's width.
+    // Prints as two landscape pages: the checkpoints on the first, the pitch movement and development plan on
+    // the second. Everything else on the page is hidden (the same print rules the Biomechanical Assessment uses).
+    // Each .pa-page is scaled on its own to fill one sheet, so no section is ever split across pages: it is laid
+    // out at the page's width and, if still too tall, zoomed down (and widened to match) until it fits.
     const printing = useRef(null);
     const preparePrint = () => {
       const wrap = wrapRef.current;
       if (!wrap || wrap.offsetParent === null || printing.current) return; // hidden tab, or already prepared
+      const PAGE_W = 970, PAGE_H = 700; // usable area of a Letter landscape sheet with 0.35in margins, with a little spare
       const pageStyle = document.createElement("style");
       pageStyle.textContent = "@page { size: letter landscape; margin: 0.35in; }";
       document.head.appendChild(pageStyle);
       document.body.classList.add("print-assessment-only");
-      wrap.classList.add("pa-printing");
-      printing.current = { wrap, pageStyle };
+      wrap.classList.add("pa-printing"); // the compact print layout, on now so that what is measured is what prints
+      const pages = [...wrap.querySelectorAll(".pa-page")];
+      const areas = [...wrap.querySelectorAll("textarea")];
+      areas.forEach((ta) => { ta.dataset.paH = ta.style.height; });
+      pages.forEach((page) => {
+        const measureAt = (zoom) => {
+          page.style.width = `${Math.round(PAGE_W / zoom)}px`;
+          page.style.zoom = zoom === 1 ? "" : String(zoom);
+          // grow each text box to show everything typed in it, at this width
+          page.querySelectorAll("textarea").forEach((ta) => { ta.style.height = "auto"; ta.style.height = `${ta.scrollHeight + 6}px`; });
+          return page.getBoundingClientRect().height;
+        };
+        if (measureAt(1) <= PAGE_H) return;
+        let lo = 0.2, hi = 1;
+        for (let i = 0; i < 12; i++) { const mid = (lo + hi) / 2; if (measureAt(mid) <= PAGE_H) lo = mid; else hi = mid; }
+        measureAt(lo);
+      });
+      printing.current = { wrap, pageStyle, pages, areas };
     };
     const cleanupPrint = () => {
       const s = printing.current;
       if (!s) return;
       printing.current = null;
       document.body.classList.remove("print-assessment-only");
+      s.pages.forEach((page) => { page.style.width = ""; page.style.zoom = ""; });
+      s.areas.forEach((ta) => { ta.style.height = ta.dataset.paH || ""; delete ta.dataset.paH; });
       s.wrap.classList.remove("pa-printing");
       if (s.pageStyle.parentNode) s.pageStyle.parentNode.removeChild(s.pageStyle);
     };
@@ -336,11 +366,18 @@
 
         {record ? (
           <React.Fragment>
-            <div className="assess-print-title print-only-block">
-              <h1 className="report-title">{athlete.name} &mdash; Pitching Assessment</h1>
-              <div className="report-subtitle">{fmtDate(record.date)}{record.coach ? ` · Coach: ${record.coach}` : ""}</div>
-            </div>
-            <PitchingForm key={record.id} record={record} athlete={athlete} onSave={handleSave} />
+            <PitchingForm
+              key={record.id}
+              record={record}
+              athlete={athlete}
+              onSave={handleSave}
+              printTitle={(
+                <div className="assess-print-title print-only-block">
+                  <h1 className="report-title">{athlete.name} &mdash; Pitching Assessment</h1>
+                  <div className="report-subtitle">{fmtDate(record.date)}{record.coach ? ` · Coach: ${record.coach}` : ""}</div>
+                </div>
+              )}
+            />
           </React.Fragment>
         ) : (
           <div className="panel"><div className="empty-state">No pitching assessments yet for {athlete.name}. Click "+ New Pitching Assessment" to start one.</div></div>

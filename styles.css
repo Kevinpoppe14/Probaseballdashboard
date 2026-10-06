@@ -2584,8 +2584,8 @@ tbody tr:hover {
 .pa-table td.pa-rate-cell { padding: 2px; width: 44px; text-align: center; }
 .pa-rate { width: 100%; min-width: 30px; height: 26px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: #fff; font-weight: 700; cursor: pointer; padding: 0; }
 .pa-rate:hover { border-color: var(--text-dim); }
-.pa-flags { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-.pa-flags li { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.pa-flags { list-style: none; margin: 0; padding: 0; font-size: 13px; columns: 3 240px; column-gap: 24px; }
+.pa-flags li { padding: 4px 0; border-bottom: 1px solid var(--border); break-inside: avoid; }
 .pa-flags small { color: var(--text-dim); margin-left: 6px; }
 .pa-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #000; vertical-align: middle; }
 .pa-movement { display: grid; grid-template-columns: minmax(220px, 1fr) 1fr; gap: 14px; align-items: start; }
@@ -2606,13 +2606,27 @@ tbody tr:hover {
 .pa-plyos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pa-plyos input { flex: 1 1 160px; }
 @media (max-width: 900px) { .pa-movement { grid-template-columns: 1fr; } }
+/* Printing (see preparePrint): .pa-printing is on only while a print is prepared. These layout rules are
+   deliberately outside @media print, so the page is measured on screen exactly as it will print. */
+.pa-wrap.pa-printing .no-print { display: none !important; }
+.pa-wrap.pa-printing .print-only-block { display: block; }
+.pa-wrap.pa-printing .pa-page { break-inside: avoid; page-break-inside: avoid; }
+.pa-wrap.pa-printing .pa-page + .pa-page { break-before: page; page-break-before: always; }
+.pa-wrap.pa-printing .panel { break-inside: avoid; margin-bottom: 10px; padding: 10px 12px; }
+.pa-wrap.pa-printing .pa-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pa-wrap.pa-printing .pa-movement { grid-template-columns: minmax(220px, 1fr) 1fr; }
+.pa-wrap.pa-printing .pa-table th, .pa-wrap.pa-printing .pa-table td, .pa-wrap.pa-printing .pa-table td.pa-rate-cell { padding: 0 4px; font-size: 10px; line-height: 1.25; }
+.pa-wrap.pa-printing .pa-rate { height: 12px; min-width: 16px; display: block; font-size: 9px; line-height: 1; }
+.pa-wrap.pa-printing .pa-flags { font-size: 10px; }
+.pa-wrap.pa-printing .pa-flags li { padding: 1px 0; }
+.pa-wrap.pa-printing h2 { font-size: 13px; margin: 0 0 6px; }
+.pa-wrap.pa-printing .assess-print-title h1 { font-size: 18px; margin: 0; }
+.pa-wrap.pa-printing .assess-print-title { margin-bottom: 6px; }
+.pa-wrap.pa-printing .assess-print-logo { display: block; text-align: center; margin-bottom: 6px; }
+.pa-wrap.pa-printing .assess-print-logo img { height: 34px; }
 @media print {
-  .pa-wrap.pa-printing .panel { break-inside: avoid; }
-  .pa-wrap.pa-printing .pa-columns { gap: 12px; }
-  .pa-wrap.pa-printing .pa-table th, .pa-wrap.pa-printing .pa-table td { padding: 1px 4px; font-size: 9px; }
-  .pa-wrap.pa-printing .pa-rate { height: 13px; min-width: 16px; border-color: #999 !important; }
+  .pa-wrap.pa-printing .pa-rate { border-color: #999 !important; }
   .pa-wrap.pa-printing .pa-rate.on { color: #fff !important; }
-  .pa-wrap.pa-printing .pa-plan { break-before: page; }
   .pa-wrap.pa-printing .pa-plot { background: #fff; }
 }
 /* ---- Throwing Progression (throwing_progression.js): days down the side, weeks across ---- */
