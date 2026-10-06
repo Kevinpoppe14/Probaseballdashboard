@@ -270,14 +270,16 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows, linkRows, logRows] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows, linkRows, logRows, overrideRows] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
         fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"), fetchTable("programs"), fetchTable("exercises"),
-        fetchTable("athlete_links"), fetchTable("athlete_logs"),
+        fetchTable("athlete_links"), fetchTable("athlete_logs"), fetchTable("athlete_overrides"),
       ]);
+    athleteOverrides = {};
+    overrideRows.forEach(putOverrideRow);
     athleteLinks = {};
     linkRows.forEach((r) => { athleteLinks[r.athlete_id] = r.token; });
     athleteLogs = {};
@@ -771,6 +773,23 @@
     const a = (athleteLogs[r.athlete_id] = athleteLogs[r.athlete_id] || {});
     (a[r.program_id] = a[r.program_id] || {})[r.key] = r.value || "";
   }
+  // Changes an athlete made on their phone to an exercise or its sets and reps (see migration_009):
+  // athleteId -> programId -> exercise id -> { name, groups, from }
+  let athleteOverrides = {};
+  function putOverrideRow(r) {
+    const a = (athleteOverrides[r.athlete_id] = athleteOverrides[r.athlete_id] || {});
+    (a[r.program_id] = a[r.program_id] || {})[r.exercise_id] = r.data;
+  }
+  function overridesFor(athleteId) {
+    return athleteOverrides[String(athleteId)] || {};
+  }
+  // Puts the coach's version of one exercise back.
+  function removeAthleteOverride(athleteId, programId, exerciseId) {
+    const one = (athleteOverrides[String(athleteId)] || {})[programId];
+    if (one) delete one[exerciseId];
+    sb().from("athlete_overrides").delete().eq("athlete_id", String(athleteId)).eq("program_id", String(programId)).eq("exercise_id", String(exerciseId))
+      .then(({ error }) => logSyncError(`delete athlete_overrides/${athleteId}/${exerciseId}`, error));
+  }
   function getAthleteLink(athleteId) {
     return athleteLinks[String(athleteId)] || null;
   }
@@ -815,6 +834,9 @@
     if (error || !data) return false;
     delete athleteLogs[String(athleteId)];
     data.forEach(putLogRow);
+    const ov = await sb().from("athlete_overrides").select("*").eq("athlete_id", String(athleteId)).limit(5000);
+    logSyncError(`load athlete_overrides/${athleteId}`, ov.error);
+    if (!ov.error && ov.data) { delete athleteOverrides[String(athleteId)]; ov.data.forEach(putOverrideRow); }
     return true;
   }
 
@@ -885,6 +907,8 @@
     programLogFor,
     setAthleteLog,
     refreshAthleteLogs,
+    overridesFor,
+    removeAthleteOverride,
     allExercises,
     findExerciseByName,
     saveExercise,

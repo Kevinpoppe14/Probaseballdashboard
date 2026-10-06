@@ -66,6 +66,24 @@
   .label { color: var(--label, var(--accent)); font-weight: 700; flex: 0 0 auto; }
   .name { font-weight: 700; font-size: 16px; text-transform: uppercase; background: none; border: none; padding: 0; text-align: left; }
   button.name { text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 3px; }
+  .ex-head .swap { margin-left: auto; flex: 0 0 auto; width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); font-size: 16px; color: var(--dim); align-self: center; }
+  .ex-head .swap.on { color: var(--text); border-color: var(--label, var(--accent)); }
+  .swap-coach { font-size: 13px; color: var(--dim); margin-bottom: 10px; }
+  .swap-label { display: block; font-size: 12px; color: var(--dim); margin: 12px 0 4px; }
+  .sheet input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 8px; padding: 0 10px; }
+  .swap-name { margin-top: 4px; }
+  .matches { display: flex; flex-direction: column; }
+  .match { text-align: left; min-height: 40px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--border); border-top: none; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
+  .match small { color: var(--dim); }
+  .swap-row { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+  .swap-row label { flex: 1; font-size: 11px; color: var(--dim); }
+  .swap-row input { text-align: center; padding: 0 4px; margin-top: 2px; }
+  .swap-x { flex: 0 0 40px; height: 44px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); font-size: 18px; }
+  .swap-add { background: none; border: none; color: var(--dim); font-size: 14px; padding: 6px 0; text-decoration: underline; }
+  .swap-note { font-size: 14px; min-height: 20px; margin: 12px 0 8px; }
+  .swap-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swap-actions button { flex: 1 1 auto; min-height: 44px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); font-size: 15px; }
+  .swap-actions .primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
   .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 6px 0 0; font-size: 13px; color: var(--dim); }
   .meta .tempo { border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; }
   .notes { font-size: 13px; color: var(--dim); margin-top: 4px; }

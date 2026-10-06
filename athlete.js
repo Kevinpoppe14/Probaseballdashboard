@@ -38,7 +38,15 @@
   let view = "program"; // "program" (this week's training) or "plan" (the player plan)
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
 
-  const programById = (id) => (data.programs || []).find((p) => p.id === id) || null;
+  // The athlete's own changes to an exercise or its sets and reps: programId -> exercise id -> { name, groups, from }.
+  // programById gives the program with those applied; rawProgram is what the coach wrote.
+  let overrides = {};
+  let effective = {};
+  const rawProgram = (id) => (data.programs || []).find((p) => p.id === id) || null;
+  const programById = (id) => {
+    if (!(id in effective)) effective[id] = window.applyOverrides(rawProgram(id), overrides[id]);
+    return effective[id];
+  };
   const parseISO = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
   const currentWeek = () => {
     const days = Math.round((new Date(new Date().toDateString()) - parseISO(plan.startDate)) / 864e5);
@@ -115,6 +123,108 @@
     overlay.className = "overlay show";
   };
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeVideo(); });
+
+  // ---- changing an exercise, or its sets and reps ------------------------------------------------
+  // Opened from the switch button beside an exercise name. The athlete can type another exercise (matches from
+  // the exercise library are offered as they type) and edit the sets and reps. If the same exercise comes up
+  // on the same day in later weeks of the program, they are asked whether to change those too.
+  function openSwap(item, si, e) {
+    const pid = item.program.id;
+    const raw = rawProgram(pid);
+    const wi = item.weekNo - 1;
+    const sameName = (a, b) => (a || "").trim().toLowerCase() === (b || "").trim().toLowerCase();
+    // the coach's version of this exercise, and where the same one comes up in the weeks after this one
+    const rawDay = (w) => ((((raw.weeks[w] || {}).sessions || [])[si] || {}).exercises || []);
+    const coach = rawDay(wi).find((x) => x.id === e.id) || e;
+    const nth = rawDay(wi).filter((x) => sameName(x.name, coach.name)).indexOf(coach);
+    const later = [];
+    for (let w = wi + 1; w < raw.weeks.length; w += 1) {
+      const m = rawDay(w).filter((x) => sameName(x.name, coach.name))[Math.max(0, nth)];
+      if (m && m.id !== e.id) later.push(m.id);
+    }
+    const changed = !!(overrides[pid] || {})[e.id];
+    const unit = Rx.normalize(e).intensityUnit;
+    let groups = Rx.normalize(e).groups.map((g) => ({ sets: `${g.sets || ""}`, reps: `${g.reps || ""}`, intensity: `${g.intensity || ""}` }));
+    if (!groups.length) groups = [{ sets: "", reps: "", intensity: "" }];
+    let picked = null; // library entry chosen from the suggestions
+
+    const name = el("input", { type: "text", class: "swap-name", value: e.name, autocomplete: "off", autocapitalize: "words", "aria-label": "Exercise" });
+    const matches = el("div", { class: "matches" });
+    const rowsEl = el("div", { class: "swap-rows" });
+    const note = el("div", { class: "swap-note" });
+    const actions = el("div", { class: "swap-actions" });
+    let searchTimer = null, searchNo = 0;
+    name.addEventListener("input", () => {
+      picked = null;
+      clearTimeout(searchTimer);
+      const q = name.value.trim();
+      if (q.length < 2) { matches.replaceChildren(); return; }
+      searchTimer = setTimeout(async () => {
+        const no = (searchNo += 1);
+        let res;
+        try { res = await sb.rpc("athlete_portal_exercises", { p_token: token, p_query: q }); } catch (err) { res = { data: [] }; }
+        if (no !== searchNo) return;
+        matches.replaceChildren(...(res.data || []).slice(0, 8).map((m) => el("button", { class: "match", onclick: () => { name.value = m.name; picked = m; matches.replaceChildren(); } }, m.name, m.videoUrl ? el("small", null, "video") : null)));
+      }, 250);
+    });
+    const drawRows = () => {
+      rowsEl.replaceChildren(...groups.map((g, gi) => {
+        const field = (key, label, mode) => el("label", null, label, el("input", { type: "text", inputmode: mode, value: g[key], autocomplete: "off", oninput: (ev) => { g[key] = ev.target.value; } }));
+        return el("div", { class: "swap-row" },
+          field("sets", "Sets", "numeric"), field("reps", "Reps", "text"),
+          unit ? field("intensity", unit === "%" ? "%" : unit, "decimal") : null,
+          groups.length > 1 ? el("button", { class: "swap-x", "aria-label": "Remove this set", onclick: () => { groups.splice(gi, 1); drawRows(); } }, "×") : null);
+      }), el("button", { class: "swap-add", onclick: () => { groups.push({ sets: "", reps: "", intensity: "" }); drawRows(); } }, "+ Add a set"));
+    };
+    const apply = async (ids, payload) => {
+      note.textContent = "Saving…";
+      let ok = false;
+      try {
+        const res = await sb.rpc("athlete_portal_override", { p_token: token, p_program_id: pid, p_exercise_ids: ids, p_data: payload });
+        ok = !res.error && res.data === true;
+      } catch (err) { ok = false; }
+      if (!ok) { note.textContent = "Could not save. Check your connection and try again."; drawActions(); return; }
+      const one = (overrides[pid] = overrides[pid] || {});
+      ids.forEach((id) => { if (payload) one[id] = payload; else delete one[id]; });
+      delete effective[pid];
+      if (picked && !exerciseInfo(picked.name)) data.exercises.push(picked);
+      closeVideo();
+      render();
+      showStatus(payload ? "Changed" : "Back to your coach's version");
+    };
+    // asks about the rest of the phase when the same exercise comes up again, then saves
+    const choose = (payload, ask) => {
+      const ids = later.filter((id) => (payload ? true : !!(overrides[pid] || {})[id]));
+      if (!ids.length) { apply([e.id], payload); return; }
+      note.textContent = ask;
+      actions.replaceChildren(
+        el("button", { class: "primary", onclick: () => apply([e.id, ...ids], payload) }, "Yes, all remaining weeks"),
+        el("button", { onclick: () => apply([e.id], payload) }, "Just this week"));
+    };
+    function drawActions() {
+      actions.replaceChildren(...[
+        el("button", { class: "primary", onclick: () => {
+          const nm = name.value.trim();
+          const gs = groups.map((g) => ({ sets: g.sets.trim(), reps: g.reps.trim(), intensity: g.intensity.trim() })).filter((g) => g.sets || g.reps);
+          if (!nm) { note.textContent = "Type an exercise name."; return; }
+          if (!gs.length) { note.textContent = "Enter the sets and reps."; return; }
+          choose({ name: nm, groups: gs, from: coach.name }, "Replace for the rest of this phase?");
+        } }, "Save"),
+        changed ? el("button", { onclick: () => choose(null, "Go back to your coach's version for the rest of this phase too?") }, "Use coach's version") : null,
+        el("button", { onclick: closeVideo }, "Cancel")].filter(Boolean));
+    }
+    drawRows();
+    drawActions();
+    overlay.replaceChildren(el("div", { class: "sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Change exercise"),
+      changed ? el("div", { class: "swap-coach" }, `Coach: ${coach.name}${Rx.text(coach) ? `, ${Rx.text(coach)}` : ""}`) : null,
+      el("label", { class: "swap-label" }, "Exercise", name),
+      matches,
+      el("div", { class: "swap-label" }, "Sets and reps"),
+      rowsEl, note, actions));
+    overlay.className = "overlay show";
+  }
 
   // What was logged for this set the last time it came up: the same exercise (by name) on the same day of an
   // earlier week of this block, looking back from last week. Returns { week, text } or null.
@@ -279,7 +389,9 @@
         group.append(el("div", { class: "ex" },
           el("div", { class: "ex-head" },
             el("span", { class: "label" }, labels[ei]),
-            info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name)),
+            info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name),
+            el("button", { class: `swap${e._coach ? " on" : ""}`, "aria-label": `Change ${e.name} or its sets and reps`, title: "Change exercise or sets and reps", onclick: () => openSwap(item, dayIdx, e) }, "⇄")),
+          e._coach ? el("div", { class: "notes" }, `You changed this. Coach: ${e._coach.name}${e._coach.text ? `, ${e._coach.text}` : ""}`) : null,
           (e.tempo || e.rest) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null) : null,
           e.notes ? el("div", { class: "notes" }, e.notes) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));
@@ -305,6 +417,8 @@
       const one = (plan.programLog[r.programId] = plan.programLog[r.programId] || {});
       if (r.value) one[r.key] = r.value; else delete one[r.key];
     });
+    (data.overrides || []).forEach((r) => { (overrides[r.programId] = overrides[r.programId] || {})[r.exerciseId] = r.data; });
+    data.exercises = data.exercises || [];
     if (data.rmChart && typeof data.rmChart === "object") Rx.chart = () => data.rmChart;
     else Rx.chart = () => ({ 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65, 15: 60, 16: 55, 17: 50 });
     document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";

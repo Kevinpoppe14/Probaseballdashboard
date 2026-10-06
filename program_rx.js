@@ -122,6 +122,29 @@
   }
   window.planMaxes = planMaxes;
 
+  // A program as one athlete does it: `overrides` (exercise id -> { name, groups }) are the changes the athlete
+  // made on their phone to an exercise or its sets and reps. The program itself is left alone. A changed
+  // exercise keeps its id (so what was logged stays with it) and carries `_coach`, what the coach prescribed.
+  function applyOverrides(program, overrides) {
+    if (!program || !overrides || !Object.keys(overrides).length) return program;
+    return {
+      ...program,
+      weeks: (program.weeks || []).map((w) => ({
+        ...w,
+        sessions: (w.sessions || []).map((s) => ({
+          ...s,
+          exercises: (s.exercises || []).map((e) => {
+            const o = overrides[e.id];
+            if (!o || !(o.name || "").trim()) return e;
+            const base = ProgramRx.normalize(e);
+            return { ...base, name: o.name, groups: Array.isArray(o.groups) && o.groups.length ? o.groups : base.groups, _coach: { name: e.name, text: ProgramRx.text(e) } };
+          }),
+        })),
+      })),
+    };
+  }
+  window.applyOverrides = applyOverrides;
+
   // An exercise video link as something that can be embedded (YouTube incl. Shorts, Vimeo).
   window.videoEmbedOf = function (url) {
     const u = (url || "").trim();

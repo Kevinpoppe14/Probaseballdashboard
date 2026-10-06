@@ -159,7 +159,7 @@
     return plan.blocks
       .filter((b) => b.programId && b.start <= weekIdx && weekIdx < b.start + b.len)
       .map((b) => {
-        const program = programById(b.programId);
+        const program = (plan._lookup || programById)(b.programId);
         const lane = plan.lanes.find((l) => l.id === b.lane);
         if (!program || !lane || !(program.weeks || []).length) return null;
         const n = (weekIdx - b.start) % program.weeks.length;
@@ -173,7 +173,7 @@
   // (see program_rx.js).
   const exerciseLabels = window.exerciseLabels;
   const ProgramRx = window.ProgramRx;
-  const planMaxes = (plan) => window.planMaxes(plan, programById);
+  const planMaxes = (plan) => window.planMaxes(plan, plan._lookup || programById);
 
   // One program week: a table of exercises per session. With `onLog`, each set group gets a box for the weight
   // the athlete actually used (`log` holds what's been entered so far).
@@ -181,7 +181,7 @@
   // (see planMaxes) and `planWeek` (the plan week this program week falls on), % sets of an exercise that has an
   // earlier estimated max are filled in with the weight worked out from it. A filled-in weight stays automatic,
   // and follows later failure sets, until someone types over it.
-  function ProgramWeekView({ week, log, onLog, maxes, planWeek }) {
+  function ProgramWeekView({ week, log, onLog, maxes, planWeek, onUndo }) {
     const logged = (key) => (log || {})[key] || "";
     const save = (key, auto) => (ev) => {
       const v = ev.target.value.trim();
@@ -209,6 +209,13 @@
                             ? <button className="exercise-link" title="View this exercise" onClick={() => window.openExercise(e.name)}>{e.name}</button>
                             : e.name}
                           {e.tempo && <span className="program-tempo" title="Tempo: eccentric, pause, concentric (* = explosive)">{e.tempo}</span>}
+                          {/* the athlete changed this exercise, or its sets and reps, on their phone */}
+                          {e._coach && (
+                            <div className="program-changed">
+                              Changed by athlete. Coach: {e._coach.name}{e._coach.text ? `, ${e._coach.text}` : ""}
+                              {onUndo && <button className="btn-link" onClick={() => onUndo(e.id)}>Undo</button>}
+                            </div>
+                          )}
                         </td>
                         <td>
                           <div className="program-rx">
@@ -471,7 +478,13 @@
   }
 
   // A plan with everything logged against its programs filled in (see programLogFor in store.js).
-  const withLogs = (plan, athleteId) => ({ ...plan, programLog: window.AthleteStore.programLogFor(athleteId, plan) });
+  // `_lookup` finds a program as this athlete does it, with any exercise or sets / reps changes they made on
+  // their phone applied (see applyOverrides in program_rx.js).
+  const withLogs = (plan, athleteId) => ({
+    ...plan,
+    programLog: window.AthleteStore.programLogFor(athleteId, plan),
+    _lookup: (id) => window.applyOverrides(programById(id), window.AthleteStore.overridesFor(athleteId)[id]),
+  });
 
   // The athlete's private link to their program on their phone (athlete.html): create it, copy it to text to
   // them, or reset / remove it. A Cubs-only player's link opens the page in Cubs colors with the Cubs logo.
@@ -513,7 +526,7 @@
   }
 
   // The program week each attached block is on: this week while the plan is running, week 1 before it starts.
-  function PlanPrograms({ plan, onLog }) {
+  function PlanPrograms({ plan, onLog, onUndo }) {
     const p = planProgress(plan);
     if (p.state === "complete") return null;
     const items = programWeeksAt(plan, p.state === "active" ? p.week - 1 : 0);
@@ -538,7 +551,7 @@
               {lane.name}: {block.label || "Untitled"}{" "}
               <small>{program.name} · {week.name || `Week ${weekNo}`} ({weekNo} of {program.weeks.length})</small>
             </h3>
-            <ProgramWeekView week={week} maxes={maxes} planWeek={p.state === "active" ? p.week - 1 : 0} log={(plan.programLog || {})[program.id] || {}} onLog={onLog ? (key, val) => onLog(program.id, key, val) : undefined} />
+            <ProgramWeekView week={week} maxes={maxes} planWeek={p.state === "active" ? p.week - 1 : 0} log={(plan.programLog || {})[program.id] || {}} onLog={onLog ? (key, val) => onLog(program.id, key, val) : undefined} onUndo={onUndo ? (exId) => onUndo(program.id, exId) : undefined} />
           </div>
         ))}
       </div>
@@ -635,7 +648,7 @@
     const [openBlock, setOpenBlock] = useState(null); // block whose linked program is open in a pop-up
     const [, setLogTick] = useState(0);
     const opened = openBlock && plan.blocks.find((b) => b.id === openBlock);
-    const openedProgram = opened && programById(opened.programId);
+    const openedProgram = opened && (athlete ? withLogs(plan, athlete.id)._lookup : programById)(opened.programId);
     const logPlan = athlete ? withLogs(plan, athlete.id) : plan;
     return (
       <div className="period-ro">
@@ -1765,7 +1778,7 @@
 
         <AthletePhoneLink athlete={athlete} />
 
-        <PlanPrograms plan={withLogs(plan, athlete.id)} onLog={logWeight} />
+        <PlanPrograms plan={withLogs(plan, athlete.id)} onLog={logWeight} onUndo={(programId, exId) => { window.AthleteStore.removeAthleteOverride(athlete.id, programId, exId); setLogTick((n) => n + 1); }} />
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>
