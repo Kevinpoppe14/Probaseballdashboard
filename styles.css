@@ -2959,3 +2959,22 @@ tbody tr:hover {
 /* the Player Plan header carries both logos; on the light theme the white one would vanish */
 :root[data-theme="light"] .ph-right img.ph-logo-screen { display: none; }
 :root[data-theme="light"] .ph-right img.ph-logo-print { display: block; }
+
+/* ---- Header layout: the account controls (theme toggle, email, Help, Log out) always sit in the upper right,
+   with the navigation under them, so they hold the same spot on every page instead of wrapping around. ---- */
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "brand account" "brand nav";
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 8px;
+}
+.topbar .brand { grid-area: brand; }
+.topbar .topbar-account { grid-area: account; justify-self: end; }
+.topbar .nav-tabs { grid-area: nav; justify-self: end; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 760px) {
+  .topbar { grid-template-columns: 1fr; grid-template-areas: "account" "brand" "nav"; }
+  .topbar .nav-tabs { justify-self: start; justify-content: flex-start; }
+}
+:root[data-theme="light"] .nav-tabs { background: rgba(0, 0, 0, 0.05); border-color: #dcdfe4; }
