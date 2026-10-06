@@ -77,7 +77,7 @@
     });
     return rows;
   }
-  // under 0.8 is a drop-off, 0.8-1.3 is the target range, 1.3-1.5 is a caution, above 1.5 is a spike
+  // under 0.8 is detraining, 0.8-1.3 is the target range, 1.3-1.5 is a caution, above 1.5 is a spike
   const acrClass = (v) => (v == null ? "none" : v > 1.5 ? "spike" : v > 1.3 ? "caution" : v >= 0.8 ? "good" : "under");
   const round = (v) => (Math.round(v * 10) / 10).toString();
 
@@ -271,7 +271,7 @@
             <div className="tp-acr-key">
               <span className="tp-chart-legend"><i className="solid" />4-wk avg (circles)</span>
               <span className="tp-chart-legend"><i className="dashed" />EWMA (squares)</span>
-              <span className="tp-acr-chip under">Under 0.8: drop-off</span>
+              <span className="tp-acr-chip under">Under 0.8: Detraining</span>
               <span className="tp-acr-chip good">0.8 to 1.3: target</span>
               <span className="tp-acr-chip caution">1.3 to 1.5: caution</span>
               <span className="tp-acr-chip spike">Over 1.5: spike</span>
@@ -295,7 +295,7 @@
             <li><strong>Around 1.0</strong> means this week matches what the arm has been built up to.</li>
             <li><strong>0.8 to 1.3</strong> is the target range: enough work to keep building without a jump.</li>
             <li><strong>Above 1.3</strong> means the week is well beyond recent work. Above 1.5 is a spike.</li>
-            <li><strong>Below 0.8</strong> means the athlete is doing much less than they are prepared for and is losing what they built.</li>
+            <li><strong>Below 0.8 (Detraining)</strong> means the athlete is doing much less than they are prepared for and is losing what they built.</li>
           </ul>
           <h3>Exponentially Weighted Moving Average (EWMA)</h3>
           <p>
