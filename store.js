@@ -582,10 +582,16 @@
   }
 
   // ---- Movement / physical assessments (see assessment.js for the field layout) ----
+  // Pitching assessments (pitching_assessment.js) share the table, marked kind: "pitching"; each getter
+  // returns only its own kind, so one never counts as the other.
+  const assessmentsOf = (athleteId, pitching) => state.assessments
+    .filter((a) => a.athleteId === athleteId && (a.kind === "pitching") === pitching)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.id.localeCompare(b.id));
   function getAssessments(athleteId) {
-    return state.assessments
-      .filter((a) => a.athleteId === athleteId)
-      .sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.id.localeCompare(b.id));
+    return assessmentsOf(athleteId, false);
+  }
+  function getPitchingAssessments(athleteId) {
+    return assessmentsOf(athleteId, true);
   }
 
   function saveAssessment(record) {
@@ -919,6 +925,7 @@
     getNotes,
     deleteNote,
     getAssessments,
+    getPitchingAssessments,
     saveAssessment,
     deleteAssessment,
     allOffseasonFacilities,

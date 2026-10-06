@@ -2566,6 +2566,46 @@ tbody tr:hover {
 .period-max small { color: var(--text-dim); }
 .program-changed { margin-top: 3px; font-size: 11px; color: var(--text-dim); font-style: italic; }
 .program-changed .btn-link { margin-left: 8px; font-size: 11px; }
+/* ---- Pitching Assessment (pitching_assessment.js); shares the .assess-* styles ---- */
+.pa-header-grid { grid-template-columns: 2fr 1fr 1fr 1fr 1.5fr; }
+.pa-plan { margin-top: 0; }
+.pa-table { width: 100%; }
+.pa-table th.pa-group { background: var(--surface-muted, #2a2a2a); text-align: center; vertical-align: middle; font-weight: 700; width: 18%; }
+.pa-table td.pa-test { text-align: left; }
+.pa-table th.pa-h-good { background: #2e9e4f; color: #fff; }
+.pa-table th.pa-h-issue { background: #e6b800; color: #000; }
+.pa-table th.pa-h-flag { background: #c0392b; color: #fff; }
+.pa-table td.pa-rate-cell { padding: 2px; width: 44px; text-align: center; }
+.pa-rate { width: 100%; min-width: 30px; height: 26px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: #fff; font-weight: 700; cursor: pointer; padding: 0; }
+.pa-rate:hover { border-color: var(--text-dim); }
+.pa-flags { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.pa-flags li { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.pa-flags small { color: var(--text-dim); margin-left: 6px; }
+.pa-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #000; vertical-align: middle; }
+.pa-movement { display: grid; grid-template-columns: minmax(220px, 1fr) 1fr; gap: 14px; align-items: start; }
+.pa-plot { width: 100%; max-width: 380px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
+.pa-plot .pa-grid { stroke: var(--border); stroke-width: 0.5; }
+.pa-plot .pa-axis { stroke: var(--text-dim); stroke-width: 1; }
+.pa-plot .pa-tick, .pa-plot .pa-axis-label, .pa-plot .pa-point-label { fill: var(--text-dim); font-size: 8px; }
+.pa-plot .pa-point-label { fill: var(--text); }
+.pa-pitches input { width: 100%; min-width: 0; box-sizing: border-box; text-align: center; padding: 3px 4px; }
+.pa-pitches td:first-child { text-align: left; white-space: nowrap; }
+.pa-pitches td:first-child input { width: calc(100% - 20px); text-align: left; }
+.pa-form textarea { width: 100%; box-sizing: border-box; }
+.pa-velo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.pa-week { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.pa-plyos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pa-plyos input { flex: 1 1 160px; }
+@media (max-width: 900px) { .pa-movement, .pa-week { grid-template-columns: 1fr; } }
+@media print {
+  .pa-wrap.pa-printing .panel { break-inside: avoid; }
+  .pa-wrap.pa-printing .pa-columns { gap: 12px; }
+  .pa-wrap.pa-printing .pa-table th, .pa-wrap.pa-printing .pa-table td { padding: 1px 4px; font-size: 9px; }
+  .pa-wrap.pa-printing .pa-rate { height: 13px; min-width: 16px; border-color: #999 !important; }
+  .pa-wrap.pa-printing .pa-rate.on { color: #fff !important; }
+  .pa-wrap.pa-printing .pa-plan { break-before: page; }
+  .pa-wrap.pa-printing .pa-plot { background: #fff; }
+}
 /* the athlete's private phone link on their plan */
 .athlete-link-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .athlete-link-row input { flex: 1 1 320px; min-width: 0; font-size: 12px; padding: 6px 8px; }

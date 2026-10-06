@@ -340,6 +340,7 @@ module.exports = async (req, res) => {
     const planByAthlete = new Map(periodRows.map((r) => [r.athlete_id, r.data]));
     const assessByAthlete = new Map();
     assessRows.forEach((r) => {
+      if (r.data && r.data.kind === "pitching") return; // pitching assessments are a separate form, not the biomechanical one tracked here
       const list = assessByAthlete.get(r.athlete_id) || [];
       list.push(r.data);
       assessByAthlete.set(r.athlete_id, list);

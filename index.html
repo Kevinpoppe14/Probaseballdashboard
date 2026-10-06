@@ -55,6 +55,7 @@
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
+<script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useMemo } = React;
 
@@ -4771,7 +4772,9 @@ function ActivitySignature({ activity, className }) {
 
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
-  const activeTab = tab || "plan";
+  // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
+  const isPitcher = ((getPeople().find((a) => a.id === athleteId) || {}).position || "") === "Pitcher";
+  const activeTab = tab === "pitching" && !isPitcher ? "plan" : tab || "plan";
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
@@ -4836,6 +4839,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
         <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} onClick={() => setActiveTab("performance")}>Performance Metrics</button>
         <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} onClick={() => setActiveTab("assessment")}>Biomechanical Assessment</button>
+        {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
         <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
       </div>
 
@@ -4884,6 +4888,11 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           ? <window.AssessmentTab athlete={athlete} />
           : <div className="panel"><div className="empty-state">The Biomechanical Assessment tab didn't load — make sure assessment.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>}
       </div>
+      {isPitcher && (
+        <div className={activeTab === "pitching" ? "" : "tab-hidden"}>
+          {window.PitchingAssessmentTab && <window.PitchingAssessmentTab athlete={athlete} />}
+        </div>
+      )}
     </div>
   );
 }
