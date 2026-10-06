@@ -1506,6 +1506,8 @@
       <div className="period-wrap" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
         <PlanHeader athlete={athlete} plan={plan} extra={headerExtra} />
 
+        <AthletePhoneLink athlete={athlete} />
+
         <div className="panel period-toolbar no-print">
           <div className="period-toolbar-row">
             <div className="field">
@@ -1775,8 +1777,6 @@
         )}
 
         <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId })} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
-
-        <AthletePhoneLink athlete={athlete} />
 
         <PlanPrograms plan={withLogs(plan, athlete.id)} onLog={logWeight} onUndo={(programId, exId) => { window.AthleteStore.removeAthleteOverride(athlete.id, programId, exId); setLogTick((n) => n + 1); }} />
 
