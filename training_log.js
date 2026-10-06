@@ -60,7 +60,12 @@
           if (r.coach.at && (!c.at || r.coach.at > c.at)) c.at = r.coach.at;
         });
         // a session is listed once something in it has been logged
-        if (rows.some((r) => r.done)) sessions.push({ id: `${pid}|${wi}|${si}`, program: program.name, week: w.name || `Week ${wi + 1}`, day: s.name || `Day ${si + 1}`, rows: rows.filter((r) => r.done || r.coach), latest });
+        // A session counts as logged when the athlete pressed Log session on their phone (a mark kept in the log
+        // under its own key), or when any weight or reps was entered for it. A marked session lists the whole
+        // day, so a workout logged without weights still shows what it was.
+        const mark = logged[`session-${wi}-${si}|0`] || null;
+        const when = (mark && mark.at) || latest;
+        if (mark || rows.some((r) => r.done)) sessions.push({ id: `${pid}|${wi}|${si}`, program: program.name, week: w.name || `Week ${wi + 1}`, day: s.name || `Day ${si + 1}`, rows: mark ? rows : rows.filter((r) => r.done || r.coach), latest: when, marked: !!mark, markedAt: mark ? mark.at : null, weights: rows.some((r) => r.done) });
       }));
     });
     // sessions with a time first (newest at the top), then older entries that were logged before times were kept
@@ -114,6 +119,9 @@
             <h2>
               {s.latest ? fmtDay(s.latest) : "Date not recorded"}
               <small>{s.program} · {s.week} · {s.day}</small>
+              <span className={`tl-badge ${s.marked ? "marked" : "weights"}`}>
+                {s.marked ? `Logged with the Log session button${s.markedAt ? ` · ${fmtWhen(s.markedAt)}` : ""}${s.weights ? "" : " · no weights entered"}` : "Weights entered, Log session not pressed"}
+              </span>
             </h2>
             <table className="tl-table">
               <thead><tr><th>Exercise</th><th>Prescribed</th><th>Done</th><th>Entered</th></tr></thead>

@@ -342,6 +342,59 @@
     return main;
   }
 
+  // ---- logging a session ---------------------------------------------------------------------------
+  // "Log session" at the end of a day marks that day of that program week as done. The mark is kept in the
+  // same log as the weights, under a key of its own, so the coach's Training Log can show it with its time.
+  // If some sets have no weight yet, a sheet asks for them first; the athlete can fill them in or skip.
+  const sessionKey = (item, si) => `session-${item.weekNo - 1}-${si}|0`;
+  function logSession(item, si, rows) {
+    const pid = item.program.id;
+    const maxes = window.planMaxes(plan, programById);
+    const missing = []; // { e, sets: [{ g, gi, fail, suggest }] } for every set with no weight (or no reps, on a set to failure)
+    rows.forEach((e) => {
+      const sets = [];
+      Rx.groups(e).forEach((g, gi) => {
+        const fail = Rx.failure(g);
+        if (logged(pid, Rx.logKey(e, gi)) && (!fail || logged(pid, Rx.repsLogKey(e, gi)))) return;
+        const max = maxes.before(e.name, weekIdx, si);
+        sets.push({ g, gi, fail, suggest: max && Rx.normalize(e).intensityUnit === "%" ? Rx.weightAt(max.value, g) : null });
+      });
+      if (sets.length) missing.push({ e, sets });
+    });
+    const finish = () => { save(pid, sessionKey(item, si), "done"); closeVideo(); render(); showStatus("Session logged"); };
+    if (!missing.length) { finish(); return; }
+
+    const fields = []; // { key, input }
+    const body = missing.map(({ e, sets }) => el("div", { class: "log-ex" },
+      el("div", { class: "log-name" }, e.name),
+      el("div", { class: "sets" }, sets.map(({ g, gi, fail, suggest }) => {
+        const has = logged(pid, Rx.logKey(e, gi));
+        const weight = el("input", { type: "text", inputmode: "decimal", placeholder: "wt", value: has || (suggest ? `${suggest}` : ""), "aria-label": `${e.name} ${Rx.repsText(g)} weight`, autocomplete: "off" });
+        fields.push({ key: Rx.logKey(e, gi), input: weight });
+        let reps = null;
+        if (fail) {
+          reps = el("input", { type: "text", inputmode: "numeric", placeholder: "reps", value: logged(pid, Rx.repsLogKey(e, gi)), "aria-label": `${e.name} reps reached`, autocomplete: "off" });
+          fields.push({ key: Rx.repsLogKey(e, gi), input: reps });
+        }
+        const int = Rx.intensityText(e, g);
+        return el("div", { class: `set${fail ? " fail" : ""}` },
+          el("span", { class: "reps" }, Rx.repsText(g)),
+          el("div", { class: "boxes" }, weight, reps),
+          int ? el("span", { class: "pct" }, int) : null);
+      }))));
+    overlay.replaceChildren(el("div", { class: "sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Log session"),
+      el("div", { class: "swap-coach" }, "Some sets have no weight yet. Add what you used, or skip."),
+      body,
+      el("div", { class: "swap-actions" },
+        el("button", { class: "primary", onclick: () => { fields.forEach((f) => { const v = f.input.value.trim(); if (v) save(pid, f.key, v); }); finish(); } }, "Save and log"),
+        el("button", { onclick: finish }, "Skip"),
+        el("button", { onclick: closeVideo }, "Cancel"))));
+    overlay.className = "overlay show";
+    overlay.scrollTop = 0;
+  }
+
   // ---- the page ----------------------------------------------------------------------------------
   function render() {
     derived = [];
@@ -396,6 +449,14 @@
           e.notes ? el("div", { class: "notes" }, e.notes) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));
       });
+      // end of the day: mark the session as done
+      if (rows.length) {
+        const done = logged(item.program.id, sessionKey(item, dayIdx));
+        main.append(el("div", { class: "session-end" },
+          done
+            ? el("div", { class: "session-done" }, "✓ Session logged", el("button", { class: "session-undo", onclick: () => { save(item.program.id, sessionKey(item, dayIdx), ""); render(); } }, "Undo"))
+            : el("button", { class: "session-log", onclick: () => logSession(item, dayIdx, rows) }, "Log session")));
+      }
     }
     parts.push(main);
     app.replaceChildren(...parts);

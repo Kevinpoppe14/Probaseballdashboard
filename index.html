@@ -4839,15 +4839,15 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         </div>
       </div>
 
-      <div className="pill-tabs no-print">
-        <button className={`pill-tab ${activeTab === "plan" ? "active" : ""}`} onClick={() => setActiveTab("plan")}>Player Plan</button>
-        <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
-        <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} onClick={() => setActiveTab("performance")}>Performance Metrics</button>
-        <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} onClick={() => setActiveTab("assessment")}>Biomechanical Assessment</button>
-        {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
-        <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
-        <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
-        <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} onClick={() => setActiveTab("log")}>Training Log</button>
+      <div className="pill-tabs profile-tabs no-print">
+        <button className={`pill-tab ${activeTab === "plan" ? "active" : ""}`} data-tab="plan" onClick={() => setActiveTab("plan")}>Player Plan</button>
+        <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
+        <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} data-tab="performance" onClick={() => setActiveTab("performance")}>Performance Metrics</button>
+        <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical Assessment</button>
+        {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
+        <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
+        <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
+        <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
