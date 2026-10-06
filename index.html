@@ -115,8 +115,18 @@ function ResponsiveContainer(props) {
   );
 }
 
+// Coaches (the people with a login) each get a record of their own so they can build a plan and run programs
+// for themselves. It works like an athlete's everywhere a single person is opened, but is tagged with this
+// roster group and left out of the roster: getRoster() is athletes only, getPeople() is everyone.
+const COACH_ROSTER_GROUP = "coaches";
 function getRoster() {
+  return window.AthleteStore.allAthletes().filter((a) => a.rosterGroup !== COACH_ROSTER_GROUP);
+}
+function getPeople() {
   return window.AthleteStore.allAthletes();
+}
+function getCoaches() {
+  return window.AthleteStore.allAthletes().filter((a) => a.rosterGroup === COACH_ROSTER_GROUP);
 }
 
 // Tags an athlete as belonging to the separate Chicago Cubs 40-man roster tab rather than the
@@ -3771,6 +3781,14 @@ function BulkActionsBar({ selectedIds, roster, onApplied, onClear }) {
 // default/All view and every DST location's count, shown only when this button is picked)
 // without being a real DST training location.
 const CUBS_LOCATION_LABEL = "Chicago Cubs";
+// The Coaches tile sits with the location buttons the same way: its own bucket, never part of "All".
+const COACHES_LABEL = "Coaches";
+// A coach's name for their record: the known display name, or one made from the email ("jane.doe@" -> "Jane Doe").
+function coachNameFromEmail(email) {
+  if (USER_DISPLAY_NAMES[email]) return USER_DISPLAY_NAMES[email];
+  const local = String(email || "").split("@")[0];
+  return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") || "Coach";
+}
 
 function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
   const isCubs = (a) => a.rosterGroup === CUBS_ROSTER_GROUP;
@@ -3793,6 +3811,8 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
   const clearSelection = () => setSelectedIds(new Set());
 
   const filtered = useMemo(() => {
+    // Coaches are their own bucket too: only the search box applies to them.
+    if (locationFilter === COACHES_LABEL) return getCoaches().filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
     return getRoster().filter((a) => {
       const matchesPos = positionFilter === "All" || a.position === positionFilter;
       const matchesStatus = statusFilter === "All" || (a.status || "active").toLowerCase() === statusFilter.toLowerCase();
@@ -3930,6 +3950,17 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
             value={cubsCount}
             active={locationFilter === CUBS_LOCATION_LABEL}
             onClick={() => setLocationFilter(locationFilter === CUBS_LOCATION_LABEL ? "All" : CUBS_LOCATION_LABEL)}
+          />
+          {/* everyone with a login; opening it makes sure each has a record to build a plan on */}
+          <KpiCard
+            label={COACHES_LABEL}
+            value={window.AthleteStore.accountHolders().length}
+            active={locationFilter === COACHES_LABEL}
+            onClick={() => {
+              if (locationFilter === COACHES_LABEL) { setLocationFilter("All"); return; }
+              if (window.AthleteStore.ensureCoachRecords(COACH_ROSTER_GROUP, coachNameFromEmail) > 0) onDataChange();
+              setLocationFilter(COACHES_LABEL);
+            }}
           />
         </div>
       </div>
@@ -4227,7 +4258,7 @@ function summarizeCmj(tests, athleteName) {
 }
 
 function CmjSummary({ tests, athleteId }) {
-  const athlete = getRoster().find((a) => a.id === athleteId);
+  const athlete = getPeople().find((a) => a.id === athleteId);
   const text = summarizeCmj(tests, athlete && athlete.name);
   if (!text) return null;
   return <p className="auto-caption"><strong>Summary:</strong> {text}</p>;
@@ -4277,7 +4308,7 @@ function MiniTrendChart({ title, unit, data, dataKey, color, showTrend = true, s
 // Compact version of the profile's Performance tab for the Team Report: just the individual
 // KPI trend charts for one athlete, within the selected date range.
 function AthletePerformanceGraphs({ athleteId, range }) {
-  const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
+  const chartLineColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = oneTestPerDay(allTests.filter((t) => dateInRange(t.date, range)));
   if (!allTests.length) {
@@ -4526,7 +4557,7 @@ function ForcePlatePanel({ athleteId, range }) {
   const theme = useTheme();
   const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
   const refLineColor = theme === "light" ? "#555555" : "#fff";
-  const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
+  const chartLineColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const allTests = window.AthleteStore.getForceTests(athleteId);
   const tests = oneTestPerDay(allTests.filter((t) => dateInRange(t.date, range)));
   if (!allTests.length) {
@@ -4646,7 +4677,7 @@ function BodyCompPanel({ athleteId }) {
   const { grid, axis } = useChartColors();
   const theme = useTheme();
   const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
-  const chartLineColor = isCubsOnlyAthlete(getRoster().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
+  const chartLineColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
   const scans = window.AthleteStore.getBodyComp(athleteId);
   if (!scans.length) {
     return (
@@ -4745,7 +4776,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
-  const athlete = getRoster().find((a) => a.id === athleteId);
+  const athlete = getPeople().find((a) => a.id === athleteId);
   // Cubs 40-man, not also a DST client — every tab on this profile goes Cubs-branded, not just
   // the Player Plan (see PlanHeader in periodization.js for that one's own independent check).
   const isCubsOnly = isCubsOnlyAthlete(athlete);
@@ -5561,7 +5592,7 @@ function MlbLinkerPanel({ onImported }) {
   // Plain-text export of the active roster (name, position, MLBAM ID, team, birth date) so it
   // can be pasted somewhere else — e.g. to line athletes up with the research tool.
   const showRosterList = () => {
-    const active = window.AthleteStore.allAthletes()
+    const active = getRoster()
       .filter((a) => (a.status || "active").toLowerCase() === "active")
       .sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name)));
     const text = ["Name\tPosition\tMLBAM ID\tLeague\tTeam\tBirth date"]
@@ -5574,7 +5605,7 @@ function MlbLinkerPanel({ onImported }) {
   const run = async () => {
     setRunning(true);
     setRows(null);
-    const roster = window.AthleteStore.allAthletes();
+    const roster = getRoster();
     const out = [];
     const todo = [];
     roster.forEach((a) => {

@@ -294,6 +294,7 @@
       return;
     }
 
+    accounts = profiles.filter((p) => p.email).map((p) => ({ id: p.id, email: p.email }));
     const emailById = new Map(profiles.map((p) => [p.id, p.email]));
     const next = emptyState();
     // Only athletes and assessments show a "Created by / Last updated by" signature in the UI
@@ -359,6 +360,35 @@
     persistLocal();
     syncUpsert("athletes", created.id, undefined, stripActivity(created));
     return created;
+  }
+
+  // Everyone with a login (from the profiles table), as [{ id, email }].
+  let accounts = [];
+  function accountHolders() {
+    return accounts;
+  }
+  // Makes sure each account holder has a record of their own in `rosterGroup` (the Coaches group), so they can
+  // build a plan and run programs for themselves like an athlete. Matched by login id, so renaming one is safe.
+  // Returns how many were created.
+  function ensureCoachRecords(rosterGroup, nameFor) {
+    let made = 0;
+    accounts.forEach((acct) => {
+      if (state.customAthletes.some((a) => a.coachUserId === acct.id)) return;
+      const ids = allAthletes().map((a) => a.id);
+      const created = {
+        id: (ids.length ? Math.max(...ids) : 0) + 1,
+        name: nameFor(acct.email),
+        position: "Unassigned", jersey: "--", status: "active", league: "", team: "", photoUrl: "", dstLocation: "",
+        wellness: [], load: [], isCustom: true,
+        rosterGroup, coachUserId: acct.id, coachEmail: acct.email,
+      };
+      stampLocalActivity(created, true);
+      state.customAthletes.push(created);
+      syncUpsert("athletes", created.id, undefined, stripActivity(created));
+      made += 1;
+    });
+    if (made) persistLocal();
+    return made;
   }
 
   function updateAthlete(id, patch) {
@@ -899,6 +929,8 @@
     deleteProgram,
     getProgramFolders,
     setProgramFolders,
+    accountHolders,
+    ensureCoachRecords,
     getRmChart,
     setRmChart,
     getAthleteLink,

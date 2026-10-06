@@ -933,9 +933,9 @@
     if (!plan || (!hasBlocks && !goalsToShow)) return null;
     const body = (
       <React.Fragment>
-        {hasBlocks && <PlanProgress plan={plan} name={(getRoster().find((a) => a.id === athleteId) || {}).name} />}
-        {hasBlocks && <ReadonlyTimeline plan={plan} athlete={getRoster().find((a) => a.id === athleteId)} />}
-        {goalsToShow && <GoalsReadOnly plan={plan} lead={offseasonLead(getRoster().find((a) => a.id === athleteId))} />}
+        {hasBlocks && <PlanProgress plan={plan} name={(getPeople().find((a) => a.id === athleteId) || {}).name} />}
+        {hasBlocks && <ReadonlyTimeline plan={plan} athlete={getPeople().find((a) => a.id === athleteId)} />}
+        {goalsToShow && <GoalsReadOnly plan={plan} lead={offseasonLead(getPeople().find((a) => a.id === athleteId))} />}
       </React.Fragment>
     );
     if (bare) return body;
