@@ -6079,6 +6079,44 @@ function MappingPreviewImport({ headers, rawRows, fieldDefs, mapping, setMapping
 }
 
 // Player Profiles page: Active players and Alumni as two tabs (Alumni used to be its own top-level page).
+// Pencil at the top left of a player card: opens the card for editing (name, jersey, position, status)
+// without opening the profile. Position and status save as soon as they are picked, like on the roster table.
+function PlayerCardEdit({ athlete, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(athlete.name);
+  const [jersey, setJersey] = useState(hasJersey(athlete) ? athlete.jersey : "");
+  const stop = (e) => e.stopPropagation();
+  if (!open) {
+    return (
+      <button
+        className="card-edit"
+        title={`Edit ${athlete.name}`}
+        aria-label={`Edit ${athlete.name}`}
+        onClick={(e) => { stop(e); setName(athlete.name); setJersey(hasJersey(athlete) ? athlete.jersey : ""); setOpen(true); }}
+      >&#9998;</button>
+    );
+  }
+  const save = (e) => {
+    stop(e);
+    if (!name.trim()) return;
+    window.AthleteStore.updateAthlete(athlete.id, { name: name.trim(), jersey: jersey.trim() || "--" });
+    setOpen(false);
+    onChanged();
+  };
+  return (
+    <div className="card-edit-form" onClick={stop}>
+      <input className="inline-select" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Name" onKeyDown={(e) => { if (e.key === "Enter") save(e); }} />
+      <input className="inline-select" value={jersey} onChange={(e) => setJersey(e.target.value)} placeholder="Jersey #" aria-label="Jersey number" onKeyDown={(e) => { if (e.key === "Enter") save(e); }} />
+      <PositionSelect athlete={athlete} onChanged={onChanged} />
+      <StatusSelect athlete={athlete} onChanged={onChanged} />
+      <div className="card-edit-actions">
+        <button className="btn-link" onClick={save}>Save</button>
+        <button className="btn-link" onClick={(e) => { stop(e); setOpen(false); }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 let lastProfilesTab = "active"; // remembered while the dashboard stays open, so coming back from a profile lands on the same tab
 function PlayerProfilesPage({ onSelect, dataVersion }) {
   const [tab, setTabState] = useState(lastProfilesTab);
@@ -6104,6 +6142,7 @@ function PlayerProfilesPage({ onSelect, dataVersion }) {
 }
 
 function AlumniPage({ onSelect, dataVersion }) {
+  const [tick, bump] = useState(0); // bumped when a card is edited, so the list re-reads the roster
   const [search, setSearch] = useState("");
   const roster = getRoster().filter((a) => (a.status || "active").toLowerCase() === "alumni");
 
@@ -6112,7 +6151,7 @@ function AlumniPage({ onSelect, dataVersion }) {
       .filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name)));
     // eslint-disable-next-line
-  }, [search, dataVersion]);
+  }, [search, dataVersion, tick]);
 
   return (
     <div>
@@ -6137,6 +6176,7 @@ function AlumniPage({ onSelect, dataVersion }) {
         <div className="player-grid">
           {filtered.map((athlete) => (
             <div className="player-card" key={athlete.id} onClick={() => onSelect(athlete.id)}>
+              <PlayerCardEdit athlete={athlete} onChanged={() => bump((n) => n + 1)} />
               <div className="player-card-photo">
                 <ProfilePhoto athlete={athlete} />
               </div>
@@ -6164,6 +6204,7 @@ function AlumniPage({ onSelect, dataVersion }) {
 
 // `cubs` shows the Cubs-only roster (on the Cubs 40-man and not also a DST client); otherwise the active DST roster.
 function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = false }) {
+  const [tick, bump] = useState(0); // bumped when a card is edited, so the list re-reads the roster
   const [search, setSearch] = useState("");
   // the Coaches tab lists everyone with a login (see COACH_ROSTER_GROUP) rather than athletes
   const roster = coaches ? getCoaches() : getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && isCubsOnlyAthlete(a) === cubs);
@@ -6173,7 +6214,7 @@ function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = fa
       .filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name)));
     // eslint-disable-next-line
-  }, [search, dataVersion, cubs, coaches, roster.length]);
+  }, [search, dataVersion, cubs, coaches, roster.length, tick]);
 
   return (
     <div>
@@ -6198,6 +6239,7 @@ function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = fa
         <div className="player-grid">
           {filtered.map((athlete) => (
             <div className="player-card" key={athlete.id} onClick={() => onSelect(athlete.id)}>
+              <PlayerCardEdit athlete={athlete} onChanged={() => bump((n) => n + 1)} />
               <div className="player-card-photo">
                 <ProfilePhoto athlete={athlete} />
               </div>
