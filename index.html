@@ -56,6 +56,7 @@
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
+<script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useMemo } = React;
 
@@ -4841,6 +4842,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} onClick={() => setActiveTab("assessment")}>Biomechanical Assessment</button>
         {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
         <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
+        <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
@@ -4893,6 +4895,9 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           {window.PitchingAssessmentTab && <window.PitchingAssessmentTab athlete={athlete} />}
         </div>
       )}
+      <div className={activeTab === "throwing" ? "" : "tab-hidden"}>
+        {window.ThrowingProgressionTab && <window.ThrowingProgressionTab athlete={athlete} />}
+      </div>
     </div>
   );
 }
