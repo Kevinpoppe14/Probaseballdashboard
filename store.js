@@ -745,7 +745,8 @@
 
   // Reps reached on a set taken to failure -> the % of 1RM that weight is taken to be. Used to estimate a 1RM
   // from "BM" (Beast Mode) and "TF" (Technical Failure) sets. Coaches can edit it on the Programs tab.
-  const DEFAULT_RM_CHART = { 1: 100, 2: 95, 3: 93, 4: 90, 5: 87, 6: 85, 7: 83, 8: 80, 9: 77, 10: 75, 11: 73, 12: 70, 13: 68, 14: 67, 15: 65 };
+  // The default is the DST percentage chart (2RM = 95%, then 2.5% less per rep, down to 14RM = 65%).
+  const DEFAULT_RM_CHART = { 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65 };
   function getRmChart() {
     return { ...(state.rmChart || DEFAULT_RM_CHART) };
   }
