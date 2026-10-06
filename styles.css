@@ -2628,6 +2628,11 @@ tbody tr:hover {
   .pa-wrap.pa-printing .pa-rate { border-color: #999 !important; }
   .pa-wrap.pa-printing .pa-rate.on { color: #fff !important; }
   .pa-wrap.pa-printing .pa-plot { background: #fff; }
+  /* the group names sit on a dark cell: white text there, and keep the Good / Possible Issue / Red Flag header colors */
+  .pa-wrap.pa-printing .pa-table th.pa-group { background: #222 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pa-wrap.pa-printing .pa-table thead th.pa-h-good { background: #2e9e4f !important; color: #fff !important; }
+  .pa-wrap.pa-printing .pa-table thead th.pa-h-issue { background: #e6b800 !important; color: #000 !important; }
+  .pa-wrap.pa-printing .pa-table thead th.pa-h-flag { background: #c0392b !important; color: #fff !important; }
 }
 /* ---- Throwing Progression (throwing_progression.js): days down the side, weeks across ---- */
 .tp-scroll { overflow-x: auto; }
