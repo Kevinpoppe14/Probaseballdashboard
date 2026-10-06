@@ -6086,10 +6086,12 @@ function PlayerProfilesPage({ onSelect, dataVersion }) {
         <button className={`pill-tab ${tab === "active" ? "active" : ""}`} onClick={() => setTab("active")}>Active Players ({count("active") - cubsCount})</button>
         <button className={`pill-tab ${tab === "cubs" ? "active" : ""}`} onClick={() => setTab("cubs")}>Chicago Cubs ({cubsCount})</button>
         <button className={`pill-tab ${tab === "alumni" ? "active" : ""}`} onClick={() => setTab("alumni")}>Alumni ({count("alumni")})</button>
+        {/* everyone with a login; opening it makes sure each has a record (as the Coaches tile on Team Overview does) */}
+        <button className={`pill-tab ${tab === "coaches" ? "active" : ""}`} onClick={() => { window.AthleteStore.ensureCoachRecords(COACH_ROSTER_GROUP, coachNameFromEmail); setTab("coaches"); }}>Coaches ({window.AthleteStore.accountHolders().length})</button>
       </div>
       {tab === "alumni"
         ? <AlumniPage onSelect={onSelect} dataVersion={dataVersion} />
-        : <PlayerDirectoryPage key={tab} onSelect={onSelect} dataVersion={dataVersion} cubs={tab === "cubs"} />}
+        : <PlayerDirectoryPage key={tab} onSelect={onSelect} dataVersion={dataVersion} cubs={tab === "cubs"} coaches={tab === "coaches"} />}
     </div>
   );
 }
@@ -6154,21 +6156,22 @@ function AlumniPage({ onSelect, dataVersion }) {
 }
 
 // `cubs` shows the Cubs-only roster (on the Cubs 40-man and not also a DST client); otherwise the active DST roster.
-function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false }) {
+function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = false }) {
   const [search, setSearch] = useState("");
-  const roster = getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && isCubsOnlyAthlete(a) === cubs);
+  // the Coaches tab lists everyone with a login (see COACH_ROSTER_GROUP) rather than athletes
+  const roster = coaches ? getCoaches() : getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && isCubsOnlyAthlete(a) === cubs);
 
   const filtered = useMemo(() => {
     return roster
       .filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name)));
     // eslint-disable-next-line
-  }, [search, dataVersion, cubs]);
+  }, [search, dataVersion, cubs, coaches, roster.length]);
 
   return (
     <div>
       <div className="panel">
-        <h2>{cubs ? "Chicago Cubs" : "Player Profiles"}</h2>
+        <h2>{coaches ? "Coaches" : cubs ? "Chicago Cubs" : "Player Profiles"}</h2>
         <input
           placeholder="Search athlete..."
           value={search}
