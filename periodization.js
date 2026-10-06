@@ -474,15 +474,15 @@
   const withLogs = (plan, athleteId) => ({ ...plan, programLog: window.AthleteStore.programLogFor(athleteId, plan) });
 
   // The athlete's private link to their program on their phone (athlete.html): create it, copy it to text to
-  // them, or reset / remove it. Cubs-only players don't get one.
+  // them, or reset / remove it. A Cubs-only player's link opens the page in Cubs colors with the Cubs logo.
   function AthletePhoneLink({ athlete }) {
     const S = window.AthleteStore;
     const [token, setToken] = useState(() => S.getAthleteLink(athlete.id));
     const [busy, setBusy] = useState(false);
     const [note, setNote] = useState("");
     useEffect(() => { setToken(S.getAthleteLink(athlete.id)); setNote(""); }, [athlete.id]);
-    if (window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete)) return null;
-    const url = token ? `${window.location.origin}/athlete.html#${token}` : "";
+    const cubs = !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete); // Cubs-only players get the Cubs look
+    const url = token ? `${window.location.origin}/athlete.html${cubs ? "?team=cubs" : ""}#${token}` : "";
     const make = async () => {
       setBusy(true);
       const t = await S.createAthleteLink(athlete.id, athlete.name);

@@ -9,6 +9,15 @@
   const statusEl = document.getElementById("status");
   const overlay = document.getElementById("overlay");
   const token = (window.location.hash || "").replace(/^#/, "").trim();
+  // Links for Cubs-only players carry ?team=cubs, which only changes the logo and colors.
+  const cubs = new URLSearchParams(window.location.search).get("team") === "cubs";
+  if (cubs) {
+    document.body.classList.add("cubs");
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", "#06122b");
+  }
+  const logo = () => (cubs
+    ? el("img", { src: "https://www.mlbstatic.com/team-logos/112.svg", alt: "Chicago Cubs" })
+    : el("img", { src: "assets/dst-logo-light.png", alt: "Dynamic Sports Training" }));
 
   const el = (tag, attrs, ...kids) => {
     const n = document.createElement(tag);
@@ -160,7 +169,7 @@
     const go = (fn) => () => { fn(); render(); window.scrollTo(0, 0); };
 
     const top = el("div", { class: "top" },
-      el("div", { class: "who" }, data.athlete.name || "My Program"),
+      el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Program")),
       el("div", { class: "weekbar" },
         el("button", { class: "nav", "aria-label": "Previous week", disabled: weekIdx <= 0, onclick: go(() => { weekIdx -= 1; dayIdx = 0; }) }, "‹"),
         el("h1", null, `Week ${weekIdx + 1} of ${plan.weeks}${weekIdx === currentWeek() ? " · This week" : ""}`, el("small", null, weekDates(weekIdx))),
