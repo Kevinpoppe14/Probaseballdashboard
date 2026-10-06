@@ -115,6 +115,23 @@
   };
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeVideo(); });
 
+  // What was logged for this set the last time it came up: the same exercise (by name) on the same day of an
+  // earlier week of this block, looking back from last week. Returns { week, text } or null.
+  function lastLogged(item, si, e, gi) {
+    const pid = item.program.id, name = (e.name || "").trim().toLowerCase();
+    const same = (x) => (x.name || "").trim().toLowerCase() === name;
+    const today = ((item.week.sessions || [])[si] || {}).exercises || [];
+    const nth = today.filter(same).indexOf(e); // which one, if the exercise is on the day more than once
+    for (let wk = weekIdx - 1; wk >= item.block.start; wk -= 1) {
+      const week = item.program.weeks[(wk - item.block.start) % item.program.weeks.length];
+      const prev = ((((week || {}).sessions || [])[si] || {}).exercises || []).filter(same)[Math.max(0, nth)];
+      if (!prev || prev.id === e.id) continue;
+      const w = logged(pid, Rx.logKey(prev, gi)), r = logged(pid, Rx.repsLogKey(prev, gi));
+      if (w || r) return { week: wk + 1, text: r ? `${w || "?"} x ${r}` : w };
+    }
+    return null;
+  }
+
   // ---- one set group -----------------------------------------------------------------------------
   function setBox(item, si, e, g, gi) {
     const pid = item.program.id;
@@ -151,11 +168,13 @@
     [weight, reps].forEach((i) => i && i.addEventListener("keydown", (ev) => { if (ev.key === "Enter") i.blur(); }));
     derived.push(refresh);
     refresh();
+    const last = lastLogged(item, si, e, gi);
     return el("div", { class: `set${fail ? " fail" : ""}` },
       el("span", { class: "reps" }, Rx.repsText(g)),
       el("div", { class: "boxes" }, weight, reps),
       int ? el("span", { class: "pct" }, int) : null,
-      est);
+      est,
+      last ? el("span", { class: "last", title: `Logged in week ${last.week}` }, `Wk ${last.week}: ${last.text}`) : null);
   }
 
   // ---- the page ----------------------------------------------------------------------------------
