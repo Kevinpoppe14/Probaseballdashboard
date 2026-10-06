@@ -525,39 +525,6 @@
     );
   }
 
-  // The program week each attached block is on: this week while the plan is running, week 1 before it starts.
-  function PlanPrograms({ plan, onLog, onUndo }) {
-    const p = planProgress(plan);
-    if (p.state === "complete") return null;
-    const items = programWeeksAt(plan, p.state === "active" ? p.week - 1 : 0);
-    if (!items.length) return null;
-    const maxes = planMaxes(plan);
-    const maxList = Object.values(maxes.latest).sort((a, b) => a.name.localeCompare(b.name));
-    return (
-      <div className="panel period-programs no-print">
-        <h2>
-          {p.state === "active" ? "This week's program" : "First week's program"}{" "}
-          <small>{p.state === "active" ? `Week ${p.week} of ${plan.weeks}` : `Plan starts ${fmtMD(plan.startDate)}`}</small>
-        </h2>
-        {maxList.length > 0 && (
-          <div className="period-maxes" title="Estimated from sets taken to failure (BM / TF). Suggested weights for % sets come from these.">
-            <strong>Estimated maxes:</strong>
-            {maxList.map((m) => <span className="period-max" key={m.name}>{m.name} <b>{m.value}</b> <small>({m.weight} x {m.reps})</small></span>)}
-          </div>
-        )}
-        {items.map(({ block, lane, program, week, weekNo }) => (
-          <div className="period-program" key={block.id}>
-            <h3>
-              {lane.name}: {block.label || "Untitled"}{" "}
-              <small>{program.name} · {week.name || `Week ${weekNo}`} ({weekNo} of {program.weeks.length})</small>
-            </h3>
-            <ProgramWeekView week={week} maxes={maxes} planWeek={p.state === "active" ? p.week - 1 : 0} log={(plan.programLog || {})[program.id] || {}} onLog={onLog ? (key, val) => onLog(program.id, key, val) : undefined} onUndo={onUndo ? (exId) => onUndo(program.id, exId) : undefined} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
   // Automated one-paragraph "where are they now" caption, built from the plan and today's date:
   // current week, current phase (the block in the "Phase" row), what's next, and how much is left.
   function planCaption(plan, name) {
@@ -1123,19 +1090,6 @@
     };
     // Goal / action-plan edits save straight away without going into the undo history.
     const saveText = (patch) => apply({ ...planRef.current, ...patch });
-    // The weight (or reps reached) for one set group of a linked program. These live in the athlete's log, the
-    // same one their phone page writes to, so a coach editing the plan never overwrites what the athlete entered.
-    const [, setLogTick] = useState(0);
-    const logWeight = (programId, key, val) => {
-      window.AthleteStore.setAthleteLog(athlete.id, programId, key, val);
-      setLogTick((n) => n + 1);
-    };
-    // pick up anything the athlete has logged on their phone since the dashboard loaded
-    useEffect(() => {
-      let live = true;
-      window.AthleteStore.refreshAthleteLogs(athlete.id).then((ok) => { if (ok && live) setLogTick((n) => n + 1); });
-      return () => { live = false; };
-    }, [athlete.id]);
 
     // Program builder panel under the chart: which section (row) and tab (block) is open, and whether it has
     // unsaved edits. Clicking a row name or a block's Program button on the chart jumps to it.
@@ -1777,8 +1731,6 @@
         )}
 
         <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId })} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
-
-        <PlanPrograms plan={withLogs(plan, athlete.id)} onLog={logWeight} onUndo={(programId, exId) => { window.AthleteStore.removeAthleteOverride(athlete.id, programId, exId); setLogTick((n) => n + 1); }} />
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>

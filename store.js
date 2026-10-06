@@ -805,16 +805,31 @@
   // their own tables and are kept in memory only (not in `state`, so they stay out of this browser's storage).
   let athleteLinks = {}; // athleteId -> token
   let athleteLogs = {}; // athleteId -> programId -> key -> value ("" = cleared)
+  let athleteLogMeta = {}; // same shape, holding { at, source } for each entry: when it was typed in, and by whom
   function putLogRow(r) {
     const a = (athleteLogs[r.athlete_id] = athleteLogs[r.athlete_id] || {});
     (a[r.program_id] = a[r.program_id] || {})[r.key] = r.value || "";
+    const m = (athleteLogMeta[r.athlete_id] = athleteLogMeta[r.athlete_id] || {});
+    (m[r.program_id] = m[r.program_id] || {})[r.key] = { at: r.updated_at || null, source: r.source || "" };
+  }
+  // Everything logged for an athlete, one entry per weight or reps box: { programId, key, value, at, source }.
+  // Entries from before the log table existed (kept on the plan itself) have no time or source.
+  function athleteLogEntries(athleteId, plan) {
+    const out = [];
+    const merged = programLogFor(athleteId, plan);
+    const meta = athleteLogMeta[String(athleteId)] || {};
+    Object.keys(merged).forEach((pid) => Object.keys(merged[pid]).forEach((key) => {
+      const m = (meta[pid] || {})[key] || {};
+      out.push({ programId: pid, key, value: merged[pid][key], at: m.at || null, source: m.source || "" });
+    }));
+    return out;
   }
   // Changes an athlete made on their phone to an exercise or its sets and reps (see migration_009):
   // athleteId -> programId -> exercise id -> { name, groups, from }
   let athleteOverrides = {};
   function putOverrideRow(r) {
     const a = (athleteOverrides[r.athlete_id] = athleteOverrides[r.athlete_id] || {});
-    (a[r.program_id] = a[r.program_id] || {})[r.exercise_id] = r.data;
+    (a[r.program_id] = a[r.program_id] || {})[r.exercise_id] = { ...r.data, _at: r.updated_at || null }; // _at: when the change was made
   }
   function overridesFor(athleteId) {
     return athleteOverrides[String(athleteId)] || {};
@@ -869,6 +884,7 @@
     logSyncError(`load athlete_logs/${athleteId}`, error);
     if (error || !data) return false;
     delete athleteLogs[String(athleteId)];
+    delete athleteLogMeta[String(athleteId)];
     data.forEach(putLogRow);
     const ov = await sb().from("athlete_overrides").select("*").eq("athlete_id", String(athleteId)).limit(5000);
     logSyncError(`load athlete_overrides/${athleteId}`, ov.error);
@@ -946,6 +962,7 @@
     programLogFor,
     setAthleteLog,
     refreshAthleteLogs,
+    athleteLogEntries,
     overridesFor,
     removeAthleteOverride,
     allExercises,

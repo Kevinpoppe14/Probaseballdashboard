@@ -57,6 +57,7 @@
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
+<script type="text/babel" data-presets="react" src="training_log.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useMemo } = React;
 
@@ -3658,7 +3659,11 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       <td onClick={(e) => e.stopPropagation()}>
         <input type="checkbox" checked={checked} onChange={onToggleCheck} />
       </td>
-      <td><Avatar athlete={athlete} />{displayName(athlete)}</td>
+      <td>
+        {/* edit sits at the left of the row, ahead of the name */}
+        <button className="row-edit" onClick={startEdit} title={`Edit ${athlete.name}`} aria-label={`Edit ${athlete.name}`}>&#9998;</button>
+        <Avatar athlete={athlete} />{displayName(athlete)}
+      </td>
       <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
       <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
@@ -3669,7 +3674,6 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td onClick={(e) => e.stopPropagation()}>
-        <button className="btn-link" style={{ marginRight: 10 }} onClick={startEdit}>Edit</button>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
         <button className="btn-link" style={{ color: "var(--danger)" }} onClick={handleDelete}>Remove</button>
       </td>
@@ -4843,6 +4847,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
         <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
         <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
+        <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} onClick={() => setActiveTab("log")}>Training Log</button>
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
@@ -4898,6 +4903,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       <div className={activeTab === "throwing" ? "" : "tab-hidden"}>
         {window.ThrowingProgressionTab && <window.ThrowingProgressionTab athlete={athlete} />}
       </div>
+      {/* only built while it is open, so it reads the latest log each time */}
+      {activeTab === "log" && window.TrainingLogTab && <window.TrainingLogTab athlete={athlete} />}
     </div>
   );
 }

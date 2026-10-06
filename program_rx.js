@@ -137,7 +137,7 @@
             const o = overrides[e.id];
             if (!o || !(o.name || "").trim()) return e;
             const base = ProgramRx.normalize(e);
-            return { ...base, name: o.name, groups: Array.isArray(o.groups) && o.groups.length ? o.groups : base.groups, _coach: { name: e.name, text: ProgramRx.text(e) } };
+            return { ...base, name: o.name, groups: Array.isArray(o.groups) && o.groups.length ? o.groups : base.groups, _coach: { name: e.name, text: ProgramRx.text(e), at: o._at || null } };
           }),
         })),
       })),
