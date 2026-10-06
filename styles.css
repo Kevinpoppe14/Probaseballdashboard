@@ -2572,6 +2572,12 @@ tbody tr:hover {
 .pa-table { width: 100%; }
 .pa-table th.pa-group { background: var(--surface-muted, #2a2a2a); text-align: center; vertical-align: middle; font-weight: 700; width: 18%; }
 .pa-table td.pa-test { text-align: left; }
+/* each group of checkpoints (Setup & First Move, Back Leg, ...) is outlined in red (Cubs blue on the Cubs theme) */
+.pa-table { border-collapse: collapse; }
+.pa-table tbody tr.pa-first > * { border-top: 2px solid var(--dst-red); }
+.pa-table tbody tr.pa-last > td, .pa-table tbody th.pa-group { border-bottom: 2px solid var(--dst-red); }
+.pa-table tbody th.pa-group { border-left: 2px solid var(--dst-red); }
+.pa-table tbody tr > td:last-child { border-right: 2px solid var(--dst-red); }
 .pa-table th.pa-h-good { background: #2e9e4f; color: #fff; }
 .pa-table th.pa-h-issue { background: #e6b800; color: #000; }
 .pa-table th.pa-h-flag { background: #c0392b; color: #fff; }

@@ -77,7 +77,7 @@
     return (
       <React.Fragment>
         {group.tests.map((t, i) => (
-          <tr key={t}>
+          <tr key={t} className={`${i === 0 ? "pa-first" : ""}${i === group.tests.length - 1 ? " pa-last" : ""}`}>
             {i === 0 && <th className="pa-group" rowSpan={group.tests.length}>{group.name}</th>}
             <td className="pa-test">{t}</td>
             <RatingCells value={rec.checks[checkKey(group, t)] || 0} onChange={(v) => set(["checks", checkKey(group, t)], v)} />
