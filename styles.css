@@ -2554,6 +2554,20 @@ tbody tr:hover {
 /* intensity under the weight box: the bright cell from the training sheets (blue-tinted on the Cubs theme) */
 .program-rx-pct { background: #00ffff; color: #000; font-size: 11px; font-style: italic; padding: 1px 4px; border: 1px solid #111; border-top: none; }
 .cubs-theme .program-rx-pct { background: #d6e2f7; }
+/* sets to failure (BM / TF): weight and reps reached side by side, with the estimated 1RM underneath */
+.program-rx-inputs { display: flex; }
+.program-rx-group.failure { min-width: 104px; }
+.program-rx-group.failure .program-rx-weight { min-width: 52px; }
+.program-rx-got { border-left: none; }
+/* a weight worked out from an estimated max, not yet typed over */
+.program-rx-weight.auto { font-style: italic; color: var(--text-dim); }
+.program-rx-est { font-size: 11px; font-weight: 700; padding-top: 2px; }
+.period-maxes { margin: 0 0 12px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.period-max small { color: var(--text-dim); }
+.rm-chart { border-collapse: collapse; margin: 12px 0; }
+.rm-chart th, .rm-chart td { border: 1px solid var(--border); padding: 4px 10px; text-align: center; font-size: 13px; }
+.rm-chart input { width: 64px; text-align: center; }
+.rm-chart-help { max-width: 720px; color: var(--text-dim); font-size: 13px; }
 .program-ex-nums input, .program-ex-nums select, .program-ex-notes { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; }
 .program-ex-notes { margin-top: 4px; }
 .program-day-actions { display: flex; gap: 14px; margin-top: 10px; align-items: center; flex-wrap: wrap; }

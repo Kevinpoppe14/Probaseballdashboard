@@ -222,12 +222,83 @@
     },
     // where an athlete's written-in weight for one set group is kept
     logKey: (e, gi) => `${e.id}|${gi}`,
+    // "BM" (Beast Mode) or "TF" (Technical Failure) in the reps box means the set goes to failure; "-E" is each
+    // side. The athlete then writes in the reps they got as well as the weight.
+    failure(g) {
+      const m = /\b(BM|TF)(\s*-\s*E)?\b/i.exec(`${(g || {}).reps || ""}`);
+      return m ? { kind: m[1].toUpperCase(), each: !!m[2] } : null;
+    },
+    repsLogKey: (e, gi) => `${e.id}|${gi}|r`,
+    // 1RM estimated from a set to failure: the weight divided by the chart's % for that many reps, to the nearest 5.
+    estimate1RM(weight, reps) {
+      const w = parseFloat(weight), r = parseInt(reps, 10);
+      const chart = window.AthleteStore.getRmChart ? window.AthleteStore.getRmChart() : {};
+      const pct = parseFloat(chart[r]);
+      if (!(w > 0) || !(r > 0) || !(pct > 0)) return null;
+      return Math.round(w / (pct / 100) / 5) * 5;
+    },
+    // weight for a % set once a max is known, to the nearest 5
+    weightAt(max, g) {
+      const pct = parseFloat(`${(g || {}).intensity || ""}`);
+      return max > 0 && pct > 0 ? Math.round((max * pct) / 100 / 5) * 5 : null;
+    },
   };
   window.ProgramRx = ProgramRx;
 
+  // An athlete's estimated maxes from the failure sets logged on their plan, in the order the sets fall on the
+  // plan (plan week, then day). `latest` is the newest estimate per exercise; `before(name, week, day)` is the
+  // newest one from an earlier day, which is what fills in the weights for the % sets that follow it. So each
+  // new failure set re-works the weights from the next session on, and leaves the earlier ones alone.
+  function planMaxes(plan) {
+    const sets = [];
+    ((plan || {}).blocks || []).filter((b) => b.programId).forEach((b) => {
+      const program = programById(b.programId);
+      const log = ((plan.programLog || {})[b.programId]) || {};
+      if (!program) return;
+      (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e) => {
+        const name = (e.name || "").trim();
+        if (!name) return;
+        ProgramRx.groups(e).forEach((g, gi) => {
+          const reps = log[ProgramRx.repsLogKey(e, gi)];
+          if (!ProgramRx.failure(g) || !reps) return;
+          sets.push({ key: name.toLowerCase(), name, e, g, weight: log[ProgramRx.logKey(e, gi)], reps, pos: (b.start + wi) * 100 + si });
+        });
+      })));
+    });
+    sets.sort((a, b) => a.pos - b.pos);
+    const all = [];
+    const find = (key, pos) => {
+      let found = null;
+      all.forEach((m) => { if (m.key === key && m.pos < pos) found = m; });
+      return found;
+    };
+    // A failure set done at its filled-in weight (only the reps typed) counts at that weight.
+    sets.forEach((s) => {
+      const prev = find(s.key, s.pos);
+      const auto = prev && ProgramRx.normalize(s.e).intensityUnit === "%" ? ProgramRx.weightAt(prev.value, s.g) : null;
+      const weight = s.weight || (auto ? `${auto}` : "");
+      const value = ProgramRx.estimate1RM(weight, s.reps);
+      if (value) all.push({ key: s.key, name: s.name, value, weight, reps: s.reps, pos: s.pos });
+    });
+    const latest = {};
+    all.forEach((m) => { latest[m.key] = m; });
+    const before = (name, week, day) => find((name || "").trim().toLowerCase(), week * 100 + day);
+    return { latest, before };
+  }
+
   // One program week: a table of exercises per session. With `onLog`, each set group gets a box for the weight
   // the athlete actually used (`log` holds what's been entered so far).
-  function ProgramWeekView({ week, log, onLog }) {
+  // Failure sets (BM / TF) also get a box for the reps reached and show the 1RM estimated from them. With `maxes`
+  // (see planMaxes) and `planWeek` (the plan week this program week falls on), % sets of an exercise that has an
+  // earlier estimated max are filled in with the weight worked out from it. A filled-in weight stays automatic,
+  // and follows later failure sets, until someone types over it.
+  function ProgramWeekView({ week, log, onLog, maxes, planWeek }) {
+    const logged = (key) => (log || {})[key] || "";
+    const save = (key, auto) => (ev) => {
+      const v = ev.target.value.trim();
+      if (!logged(key) && auto && v === `${auto}`) return; // untouched automatic weight: nothing to keep
+      if (v !== logged(key)) onLog(key, v);
+    };
     return (
       <div className="program-view">
         {(week.sessions || []).map((s, si) => {
@@ -252,24 +323,48 @@
                         </td>
                         <td>
                           <div className="program-rx">
-                            {ProgramRx.groups(e).map((g, gi) => (
-                              <span className="program-rx-group" key={gi}>
-                                <span className="program-rx-reps">{ProgramRx.repsText(g)}</span>
-                                {onLog && (
-                                  <input
-                                    className="program-rx-weight"
-                                    key={(log || {})[ProgramRx.logKey(e, gi)] || ""}
-                                    defaultValue={(log || {})[ProgramRx.logKey(e, gi)] || ""}
-                                    placeholder="wt"
-                                    aria-label="Weight used"
-                                    onKeyDown={(ev) => ev.stopPropagation()}
-                                    onBlur={(ev) => { const v = ev.target.value.trim(); if (v !== ((log || {})[ProgramRx.logKey(e, gi)] || "")) onLog(ProgramRx.logKey(e, gi), v); }}
-                                  />
-                                )}
-                                {/* the prescribed intensity sits under the weight box, as on the training sheets */}
-                                {ProgramRx.intensityText(e, g) && <span className="program-rx-pct">{ProgramRx.intensityText(e, g)}</span>}
-                              </span>
-                            ))}
+                            {ProgramRx.groups(e).map((g, gi) => {
+                              const fail = ProgramRx.failure(g);
+                              const wKey = ProgramRx.logKey(e, gi), rKey = ProgramRx.repsLogKey(e, gi);
+                              const max = maxes && planWeek != null ? maxes.before(e.name, planWeek, si) : null;
+                              const suggest = max && ProgramRx.normalize(e).intensityUnit === "%" ? ProgramRx.weightAt(max.value, g) : null;
+                              const auto = onLog && suggest && !logged(wKey) ? suggest : null;
+                              const usedWeight = logged(wKey) || (auto ? `${auto}` : "");
+                              const est = fail ? ProgramRx.estimate1RM(usedWeight, logged(rKey)) : null;
+                              return (
+                                <span className={`program-rx-group ${fail ? "failure" : ""}`} key={gi}>
+                                  <span className="program-rx-reps" title={fail ? `${fail.kind === "BM" ? "Beast Mode" : "Technical Failure"}${fail.each ? ", each side" : ""}: go to failure` : undefined}>{ProgramRx.repsText(g)}</span>
+                                  {onLog && (
+                                    <span className="program-rx-inputs">
+                                      <input
+                                        className={`program-rx-weight ${auto ? "auto" : ""}`}
+                                        key={logged(wKey) || `a${auto || ""}`}
+                                        defaultValue={logged(wKey) || (auto ? `${auto}` : "")}
+                                        placeholder="wt"
+                                        title={suggest ? `${suggest} is ${ProgramRx.intensityText(e, g)} of an estimated ${max.value} max (${max.weight} x ${max.reps}). Type over it to change.` : undefined}
+                                        aria-label="Weight used"
+                                        onKeyDown={(ev) => ev.stopPropagation()}
+                                        onBlur={save(wKey, auto)}
+                                      />
+                                      {fail && (
+                                        <input
+                                          className="program-rx-weight program-rx-got"
+                                          key={`r${logged(rKey)}`}
+                                          defaultValue={logged(rKey)}
+                                          placeholder="reps"
+                                          aria-label={`Reps reached${fail.each ? " each side" : ""}`}
+                                          onKeyDown={(ev) => ev.stopPropagation()}
+                                          onBlur={save(rKey)}
+                                        />
+                                      )}
+                                    </span>
+                                  )}
+                                  {/* the prescribed intensity sits under the weight box, as on the training sheets */}
+                                  {ProgramRx.intensityText(e, g) && <span className="program-rx-pct">{ProgramRx.intensityText(e, g)}</span>}
+                                  {est && <span className="program-rx-est" title={`${usedWeight} x ${logged(rKey)} to failure`}>Est. 1RM {est}</span>}
+                                </span>
+                              );
+                            })}
                             {ProgramRx.groups(e).length === 0 && "—"}
                           </div>
                         </td>
@@ -289,7 +384,7 @@
 
   // The whole program in a pop-up, opened by clicking into a block that has one linked.
   // `currentNo` (1-based) marks the program week the athlete is on right now, when there is one.
-  function ProgramModal({ program, currentNo, onClose, athlete, log, onLog }) {
+  function ProgramModal({ program, currentNo, onClose, athlete, log, onLog, maxes, startWeek }) {
     // Same one-page PDF as the program builder's export, with this athlete's name (and the Cubs logo for Cubs-only athletes).
     const exportPdf = async () => {
       const name = athlete ? athlete.name : "";
@@ -311,7 +406,7 @@
           {(program.weeks || []).map((w, wi) => (
             <div className={`program-modal-week ${currentNo === wi + 1 ? "current" : ""}`} key={wi}>
               <h3>{w.name || `Week ${wi + 1}`}{currentNo === wi + 1 && <small>This week</small>}</h3>
-              <ProgramWeekView week={w} log={log} onLog={onLog} />
+              <ProgramWeekView week={w} log={log} onLog={onLog} maxes={maxes} planWeek={startWeek != null ? startWeek + wi : undefined} />
             </div>
           ))}
           {!(program.weeks || []).length && <div className="program-view-empty">This program has no weeks yet.</div>}
@@ -492,19 +587,27 @@
     if (p.state === "complete") return null;
     const items = programWeeksAt(plan, p.state === "active" ? p.week - 1 : 0);
     if (!items.length) return null;
+    const maxes = planMaxes(plan);
+    const maxList = Object.values(maxes.latest).sort((a, b) => a.name.localeCompare(b.name));
     return (
       <div className="panel period-programs no-print">
         <h2>
           {p.state === "active" ? "This week's program" : "First week's program"}{" "}
           <small>{p.state === "active" ? `Week ${p.week} of ${plan.weeks}` : `Plan starts ${fmtMD(plan.startDate)}`}</small>
         </h2>
+        {maxList.length > 0 && (
+          <div className="period-maxes" title="Estimated from sets taken to failure (BM / TF). Suggested weights for % sets come from these.">
+            <strong>Estimated maxes:</strong>
+            {maxList.map((m) => <span className="period-max" key={m.name}>{m.name} <b>{m.value}</b> <small>({m.weight} x {m.reps})</small></span>)}
+          </div>
+        )}
         {items.map(({ block, lane, program, week, weekNo }) => (
           <div className="period-program" key={block.id}>
             <h3>
               {lane.name}: {block.label || "Untitled"}{" "}
               <small>{program.name} · {week.name || `Week ${weekNo}`} ({weekNo} of {program.weeks.length})</small>
             </h3>
-            <ProgramWeekView week={week} log={(plan.programLog || {})[program.id] || {}} onLog={onLog ? (key, val) => onLog(program.id, key, val) : undefined} />
+            <ProgramWeekView week={week} maxes={maxes} planWeek={p.state === "active" ? p.week - 1 : 0} log={(plan.programLog || {})[program.id] || {}} onLog={onLog ? (key, val) => onLog(program.id, key, val) : undefined} />
           </div>
         ))}
       </div>
@@ -603,7 +706,7 @@
     const openedProgram = opened && programById(opened.programId);
     return (
       <div className="period-ro">
-        {openedProgram && <ProgramModal program={openedProgram} athlete={athlete} log={(plan.programLog || {})[openedProgram.id] || {}} onLog={athlete ? (key, val) => {
+        {openedProgram && <ProgramModal program={openedProgram} athlete={athlete} maxes={planMaxes(plan)} startWeek={opened.start} log={(plan.programLog || {})[openedProgram.id] || {}} onLog={athlete ? (key, val) => {
           const store = window.AthleteStore;
           const cur = store.getPeriodization(athlete.id);
           if (!cur) return;

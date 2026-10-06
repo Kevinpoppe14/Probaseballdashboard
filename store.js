@@ -27,6 +27,7 @@
       assessments: [], // dated movement/physical assessments (see assessment.js) — one athlete can have several over time
       offseasonFacilities: [], // shared directory of off-season training facilities: { id, name, address1, city, ... } (see migration_004)
       exercises: [], // exercise library: { id, name, videoUrl, tier, pattern, region, laterality, equipment: [], cues } (see migration_006)
+      rmChart: null, // reps-to-failure -> % of 1RM chart; null until a coach edits it (then the default applies)
       programFolders: null, // folder paths for the Programs tab; null until a coach changes them (then the defaults apply)
       programs: [], // reusable training program templates: { id, name, description, weeks: [{ name, sessions: [{ name, exercises: [...] }] }] } (see migration_005)
     };
@@ -307,6 +308,8 @@
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
     const foldersRow = appMeta.find((r) => r.key === "programFolders");
     next.programFolders = foldersRow && Array.isArray(foldersRow.value) ? foldersRow.value : null;
+    const rmRow = appMeta.find((r) => r.key === "rmChart");
+    next.rmChart = rmRow && rmRow.value && typeof rmRow.value === "object" ? rmRow.value : null;
     state = next;
     persistLocal();
   }
@@ -740,6 +743,18 @@
     syncUpsertMeta("programFolders", state.programFolders);
   }
 
+  // Reps reached on a set taken to failure -> the % of 1RM that weight is taken to be. Used to estimate a 1RM
+  // from "BM" (Beast Mode) and "TF" (Technical Failure) sets. Coaches can edit it on the Programs tab.
+  const DEFAULT_RM_CHART = { 1: 100, 2: 95, 3: 93, 4: 90, 5: 87, 6: 85, 7: 83, 8: 80, 9: 77, 10: 75, 11: 73, 12: 70, 13: 68, 14: 67, 15: 65 };
+  function getRmChart() {
+    return { ...(state.rmChart || DEFAULT_RM_CHART) };
+  }
+  function setRmChart(chart) {
+    state.rmChart = chart ? { ...chart } : null;
+    persistLocal();
+    syncUpsertMeta("rmChart", state.rmChart);
+  }
+
   function deleteProgram(id) {
     state.programs = state.programs.filter((p) => p.id !== id);
     persistLocal();
@@ -799,6 +814,8 @@
     deleteProgram,
     getProgramFolders,
     setProgramFolders,
+    getRmChart,
+    setRmChart,
     allExercises,
     findExerciseByName,
     saveExercise,

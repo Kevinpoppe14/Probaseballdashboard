@@ -824,6 +824,45 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
   );
 }
 
+// 1RM Chart section of the Programs tab: the % of 1RM assumed for each number of reps reached on a set taken to
+// failure ("BM" Beast Mode / "TF" Technical Failure in a program's reps box). Estimated 1RM = weight / that %.
+function RmChartPage({ sectionTabs }) {
+  const S = window.AthleteStore;
+  const [chart, setChart] = useState(() => S.getRmChart());
+  const [saved, setSaved] = useState(true);
+  const reps = Array.from({ length: 15 }, (_, i) => i + 1);
+  const set = (r, v) => { setChart((c) => ({ ...c, [r]: v })); setSaved(false); };
+  const clean = () => Object.fromEntries(reps.map((r) => [r, parseFloat(chart[r])]).filter(([, v]) => v > 0 && v <= 100));
+  return (
+    <div className="panel">
+      {sectionTabs}
+      <h2>1RM Chart <small>used to estimate a max from sets taken to failure</small></h2>
+      <p className="rm-chart-help">
+        Type <strong>BM</strong> (Beast Mode), <strong>BM-E</strong> (each side), <strong>TF</strong> (Technical Failure) or <strong>TF-E</strong> in
+        a program's reps box. The athlete's plan then asks for the weight and the reps reached, and estimates a 1RM
+        as the weight divided by the percentage below. Leave a row blank to give no estimate for that many reps.
+      </p>
+      <table className="rm-chart">
+        <thead><tr><th>Reps reached</th><th>% of 1RM</th><th>Example: 225 lb</th></tr></thead>
+        <tbody>
+          {reps.map((r) => {
+            const pct = parseFloat(chart[r]);
+            return (
+              <tr key={r}>
+                <td>{r}</td>
+                <td><input value={chart[r] == null ? "" : chart[r]} aria-label={`Percent of 1RM for ${r} reps`} onChange={(ev) => set(r, ev.target.value)} /></td>
+                <td>{pct > 0 && pct <= 100 ? `${Math.round(225 / (pct / 100) / 5) * 5} max` : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <button className="btn" disabled={saved} onClick={() => { S.setRmChart(clean()); setChart(S.getRmChart()); setSaved(true); }}>{saved ? "Saved" : "Save chart"}</button>{" "}
+      <button className="btn" onClick={() => { if (confirm("Reset the chart to the default percentages?")) { S.setRmChart(null); setChart(S.getRmChart()); setSaved(true); } }}>Reset to default</button>
+    </div>
+  );
+}
+
 // Exercise Library section of the Programs tab: search, filter by tier, add / edit, click a name to view.
 function ExerciseLibrary({ sectionTabs }) {
   const S = window.AthleteStore;
@@ -1933,9 +1972,11 @@ function ProgramsPage({ nav, setNav }) {
     <div className="pill-tabs program-sections">
       <button className={`pill-tab ${section === "programs" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "programs" }))}>Programs</button>
       <button className={`pill-tab ${section === "exercises" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "exercises" }))}>Exercise Library</button>
+      <button className={`pill-tab ${section === "rmchart" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "rmchart" }))}>1RM Chart</button>
     </div>
   );
   if (section === "exercises") return <ExerciseLibrary sectionTabs={sectionTabs} />;
+  if (section === "rmchart") return <RmChartPage sectionTabs={sectionTabs} />;
 
   return (
     <div className="panel" key={version}>
