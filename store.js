@@ -270,13 +270,18 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows, linkRows, logRows] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
         fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"), fetchTable("programs"), fetchTable("exercises"),
+        fetchTable("athlete_links"), fetchTable("athlete_logs"),
       ]);
+    athleteLinks = {};
+    linkRows.forEach((r) => { athleteLinks[r.athlete_id] = r.token; });
+    athleteLogs = {};
+    logRows.forEach(putLogRow);
     const cloudIsEmpty = ![athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments]
       .some((rows) => rows.length > 0);
 
@@ -745,8 +750,9 @@
 
   // Reps reached on a set taken to failure -> the % of 1RM that weight is taken to be. Used to estimate a 1RM
   // from "BM" (Beast Mode) and "TF" (Technical Failure) sets. Coaches can edit it on the Programs tab.
-  // The default is the DST percentage chart (2RM = 95%, then 2.5% less per rep, down to 14RM = 65%).
-  const DEFAULT_RM_CHART = { 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65 };
+  // The default is the DST percentage chart (2RM = 95%, then 2.5% less per rep, down to 14RM = 65%), then
+  // 15 = 60%, 16 = 55% and 50% for 17 reps or more (the 17 row covers everything above it).
+  const DEFAULT_RM_CHART = { 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65, 15: 60, 16: 55, 17: 50 };
   function getRmChart() {
     return { ...(state.rmChart || DEFAULT_RM_CHART) };
   }
@@ -754,6 +760,62 @@
     state.rmChart = chart ? { ...chart } : null;
     persistLocal();
     syncUpsertMeta("rmChart", state.rmChart);
+  }
+
+  // ---- athlete phone page (athlete.html, see migration_007) ----------------------------------------
+  // Each athlete can have one private link. Its token, and the weights / reps written in for each set, live in
+  // their own tables and are kept in memory only (not in `state`, so they stay out of this browser's storage).
+  let athleteLinks = {}; // athleteId -> token
+  let athleteLogs = {}; // athleteId -> programId -> key -> value ("" = cleared)
+  function putLogRow(r) {
+    const a = (athleteLogs[r.athlete_id] = athleteLogs[r.athlete_id] || {});
+    (a[r.program_id] = a[r.program_id] || {})[r.key] = r.value || "";
+  }
+  function getAthleteLink(athleteId) {
+    return athleteLinks[String(athleteId)] || null;
+  }
+  // Makes a new link for the athlete (replacing any old one, which stops working). Resolves to the token, or
+  // null if it could not be saved.
+  async function createAthleteLink(athleteId, name) {
+    const bytes = new Uint8Array(24);
+    window.crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const { error } = await sb().from("athlete_links").upsert({ athlete_id: String(athleteId), token, name: name || "", created_at: new Date().toISOString() });
+    logSyncError(`upsert athlete_links/${athleteId}`, error);
+    if (error) return null;
+    athleteLinks[String(athleteId)] = token;
+    return token;
+  }
+  async function removeAthleteLink(athleteId) {
+    const { error } = await sb().from("athlete_links").delete().eq("athlete_id", String(athleteId));
+    logSyncError(`delete athlete_links/${athleteId}`, error);
+    if (error) return false;
+    delete athleteLinks[String(athleteId)];
+    return true;
+  }
+  // What has been logged against each program on an athlete's plan: the entries from athlete_logs laid over
+  // the older ones kept on the plan itself (plan.programLog), with cleared entries left out.
+  function programLogFor(athleteId, plan) {
+    const out = {};
+    const add = (all) => Object.keys(all || {}).forEach((pid) => { out[pid] = { ...(out[pid] || {}), ...all[pid] }; });
+    add((plan || {}).programLog);
+    add(athleteLogs[String(athleteId)]);
+    Object.keys(out).forEach((pid) => Object.keys(out[pid]).forEach((k) => { if (!out[pid][k]) delete out[pid][k]; }));
+    return out;
+  }
+  function setAthleteLog(athleteId, programId, key, value) {
+    const row = { athlete_id: String(athleteId), program_id: String(programId), key, value: value || "", source: "coach", updated_at: new Date().toISOString() };
+    putLogRow(row);
+    sb().from("athlete_logs").upsert(row).then(({ error }) => logSyncError(`upsert athlete_logs/${athleteId}/${key}`, error));
+  }
+  // Re-reads one athlete's log, to pick up what they have entered on their phone since the dashboard loaded.
+  async function refreshAthleteLogs(athleteId) {
+    const { data, error } = await sb().from("athlete_logs").select("*").eq("athlete_id", String(athleteId)).limit(20000);
+    logSyncError(`load athlete_logs/${athleteId}`, error);
+    if (error || !data) return false;
+    delete athleteLogs[String(athleteId)];
+    data.forEach(putLogRow);
+    return true;
   }
 
   function deleteProgram(id) {
@@ -817,6 +879,12 @@
     setProgramFolders,
     getRmChart,
     setRmChart,
+    getAthleteLink,
+    createAthleteLink,
+    removeAthleteLink,
+    programLogFor,
+    setAthleteLog,
+    refreshAthleteLogs,
     allExercises,
     findExerciseByName,
     saveExercise,

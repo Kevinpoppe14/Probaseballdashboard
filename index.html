@@ -51,6 +51,7 @@
 <script src="research_snapshots_2.js"></script>
 <script src="research_snapshots_3.js"></script>
 <script src="cmj_norms.js"></script>
+<script src="program_rx.js"></script>
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
@@ -830,7 +831,7 @@ function RmChartPage({ sectionTabs }) {
   const S = window.AthleteStore;
   const [chart, setChart] = useState(() => S.getRmChart());
   const [saved, setSaved] = useState(true);
-  const reps = Array.from({ length: 15 }, (_, i) => i + 1);
+  const reps = Array.from({ length: 17 }, (_, i) => i + 1); // the last row stands for 17 reps or more
   const set = (r, v) => { setChart((c) => ({ ...c, [r]: v })); setSaved(false); };
   const clean = () => Object.fromEntries(reps.map((r) => [r, parseFloat(chart[r])]).filter(([, v]) => v > 0 && v <= 100));
   return (
@@ -849,7 +850,7 @@ function RmChartPage({ sectionTabs }) {
             const pct = parseFloat(chart[r]);
             return (
               <tr key={r}>
-                <td>{r}</td>
+                <td>{r === 17 ? "17+" : r}</td>
                 <td><input value={chart[r] == null ? "" : chart[r]} aria-label={`Percent of 1RM for ${r} reps`} onChange={(ev) => set(r, ev.target.value)} /></td>
                 <td>{pct > 0 && pct <= 100 ? `${Math.round(225 / (pct / 100) / 5) * 5} max` : "—"}</td>
               </tr>
