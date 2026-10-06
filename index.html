@@ -3069,6 +3069,12 @@ function WelcomeModal({ onClose, onOpenGuide }) {
   );
 }
 
+// The DST logo for the page as it stands: the charcoal one on the light theme (the white one washes out there),
+// the white one on dark. For screens that are not handed the theme (sign-in, loading).
+function dstLogoForTheme() {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
+}
+
 function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
@@ -3083,7 +3089,7 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
           </React.Fragment>
         ) : (
           <React.Fragment>
-            <img className="brand-logo" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
+            <img className="brand-logo" src={theme === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png"} alt="Dynamic Sports Training" />
             <div>
               <h1>Professional Baseball Dashboard</h1>
               <span>Advanced Player Development</span>
@@ -8088,7 +8094,7 @@ function App({ userEmail, onLogout }) {
 function LoadingGate({ message }) {
   return (
     <div style={{ padding: 60, textAlign: "center", color: "var(--text-dim)" }}>
-      <img src="assets/dst-logo-light.png" alt="" style={{ height: 40, marginBottom: 18, opacity: 0.85 }} />
+      <img src={dstLogoForTheme()} alt="" style={{ height: 40, marginBottom: 18, opacity: 0.85 }} />
       <div>{message}</div>
     </div>
   );
@@ -8113,7 +8119,7 @@ function LoginScreen() {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
-        <img className="brand-logo" src="assets/dst-logo-light.png" alt="Dynamic Sports Training" />
+        <img className="brand-logo" src={dstLogoForTheme()} alt="Dynamic Sports Training" />
         <h1>Professional Baseball Dashboard</h1>
         <p className="login-sub">Sign in with the account your admin created for you.</p>
         <div className="field">

@@ -2944,3 +2944,18 @@ tbody tr:hover {
 }
 .profile-tabs .pill-tab:hover { filter: brightness(1.15); }
 .profile-tabs .pill-tab.active { background: #fff; color: var(--dst-red); font-weight: 700; filter: none; }
+
+/* ---- Light mode: the header and footer bars turn light too, and DST logos switch to the charcoal one ---- */
+:root[data-theme="light"] .topbar,
+:root[data-theme="light"] .bottom-menu {
+  background: #ffffff;
+  --text: #1a1a1a;
+  --text-dim: #666666;
+  color: var(--text);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+}
+:root[data-theme="light"] .brand span { color: #666666; }
+:root[data-theme="light"] .theme-toggle { background: rgba(0, 0, 0, 0.05); border-color: #c7cbd1; color: #1a1a1a; }
+/* the Player Plan header carries both logos; on the light theme the white one would vanish */
+:root[data-theme="light"] .ph-right img.ph-logo-screen { display: none; }
+:root[data-theme="light"] .ph-right img.ph-logo-print { display: block; }
