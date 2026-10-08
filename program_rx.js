@@ -181,7 +181,7 @@
     ["Trap Bar", /\bTBDL\b|\btrap\s*bar\b|\bhex\s*bar\b/i],
     ["EZ Bar", /\bEZ\b/i],
     ["Plate", /\bplates?\b/i],
-    ["Rack", /\brack\b/i],
+    ["Rack", /^\s*rack\b|\brack\s*pull|\bstrap\s+rack\b/i], // a rack to set up in; not the "front rack" or "rack carry" position
     ["Bench", /\bbench\b/i],
     ["Box", /(?<!shin\s)\bbox\b|depth\s*(drop|jump)/i], // not the "shin box" position
     ["Pull-Up Bar", /pull-?\s?ups?\b|chin-?\s?ups?\b|\bhanging\b/i],
