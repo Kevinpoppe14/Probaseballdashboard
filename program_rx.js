@@ -169,7 +169,7 @@
     { name: "Racks, Benches and Boxes", items: ["Rack", "Bench", "Box", "Pull-Up Bar", "GHR", "Landmine"] },
     { name: "Machines and Cables", items: ["Cable", "Machine", "Jammer", "Bike", "Rower", "Sled"] },
     { name: "Bands, Balls and Accessories", items: ["Band", "Physio Ball", "Suspension Trainer", "Slideboard", "Hurdles", "Foam Roller", "Airex Pad", "Slant Board"] },
-    { name: "Specialty Equipment", items: ["Keiser", "Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar", "Rice Bucket"] },
+    { name: "Specialty Equipment", items: ["Keiser", "Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar / Shoulder Tube / Body Blade", "Rice Bucket"] },
   ];
   const LIST = GROUPS.reduce((all, g) => all.concat(g.items), []);
   // how an item reads on a checklist, where that says more than its stored name
@@ -217,7 +217,7 @@
     ["Supercat", /super\s*cat/i],
     ["Tindeq", /\btindeq\b/i],
     ["Power Ball", /power\s*ball/i],
-    ["Reflex Bar", /reflex\s*bar/i],
+    ["Reflex Bar / Shoulder Tube / Body Blade", /reflex\s*bar|shoulder\s*tube|body\s*blade/i], // any one of the three will do
     ["Club", /\bclubs?\b/i],
   ];
   const fromName = (name) => FROM_NAME.filter(([, re]) => re.test(name || "")).map(([q]) => q);
