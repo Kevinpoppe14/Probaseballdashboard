@@ -190,8 +190,8 @@
     ["Box", /(?<!shin\s)\bbox\b|depth\s*(drop|jump)/i], // not the "shin box" position
     ["Pull-Up Bar", /pull-?\s?ups?\b|chin-?\s?ups?\b|\bhanging\b/i],
     ["Landmine", /\bLM\b|land\s*mine/i],
-    ["Cable", /bcableb/i],
-    ["Keiser", /bkeiserb/i], // its own specialty item, not a cable stack
+    ["Cable", /\bcable\b/i],
+    ["Keiser", /\bkeiser\b/i], // its own specialty item, not a cable stack
     ["Machine", /\bmachine\b|leg\s*press|lat\s*pull\s*down/i],
     ["GHR", /\bGHR\b|glute\s*ham/i],
     ["Band", /(?<!\bIT\s)\bband(s|ed)?\b|\bTKE\b/i], // not the IT band; every TKE variation is banded
