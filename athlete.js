@@ -15,9 +15,16 @@
     document.body.classList.add("cubs");
     document.querySelector('meta[name="theme-color"]').setAttribute("content", "#06122b");
   }
-  const logo = () => (cubs
-    ? el("img", { src: "https://www.mlbstatic.com/team-logos/112.svg", alt: "Chicago Cubs" })
-    : el("img", { src: "assets/dst-logo-light.png", alt: "Dynamic Sports Training" }));
+  // the logo, with the day's greeting under it on a holiday (see holiday.js)
+  const logo = () => {
+    const holiday = window.Holiday && window.Holiday.today();
+    return [
+      cubs
+        ? el("img", { src: "https://www.mlbstatic.com/team-logos/112.svg", alt: "Chicago Cubs" })
+        : el("img", { src: "assets/dst-logo-light.png", alt: "Dynamic Sports Training" }),
+      holiday ? el("div", { class: "holiday-greeting" }, holiday.greeting) : null,
+    ];
+  };
 
   const el = (tag, attrs, ...kids) => {
     const n = document.createElement(tag);

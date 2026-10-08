@@ -3014,3 +3014,15 @@ tbody tr:hover {
 .eq-item span { flex: 1; }
 .eq-yards { flex: 0 0 auto !important; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--text-dim); }
 .eq-yards input { width: 58px; padding: 3px 5px; font-size: 12px; text-align: center; }
+
+/* ---- Holiday colors (see holiday.js): only while <html data-holiday> is set, which is on the holiday itself.
+   --hol-1 is the day's main color, --hol-2 its second and --hol-3 its third. ---- */
+:root[data-holiday], :root[data-holiday] .cubs-theme { --dst-red: var(--hol-1); --primary: var(--hol-1); }
+/* the header and footer rules become a three-color stripe */
+:root[data-holiday] .topbar, :root[data-holiday] .topbar.cubs-theme { border-bottom: 5px solid; border-image: linear-gradient(90deg, var(--hol-1) 0 33.3%, var(--hol-3) 33.3% 66.6%, var(--hol-2) 66.6% 100%) 1; }
+:root[data-holiday] .bottom-menu { border-top: 5px solid; border-image: linear-gradient(90deg, var(--hol-2) 0 33.3%, var(--hol-3) 33.3% 66.6%, var(--hol-1) 66.6% 100%) 1; }
+:root[data-holiday] .topbar .nav-tab.active, :root[data-holiday] .topbar.cubs-theme .nav-tab.active { background: var(--hol-1); }
+/* profile tabs alternate between the two colors; the open one stays white */
+:root[data-holiday] .profile-tabs { border-bottom-color: var(--hol-1); }
+:root[data-holiday] .profile-tabs .pill-tab:nth-child(even):not(.active) { background: var(--hol-2); border-color: var(--hol-3); }
+.holiday-greeting { display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--hol-1); color: #fff; border: 1px solid var(--hol-3); vertical-align: middle; white-space: nowrap; }
