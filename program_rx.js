@@ -169,11 +169,11 @@
     { name: "Racks, Benches and Boxes", items: ["Rack", "Bench", "Box", "Pull-Up Bar", "GHR", "Landmine"] },
     { name: "Machines and Cables", items: ["Cable", "Machine", "Jammer", "Bike", "Rower", "Sled"] },
     { name: "Bands, Balls and Accessories", items: ["Band", "Physio Ball", "Suspension Trainer", "Slideboard", "Hurdles", "Foam Roller", "Airex Pad", "Slant Board"] },
-    { name: "Specialty Equipment", items: ["Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar", "Rice Bucket"] },
+    { name: "Specialty Equipment", items: ["Keiser", "Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar", "Rice Bucket"] },
   ];
   const LIST = GROUPS.reduce((all, g) => all.concat(g.items), []);
   // how an item reads on a checklist, where that says more than its stored name
-  const LABELS = { "Trap Bar": "Trap Bar / Hex Bar", Cable: "Cable / Keiser", "Physio Ball": "Physio / Swiss Ball" };
+  const LABELS = { "Trap Bar": "Trap Bar / Hex Bar", "Physio Ball": "Physio / Swiss Ball" };
   const label = (q) => LABELS[q] || q;
   // what a name gives away: abbreviations and plain words
   const FROM_NAME = [
@@ -190,7 +190,8 @@
     ["Box", /(?<!shin\s)\bbox\b|depth\s*(drop|jump)/i], // not the "shin box" position
     ["Pull-Up Bar", /pull-?\s?ups?\b|chin-?\s?ups?\b|\bhanging\b/i],
     ["Landmine", /\bLM\b|land\s*mine/i],
-    ["Cable", /\bcable\b|keiser/i],
+    ["Cable", /bcableb/i],
+    ["Keiser", /bkeiserb/i], // its own specialty item, not a cable stack
     ["Machine", /\bmachine\b|leg\s*press|lat\s*pull\s*down/i],
     ["GHR", /\bGHR\b|glute\s*ham/i],
     ["Band", /(?<!\bIT\s)\bband(s|ed)?\b|\bTKE\b/i], // not the IT band; every TKE variation is banded
