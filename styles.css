@@ -3025,4 +3025,12 @@ tbody tr:hover {
 /* profile tabs alternate between the two colors; the open one stays white */
 :root[data-holiday] .profile-tabs { border-bottom-color: var(--hol-1); }
 :root[data-holiday] .profile-tabs .pill-tab:nth-child(even):not(.active) { background: var(--hol-2); border-color: var(--hol-3); }
-.holiday-greeting { display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--hol-1); color: #fff; border: 1px solid var(--hol-3); vertical-align: middle; white-space: nowrap; }
+/* the holiday greeting as a banner across the top of the dashboard: the day's main color with its second color
+   at both ends and a rule in the third underneath */
+.holiday-banner {
+  padding: 12px 16px; text-align: center; font-size: 26px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; line-height: 1.15;
+  color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(90deg, var(--hol-2) 0 14%, var(--hol-1) 14% 86%, var(--hol-2) 86% 100%);
+  border-bottom: 4px solid var(--hol-3);
+}
+@media (max-width: 760px) { .holiday-banner { font-size: 18px; letter-spacing: 2px; padding: 9px 12px; } }

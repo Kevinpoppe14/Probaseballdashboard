@@ -142,7 +142,25 @@
       h.colors.forEach((c, i) => root.style.setProperty(`--hol-${i + 1}`, c));
     }
     tintLogos();
+    banner(h);
     return h;
+  }
+
+  // On the dashboard the greeting runs across the very top of the page as a banner in the day's colors. It sits
+  // above the header, outside the app itself, so nothing inside the page changes size; it is taken away again
+  // when the holiday is over. (The phone page shows its greeting under the logo instead.)
+  function banner(h) {
+    const app = document.getElementById("root"); // only the dashboard has this
+    let bar = document.getElementById("holiday-banner");
+    if (!h || !app) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "holiday-banner";
+      bar.className = "holiday-banner no-print";
+      bar.setAttribute("role", "status");
+      app.parentNode.insertBefore(bar, app);
+    }
+    if (bar.textContent !== h.greeting) bar.textContent = h.greeting;
   }
 
   window.Holiday = { HOLIDAYS, today, apply };
