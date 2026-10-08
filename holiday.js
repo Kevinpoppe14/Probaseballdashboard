@@ -53,21 +53,113 @@
     return HOLIDAYS.find((h) => h.days(y).some(([hm, hd]) => hm === m && hd === d)) || null;
   }
 
+  // ---- logos in the day's colors ---------------------------------------------------------------------
+  // The DST and Cubs logos in the page header are redrawn in the holiday's colors: the picture is copied onto
+  // a canvas and its colored parts are repainted, shape and edges untouched. On the DST logo the red "D" takes
+  // the main color and the red tagline under it the second; on the Cubs logo the red "C" takes the main color
+  // and the blue ring the second. White and charcoal lettering is left alone. Only header logos are touched
+  // (.brand-logo on the dashboard, the logo on the phone page); printed pages and team logos in tables are not.
+  const LOGO_SELECTOR = "img.brand-logo, .brand > img";
+  const isLogo = (src) => /dst-logo|team-logos\/112\.svg/.test(src || "");
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const luminance = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const tinted = new Map(); // "holiday|source|light or dark" -> the recolored picture, as a data: address
+
+  function recolor(src, holiday, onLight) {
+    const id = `${holiday.key}|${src}|${onLight ? "light" : "dark"}`;
+    if (tinted.has(id)) return tinted.get(id);
+    const job = new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // the Cubs logo comes from another site; without this the canvas can't be read back
+      img.onload = () => {
+        try {
+          const scale = Math.max(1, 360 / (img.naturalWidth || 360)); // the Cubs logo is a small vector: draw it larger so it stays sharp
+          const w = Math.round((img.naturalWidth || 360) * scale), h = Math.round((img.naturalHeight || 360) * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const data = ctx.getImageData(0, 0, w, h);
+          const px = data.data;
+          const main = rgb(holiday.colors[0]);
+          // the second color has to show up against the page: a black one on a dark page (or a white one on a
+          // light page) would vanish, so the third or the main color steps in
+          let second = rgb(holiday.colors[1]);
+          if (!onLight && luminance(second) < 0.12) second = rgb(holiday.colors[2]);
+          if (onLight && luminance(second) > 0.85) second = main;
+          const dst = /dst-logo/.test(src);
+          for (let i = 0; i < px.length; i += 4) {
+            if (px[i + 3] < 8) continue; // transparent
+            const r = px[i], g = px[i + 1], b = px[i + 2];
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            if (max - min < 60) continue; // white, grey or charcoal: leave it
+            const red = r === max && r - Math.max(g, b) > 50, blue = b === max && b - r > 40;
+            let to = null;
+            if (red) to = dst && Math.floor(i / 4 / w) > h * 0.8 ? second : main; // the DST tagline sits in the bottom fifth
+            else if (blue) to = second;
+            if (to) { px[i] = to[0]; px[i + 1] = to[1]; px[i + 2] = to[2]; }
+          }
+          ctx.putImageData(data, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (e) { resolve(null); } // the picture could not be read back: keep the normal logo
+      };
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+    tinted.set(id, job);
+    return job;
+  }
+
+  // puts every header logo into today's colors, or back to normal when it is not a holiday
+  function tintLogos() {
+    const h = today();
+    const onLight = document.documentElement.getAttribute("data-theme") === "light";
+    document.querySelectorAll(LOGO_SELECTOR).forEach((img) => {
+      const shown = img.getAttribute("src") || "";
+      // remember the real logo whenever the page sets one (as it does when switching light and dark mode)
+      if (!shown.startsWith("data:") && isLogo(shown)) img.dataset.holidayOrig = shown;
+      const orig = img.dataset.holidayOrig;
+      if (!orig) return;
+      if (!h) { if (shown.startsWith("data:")) img.setAttribute("src", orig); return; }
+      const want = `${h.key}|${onLight}`;
+      if (shown.startsWith("data:") && img.dataset.holidayTint === want) return; // already done
+      recolor(new URL(orig, document.baseURI).href, h, onLight).then((url) => {
+        if (!url || img.dataset.holidayOrig !== orig) return;
+        img.dataset.holidayTint = want;
+        img.setAttribute("src", url);
+      });
+    });
+  }
+
   function apply() {
     const root = document.documentElement;
     const h = today();
     if (!h) {
       root.removeAttribute("data-holiday");
       ["--hol-1", "--hol-2", "--hol-3"].forEach((v) => root.style.removeProperty(v));
-      return null;
+    } else {
+      root.setAttribute("data-holiday", h.key);
+      h.colors.forEach((c, i) => root.style.setProperty(`--hol-${i + 1}`, c));
     }
-    root.setAttribute("data-holiday", h.key);
-    h.colors.forEach((c, i) => root.style.setProperty(`--hol-${i + 1}`, c));
+    tintLogos();
     return h;
   }
 
   window.Holiday = { HOLIDAYS, today, apply };
   apply();
+  // Logos are drawn by the page after this runs, and redrawn when the theme or the page changes, so watch for
+  // them. (On an ordinary day there is nothing to do and nothing is watched.)
+  const watch = () => {
+    if (!today() || !document.body) return;
+    let queued = false;
+    new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      setTimeout(() => { queued = false; tintLogos(); }, 50);
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "data-theme"] });
+    tintLogos();
+  };
+  if (document.body) watch(); else document.addEventListener("DOMContentLoaded", watch);
   // a page left open overnight changes over (and changes back) on its own
   setInterval(apply, 15 * 60 * 1000);
 })();
