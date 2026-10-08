@@ -27,6 +27,8 @@
     { key: "valentines", greeting: "Happy Valentine's Day", colors: ["#d6336c", "#8f1239", "#ffffff"], days: () => [[1, 14]] },
     { key: "stpatricks", greeting: "Happy St. Patrick's Day", colors: ["#1a7f37", "#c9971a", "#ffffff"], days: () => [[2, 17]] },
     { key: "easter", greeting: "Happy Easter", colors: ["#7c5cc4", "#d9668f", "#ffffff"], days: (y) => [easter(y)] },
+    { key: "mothers", greeting: "Happy Mother's Day", colors: ["#d6477a", "#8e3a6b", "#ffffff"], days: (y) => [[4, nthWeekday(y, 4, 0, 2)]] }, // second Sunday of May
+    { key: "fathers", greeting: "Happy Father's Day", colors: ["#1d5fa8", "#3d4f66", "#ffffff"], days: (y) => [[5, nthWeekday(y, 5, 0, 3)]] }, // third Sunday of June
     { key: "memorial", greeting: "Memorial Day", colors: ["#b31942", "#0a3161", "#ffffff"], days: (y) => [[4, nthWeekday(y, 4, 1, -1)]] },
     // Memorial Day, the 4th of July and Veterans Day all use the flag's own Old Glory Red and Old Glory Blue
     { key: "july4", greeting: "Happy 4th of July", colors: ["#b31942", "#0a3161", "#ffffff"], days: () => [[6, 4]] },
