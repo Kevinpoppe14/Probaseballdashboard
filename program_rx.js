@@ -192,7 +192,8 @@
     ["Bench", /\bbench\b/i],
     ["Box", /(?<!shin\s)\bbox\b|depth\s*(drop|jump)/i], // not the "shin box" position
     ["Pull-Up Bar", /pull-?\s?ups?\b|chin-?\s?ups?\b|\bhanging\b/i],
-    ["Landmine", /\bLM\b|land\s*mine/i],
+    // a landmine belt squat only needs the barbell (wedged in a corner will do), not a landmine attachment
+    ["Landmine", /^(?!.*belt\s*squat).*(\bLM\b|land\s*mine)/i],
     ["Cable", /\bcable\b/i],
     ["Keiser", /\bkeiser\b/i], // its own specialty item, not a cable stack
     ["Belt Squat", /^(?!.*(\bLM\b|land\s*mine)).*belt\s*squat/i], // the machine; a landmine belt squat is set up on a landmine instead
