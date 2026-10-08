@@ -58,6 +58,7 @@
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="training_log.js"></script>
+<script type="text/babel" data-presets="react" src="equipment.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useMemo } = React;
 
@@ -705,7 +706,9 @@ const EXERCISE_TIERS = ["Main Lift", "Secondary", "Accessory", "Power / Plyometr
 const EXERCISE_PATTERNS = ["Squat", "Hinge", "Lunge / Single-Leg", "Horizontal Push", "Vertical Push", "Horizontal Pull", "Vertical Pull", "Rotation", "Anti-Rotation", "Carry", "Jump", "Sprint", "Med Ball Throw", "Isolation"];
 const EXERCISE_REGIONS = ["Lower Body", "Upper Body", "Core", "Full Body"];
 const EXERCISE_LATERALITY = ["Bilateral", "Unilateral"];
-const EXERCISE_EQUIPMENT = ["Barbell", "Trap Bar", "Dumbbell", "Kettlebell", "Cable", "Band", "Med Ball", "Landmine", "Machine", "Sled", "Bodyweight"];
+// "Equipment Needed" on an exercise: the same list remote athletes' equipment is ticked from (see EquipmentCheck
+// in program_rx.js), plus Bodyweight.
+const EXERCISE_EQUIPMENT = [...window.EquipmentCheck.LIST, "Bodyweight"];
 // Extra tags an exercise can carry on top of its tier: Arm Care (scap, forearm or rotator cuff work, whatever
 // tier the exercise is) and Elbow Enforcer (the EE series).
 const EXERCISE_EXTRA_TAGS = ["Arm Care", "Elbow Enforcer"];
@@ -803,7 +806,13 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
         {pick("Movement pattern", "pattern", EXERCISE_PATTERNS)}
         {pick("Body region", "region", EXERCISE_REGIONS)}
         {pick("Bilateral / unilateral", "laterality", EXERCISE_LATERALITY)}
-        <div className="facility-field wide"><span>Equipment</span>
+        <div className="facility-field wide"><span>Equipment Needed</span>
+          {/* what the name already gives away is found on its own; tick anything the name doesn't say */}
+          <small className="exercise-equipment-hint">
+            {window.EquipmentCheck.fromName(draft.name).length
+              ? `Picked up from the name: ${window.EquipmentCheck.fromName(draft.name).join(", ")}. Tick anything else it needs.`
+              : "Nothing in the name says what it needs. Tick the equipment so it can be flagged for remote athletes who don't have it."}
+          </small>
           <div className="exercise-equipment">
             {EXERCISE_EQUIPMENT.map((q) => (
               <label key={q}>
@@ -1810,6 +1819,10 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
           </div>
         );
       })()}
+      {/* remote athletes only: a prompt, never a block. The program is assigned either way. */}
+      {window.EquipmentFlags && assigned.filter((a) => (window.equipmentFlagsFor(a, program) || []).length > 0).map((a) => (
+        <window.EquipmentFlags key={a.id} athlete={a} program={program} quietWhenClear onOpenChange={() => setIndividualizing(a)} />
+      ))}
       {assigned.length > 0 && (
         <div className="indiv-offer">
           <strong>Individualize this program?</strong>
@@ -4785,7 +4798,9 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   // the open tab is kept by App so that switching tabs is a step in the Back history
   // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
   const isPitcher = ((getPeople().find((a) => a.id === athleteId) || {}).position || "") === "Pitcher";
-  const activeTab = tab === "pitching" && !isPitcher ? "plan" : tab || "plan";
+  // (likewise Equipment Access, which only exists for DST Remote Training athletes)
+  const isRemote = ((getPeople().find((a) => a.id === athleteId) || {}).dstLocation || "") === "DST Remote Training";
+  const activeTab = (tab === "pitching" && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
@@ -4854,6 +4869,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
         <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
+        {/* remote athletes only: what they have to train with, which their programs are checked against */}
+        {isRemote && <button className={`pill-tab ${activeTab === "equipment" ? "active" : ""}`} data-tab="equipment" onClick={() => setActiveTab("equipment")}>Equipment Access</button>}
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
@@ -4911,6 +4928,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       </div>
       {/* only built while it is open, so it reads the latest log each time */}
       {activeTab === "log" && window.TrainingLogTab && <window.TrainingLogTab athlete={athlete} />}
+      {isRemote && activeTab === "equipment" && window.EquipmentAccessTab && <window.EquipmentAccessTab athlete={athlete} />}
     </div>
   );
 }

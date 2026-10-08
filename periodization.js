@@ -389,6 +389,13 @@
       setRev((r) => r + 1);
     };
     const reload = () => { setDirty(false); setRev((r) => r + 1); };
+    // Equipment check (remote athletes): swaps one exercise for another everywhere in this block's program,
+    // which is the whole phase, and saves it (as the athlete's own copy when the program is a shared one).
+    const changeExercise = (from, to) => {
+      if (dirty && !window.confirm("Replace the exercise and lose your unsaved changes in the builder?")) return;
+      const same = (n) => (n || "").trim().toLowerCase() === from.trim().toLowerCase();
+      save({ ...program, weeks: (program.weeks || []).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => (same(e.name) ? { ...e, name: to } : e)) })) })) });
+    };
 
     return (
       <div className="panel period-program-tabs no-print" ref={panelRef}>
@@ -460,6 +467,11 @@
             {program && !own && <span>Shared program. Saving here makes {athlete.name}'s own copy, “{withLast(program.name)}”, and leaves the shared one unchanged.</span>}
             {program && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={() => { if (!dirty || window.confirm("Unlink this program and lose your unsaved changes?")) { onLinkProgram(block.id, null); reload(); } }}>Unlink from this block</button>}
           </div>
+        )}
+
+        {/* remote athletes only: exercises in this program that need equipment they don't have */}
+        {block && program && indivFor !== block.id && window.EquipmentFlags && (
+          <window.EquipmentFlags key={`eq-${program.id}-${rev}`} athlete={athlete} program={program} onChangeExercise={changeExercise} />
         )}
 
         {block && indivFor !== block.id && (

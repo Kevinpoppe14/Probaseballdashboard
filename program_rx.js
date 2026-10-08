@@ -155,3 +155,71 @@
     return null;
   };
 })();
+
+// ---- Equipment check (remote athletes) ---------------------------------------------------------------
+// What an exercise needs, and whether an athlete training remotely has it. An exercise needs everything ticked
+// under "Equipment Needed" on its exercise-library entry, plus anything its name says ("KB Swing" -> Kettlebell,
+// "BB Bench Press" -> Barbell and Bench). So "Back Squat", which names no equipment, is flagged for a barbell
+// once Barbell is ticked on its library entry. Bodyweight never counts as something to own.
+(function () {
+  // every kind of equipment an exercise can need and an athlete can have (the Trap Bar entry covers hex bars)
+  const LIST = [
+    "Barbell", "Safety Bar", "Trap Bar", "EZ Bar", "Dumbbell", "Kettlebell", "Plate",
+    "Rack", "Bench", "Box", "Pull-Up Bar", "Landmine", "Cable", "Machine", "GHR",
+    "Band", "Med Ball", "Physio Ball", "Suspension Trainer", "Slideboard", "Sled", "Hurdles",
+    "Foam Roller", "Airex Pad", "Slant Board", "PVC", "Jammer", "Flywheel", "Bike", "Rower",
+    "Rice Bucket", "Sledgehammer", "SSL", "Supercat", "Tindeq", "Power Ball", "Reflex Bar", "Club",
+  ];
+  // what a name gives away: abbreviations and plain words
+  const FROM_NAME = [
+    ["Barbell", /\bBB\b|barbell|\bLM\b|land\s*mine/i], // a landmine needs a barbell in it
+    ["Dumbbell", /\bDBs?\b|dumb\s*bell/i],
+    ["Kettlebell", /\bKBs?\b|kettle\s*bell/i],
+    // SB means a safety (or transformer) bar only when the name starts with it; later in a name, as in the
+    // Elbow Enforcer drills ("EE Band SB HS ..."), it is not equipment
+    ["Safety Bar", /\bSSB\b|safety\s*(squat\s*)?bar|transformer\s*bar|^\s*SB\b/i],
+    ["Trap Bar", /\bTBDL\b|\btrap\s*bar\b|\bhex\s*bar\b/i],
+    ["EZ Bar", /\bEZ\b/i],
+    ["Plate", /\bplates?\b/i],
+    ["Rack", /\brack\b/i],
+    ["Bench", /\bbench\b/i],
+    ["Box", /(?<!shin\s)\bbox\b|depth\s*(drop|jump)/i], // not the "shin box" position
+    ["Pull-Up Bar", /pull-?\s?ups?\b|chin-?\s?ups?\b|\bhanging\b/i],
+    ["Landmine", /\bLM\b|land\s*mine/i],
+    ["Cable", /\bcable\b|keiser/i],
+    ["Machine", /\bmachine\b|leg\s*press|lat\s*pull\s*down/i],
+    ["GHR", /\bGHR\b|glute\s*ham/i],
+    ["Band", /(?<!\bIT\s)\bband(s|ed)?\b|\bTKE\b/i], // not the IT band; every TKE variation is banded
+    ["Med Ball", /\bMB\b|med(icine)?\s*ball/i],
+    ["Physio Ball", /\bPB\b|physio\s*ball|stability\s*ball|swiss\s*ball/i],
+    ["Suspension Trainer", /\bTRX\b|suspension/i],
+    ["Slideboard", /slide\s*board/i],
+    ["Sled", /\bsled\b|prowler/i],
+    ["Hurdles", /\bhurdles?\b/i],
+    ["Foam Roller", /foam\s*roll/i],
+    ["Airex Pad", /\bairex\b/i],
+    ["Slant Board", /slant\s*board/i],
+    ["PVC", /\bPVC\b/i],
+    ["Jammer", /\bjammer\b/i],
+    ["Flywheel", /\bflywheel\b/i],
+    ["Bike", /\bbike\b/i],
+    ["Rower", /\bC2\b|\brower\b/i],
+    ["Rice Bucket", /rice\s*bucket/i],
+    ["Sledgehammer", /\bsledge(\s*hammer)?\b/i],
+    ["SSL", /\bSSL\b/],
+    ["Supercat", /super\s*cat/i],
+    ["Tindeq", /\btindeq\b/i],
+    ["Power Ball", /power\s*ball/i],
+    ["Reflex Bar", /reflex\s*bar/i],
+    ["Club", /\bclubs?\b/i],
+  ];
+  const fromName = (name) => FROM_NAME.filter(([, re]) => re.test(name || "")).map(([q]) => q);
+  // the equipment one exercise needs: [] when it needs nothing (or nothing can be told)
+  function required(name, libraryEntry) {
+    const listed = libraryEntry && Array.isArray(libraryEntry.equipment) ? libraryEntry.equipment.filter((q) => q && q !== "Bodyweight") : [];
+    return [...new Set([...listed, ...fromName(name)])];
+  }
+  // what of that the athlete lacks, given the list of equipment they have
+  const missing = (name, libraryEntry, access) => required(name, libraryEntry).filter((q) => !(access || []).includes(q));
+  window.EquipmentCheck = { LIST, required, missing, fromName, REMOTE_LOCATION: "DST Remote Training" };
+})();
