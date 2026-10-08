@@ -406,9 +406,11 @@
   function equipmentView() {
     const lower = (q) => `${q}`.toLowerCase();
     if (!draft) {
-      const access = Array.isArray(equipment.access) ? equipment.access : [];
+      // the saved list also carries the indoor turf length (see turfYards in program_rx.js), which is not equipment
+      const saved = Array.isArray(equipment.access) ? equipment.access : [];
+      const access = saved.filter((q) => !EC.isSetting(q));
       const listed = (q) => EC.LIST.some((x) => lower(x) === lower(q));
-      draft = { have: new Set(access), custom: [...new Set([...(equipment.custom || []), ...access.filter((q) => !listed(q))])] };
+      draft = { have: new Set(access), custom: [...new Set([...(equipment.custom || []), ...access.filter((q) => !listed(q))])], turf: EC.turfYards(saved) || "" };
     }
     const first = !equipment.surveyedAt;
     const main = el("main");
@@ -420,6 +422,16 @@
       box.checked = draft.have.has(q);
       const t = el("label", { class: `eq-tile${box.checked ? " on" : ""}` }, box, el("span", null, EC.label(q)));
       box.addEventListener("change", () => { if (box.checked) draft.have.add(q); else draft.have.delete(q); t.className = `eq-tile${box.checked ? " on" : ""}`; });
+      // indoor turf comes with a blank for its length; left empty, it is taken to be long enough for anything
+      if (q === "Indoor Turf") {
+        const len = el("input", { type: "text", inputmode: "numeric", class: "eq-len", placeholder: "length", value: draft.turf, "aria-label": "Indoor turf length in yards", autocomplete: "off" });
+        len.addEventListener("input", () => {
+          draft.turf = len.value.trim();
+          if (draft.turf && !box.checked) { box.checked = true; draft.have.add(q); t.className = "eq-tile on"; } // a length means they have turf
+        });
+        t.append(el("span", { class: "eq-len-wrap" }, len, "yd"));
+        t.style.gridColumn = "span 2"; // room for the length box
+      }
       return t;
     };
     EC.GROUPS.forEach((g) => main.append(el("h2", { class: "section" }, g.name), el("div", { class: "eq-tiles" }, g.items.map(tile))));
@@ -439,7 +451,7 @@
     const saveBtn = el("button", { class: "session-log", onclick: async () => {
       saveBtn.disabled = true;
       note.textContent = "Saving…";
-      const access = [...draft.have], custom = [...draft.custom];
+      const access = EC.withTurfYards([...draft.have], draft.have.has("Indoor Turf") ? draft.turf : null), custom = [...draft.custom];
       let ok = false;
       try { const res = await sb.rpc("athlete_portal_equipment", { p_token: token, p_access: access, p_custom: custom }); ok = !res.error && res.data === true; } catch (e) { ok = false; }
       saveBtn.disabled = false;

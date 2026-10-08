@@ -169,7 +169,10 @@
     { name: "Racks, Benches and Boxes", items: ["Rack", "Bench", "Box", "Pull-Up Bar", "GHR", "Landmine"] },
     { name: "Machines and Cables", items: ["Cable", "Machine", "Jammer", "Bike", "Rower", "Sled"] },
     { name: "Bands, Balls and Accessories", items: ["Band", "Physio Ball", "Suspension Trainer", "Slideboard", "Hurdles", "Foam Roller", "Airex Pad", "Slant Board"] },
-    { name: "Specialty Equipment", items: ["Keiser", "Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar / Shoulder Tube / Body Blade", "Rice Bucket"] },
+    { name: "Specialty Equipment", items: ["Keiser", "Belt Squat", "Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar / Shoulder Tube / Body Blade", "Rice Bucket"] },
+    // places to train, ticked the same way; nothing in an exercise name is read as one of these, so an exercise
+    // only needs a space when it is ticked under Equipment Needed on its library entry
+    { name: "Spaces", items: ["Open Field", "Indoor Turf", "Track", "Basketball Court"] },
   ];
   const LIST = GROUPS.reduce((all, g) => all.concat(g.items), []);
   // how an item reads on a checklist, where that says more than its stored name
@@ -192,6 +195,7 @@
     ["Landmine", /\bLM\b|land\s*mine/i],
     ["Cable", /\bcable\b/i],
     ["Keiser", /\bkeiser\b/i], // its own specialty item, not a cable stack
+    ["Belt Squat", /^(?!.*(\bLM\b|land\s*mine)).*belt\s*squat/i], // the machine; a landmine belt squat is set up on a landmine instead
     ["Machine", /\bmachine\b|leg\s*press|lat\s*pull\s*down/i],
     ["GHR", /\bGHR\b|glute\s*ham/i],
     ["Band", /(?<!\bIT\s)\bband(s|ed)?\b|\bTKE\b/i], // not the IT band; every TKE variation is banded
@@ -232,6 +236,55 @@
     const have = (access || []).map((x) => `${x}`.toLowerCase());
     return required(name, libraryEntry).filter((q) => !have.includes(q.toLowerCase()));
   };
+
+  // ---- room to run ------------------------------------------------------------------------------------
+  // A sprint or run can be done in any of the Spaces, as long as the space is long enough for the distance.
+  // SPACE_YARDS is roughly the longest straight run each one allows: a basketball court is 94 ft, so about 30
+  // yards; an open field or a track is as long as anyone will be asked to run. Indoor turf varies, so it is taken
+  // to be long enough for anything unless the athlete's own length has been filled in.
+  const SPACE_YARDS = { "Basketball Court": 30, "Indoor Turf": 400, "Open Field": 400, Track: 400 };
+  // An athlete's own indoor turf length, in yards, is kept in their equipment list as a "turf-yards:35" entry
+  // (so it travels with the list and needs no column of its own). When present it is the turf's limit.
+  const TURF_KEY = "turf-yards:";
+  const isSetting = (q) => `${q}`.toLowerCase().startsWith(TURF_KEY);
+  const turfYards = (access) => {
+    const hit = (access || []).find(isSetting);
+    const n = hit ? parseFloat(`${hit}`.slice(TURF_KEY.length)) : NaN;
+    return n > 0 ? n : null;
+  };
+  const withTurfYards = (access, yards) => {
+    const rest = (access || []).filter((q) => !isSetting(q));
+    const n = parseFloat(yards);
+    return n > 0 ? [...rest, `${TURF_KEY}${Math.round(n)}`] : rest;
+  };
+  const RUN_NAME = /sprint|\bruns?\b|\brunning\b|\bdash\b|\bfly(ing|s)?\b|\baccel(eration)?s?\b|\bstrides?\b|build-?\s?ups?/i;
+  // the longest distance written in a piece of text, in yards ("60 yd", "40 yards", "30m", "90 ft"); 0 if none
+  function yardsIn(text) {
+    let max = 0;
+    const re = /(\d+(?:\.\d+)?)\s*-?\s*(yards?|yds?|yd|y|meters?|metres?|m|feet|foot|ft)\b/gi;
+    let m;
+    while ((m = re.exec(text || ""))) {
+      const n = parseFloat(m[1]), u = m[2].toLowerCase();
+      const yd = /^m/.test(u) ? n * 1.094 : /^f/.test(u) ? n / 3 : n;
+      if (yd > max) max = yd;
+    }
+    return max;
+  }
+  // What a run needs that the athlete lacks: [] when one of their spaces is long enough, otherwise one line
+  // saying so. `text` is the exercise's name plus its sets, reps and notes, where the distance is usually written.
+  // A run with no distance written anywhere just needs some space to run in.
+  function spaceMissing(name, text, access) {
+    if (!RUN_NAME.test(name || "")) return [];
+    const have = (access || []).map((x) => `${x}`.toLowerCase());
+    const yards = Math.round(yardsIn(`${name} ${text || ""}`));
+    const need = yards ? `Space for ${yards} yd` : "Space to run";
+    if (have.includes(need.toLowerCase())) return []; // a coach chose "Ignore and add" for this one
+    const spaces = Object.keys(SPACE_YARDS).filter((s) => have.includes(s.toLowerCase()));
+    const room = (s) => (s === "Indoor Turf" && turfYards(access)) || SPACE_YARDS[s];
+    if (spaces.some((s) => room(s) >= yards)) return [];
+    return [need];
+  }
+
   // Exercises in a program that need something the athlete lacks: one entry per exercise name, with how often
   // it comes up. `findExercise(name)` looks an exercise up in the exercise library.
   function flaggedIn(program, access, findExercise) {
@@ -242,8 +295,18 @@
       const key = name.toLowerCase();
       if (!byName[key]) byName[key] = { name, missing: missing(name, findExercise ? findExercise(name) : null, access), count: 0 };
       byName[key].count += 1;
+      // the distance can differ from week to week, so the space is checked each time the run comes up
+      const text = `${(e.groups || []).map((g) => `${g.sets || ""} ${g.reps || ""} ${g.intensity || ""}`).join(" ")} ${e.reps || ""} ${e.notes || ""}`;
+      spaceMissing(name, text, access).forEach((q) => { (byName[key].space = byName[key].space || []).push(q); });
     })));
+    // one line per run: the longest distance it is ever asked for that they have no room for
+    Object.values(byName).forEach((f) => {
+      if (!f.space) return;
+      const yards = Math.max(0, ...f.space.map((q) => parseInt((/\d+/.exec(q) || [0])[0], 10)));
+      f.missing.push(yards ? `Space for ${yards} yd` : "Space to run");
+      delete f.space;
+    });
     return Object.values(byName).filter((f) => f.missing.length).sort((x, y) => x.name.localeCompare(y.name));
   }
-  window.EquipmentCheck = { GROUPS, LIST, label, required, missing, fromName, flaggedIn, REMOTE_LOCATION: "DST Remote Training" };
+  window.EquipmentCheck = { GROUPS, LIST, label, required, missing, fromName, flaggedIn, spaceMissing, SPACE_YARDS, turfYards, withTurfYards, isSetting, REMOTE_LOCATION: "DST Remote Training" };
 })();

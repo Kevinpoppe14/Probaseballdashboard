@@ -3012,3 +3012,5 @@ tbody tr:hover {
 .eq-group h3 { font-size: 14px; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .eq-group h3 small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
 .eq-item span { flex: 1; }
+.eq-yards { flex: 0 0 auto !important; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--text-dim); }
+.eq-yards input { width: 58px; padding: 3px 5px; font-size: 12px; text-align: center; }

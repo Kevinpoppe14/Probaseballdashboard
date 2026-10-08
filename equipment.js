@@ -22,12 +22,14 @@
     useEffect(() => { let live = true; store.refreshEquipment(a.id).then((ok) => { if (ok && live) bump((n) => n + 1); }); return () => { live = false; }; /* eslint-disable-next-line */ }, [a.id]);
     const eq = store.getEquipment(a.id);
     const set = Array.isArray(eq.access);
-    const have = set ? eq.access : [];
+    // the list also carries the athlete's indoor turf length (see turfYards in program_rx.js); it is not equipment
+    const have = (set ? eq.access : []).filter((q) => !EC.isSetting(q));
+    const turf = EC.turfYards(set ? eq.access : []);
     const isListed = (q) => EC.LIST.some((x) => lower(x) === lower(q));
     // Equipment added by hand for this athlete. Each one is a check box of its own (ticked when added) and
     // stays on the list if it is unticked later.
     const custom = [...new Set([...eq.custom, ...have.filter((q) => !isListed(q))])];
-    const save = (access, nextCustom = custom) => { store.setEquipment(a.id, { access, custom: nextCustom }); bump((n) => n + 1); };
+    const save = (access, nextCustom = custom, yards = turf) => { store.setEquipment(a.id, { access: EC.withTurfYards(access, yards), custom: nextCustom }); bump((n) => n + 1); };
     const toggle = (q) => save(have.includes(q) ? have.filter((x) => x !== q) : [...have, q]);
     const [adding, setAdding] = useState("");
     const addCustom = () => {
@@ -46,7 +48,23 @@
       <label key={q} className={`eq-item${removable ? " eq-item-custom" : ""}${have.includes(q) ? " on" : ""}`}>
         <input type="checkbox" checked={have.includes(q)} onChange={() => toggle(q)} />
         <span>{EC.label(q)}</span>
-        {removable && <button type="button" className="eq-item-remove" title={`Take ${q} off the list`} aria-label={`Take ${q} off the list`} onClick={(e) => { e.preventDefault(); removeCustom(q); }}>&times;</button>}
+        {/* how long their turf is; left blank, it is taken to be long enough for anything */}
+        {q === "Indoor Turf" && (
+          <span className="eq-yards">
+            <input
+              key={`turf-${turf || ""}`}
+              defaultValue={turf || ""}
+              inputMode="numeric"
+              placeholder="length"
+              aria-label="Indoor turf length in yards"
+              onClick={(e) => e.stopPropagation()}
+              onBlur={(e) => { const v = parseFloat(e.target.value) || null; if (v !== turf) save(v && !have.includes(q) ? [...have, q] : have, custom, v); }}
+              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+            />
+            yd
+          </span>
+        )}
+        {removable &&<button type="button" className="eq-item-remove" title={`Take ${q} off the list`} aria-label={`Take ${q} off the list`} onClick={(e) => { e.preventDefault(); removeCustom(q); }}>&times;</button>}
       </label>
     );
     return (
