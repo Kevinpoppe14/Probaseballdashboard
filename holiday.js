@@ -27,11 +27,11 @@
     { key: "valentines", greeting: "Happy Valentine's Day", colors: ["#d6336c", "#8f1239", "#ffffff"], days: () => [[1, 14]] },
     { key: "stpatricks", greeting: "Happy St. Patrick's Day", colors: ["#1a7f37", "#c9971a", "#ffffff"], days: () => [[2, 17]] },
     { key: "easter", greeting: "Happy Easter", colors: ["#7c5cc4", "#d9668f", "#ffffff"], days: (y) => [easter(y)] },
-    { key: "memorial", greeting: "Memorial Day", colors: ["#b22234", "#3c3b6e", "#ffffff"], days: (y) => [[4, nthWeekday(y, 4, 1, -1)]] },
-    // the flag's own Old Glory Red and Old Glory Blue
+    { key: "memorial", greeting: "Memorial Day", colors: ["#b31942", "#0a3161", "#ffffff"], days: (y) => [[4, nthWeekday(y, 4, 1, -1)]] },
+    // Memorial Day, the 4th of July and Veterans Day all use the flag's own Old Glory Red and Old Glory Blue
     { key: "july4", greeting: "Happy 4th of July", colors: ["#b31942", "#0a3161", "#ffffff"], days: () => [[6, 4]] },
     { key: "halloween", greeting: "Happy Halloween", colors: ["#e8590c", "#000000", "#ffffff"], days: () => [[9, 31]] },
-    { key: "veterans", greeting: "Veterans Day", colors: ["#b22234", "#3c3b6e", "#ffffff"], days: () => [[10, 11]] },
+    { key: "veterans", greeting: "Veterans Day", colors: ["#b31942", "#0a3161", "#ffffff"], days: () => [[10, 11]] },
     { key: "thanksgiving", greeting: "Happy Thanksgiving", colors: ["#b45309", "#7c2d12", "#fde9b8"], days: (y) => [[10, nthWeekday(y, 10, 4, 4)]] },
     { key: "christmas", greeting: "Merry Christmas", colors: ["#c8102e", "#1a7f37", "#ffffff"], days: () => [[11, 24], [11, 25]] },
   ];
