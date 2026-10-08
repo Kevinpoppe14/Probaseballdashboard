@@ -164,7 +164,7 @@
 (function () {
   // every kind of equipment an exercise can need and an athlete can have (the Trap Bar entry covers hex bars)
   const LIST = [
-    "Barbell", "Safety Bar", "Trap Bar", "EZ Bar", "Dumbbell", "Kettlebell", "Plate",
+    "Barbell", "Safety Bar / Transformer Bar", "Trap Bar", "EZ Bar", "Dumbbell", "Kettlebell", "Plate",
     "Rack", "Bench", "Box", "Pull-Up Bar", "Landmine", "Cable", "Machine", "GHR",
     "Band", "Med Ball", "Physio Ball", "Suspension Trainer", "Slideboard", "Sled", "Hurdles",
     "Foam Roller", "Airex Pad", "Slant Board", "PVC", "Jammer", "Flywheel", "Bike", "Rower",
@@ -175,9 +175,8 @@
     ["Barbell", /\bBB\b|barbell|\bLM\b|land\s*mine/i], // a landmine needs a barbell in it
     ["Dumbbell", /\bDBs?\b|dumb\s*bell/i],
     ["Kettlebell", /\bKBs?\b|kettle\s*bell/i],
-    // SB means a safety (or transformer) bar only when the name starts with it; later in a name, as in the
-    // Elbow Enforcer drills ("EE Band SB HS ..."), it is not equipment
-    ["Safety Bar", /\bSSB\b|safety\s*(squat\s*)?bar|transformer\s*bar|^\s*SB\b/i],
+    // a safety bar or a transformer bar does the job; a plain barbell does not
+    ["Safety Bar / Transformer Bar", /\bSSB\b|safety\s*(squat\s*)?bar|transformer\s*bar/i],
     ["Trap Bar", /\bTBDL\b|\btrap\s*bar\b|\bhex\s*bar\b/i],
     ["EZ Bar", /\bEZ\b/i],
     ["Plate", /\bplates?\b/i],
@@ -191,9 +190,11 @@
     ["GHR", /\bGHR\b|glute\s*ham/i],
     ["Band", /(?<!\bIT\s)\bband(s|ed)?\b|\bTKE\b/i], // not the IT band; every TKE variation is banded
     ["Med Ball", /\bMB\b|med(icine)?\s*ball/i],
-    ["Physio Ball", /\bPB\b|physio\s*ball|stability\s*ball|swiss\s*ball/i],
+    ["Physio Ball", /\bPB\b|physio\s*ball|stability\s*ball|swiss\s*ball|stir\s*the\s*pot/i],
     ["Suspension Trainer", /\bTRX\b|suspension/i],
-    ["Slideboard", /slide\s*board/i],
+    // SB at the very start of a name is a slideboard drill ("SB Pike"), except Stir The Pot, which is on a ball;
+    // later in a name, as in the Elbow Enforcer drills ("EE Band SB HS ..."), SB is not equipment
+    ["Slideboard", /slide\s*board|^\s*SB\b(?!.*stir\s*the\s*pot)/i],
     ["Sled", /\bsled\b|prowler/i],
     ["Hurdles", /\bhurdles?\b/i],
     ["Foam Roller", /foam\s*roll/i],
