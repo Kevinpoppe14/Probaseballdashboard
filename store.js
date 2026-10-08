@@ -270,15 +270,17 @@
   // nothing; otherwise Supabase's copy (shared by every coach) wins over this browser's local one.
   async function initFromSupabase() {
     const localSnapshot = state;
-    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows, linkRows, logRows, overrideRows] =
+    const [athletes, forceTests, bodyComp, manualWellness, notes, playerPlans, periodization, periodTemplates, assessments, appMeta, profiles, offseasonFacilityRows, programRows, exerciseRows, linkRows, logRows, overrideRows, equipmentRows] =
       await Promise.all([
         fetchTable("athletes"), fetchTable("force_tests"), fetchTable("body_comp"),
         fetchTable("manual_wellness"), fetchTable("notes"), fetchTable("player_plans"),
         fetchTable("periodization"), fetchTable("period_templates"), fetchTable("assessments"),
         fetchTable("app_meta"), fetchTable("profiles"), fetchTable("offseason_facilities"), fetchTable("programs"), fetchTable("exercises"),
-        fetchTable("athlete_links"), fetchTable("athlete_logs"), fetchTable("athlete_overrides"),
+        fetchTable("athlete_links"), fetchTable("athlete_logs"), fetchTable("athlete_overrides"), fetchTable("athlete_equipment"),
       ]);
     athleteOverrides = {};
+    athleteEquipment = {};
+    equipmentRows.forEach(putEquipmentRow);
     overrideRows.forEach(putOverrideRow);
     athleteLinks = {};
     linkRows.forEach((r) => { athleteLinks[r.athlete_id] = r.token; });
@@ -831,6 +833,45 @@
     const a = (athleteOverrides[r.athlete_id] = athleteOverrides[r.athlete_id] || {});
     (a[r.program_id] = a[r.program_id] || {})[r.exercise_id] = { ...r.data, _at: r.updated_at || null }; // _at: when the change was made
   }
+  // What a remote athlete has to train with (see migration_010): athleteId -> { access, custom, surveyedAt, source }.
+  // Its own table, so the athlete filling it in on their phone and a coach editing their record never collide.
+  let athleteEquipment = {};
+  function putEquipmentRow(r) {
+    athleteEquipment[r.athlete_id] = {
+      access: Array.isArray(r.access) ? r.access : [],
+      custom: Array.isArray(r.custom) ? r.custom : [],
+      surveyedAt: r.surveyed_at || null,
+      source: r.source || "",
+    };
+  }
+  // `access` is null until someone has set it. Before the table existed the list sat on the athlete's own record.
+  function getEquipment(athleteId) {
+    const row = athleteEquipment[String(athleteId)];
+    if (row) return row;
+    const a = state.customAthletes.find((x) => String(x.id) === String(athleteId)) || {};
+    return {
+      access: Array.isArray(a.equipmentAccess) ? a.equipmentAccess : null,
+      custom: Array.isArray(a.equipmentCustom) ? a.equipmentCustom : [],
+      surveyedAt: null,
+      source: "",
+    };
+  }
+  function setEquipment(athleteId, { access, custom }) {
+    const prev = getEquipment(athleteId);
+    const next = { ...prev, access: access || [], custom: custom || [], source: "coach" };
+    athleteEquipment[String(athleteId)] = next;
+    sb().from("athlete_equipment")
+      .upsert({ athlete_id: String(athleteId), access: next.access, custom: next.custom, source: "coach", updated_at: new Date().toISOString() })
+      .then(({ error }) => logSyncError(`upsert athlete_equipment/${athleteId}`, error));
+    return next;
+  }
+  async function refreshEquipment(athleteId) {
+    const { data, error } = await sb().from("athlete_equipment").select("*").eq("athlete_id", String(athleteId)).limit(1);
+    logSyncError(`load athlete_equipment/${athleteId}`, error);
+    if (error || !data) return false;
+    if (data.length) putEquipmentRow(data[0]);
+    return true;
+  }
   function overridesFor(athleteId) {
     return athleteOverrides[String(athleteId)] || {};
   }
@@ -964,6 +1005,10 @@
     refreshAthleteLogs,
     athleteLogEntries,
     overridesFor,
+    getEquipment,
+    setEquipment,
+    refreshEquipment,
+    currentUserEmail: () => currentUser.email,
     removeAthleteOverride,
     allExercises,
     findExerciseByName,

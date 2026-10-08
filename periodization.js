@@ -344,7 +344,8 @@
     let lane = plan.lanes.find((l) => l.name.toLowerCase() === name.toLowerCase());
     if (!lane) { lane = { id: uid(), name, color: PALETTE[plan.lanes.length % PALETTE.length] }; plan.lanes.push(lane); }
     const len = Math.min(Math.max(1, (program.weeks || []).length), MAX_WEEKS - start);
-    plan.blocks.push({ id: uid(), lane: lane.id, start, len, label: program.name, notes: "", color: null, programId: program.id });
+    // assignedBy: the coach to email if this athlete (when remote) turns out not to have the equipment for it
+    plan.blocks.push({ id: uid(), lane: lane.id, start, len, label: program.name, notes: "", color: null, programId: program.id, assignedBy: window.AthleteStore.currentUserEmail() });
     plan.weeks = clamp(Math.max(plan.weeks, start + len), 1, MAX_WEEKS);
     plan.blocks = plan.blocks.filter((b) => b.start < MAX_WEEKS);
     store.setPeriodization(athleteId, plan);
@@ -1711,7 +1712,7 @@
             </div>
             <div className="field" style={{ marginTop: 10 }}>
               <label>Program (built on the Programs tab)</label>
-              <select value={single.programId || ""} onChange={(e) => updateBlock(single.id, { programId: e.target.value || null })}>
+              <select value={single.programId || ""} onChange={(e) => updateBlock(single.id, { programId: e.target.value || null, assignedBy: window.AthleteStore.currentUserEmail() })}>
                 <option value="">— None —</option>
                 {single.programId && !programById(single.programId) && <option value={single.programId}>(deleted program)</option>}
                 {allPrograms().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1742,7 +1743,7 @@
           </div>
         )}
 
-        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId })} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
+        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId, assignedBy: window.AthleteStore.currentUserEmail() })} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>

@@ -3008,3 +3008,7 @@ tbody tr:hover {
 .eq-item-remove:hover { color: var(--danger, #c0392b); }
 .eq-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
 .eq-add input { flex: 1 1 220px; max-width: 320px; }
+.eq-group { margin-top: 16px; }
+.eq-group h3 { font-size: 14px; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.eq-group h3 small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+.eq-item span { flex: 1; }

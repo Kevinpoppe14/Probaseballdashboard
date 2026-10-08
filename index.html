@@ -4870,7 +4870,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
         {/* remote athletes only: what they have to train with, which their programs are checked against */}
-        {isRemote && <button className={`pill-tab ${activeTab === "equipment" ? "active" : ""}`} data-tab="equipment" onClick={() => setActiveTab("equipment")}>Equipment Access</button>}
+        {isRemote && <button className={`pill-tab ${activeTab === "equipment" ? "active" : ""}`} data-tab="equipment" onClick={() => setActiveTab("equipment")}>Remote Equipment Access</button>}
       </div>
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>

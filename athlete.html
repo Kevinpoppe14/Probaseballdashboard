@@ -91,6 +91,14 @@
   .log-ex { margin: 12px 0; padding-top: 10px; border-top: 1px solid var(--border); }
   .log-name { font-weight: 700; text-transform: uppercase; font-size: 14px; }
   .sheet .set input { border-radius: 0; padding: 0 4px; }
+  .eq-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .eq-tile { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 14px; }
+  .eq-tile.on { border-color: var(--label, var(--accent)); font-weight: 600; }
+  .eq-tile input { width: 22px; height: 22px; margin: 0; flex: 0 0 auto; accent-color: var(--accent); }
+  .eq-new-row { display: flex; gap: 8px; margin-top: 8px; }
+  .eq-new { flex: 1; min-width: 0; height: 48px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; }
+  .eq-new-btn { flex: 0 0 auto; min-width: 72px; height: 48px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 15px; }
+  .session-log:disabled { opacity: 0.6; }
   .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 6px 0 0; font-size: 13px; color: var(--dim); }
   .meta .tempo { border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; }
   .notes { font-size: 13px; color: var(--dim); margin-top: 4px; }

@@ -35,7 +35,9 @@
   let data = null; // what athlete_portal_get returned
   let plan = null; // data.plan with programLog holding everything logged so far
   let weekIdx = 0, itemIdx = 0, dayIdx = 0;
-  let view = "program"; // "program" (this week's training) or "plan" (the player plan)
+  let view = "program"; // "program" (this week's training), "plan" (the player plan) or "equipment" (remote athletes)
+  let remote = false; // trains remotely: gets the equipment survey
+  let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
 
   // The athlete's own changes to an exercise or its sets and reps: programId -> exercise id -> { name, groups, from }.
@@ -290,7 +292,7 @@
 
   // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------
   const menu = () => el("div", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["plan", "My Plan"]].map(([id, text]) => el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, text)));
+    [["program", "Program"], ["plan", "My Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, text)));
   const blockDates = (b) => {
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);
     const z = new Date(a); z.setDate(z.getDate() + b.len * 7 - 1);
@@ -395,9 +397,75 @@
     overlay.scrollTop = 0;
   }
 
+  // ---- equipment survey (remote athletes) ----------------------------------------------------------
+  // Athletes who train remotely tick what they have to train with. It is asked before their first look at a
+  // program (and works before one is assigned), and stays reachable from the menu. Saving it lets the coach's
+  // dashboard flag exercises they can't do, and emails the coach who assigned the program if any are flagged.
+  const EC = window.EquipmentCheck;
+  let draft = null; // { have: Set of names, custom: [names] } while the survey is open
+  function equipmentView() {
+    const lower = (q) => `${q}`.toLowerCase();
+    if (!draft) {
+      const access = Array.isArray(equipment.access) ? equipment.access : [];
+      const listed = (q) => EC.LIST.some((x) => lower(x) === lower(q));
+      draft = { have: new Set(access), custom: [...new Set([...(equipment.custom || []), ...access.filter((q) => !listed(q))])] };
+    }
+    const first = !equipment.surveyedAt;
+    const main = el("main");
+    main.append(el("div", { class: "card" },
+      el("div", { class: "card-title" }, first ? "Before you start: what equipment do you have?" : "Your equipment"),
+      el("div", { class: "card-sub" }, "Tick everything you can train with. Your coach uses this to build a program you can actually do. You can change it any time.")));
+    const tile = (q) => {
+      const box = el("input", { type: "checkbox" });
+      box.checked = draft.have.has(q);
+      const t = el("label", { class: `eq-tile${box.checked ? " on" : ""}` }, box, el("span", null, EC.label(q)));
+      box.addEventListener("change", () => { if (box.checked) draft.have.add(q); else draft.have.delete(q); t.className = `eq-tile${box.checked ? " on" : ""}`; });
+      return t;
+    };
+    EC.GROUPS.forEach((g) => main.append(el("h2", { class: "section" }, g.name), el("div", { class: "eq-tiles" }, g.items.map(tile))));
+    const customBox = el("div", { class: "eq-tiles" }, draft.custom.map(tile));
+    const add = el("input", { type: "text", class: "eq-new", placeholder: "Add new equipment", "aria-label": "Add new equipment", autocomplete: "off", autocapitalize: "words" });
+    const addNew = () => {
+      const q = add.value.trim().replace(/\s+/g, " ").slice(0, 60);
+      if (!q) return;
+      const name = EC.LIST.find((x) => lower(x) === lower(q)) || draft.custom.find((x) => lower(x) === lower(q)) || q;
+      draft.have.add(name);
+      if (!EC.LIST.includes(name) && !draft.custom.includes(name)) draft.custom.push(name);
+      render();
+    };
+    add.addEventListener("keydown", (ev) => { if (ev.key === "Enter") addNew(); });
+    main.append(el("h2", { class: "section" }, "Anything else?"), customBox, el("div", { class: "eq-new-row" }, add, el("button", { class: "eq-new-btn", onclick: addNew }, "Add")));
+    const note = el("div", { class: "swap-note" });
+    const saveBtn = el("button", { class: "session-log", onclick: async () => {
+      saveBtn.disabled = true;
+      note.textContent = "Saving…";
+      const access = [...draft.have], custom = [...draft.custom];
+      let ok = false;
+      try { const res = await sb.rpc("athlete_portal_equipment", { p_token: token, p_access: access, p_custom: custom }); ok = !res.error && res.data === true; } catch (e) { ok = false; }
+      saveBtn.disabled = false;
+      if (!ok) { note.textContent = "Could not save. Check your connection and try again."; return; }
+      equipment = { access, custom, surveyedAt: new Date().toISOString() };
+      draft = null;
+      // lets the coach who assigned the program know if any exercise needs something not ticked; nothing to wait for
+      try { fetch("/api/equipment-alert", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); } catch (e) { /* not reachable: the dashboard still shows the flags */ }
+      view = plan ? "program" : "equipment";
+      render();
+      window.scrollTo(0, 0);
+      showStatus("Equipment saved");
+    } }, first ? "Save and continue" : "Save my equipment");
+    main.append(el("div", { class: "session-end" }, note, saveBtn));
+    if (!plan && !first) main.append(el("div", { class: "empty" }, "Thanks. Your coach has not put a program on your plan yet; it will show up here when they do."));
+    return main;
+  }
+
   // ---- the page ----------------------------------------------------------------------------------
   function render() {
     derived = [];
+    if (view === "equipment") {
+      // the first time through there is no menu: the survey comes before anything else
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Equipment")), equipment.surveyedAt && plan ? menu() : null), equipmentView());
+      return;
+    }
     if (view === "plan") {
       app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Plan")), menu()), planView());
       return;
@@ -470,7 +538,14 @@
     if (res.error) { message("Could not load your program. Check your connection and try again."); return; }
     if (!res.data) { message("This link is no longer active. Ask your coach for a new one."); return; }
     data = res.data;
-    if (!data.plan || !(data.plan.blocks || []).length) { message("Your coach has not put a program on your plan yet."); return; }
+    remote = !!(data.athlete && data.athlete.remote);
+    if (data.equipment) equipment = { access: data.equipment.access || null, custom: data.equipment.custom || [], surveyedAt: data.equipment.surveyedAt || null };
+    document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";
+    if (!data.plan || !(data.plan.blocks || []).length) {
+      // no program yet: a remote athlete can still fill in their equipment, so the coach can build around it
+      if (remote) { view = "equipment"; render(); } else message("Your coach has not put a program on your plan yet.");
+      return;
+    }
     plan = { ...data.plan, weeks: Number(data.plan.weeks) || 1, programLog: {} };
     // what's been logged: the older entries kept on the plan, then the log table laid over them
     Object.entries(data.plan.programLog || {}).forEach(([pid, one]) => { plan.programLog[pid] = { ...one }; });
@@ -482,8 +557,9 @@
     data.exercises = data.exercises || [];
     if (data.rmChart && typeof data.rmChart === "object") Rx.chart = () => data.rmChart;
     else Rx.chart = () => ({ 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65, 15: 60, 16: 55, 17: 50 });
-    document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";
     weekIdx = currentWeek();
+    // a remote athlete fills in their equipment before they see the program for the first time
+    if (remote && !equipment.surveyedAt) view = "equipment";
     render();
   }
   start();

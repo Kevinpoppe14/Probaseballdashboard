@@ -162,14 +162,19 @@
 // "BB Bench Press" -> Barbell and Bench). So "Back Squat", which names no equipment, is flagged for a barbell
 // once Barbell is ticked on its library entry. Bodyweight never counts as something to own.
 (function () {
-  // every kind of equipment an exercise can need and an athlete can have (the Trap Bar entry covers hex bars)
-  const LIST = [
-    "Barbell", "Safety Bar / Transformer Bar", "Trap Bar", "EZ Bar", "Dumbbell", "Kettlebell", "Plate",
-    "Rack", "Bench", "Box", "Pull-Up Bar", "Landmine", "Cable", "Machine", "GHR",
-    "Band", "Med Ball", "Physio Ball", "Suspension Trainer", "Slideboard", "Sled", "Hurdles",
-    "Foam Roller", "Airex Pad", "Slant Board", "PVC", "Jammer", "Flywheel", "Bike", "Rower",
-    "Rice Bucket", "Sledgehammer", "SSL", "Supercat", "Tindeq", "Power Ball", "Reflex Bar", "Club",
+  // Every kind of equipment an exercise can need and an athlete can have, grouped by type for the checklists.
+  const GROUPS = [
+    { name: "Bar Type", items: ["Barbell", "Safety Bar / Transformer Bar", "Trap Bar", "EZ Bar", "PVC"] },
+    { name: "Free Weights", items: ["Dumbbell", "Kettlebell", "Plate", "Med Ball", "Club", "Sledgehammer"] },
+    { name: "Racks, Benches and Boxes", items: ["Rack", "Bench", "Box", "Pull-Up Bar", "GHR", "Landmine"] },
+    { name: "Machines and Cables", items: ["Cable", "Machine", "Jammer", "Bike", "Rower", "Sled"] },
+    { name: "Bands, Balls and Accessories", items: ["Band", "Physio Ball", "Suspension Trainer", "Slideboard", "Hurdles", "Foam Roller", "Airex Pad", "Slant Board"] },
+    { name: "Specialty Equipment", items: ["Supercat", "Flywheel", "SSL", "Tindeq", "Power Ball", "Reflex Bar", "Rice Bucket"] },
   ];
+  const LIST = GROUPS.reduce((all, g) => all.concat(g.items), []);
+  // how an item reads on a checklist, where that says more than its stored name
+  const LABELS = { "Trap Bar": "Trap Bar / Hex Bar", Cable: "Cable / Keiser", "Physio Ball": "Physio / Swiss Ball" };
+  const label = (q) => LABELS[q] || q;
   // what a name gives away: abbreviations and plain words
   const FROM_NAME = [
     ["Barbell", /\bBB\b|barbell|\bLM\b|land\s*mine/i], // a landmine needs a barbell in it
@@ -226,5 +231,18 @@
     const have = (access || []).map((x) => `${x}`.toLowerCase());
     return required(name, libraryEntry).filter((q) => !have.includes(q.toLowerCase()));
   };
-  window.EquipmentCheck = { LIST, required, missing, fromName, REMOTE_LOCATION: "DST Remote Training" };
+  // Exercises in a program that need something the athlete lacks: one entry per exercise name, with how often
+  // it comes up. `findExercise(name)` looks an exercise up in the exercise library.
+  function flaggedIn(program, access, findExercise) {
+    const byName = {};
+    ((program || {}).weeks || []).forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => {
+      const name = (e.name || "").trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!byName[key]) byName[key] = { name, missing: missing(name, findExercise ? findExercise(name) : null, access), count: 0 };
+      byName[key].count += 1;
+    })));
+    return Object.values(byName).filter((f) => f.missing.length).sort((x, y) => x.name.localeCompare(y.name));
+  }
+  window.EquipmentCheck = { GROUPS, LIST, label, required, missing, fromName, flaggedIn, REMOTE_LOCATION: "DST Remote Training" };
 })();
