@@ -221,6 +221,10 @@
     return [...new Set([...listed, ...fromName(name)])];
   }
   // what of that the athlete lacks, given the list of equipment they have
-  const missing = (name, libraryEntry, access) => required(name, libraryEntry).filter((q) => !(access || []).includes(q));
+  // (matched without regard to capitals, so equipment typed in by hand on an athlete's list still counts)
+  const missing = (name, libraryEntry, access) => {
+    const have = (access || []).map((x) => `${x}`.toLowerCase());
+    return required(name, libraryEntry).filter((q) => !have.includes(q.toLowerCase()));
+  };
   window.EquipmentCheck = { LIST, required, missing, fromName, REMOTE_LOCATION: "DST Remote Training" };
 })();

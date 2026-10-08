@@ -19,6 +19,27 @@
     const have = set ? a.equipmentAccess : [];
     const save = (patch) => { store.updateAthlete(a.id, patch); bump((n) => n + 1); };
     const toggle = (q) => save({ equipmentAccess: have.includes(q) ? have.filter((x) => x !== q) : [...have, q] });
+    // Equipment added by hand for this athlete. Each one becomes a check box of its own beside the standard ones
+    // (ticked when added) and stays on the list if it is unticked later; `equipmentCustom` holds their names.
+    const lower = (q) => `${q}`.toLowerCase();
+    const isListed = (q) => EC.LIST.some((x) => lower(x) === lower(q));
+    const custom = [...new Set([...(Array.isArray(a.equipmentCustom) ? a.equipmentCustom : []), ...have.filter((q) => !isListed(q))])];
+    const [adding, setAdding] = useState("");
+    const addCustom = () => {
+      const q = adding.trim().replace(/\s+/g, " ");
+      if (!q) return;
+      // something already on the list, standard or added before, is just ticked
+      const name = EC.LIST.find((x) => lower(x) === lower(q)) || custom.find((x) => lower(x) === lower(q)) || q;
+      save({
+        equipmentAccess: have.some((x) => lower(x) === lower(name)) ? have : [...have, name],
+        equipmentCustom: isListed(name) || custom.includes(name) ? custom : [...custom, name],
+      });
+      setAdding("");
+    };
+    const removeCustom = (q) => {
+      if (!window.confirm(`Take "${q}" off ${a.name}'s equipment list altogether?`)) return;
+      save({ equipmentAccess: have.filter((x) => x !== q), equipmentCustom: custom.filter((x) => x !== q) });
+    };
     return (
       <div className="panel eq-panel">
         <h2>Equipment Access <small>What {a.name} has to train with. Programs on their plan are checked against this.</small></h2>
@@ -30,14 +51,31 @@
               {q}
             </label>
           ))}
+          {custom.map((q) => (
+            <label key={`c-${q}`} className={`eq-item eq-item-custom${have.includes(q) ? " on" : ""}`}>
+              <input type="checkbox" checked={have.includes(q)} onChange={() => toggle(q)} />
+              <span>{q}</span>
+              <button type="button" className="eq-item-remove" title={`Take ${q} off the list`} aria-label={`Take ${q} off the list`} onClick={(e) => { e.preventDefault(); removeCustom(q); }}>&times;</button>
+            </label>
+          ))}
+        </div>
+        <div className="eq-add">
+          <input
+            value={adding}
+            placeholder="Add other equipment"
+            aria-label="Add other equipment"
+            onChange={(e) => setAdding(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+          />
+          <button className="btn btn-secondary" disabled={!adding.trim()} onClick={addCustom}>Add</button>
         </div>
         <div className="eq-actions">
-          <button className="btn btn-secondary" onClick={() => save({ equipmentAccess: [...EC.LIST] })}>Has everything</button>
-          <button className="btn btn-secondary" onClick={() => save({ equipmentAccess: [] })}>Has none of these</button>
-          <span className="timestamp-note">{set ? `${have.length} of ${EC.LIST.length} ticked. Bodyweight exercises are never flagged.` : ""}</span>
+          <button className="btn btn-secondary" onClick={() => save({ equipmentAccess: [...EC.LIST, ...custom], equipmentCustom: custom })}>Has everything</button>
+          <button className="btn btn-secondary" onClick={() => save({ equipmentAccess: [], equipmentCustom: custom })}>Has none of these</button>
+          <span className="timestamp-note">{set ? `${have.length} of ${EC.LIST.length + custom.length} ticked. Bodyweight exercises are never flagged.` : ""}</span>
         </div>
         <div className="field" style={{ marginTop: 14 }}>
-          <label>Other equipment and notes</label>
+          <label>Notes</label>
           <textarea
             rows={3}
             key={a.id}
