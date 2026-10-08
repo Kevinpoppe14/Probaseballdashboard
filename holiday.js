@@ -21,12 +21,18 @@
     return [month, dayOfMonth];
   };
 
+  // a run of days as [month, day] pairs: `count` days starting `offset` days from the given date
+  const span = (year, month, dayOfMonth, offset, count) => Array.from({ length: count }, (_, i) => {
+    const d = new Date(year, month, dayOfMonth + offset + i);
+    return [d.getMonth(), d.getDate()];
+  });
+
   // each holiday: the days it covers in a given year as [month, day] pairs, a greeting, and its three colors
   const HOLIDAYS = [
     { key: "newyear", greeting: "Happy New Year", colors: ["#c9971a", "#111111", "#ffffff"], days: () => [[0, 1], [11, 31]] },
     { key: "valentines", greeting: "Happy Valentine's Day", colors: ["#d6336c", "#8f1239", "#ffffff"], days: () => [[1, 14]] },
     { key: "stpatricks", greeting: "Happy St. Patrick's Day", colors: ["#1a7f37", "#c9971a", "#ffffff"], days: () => [[2, 17]] },
-    { key: "easter", greeting: "Happy Easter", colors: ["#7c5cc4", "#d9668f", "#ffffff"], days: (y) => [easter(y)] },
+    { key: "easter", greeting: "Happy Easter", colors: ["#7c5cc4", "#d9668f", "#ffffff"], days: (y) => span(y, ...easter(y), -2, 3) }, // Good Friday through Easter Sunday
     { key: "mothers", greeting: "Happy Mother's Day", colors: ["#d6477a", "#8e3a6b", "#ffffff"], days: (y) => [[4, nthWeekday(y, 4, 0, 2)]] }, // second Sunday of May
     { key: "fathers", greeting: "Happy Father's Day", colors: ["#1d5fa8", "#3d4f66", "#ffffff"], days: (y) => [[5, nthWeekday(y, 5, 0, 3)]] }, // third Sunday of June
     { key: "memorial", greeting: "Memorial Day", colors: ["#b31942", "#0a3161", "#ffffff"], days: (y) => [[4, nthWeekday(y, 4, 1, -1)]] },
@@ -34,7 +40,7 @@
     { key: "july4", greeting: "Happy 4th of July", colors: ["#b31942", "#0a3161", "#ffffff"], days: () => [[6, 4]] },
     { key: "halloween", greeting: "Happy Halloween", colors: ["#e8590c", "#000000", "#ffffff"], days: () => [[9, 31]] },
     { key: "veterans", greeting: "Veterans Day", colors: ["#b31942", "#0a3161", "#ffffff"], days: () => [[10, 11]] },
-    { key: "thanksgiving", greeting: "Happy Thanksgiving", colors: ["#b45309", "#7c2d12", "#fde9b8"], days: (y) => [[10, nthWeekday(y, 10, 4, 4)]] },
+    { key: "thanksgiving", greeting: "Happy Thanksgiving", colors: ["#b45309", "#7c2d12", "#fde9b8"], days: (y) => span(y, 10, nthWeekday(y, 10, 4, 4), 0, 4) }, // Thanksgiving Thursday through Sunday
     { key: "christmas", greeting: "Merry Christmas", colors: ["#c8102e", "#1a7f37", "#ffffff"], days: () => [[11, 24], [11, 25]] },
   ];
 
