@@ -9,8 +9,85 @@
   const statusEl = document.getElementById("status");
   const overlay = document.getElementById("overlay");
   const token = (window.location.hash || "").replace(/^#/, "").trim();
+  const query = new URLSearchParams(window.location.search);
+  // On the coach board (coach.html) this page is shown inside a frame for an athlete a signed-in coach picked:
+  // ?coach=1&aid=<athlete id>, with no token.
+  const coachId = query.get("coach") === "1" ? query.get("aid") : null;
+
+  // Where the page's data comes from and goes to. An athlete's own link goes through the token-checked
+  // athlete_portal_* database functions and can reach nothing else. On the coach board there is no token: the
+  // coach is signed in, so the same data is read from and written to the tables under their own login, and
+  // what they log is recorded as entered by a coach.
+  const api = coachId ? {
+    async get() {
+      const { data: s } = await sb.auth.getSession();
+      if (!s || !s.session) return { error: { signedOut: true } };
+      const id = String(coachId);
+      const [a, pz, lg, ov, meta] = await Promise.all([
+        sb.from("athletes").select("data").eq("id", id).maybeSingle(),
+        sb.from("periodization").select("data").eq("athlete_id", id).maybeSingle(),
+        sb.from("athlete_logs").select("program_id,key,value").eq("athlete_id", id).limit(20000),
+        sb.from("athlete_overrides").select("program_id,exercise_id,data").eq("athlete_id", id).limit(5000),
+        sb.from("app_meta").select("value").eq("key", "rmChart").maybeSingle(),
+      ]);
+      if (a.error || pz.error) return { error: a.error || pz.error };
+      const athlete = (a.data && a.data.data) || {};
+      const p = pz.data ? pz.data.data : null;
+      const ids = [...new Set(((p && p.blocks) || []).map((b) => b.programId).filter(Boolean).map(String))];
+      const pr = ids.length ? await sb.from("programs").select("id,data").in("id", ids) : { data: [] };
+      const programs = (pr.data || []).map((r) => ({ id: r.id, name: r.data.name, weeks: r.data.weeks }));
+      // videos and cues for the exercises in those programs (and any the athlete switched to), a batch at a time
+      const names = new Set();
+      programs.forEach((x) => (x.weeks || []).forEach((w) => (w.sessions || []).forEach((ses) => (ses.exercises || []).forEach((e) => { if ((e.name || "").trim()) names.add(e.name.trim()); }))));
+      (ov.data || []).forEach((r) => { if (r.data && (r.data.name || "").trim()) names.add(r.data.name.trim()); });
+      const list = [...names], exercises = [];
+      for (let i = 0; i < list.length; i += 50) {
+        const ex = await sb.from("exercises").select("data").in("data->>name", list.slice(i, i + 50));
+        (ex.data || []).forEach((r) => exercises.push({ name: r.data.name, videoUrl: r.data.videoUrl, cues: r.data.cues }));
+      }
+      return {
+        data: {
+          athlete: { name: athlete.name || "", offseasonFacility: athlete.offseasonFacility || "", remote: false }, // the equipment survey is the athlete's own
+          plan: p ? { startDate: p.startDate, weeks: p.weeks, goals: p.goals, actionPlan: p.actionPlan, lanes: p.lanes || [], blocks: p.blocks || [], programLog: p.programLog || {} } : null,
+          programs, exercises,
+          logs: (lg.data || []).map((r) => ({ programId: r.program_id, key: r.key, value: r.value })),
+          overrides: (ov.data || []).map((r) => ({ programId: r.program_id, exerciseId: r.exercise_id, data: r.data })),
+          rmChart: meta.data ? meta.data.value : null,
+        },
+      };
+    },
+    async log(programId, key, value) {
+      const { error } = await sb.from("athlete_logs").upsert({ athlete_id: String(coachId), program_id: String(programId), key, value: value || "", source: "coach", updated_at: new Date().toISOString() });
+      return !error;
+    },
+    async override(programId, ids, payload) {
+      const base = sb.from("athlete_overrides");
+      const { error } = payload
+        ? await base.upsert(ids.map((exId) => ({ athlete_id: String(coachId), program_id: String(programId), exercise_id: exId, data: payload, source: "coach", updated_at: new Date().toISOString() })))
+        : await base.delete().eq("athlete_id", String(coachId)).eq("program_id", String(programId)).in("exercise_id", ids);
+      return !error;
+    },
+    async exercises(q) {
+      const { data } = await sb.from("exercises").select("data").ilike("data->>name", `%${q.replace(/[%_]/g, " ")}%`).limit(20);
+      return (data || []).map((r) => ({ name: r.data.name, videoUrl: r.data.videoUrl, cues: r.data.cues }));
+    },
+  } : {
+    get: () => sb.rpc("athlete_portal_get", { p_token: token }),
+    async log(programId, key, value) {
+      const res = await sb.rpc("athlete_portal_log", { p_token: token, p_program_id: programId, p_key: key, p_value: value });
+      return !res.error && res.data === true;
+    },
+    async override(programId, ids, payload) {
+      const res = await sb.rpc("athlete_portal_override", { p_token: token, p_program_id: programId, p_exercise_ids: ids, p_data: payload });
+      return !res.error && res.data === true;
+    },
+    async exercises(q) {
+      const res = await sb.rpc("athlete_portal_exercises", { p_token: token, p_query: q });
+      return res.data || [];
+    },
+  };
   // Links for Cubs-only players carry ?team=cubs, which only changes the logo and colors.
-  const cubs = new URLSearchParams(window.location.search).get("team") === "cubs";
+  const cubs = query.get("team") === "cubs";
   if (cubs) {
     document.body.classList.add("cubs");
     document.querySelector('meta[name="theme-color"]').setAttribute("content", "#06122b");
@@ -95,8 +172,7 @@
     for (const [id, p] of [...pending]) {
       let ok = false;
       try {
-        const res = await sb.rpc("athlete_portal_log", { p_token: token, p_program_id: p.programId, p_key: p.key, p_value: p.value });
-        ok = !res.error && res.data === true;
+        ok = await api.log(p.programId, p.key, p.value);
       } catch (e) { ok = false; }
       if (!ok) { showStatus("Not saved yet. Check your connection; it will retry.", true); break; }
       if (pending.get(id) === p) pending.delete(id);
@@ -171,7 +247,7 @@
       searchTimer = setTimeout(async () => {
         const no = (searchNo += 1);
         let res;
-        try { res = await sb.rpc("athlete_portal_exercises", { p_token: token, p_query: q }); } catch (err) { res = { data: [] }; }
+        try { res = { data: await api.exercises(q) }; } catch (err) { res = { data: [] }; }
         if (no !== searchNo) return;
         matches.replaceChildren(...(res.data || []).slice(0, 8).map((m) => el("button", { class: "match", onclick: () => { name.value = m.name; picked = m; matches.replaceChildren(); } }, m.name, m.videoUrl ? el("small", null, "video") : null)));
       }, 250);
@@ -189,8 +265,7 @@
       note.textContent = "Saving…";
       let ok = false;
       try {
-        const res = await sb.rpc("athlete_portal_override", { p_token: token, p_program_id: pid, p_exercise_ids: ids, p_data: payload });
-        ok = !res.error && res.data === true;
+        ok = await api.override(pid, ids, payload);
       } catch (err) { ok = false; }
       if (!ok) { note.textContent = "Could not save. Check your connection and try again."; drawActions(); return; }
       const one = (overrides[pid] = overrides[pid] || {});
@@ -550,10 +625,11 @@
   }
 
   async function start() {
-    if (!token) { message("This link is missing its code. Ask your coach to send it again."); return; }
+    if (!token && !coachId) { message("This link is missing its code. Ask your coach to send it again."); return; }
     let res;
-    try { res = await sb.rpc("athlete_portal_get", { p_token: token }); }
+    try { res = await api.get(); }
     catch (e) { res = { error: e }; }
+    if (res.error && res.error.signedOut) { message("Sign in on the coach board to see this athlete."); return; }
     if (res.error) { message("Could not load your program. Check your connection and try again."); return; }
     if (!res.data) { message("This link is no longer active. Ask your coach for a new one."); return; }
     data = res.data;
@@ -562,7 +638,7 @@
     document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";
     if (!data.plan || !(data.plan.blocks || []).length) {
       // no program yet: a remote athlete can still fill in their equipment, so the coach can build around it
-      if (remote) { view = "equipment"; render(); } else message("Your coach has not put a program on your plan yet.");
+      if (remote) { view = "equipment"; render(); } else message(coachId ? "No program is on this athlete's plan yet." : "Your coach has not put a program on your plan yet.");
       return;
     }
     plan = { ...data.plan, weeks: Number(data.plan.weeks) || 1, programLog: {} };
