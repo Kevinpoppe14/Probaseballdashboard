@@ -3233,3 +3233,22 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .import-athletes-preview { margin-top: 12px; max-height: 360px; overflow: auto; }
 .import-athletes-preview small { color: var(--warn); }
 .program-pdf-note { display: block; flex: 1 1 100%; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
+/* Manual body comp sheet (Body Composition tab) */
+.bcs-form h3 { margin: 16px 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--dst-red); }
+.bcs-form h4 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+.bcs-top { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 18px; }
+.bcs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 0 26px; }
+.bcs-grid.bcs-two { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.bcs-row { display: grid; grid-template-columns: 1fr 96px 62px; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+.bcs-row > span { color: var(--text); }
+.bcs-row input, .bcs-row select { width: 100%; box-sizing: border-box; height: 30px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 4px; }
+.bcs-top .bcs-row { grid-template-columns: 90px 1fr; }
+.bcs-row em { font-style: normal; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.bcs-out b { text-align: right; padding-right: 6px; font-variant-numeric: tabular-nums; }
+.bcs-hint { margin: 4px 0; font-size: 11px; color: var(--text-dim); }
+.bcs-scroll { overflow-x: auto; }
+.bcs-meals { width: 100%; font-size: 13px; }
+.bcs-meals input { width: 76px; height: 30px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 4px; }
+.bcs-meals tr.bcs-total td { font-weight: 700; border-top: 1px solid var(--text-dim); }
+.bcs-meals tr.bcs-target td { color: var(--text-dim); font-style: italic; }
+.bcs-form .tl-actions { margin-top: 16px; }

@@ -61,6 +61,7 @@
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
+<script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="training_log.js"></script>
 <script type="text/babel" data-presets="react" src="equipment.js"></script>
@@ -1102,9 +1103,12 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     return { rows, lineH, rowH, pctH, lineW, bandH, gap, nameFs, nameLH, noteLH, total: rows.reduce((t, r) => t + r.h, 0) };
   };
 
-  // One page when everything fits at a readable size (READABLE pt or larger). Otherwise the weeks are spread
-  // over as few pages as a readable size allows, and the text is then made as large as that page count permits.
-  const READABLE = 6;
+  // The whole program goes on one landscape page whenever the text can stay at READABLE pt or larger (so a
+  // 4-week program is one page unless that would take text under 8 pt). Only then are the weeks spread over
+  // more pages: as few as 8 pt text allows, with the text then made as large as that page count permits.
+  const READABLE = 8;
+
+
   const paginate = (p) => {
     let page = 1, used = 0;
     p.rows.forEach((row) => { if (used > 0 && used + row.h > availH) { page += 1; used = 0; } row.page = page; used += row.h; });
@@ -1251,7 +1255,7 @@ async function openProgramPdf(program, athleteName, cubsLogo) {
 function programPdfNote(result) {
   if (!result) return "";
   if (!result.fits) return "One week is too long to fit on a page even at the smallest text size, so part of it is cut off. Try fewer exercises per day.";
-  return result.pages > 1 ? `Too long for one page at a readable size, so it is on ${result.pages} pages.` : "";
+  return result.pages > 1 ? `Too long for one page without the text going under 8 pt, so it is on ${result.pages} pages.` : "";
 }
 window.programPdfNote = programPdfNote;
 window.openProgramPdf = openProgramPdf;
@@ -5453,6 +5457,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
 
       <div className={activeTab === "bodycomp" ? "" : "tab-hidden"}>
         <BodyCompPanel athleteId={athlete.id} />
+        {/* the manual skinfold and girth sheet, beside the Evolt scans */}
+        {window.BodyCompSheet && <window.BodyCompSheet athlete={athlete} />}
       </div>
 
       <div className={activeTab === "assessment" ? "" : "tab-hidden"}>
@@ -6393,6 +6399,38 @@ function HawkinSyncPanel({ onImported }) {
   );
 }
 
+// Vitruve velocity data: pick the athlete, then choose the CSV files exported from Vitruve Teams. The rows show
+// on that athlete's Training Log, each day beside that day's lift (see vitruve.js).
+function VitruveImportPanel() {
+  const [athleteId, setAthleteId] = useState("");
+  const [done, setDone] = useState("");
+  const people = getPeople()
+    .filter((a) => (a.status || "active").toLowerCase() !== "alumni")
+    .sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name)));
+  const athlete = people.find((a) => String(a.id) === athleteId);
+  return (
+    <div className="panel">
+      <h2>Vitruve <small>velocity data, from a CSV exported from Vitruve Teams</small></h2>
+      <p className="timestamp-note">
+        In Vitruve Teams: Progress, pick the athlete and the exercise, then export as CSV (not Excel). Each file is one athlete and one exercise;
+        several can be chosen at once. Imported days show on the athlete's Training Log beside that day's lift.
+      </p>
+      <div className="form-row">
+        <div className="field" style={{ minWidth: 260 }}>
+          <label>Athlete</label>
+          <select value={athleteId} onChange={(e) => { setAthleteId(e.target.value); setDone(""); }}>
+            <option value="">Choose an athlete…</option>
+            {people.map((a) => <option key={a.id} value={String(a.id)}>{lastFirstName(a.name)}</option>)}
+          </select>
+        </div>
+      </div>
+      {athlete && window.VitruveImport
+        ? <div className="tl-actions"><window.VitruveImport key={athlete.id} athlete={athlete} onDone={(text) => setDone(text || "")} />{done && <span className="timestamp-note">{done}</span>}</div>
+        : <div className="empty-state">Choose the athlete the files are for.</div>}
+    </div>
+  );
+}
+
 function ImportPage({ onImported, onSelect }) {
   const [source, setSource] = useState("hawkin");
   const stats = window.AthleteStore.counts();
@@ -6410,11 +6448,13 @@ function ImportPage({ onImported, onSelect }) {
         <button className={`pill-tab ${source === "hawkin" ? "active" : ""}`} onClick={() => setSource("hawkin")}>Hawkin Dynamics</button>
         <button className={`pill-tab ${source === "evolt" ? "active" : ""}`} onClick={() => setSource("evolt")}>Evolt360</button>
         <button className={`pill-tab ${source === "manual" ? "active" : ""}`} onClick={() => setSource("manual")}>Manual Entry</button>
+        <button className={`pill-tab ${source === "vitruve" ? "active" : ""}`} onClick={() => setSource("vitruve")}>Vitruve</button>
         <button className={`pill-tab ${source === "mlb" ? "active" : ""}`} onClick={() => setSource("mlb")}>MLB Profiles &amp; Photos</button>
         <button className={`pill-tab ${source === "plansheet" ? "active" : ""}`} onClick={() => setSource("plansheet")}>Player Plan Sheet Sync</button>
         <button className={`pill-tab ${source === "vald" ? "active" : ""}`} onClick={() => setSource("vald")}>VALD (Cubs Roster)</button>
       </div>
 
+      {source === "vitruve" && <VitruveImportPanel />}
       {source === "mlb" && <MlbLinkerPanel onImported={onImported} />}
       {source === "plansheet" && <PlayerPlansSyncPage onSelect={onSelect} onImported={onImported} />}
 

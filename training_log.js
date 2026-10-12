@@ -172,7 +172,6 @@
     const [loading, setLoading] = useState(true);
     const [speed, setSpeed] = useState([]); // group speed sessions logged for them in Coach Mode
     const [vit, setVit] = useState([]); // rows imported from Vitruve
-    const [vitNote, setVitNote] = useState(""); // what the last import did
     // pick up what the athlete has entered on their phone since the dashboard loaded
     const refresh = () => {
       setLoading(true);
@@ -203,8 +202,6 @@
           <h2>Training Log <small>What was actually done, newest first. Times are when each entry was typed in.</small></h2>
           <div className="tl-actions no-print">
             <button className="btn btn-secondary" onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
-            {window.VitruveImport && <window.VitruveImport athlete={athlete} onDone={(text) => { setVitNote(text || ""); refresh(); }} />}
-            {vitNote && <span className="timestamp-note">{vitNote}</span>}
             <span className="timestamp-note">{feed.length} session{feed.length === 1 ? "" : "s"} with something logged for {athlete.name}.</span>
           </div>
         </div>
