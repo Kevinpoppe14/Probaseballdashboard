@@ -58,6 +58,7 @@
     },
     async log(programId, key, value) {
       const { error } = await sb.from("athlete_logs").upsert({ athlete_id: String(coachId), program_id: String(programId), key, value: value || "", source: "coach", updated_at: new Date().toISOString() });
+      if (!error && key.startsWith("session-") && window.parent !== window) window.parent.postMessage("coach-session-changed", window.location.origin); // Coach Mode marks who has finished today
       return !error;
     },
     async override(programId, ids, payload) {

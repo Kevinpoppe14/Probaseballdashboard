@@ -51,6 +51,7 @@
   }
   function add(id) {
     if (!picked.includes(id)) picked.push(id);
+    loadDone();
     $("search").value = "";
     $("results").hidden = true;
     if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
@@ -71,11 +72,29 @@
     if (!picked.length) { list.replaceChildren(el("div", { class: "list-hint" }, "No athletes yet. Search above to add one.")); return; }
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
-      return el("div", { class: `who${id === active && !kpiOpen ? " on" : ""}` },
-        el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, a.name), el("small", null, a.sub)),
+      const done = doneToday.has(id);
+      return el("div", { class: `who${id === active && !kpiOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
+        el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, done ? "✓ " : "", a.name), el("small", null, done ? `Done today${a.sub ? ` · ${a.sub}` : ""}` : a.sub)),
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
     }));
   }
+
+  // ---- who has finished today ------------------------------------------------------------------------
+  // An athlete is marked done once a session of theirs has been logged today (the Log session button, here or
+  // on their own phone). Checked when the board changes, when a session is logged in the frame, when the page
+  // comes back into view, and every half minute.
+  let doneToday = new Set();
+  async function loadDone() {
+    if (!user || !picked.length) { doneToday = new Set(); draw(); return; }
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const { data, error } = await sb.from("athlete_logs").select("athlete_id").in("athlete_id", picked).like("key", "session-%").eq("value", "done").gte("updated_at", start.toISOString()).limit(2000);
+    if (error || !data) return; // keep what is showing
+    doneToday = new Set(data.map((r) => String(r.athlete_id)));
+    draw();
+  }
+  window.addEventListener("message", (e) => { if (e.origin === window.location.origin && e.data === "coach-session-changed") loadDone(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadDone(); });
+  setInterval(() => { if (!document.hidden) loadDone(); }, 30000);
 
   // ---- KPI sheet: results for something the group did that is not in anyone's program ------------------
   // A sheet with the athletes on the board down the side and trials across: pick the KPI (or make a new one)
@@ -313,6 +332,7 @@
     const saved = recall();
     picked = (saved.picked || []).filter((id) => byId(id)); // anyone removed from the roster since drops off
     show(picked.includes(saved.active) ? saved.active : picked[0] || null);
+    loadDone();
   }
   function close() {
     user = null; picked = []; active = null;
