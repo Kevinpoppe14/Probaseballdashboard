@@ -3165,3 +3165,10 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 }
 .program-editor .facility-form-grid input::placeholder, .program-editor .facility-form-grid textarea::placeholder { color: var(--text-dim); font-weight: 400; }
 .program-editor .facility-form-grid input:focus, .program-editor .facility-form-grid textarea:focus { outline: none; border-color: var(--dst-red); }
+/* Program builder: tick boxes on days and exercises for copy and paste, and the bar that appears with them */
+.program-tick { flex: 0 0 auto; width: 17px; height: 17px; margin: 0 6px 0 0; accent-color: var(--dst-red); cursor: pointer; }
+.program-session-head .program-tick { accent-color: #fff; }
+.program-clipbar { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--dst-red); border-radius: 8px; background: var(--panel); font-size: 13px; }
+.program-clipbar span { color: var(--text-dim); }
+.program-tick-block { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 10px; font-size: 11px; font-weight: 600; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
+.program-tick-block input { width: 13px; height: 13px; margin: 0; accent-color: var(--dst-red); }

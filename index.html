@@ -1383,22 +1383,108 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
     onSaveAndAssign(rec);
   };
 
-  // Copies one day's exercises (with their supersets) onto another day in the same week, or into a new day.
-  // The target keeps its own name; anything already entered there is replaced, after a confirm.
-  const copyDay = (wi, si, target) => {
-    if (target === "") return;
-    const week = draft.weeks[wi];
-    const copyOf = (d) => d.weeks[wi].sessions[si].exercises.map((e) => ({ ...e, id: newExercise().id }));
-    if (target === "new") {
-      edit((d) => { const s = d.weeks[wi].sessions; s.push({ name: `Day ${s.length + 1}`, warmup: s[si].warmup || "", exercises: copyOf(d) }); });
-      return;
-    }
-    const ti = Number(target);
-    const dest = week.sessions[ti];
-    const hasWork = dest.exercises.some((e) => (e.name || "").trim());
-    if (hasWork && !window.confirm(`Replace the exercises in ${dest.name || `Day ${ti + 1}`} with a copy of ${week.sessions[si].name || `Day ${si + 1}`}?`)) return;
-    edit((d) => { d.weeks[wi].sessions[ti].exercises = copyOf(d); d.weeks[wi].sessions[ti].warmup = d.weeks[wi].sessions[si].warmup || ""; });
+  // ---- copy and paste by ticking ---------------------------------------------------------------------
+  // Every day and every exercise has a check box. Tick what to copy (a whole day, or particular exercises) and
+  // press Ctrl+C; then tick the day to put it in (or any exercise in that day) and press Ctrl+V. The copied
+  // exercises are added to the end of that day, keeping their supersets, and nothing already there is replaced.
+  // What was copied is kept (window.__programClip and this browser's storage), so it can be pasted into another
+  // week, another program, or another athlete's program. The Copy and Paste buttons do the same on a tablet.
+  const [ticks, setTicks] = useState(() => new Set()); // "d|week|day" for a whole day, "e|week|day|exerciseId" for one exercise
+  const [clipNote, setClipNote] = useState("");
+  const readClip = () => {
+    if (window.__programClip) return window.__programClip;
+    try { window.__programClip = JSON.parse(localStorage.getItem("programClip") || "null"); } catch (e) { window.__programClip = null; }
+    return window.__programClip;
   };
+  const dayTicked = (wi, si) => ticks.has(`d|${wi}|${si}`);
+  const exTicked = (wi, si, ex) => dayTicked(wi, si) || ticks.has(`e|${wi}|${si}|${ex.id}`);
+  const toggleDay = (wi, si) => setTicks((prev) => {
+    const next = new Set([...prev].filter((k) => !k.startsWith(`e|${wi}|${si}|`)));
+    if (next.has(`d|${wi}|${si}`)) next.delete(`d|${wi}|${si}`); else next.add(`d|${wi}|${si}`);
+    return next;
+  });
+  const toggleEx = (wi, si, ex) => setTicks((prev) => {
+    const next = new Set(prev);
+    const dayKey = `d|${wi}|${si}`, key = `e|${wi}|${si}|${ex.id}`;
+    if (next.has(dayKey)) { // the whole day was ticked: untick just this one, leaving the rest ticked
+      next.delete(dayKey);
+      draft.weeks[wi].sessions[si].exercises.forEach((e) => { if (e.id !== ex.id) next.add(`e|${wi}|${si}|${e.id}`); });
+    } else if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  // a block is an exercise and the ones linked under it (A1, A2…); ticking the block ticks all of them
+  const blockOf = (wi, si, ei) => {
+    const xs = draft.weeks[wi].sessions[si].exercises;
+    const out = [xs[ei]];
+    for (let i = ei + 1; i < xs.length && xs[i].linked; i += 1) out.push(xs[i]);
+    return out;
+  };
+  const blockTicked = (wi, si, ei) => blockOf(wi, si, ei).every((e) => exTicked(wi, si, e));
+  const toggleBlock = (wi, si, ei) => setTicks((prev) => {
+    const next = new Set(prev);
+    const dayKey = `d|${wi}|${si}`;
+    const block = blockOf(wi, si, ei);
+    const on = block.every((e) => next.has(dayKey) || next.has(`e|${wi}|${si}|${e.id}`));
+    if (next.has(dayKey)) { // the whole day was ticked: keep the rest of the day ticked, one exercise at a time
+      next.delete(dayKey);
+      draft.weeks[wi].sessions[si].exercises.forEach((e) => next.add(`e|${wi}|${si}|${e.id}`));
+    }
+    block.forEach((e) => { if (on) next.delete(`e|${wi}|${si}|${e.id}`); else next.add(`e|${wi}|${si}|${e.id}`); });
+    return next;
+  });
+  const copyTicked = () => {
+    const out = [];
+    let wholeDays = 0, warmup = "";
+    draft.weeks.forEach((w, wi) => w.sessions.forEach((s, si) => {
+      const whole = dayTicked(wi, si);
+      let prevTaken = false;
+      s.exercises.forEach((e) => {
+        const take = (whole || ticks.has(`e|${wi}|${si}|${e.id}`)) && (e.name || "").trim();
+        // an exercise keeps its place in a superset only if the one above it came along too
+        if (take) out.push({ ...JSON.parse(JSON.stringify(e)), linked: !!e.linked && prevTaken });
+        prevTaken = !!take;
+      });
+      if (whole) { wholeDays += 1; warmup = s.warmup || ""; }
+    }));
+    if (!out.length) { setClipNote("Nothing to copy: tick a day or some exercises that have names first."); return; }
+    window.__programClip = { exercises: out, warmup: wholeDays === 1 && ticks.size === 1 ? warmup : "" };
+    try { localStorage.setItem("programClip", JSON.stringify(window.__programClip)); } catch (e) { /* private window: it still pastes until the page is closed */ }
+    setTicks(new Set());
+    setClipNote(`Copied ${out.length} exercise${out.length === 1 ? "" : "s"}. Tick the day to put ${out.length === 1 ? "it" : "them"} in, then press Ctrl+V or Paste.`);
+  };
+  const pasteClip = () => {
+    const clip = readClip();
+    if (!clip || !(clip.exercises || []).length) { setClipNote("Nothing copied yet: tick a day or some exercises and press Ctrl+C first."); return; }
+    const targets = [...new Set([...ticks].map((k) => k.split("|").slice(1, 3).join("|")))].map((k) => k.split("|").map(Number))
+      .filter(([wi, si]) => draft.weeks[wi] && draft.weeks[wi].sessions[si]);
+    if (!targets.length) { setClipNote("Tick the day to paste into first (its check box, or any exercise in it)."); return; }
+    edit((d) => targets.forEach(([wi, si]) => {
+      const s = d.weeks[wi].sessions[si];
+      const fresh = clip.exercises.map((e) => ({ ...JSON.parse(JSON.stringify(e)), id: newExercise().id }));
+      fresh[0].linked = false; // the first pasted exercise starts its own block rather than joining the one above
+      if (s.exercises.every((e) => !(e.name || "").trim())) { // an empty day: the copy takes its place, warm-up included
+        s.exercises = fresh;
+        if (clip.warmup && !(s.warmup || "").trim()) s.warmup = clip.warmup;
+      } else s.exercises.push(...fresh);
+    }));
+    setTicks(new Set());
+    setClipNote(`Pasted ${clip.exercises.length} exercise${clip.exercises.length === 1 ? "" : "s"} into ${targets.length} day${targets.length === 1 ? "" : "s"}. Press Ctrl+V on another ticked day to paste again.`);
+  };
+  // Ctrl+C / Ctrl+V (Cmd on a Mac), except while typing in a box or with text highlighted, where they copy and paste text as usual
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = (e.key || "").toLowerCase();
+      if (k !== "c" && k !== "v") return;
+      const at = document.activeElement;
+      const typing = at && ((at.tagName === "INPUT" && at.type !== "checkbox") || at.tagName === "TEXTAREA" || at.tagName === "SELECT" || at.isContentEditable);
+      if (typing || String(window.getSelection ? window.getSelection() : "").length) return;
+      if (k === "c" && ticks.size) { e.preventDefault(); copyTicked(); }
+      if (k === "v" && readClip()) { e.preventDefault(); pasteClip(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
 
   const input = (value, onChange, props = {}) => (
     <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
@@ -1449,6 +1535,15 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
       {(focusSet || (focusWeek != null && draft.weeks.length > 1)) && (
         <button className="btn-link program-show-all" onClick={() => { setFocusWeek(null); setFocusSet(null); }}>Show everything at full brightness</button>
       )}
+      {(ticks.size > 0 || clipNote) && (
+        <div className="program-clipbar no-print">
+          <strong>{ticks.size > 0 ? `${ticks.size} ticked` : "Copy and paste"}</strong>
+          <button className="btn btn-small-grey" disabled={!ticks.size} onClick={copyTicked}>Copy (Ctrl+C)</button>
+          <button className="btn btn-small-grey" disabled={!ticks.size || !readClip()} onClick={pasteClip}>Paste here (Ctrl+V)</button>
+          <button className="btn btn-small-grey" disabled={!ticks.size} onClick={() => setTicks(new Set())}>Clear ticks</button>
+          {clipNote && <span>{clipNote}</span>}
+        </div>
+      )}
       {draft.weeks.map((week, wi) => (
         <div
           className={`program-week ${focusWeek === wi ? "focused" : focusWeek != null ? "dimmed" : ""}`}
@@ -1471,6 +1566,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
               return (
                 <div className={`program-day ${focusSet && focusSet.wi === wi && focusSet.si !== si ? "day-dimmed" : ""}`} key={si}>
                   <div className="program-session-head">
+                    <input type="checkbox" className="program-tick" title="Tick this whole day: to copy it (Ctrl+C), or as the day to paste into (Ctrl+V)" aria-label={`Select ${session.name || `Day ${si + 1}`}`} checked={dayTicked(wi, si)} onChange={() => toggleDay(wi, si)} />
                     {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
                     <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
                   </div>
@@ -1489,6 +1585,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                       onFocusCapture={() => pickSet(wi, si, labels[ei])}
                     >
                       <div className="program-ex-top">
+                        <input type="checkbox" className="program-tick" title="Tick this exercise to copy it (Ctrl+C), or to paste into this day (Ctrl+V)" aria-label={`Select ${ex.name || "exercise"}`} checked={exTicked(wi, si, ex)} onChange={() => toggleEx(wi, si, ex)} />
                         {/* the label is a picker: choose another letter to move this exercise into that superset */}
                         <select
                           className="superset-pick"
@@ -1500,6 +1597,12 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                           {[...new Set(labels.map((l) => l.replace(/\d+\.$/, "")))].filter((l) => l !== labels[ei].replace(/\d+\.$/, "")).map((l) => <option key={l} value={l}>Move to {l}</option>)}
                           <option value="__new__">Its own superset</option>
                         </select>
+                        {!(ei > 0 && ex.linked) && (
+                          <label className="program-tick-block" title={`Tick the whole ${labels[ei].replace(/[^A-Za-z]/g, "")} block, to copy it (Ctrl+C)`}>
+                            <input type="checkbox" checked={blockTicked(wi, si, ei)} onChange={() => toggleBlock(wi, si, ei)} />
+                            {labels[ei].replace(/[^A-Za-z]/g, "")} block
+                          </label>
+                        )}
                         {/* order within the superset: move this exercise earlier or later (A2 up to A1) */}
                         {(() => {
                           const letter = (i) => (labels[i] || "").replace(/\d+\.$/, "");
@@ -1565,16 +1668,6 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                   <div className="program-day-actions">
                     <button className="btn btn-small-grey" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>Add {blockLetters.next} Block</button>
                     {blockLetters.last && <button className="btn btn-small-grey" title="Adds an exercise to the block above, as a superset (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>Add Exercise to {blockLetters.last} Block</button>}
-                    <select
-                      className="program-copy-day"
-                      value=""
-                      title="Copy this day's exercises to another day"
-                      onChange={(e) => copyDay(wi, si, e.target.value)}
-                    >
-                      <option value="">Copy to…</option>
-                      {week.sessions.map((s, ti) => ti !== si && <option key={ti} value={ti}>{s.name || `Day ${ti + 1}`}</option>)}
-                      <option value="new">New day</option>
-                    </select>
                   </div>
                 </div>
               );
