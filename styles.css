@@ -3175,3 +3175,4 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* the two add buttons under a day are stacked: add to the last block on top, start a new block under it */
 .program-editor .program-day-actions { flex-direction: column; align-items: flex-start; gap: 6px; }
 .program-add-to-block { display: block; margin: 6px 0 12px; }
+.program-add-notes { display: inline-block; margin-top: 6px; font-size: 12px; }
