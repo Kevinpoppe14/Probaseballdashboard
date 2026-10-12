@@ -1611,6 +1611,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                     onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].warmup = e.target.value; })}
                   />
                   {session.exercises.map((ex, ei) => (
+                    <React.Fragment key={ex.id || ei}>
                     <div
                       className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""} ${focusSet && focusSet.wi === wi && focusSet.si === si ? (focusSet.letter === labels[ei].replace(/\d+\.$/, "") ? "set-focused" : "set-dimmed") : ""}`}
                       key={ex.id || ei}
@@ -1694,9 +1695,19 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                       {window.ProgramRx.text(ex) && <div className="program-ex-preview">{window.ProgramRx.text(ex)}</div>}
                       {input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes" })}
                     </div>
+                    {/* under the last exercise of each block: add another exercise to that block (a superset: A2, A3…) */}
+                    {!(session.exercises[ei + 1] && session.exercises[ei + 1].linked) && (
+                      <button
+                        className="btn btn-small-grey program-add-to-block"
+                        title="Adds an exercise to this block, as a superset (A1, A2…)"
+                        onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei + 1, 0, { ...newExercise(), linked: true }); })}
+                      >
+                        Add Exercise to {labels[ei].replace(/[^A-Za-z]/g, "")} Block
+                      </button>
+                    )}
+                    </React.Fragment>
                   ))}
                   <div className="program-day-actions">
-                    {blockLetters.last && <button className="btn btn-small-grey" title="Adds an exercise to the block above, as a superset (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>Add Exercise to {blockLetters.last} Block</button>}
                     <button className="btn btn-small-grey" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>Add {blockLetters.next} Block</button>
                   </div>
                 </div>
