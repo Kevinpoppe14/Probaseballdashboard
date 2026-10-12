@@ -784,6 +784,10 @@
     else $("password").value = "";
   });
   $("signout").addEventListener("click", () => sb.auth.signOut());
+  // the Coach Mode switch: flipping it off slides the knob back, then returns to the dashboard
+  const modeSwitch = document.querySelector(".mode-switch");
+  modeSwitch.addEventListener("click", (e) => { e.preventDefault(); modeSwitch.classList.add("off"); setTimeout(() => { window.location.href = modeSwitch.getAttribute("href"); }, 320); });
+  window.addEventListener("pageshow", () => modeSwitch.classList.remove("off"));
   $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
   $("speed-btn").addEventListener("click", () => { if (speedOpen) show(active); else openSpeed(); });
   $("search").addEventListener("input", search);

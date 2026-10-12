@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Professional Baseball Dashboard</title>
 <link rel="stylesheet" href="styles.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&display=swap" />
 
 <!-- React (buildless, CDN) -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -3255,11 +3258,30 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
 
 // Bottom menu bar: less-used pages live here instead of the top navigation. It sticks to the bottom
 // of the window while you scroll.
+// The way into Coach Mode (coach.html: several athletes' programs side by side, group speed and testing, for
+// running a session from a tablet or phone), drawn as a switch: flipping it on slides the knob across and then
+// opens Coach Mode, where the same switch, shown on, flips back to the dashboard.
+function CoachModeSwitch() {
+  const [on, setOn] = useState(false);
+  // coming back with the browser's Back button can restore this page as it was left: put the switch back to off
+  React.useEffect(() => {
+    const reset = () => setOn(false);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
+  const flip = () => { if (on) return; setOn(true); setTimeout(() => { window.location.href = "coach.html"; }, 320); };
+  return (
+    <button className={`coach-switch${on ? " on" : ""}`} role="switch" aria-checked={on} title="Switch to Coach Mode" onClick={flip}>
+      <span className="coach-switch-label">Coach Mode</span>
+      <span className="coach-switch-track"><span className="coach-switch-knob" /></span>
+    </button>
+  );
+}
+
 function BottomMenu({ view, onGoImport }) {
   return (
     <div className="bottom-menu no-print">
-      {/* several athletes' programs side by side, for running a session from a tablet or phone (coach.html) */}
-      <a className="nav-tab" href="coach.html" target="_blank" rel="noopener" style={{ textDecoration: "none" }}>Coach Mode</a>
+      <CoachModeSwitch />
       <button className={`nav-tab ${view === "import" ? "active" : ""}`} onClick={onGoImport}>
         Import &amp; Manual Entry
       </button>
