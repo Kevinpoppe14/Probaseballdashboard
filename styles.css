@@ -3150,3 +3150,8 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .facility-toolbar select:focus { outline: none; border-color: var(--dst-red); }
 /* folder names stay on one line (the cards are wide enough for "Re-Education" and its count) */
 .program-folder > :not(small):not(.program-folder-icon) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* small grey buttons, for the actions that appear when programs are ticked */
+.btn.btn-small-grey { padding: 5px 12px; font-size: 12.5px; font-weight: 600; background: #4a4d52; border-color: #5c6066; color: #fff; }
+.btn.btn-small-grey:hover { background: #5c6066; }
+:root[data-theme="light"] .btn.btn-small-grey { background: #e3e5e8; border-color: #c9ccd1; color: #222; }
+:root[data-theme="light"] .btn.btn-small-grey:hover { background: #d5d8dc; }
