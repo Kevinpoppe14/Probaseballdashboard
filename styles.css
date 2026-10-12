@@ -3227,3 +3227,8 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .badge.status-toggle { border: 1px solid transparent; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 .badge.status-toggle:hover { border-color: currentColor; filter: brightness(1.15); }
 .row-status { margin-left: 8px; vertical-align: middle; }
+/* Import Athletes: paste a sheet or choose a CSV, then check the rows */
+.import-athletes-closed { display: inline-flex; align-items: flex-start; gap: 10px; margin-left: 8px; }
+.import-athletes textarea { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 13px; padding: 8px; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
+.import-athletes-preview { margin-top: 12px; max-height: 360px; overflow: auto; }
+.import-athletes-preview small { color: var(--warn); }

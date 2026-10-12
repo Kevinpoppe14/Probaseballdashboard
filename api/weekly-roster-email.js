@@ -14,6 +14,9 @@ const SUPABASE_URL = "https://avgfxwhxglftftmlydiz.supabase.co";
 const APP_BASE_URL = "https://probaseballdashboard.vercel.app";
 const SEND_AS_EMAIL = "kevin@dynamicsportstraining.com"; // Kevin's own choice, not a shared/dedicated mailbox
 const EXCLUDED_RECIPIENTS = ["test@test.com"]; // the dev/test login, not a real coach
+// Everyone gets the DST athletes. These accounts get the Cubs-only players as well, under their own heading.
+const CUBS_DIGEST_RECIPIENTS = ["kevin@dynamicsportstraining.com"];
+const CUBS_HEADING = "Chicago Cubs";
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -349,28 +352,36 @@ module.exports = async (req, res) => {
     const enriched = activeAthletes.map((a) => {
       const key = String(a.id);
       const tests = testsByAthlete.get(key) || [];
+      const cubsOnly = a.rosterGroup === "cubs-40man" && !a.dstLocation; // on the Cubs roster and not also a DST client
       return {
         name: a.name,
         photoUrl: a.photoUrl || "",
-        dstLocation: a.dstLocation || "No Location Set",
+        cubsOnly,
+        dstLocation: cubsOnly ? CUBS_HEADING : a.dstLocation || "No Location Set",
         ticker: WEEK_METRICS.map((m) => weekOverWeekDelta(tests, m)).filter(Boolean),
         program: programStatus(planByAthlete.get(key) || null, chicagoToday),
         assessment: assessmentStatus(assessByAthlete.get(key) || [], chicagoToday),
       };
     });
 
+    // Coaches get DST athletes only. Players who are on the Cubs roster and not also a DST client go only in the
+    // copy for the accounts listed in CUBS_DIGEST_RECIPIENTS, under their own "Chicago Cubs" heading.
     const lastNameOnly = (n) => (n || "").trim().split(/\s+/).slice(-1)[0] || "";
-    const byLocation = new Map();
-    enriched.forEach((a) => {
-      const list = byLocation.get(a.dstLocation) || [];
-      list.push(a);
-      byLocation.set(a.dstLocation, list);
-    });
-    const locations = [...byLocation.entries()]
-      .sort(([a], [b]) => (a === "No Location Set" ? 1 : b === "No Location Set" ? -1 : a.localeCompare(b)))
-      .map(([location, athletes]) => ({ location, athletes: athletes.sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name))) }));
+    const groupByLocation = (list) => {
+      const byLocation = new Map();
+      list.forEach((a) => {
+        const group = byLocation.get(a.dstLocation) || [];
+        group.push(a);
+        byLocation.set(a.dstLocation, group);
+      });
+      const last = (name) => (name === "No Location Set" ? 2 : name === CUBS_HEADING ? 1 : 0);
+      return [...byLocation.entries()]
+        .sort(([a], [b]) => last(a) - last(b) || a.localeCompare(b))
+        .map(([location, athletes]) => ({ location, athletes: athletes.sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name))) }));
+    };
+    const dstLocations = groupByLocation(enriched.filter((a) => !a.cubsOnly));
+    const allLocations = groupByLocation(enriched);
 
-    const html = buildDigestHtml({ locations, today: chicagoToday });
     const subject = `Weekly Pro Baseball Snapshot — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
     const recipients = await getRecipients(serviceKey);
 
@@ -379,11 +390,19 @@ module.exports = async (req, res) => {
       return;
     }
 
-    await sendDigestEmail({ to: recipients.join(", "), subject, html });
-    await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: recipients.join(", "), subject, kind: "weekly_digest" }]);
+    const withCubs = recipients.filter((e) => CUBS_DIGEST_RECIPIENTS.includes(e.toLowerCase()));
+    const dstOnly = recipients.filter((e) => !CUBS_DIGEST_RECIPIENTS.includes(e.toLowerCase()));
+    if (dstOnly.length) {
+      await sendDigestEmail({ to: dstOnly.join(", "), subject, html: buildDigestHtml({ locations: dstLocations, today: chicagoToday }) });
+      await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: dstOnly.join(", "), subject, kind: "weekly_digest" }]);
+    }
+    if (withCubs.length) {
+      await sendDigestEmail({ to: withCubs.join(", "), subject, html: buildDigestHtml({ locations: allLocations, today: chicagoToday }) });
+      await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: withCubs.join(", "), subject, kind: "weekly_digest" }]);
+    }
     if (!force) await sbUpsert(serviceKey, "app_meta", [{ key: "lastWeeklyRosterEmailDate", value: dateKey }]);
 
-    res.status(200).json({ ok: true, sent: recipients.length, recipients, athletes: enriched.length, locations: locations.map((l) => l.location) });
+    res.status(200).json({ ok: true, sent: recipients.length, recipients, withCubs, athletes: enriched.length, dstAthletes: enriched.filter((a) => !a.cubsOnly).length, locations: allLocations.map((l) => l.location) });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
