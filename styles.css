@@ -3068,9 +3068,12 @@ html { background: var(--bg); } /* the page's shading stopped one screen down, l
 @media (max-width: 640px) {
   /* the header: smaller logo and title, the account line allowed to wrap, menu buttons sharing the width */
   .topbar { padding: 10px 14px; row-gap: 8px; }
-  .topbar .brand-logo { height: 34px; }
-  .topbar .brand h1 { font-size: 17px; line-height: 1.15; }
-  .topbar .brand span { font-size: 11px; }
+  .topbar .brand { min-width: 0; }
+  .topbar .brand > div { min-width: 0; }
+  .topbar .brand-logo { height: 30px; flex: 0 0 auto; }
+  /* the page title on one line beside the logo, sized to the phone, rather than wrapping onto two */
+  .topbar .brand h1 { font-size: clamp(13px, 4.1vw, 17px); line-height: 1.15; white-space: nowrap; letter-spacing: 0; }
+  .topbar .brand span { display: block; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .topbar-account { flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
   .topbar-account-email { overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
   .topbar .nav-tabs { width: 100%; box-sizing: border-box; }
