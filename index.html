@@ -1093,11 +1093,11 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const layout = (fs, ncols) => {
     const colGap = 14;
     const colW = (tableW - (ncols - 1) * colGap) / ncols;
-    const lineH = fs * 1.2, rowH = fs * 1.45, pctH = fs * 1.15, sp = fs * 0.8, bandH = fs * 1.25 + 4, cellPad = 2.5, blockGap = fs * 0.9;
+    const lineH = fs * 1.15, rowH = fs * 1.3, pctH = fs * 1.1, sp = fs * 0.45, bandH = fs * 1.25 + 3, cellPad = 2, blockGap = fs * 0.6;
     const ops = [];
     let page = 0;
     chunks.forEach((chunk, ci) => {
-      const leftW = colW * (ncols === 1 ? 0.24 : 0.3);
+      const leftW = colW * (ncols === 1 ? 0.22 : 0.27);
       const wkW = (colW - leftW) / chunk.length;
       page += 1;
       let col = 0, y = top;
@@ -1125,7 +1125,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
               const rw = pdf.getTextWidth(g.reps) + 2.5;
               // the write-in line is as long as the intensity under it needs, within sensible limits
               pdf.setFont("helvetica", "bolditalic");
-              const lw = Math.min(Math.max(fs * 2.6, g.int ? pdf.getTextWidth(g.int) + 3 : 0), Math.max(fs * 2.2, inner - rw));
+              const lw = Math.min(Math.max(fs * (gs.length > 1 ? 1.7 : 2.6), g.int ? pdf.getTextWidth(g.int) + 2 : 0), Math.max(fs * 2.2, inner - rw));
               pdf.setFont("helvetica", "bold");
               const bw = rw + lw;
               if (cur.length && x + bw > inner + 0.5) { lines.push(cur); cur = []; x = 0; }
@@ -1133,9 +1133,9 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
               x += bw + sp;
             });
             if (cur.length) lines.push(cur);
-            return { lines, lineH: rowH + (hasInt ? pctH : 0) + 2 };
+            return { lines, lineH: rowH + (hasInt ? pctH : 0) + 1.5 };
           });
-          const h = Math.max(nameLines.length * lineH + subLines.length * lineH, ...cells.map((c) => (c ? c.lines.length * c.lineH : 0)), lineH) + 4;
+          const h = Math.max(nameLines.length * lineH + subLines.length * lineH, ...cells.map((c) => (c ? c.lines.length * c.lineH : 0)), lineH) + 3;
           return { nameLines, subLines, cells, h, newGroup: r.newGroup };
         });
         const heading = (cont) => { ops.push({ type: "head", page, x: xOf(), y, name: cont ? `${block.name} (cont.)` : block.name, chunk, leftW, wkW }); y += bandH; };
