@@ -4251,7 +4251,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
       <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
       <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
-      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /></td>
+      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
@@ -4762,6 +4762,28 @@ function ProgramStatusBadge({ athleteId }) {
 // Red: nothing on file. Yellow: latest assessment is 3+ weeks old — assuming a roughly monthly
 // cadence, the next one is coming up. Green: current, just a quick link to the one on file.
 const ASSESSMENT_DUE_SOON_DAYS = 21;
+// A player's top three physical goals from their Player Plan (the first three in its priority order), as small
+// badges: beside the name at the top of the player's pages, and under the assessment flag on the roster. They
+// are for the screen only and never print. A goal ticked off as achieved shows with a check.
+function topPhysicalGoals(athleteId) {
+  const plan = window.AthleteStore.getPeriodization(athleteId);
+  const list = plan && plan.goals && Array.isArray(plan.goals.physical) ? plan.goals.physical : [];
+  return list.map((g) => (typeof g === "string" ? { text: g } : g)).filter((g) => g && (g.text || "").trim()).slice(0, 3);
+}
+function GoalBadges({ athleteId, small }) {
+  const goals = topPhysicalGoals(athleteId);
+  if (!goals.length) return null;
+  return (
+    <span className={`goal-badges no-print ${small ? "small" : ""}`}>
+      {goals.map((g, i) => (
+        <span className={`goal-badge ${g.done ? "done" : ""}`} key={g.id || i} title={`Physical goal ${i + 1}: ${g.text.trim()}${g.done ? " (achieved)" : ""}`}>
+          <b>{g.done ? "✓" : i + 1}</b>{g.text.trim()}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function AssessmentDueBadge({ athleteId, onOpenTab }) {
   const assessments = window.AthleteStore.getAssessments(athleteId);
   const href = `?athlete=${athleteId}&tab=assessment`;
@@ -5388,7 +5410,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <TeamLogo team={athlete.team} />
           <ProfilePhoto athlete={athlete} />
           <div>
-            <h2>{lastFirstName(athlete.name)}</h2>
+            <h2>{lastFirstName(athlete.name)} <GoalBadges athleteId={athlete.id} /></h2>
             <div className="pos">
               <span className="print-only">{athlete.position}</span>
               {athlete.league ? ` · ${athlete.league}` : ""}

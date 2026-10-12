@@ -3255,3 +3255,12 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .bcs-auto-cell { display: inline-block; min-width: 60px; padding: 5px 6px; font-variant-numeric: tabular-nums; }
 .bcs-auto { margin: 4px 0 6px; font-size: 13px; }
 .bcs-form input::placeholder { color: var(--text-dim); opacity: 0.85; }
+/* Top physical goals as badges: beside the player's name, and small under the assessment flag on the roster */
+.goal-badges { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 10px; vertical-align: middle; }
+.goal-badge { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 3px 10px 3px 4px; border: 1px solid var(--dst-red); border-radius: 12px; font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.goal-badge b { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; background: var(--dst-red); color: #fff; font-size: 10.5px; }
+.goal-badge.done { border-color: var(--good); color: var(--text-dim); }
+.goal-badge.done b { background: var(--good); }
+.goal-badges.small { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 5px 0 0; }
+.goal-badges.small .goal-badge { max-width: 170px; padding: 1px 7px 1px 2px; gap: 4px; font-size: 10.5px; font-weight: 500; display: block; }
+.goal-badges.small .goal-badge b { width: 13px; height: 13px; font-size: 9px; margin-right: 4px; vertical-align: 1px; }
