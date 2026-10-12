@@ -61,6 +61,7 @@
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
+<script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="training_log.js"></script>
 <script type="text/babel" data-presets="react" src="equipment.js"></script>
 <script type="text/babel" data-presets="react">
@@ -3779,6 +3780,24 @@ function AddAthleteForm({ onAdded }) {
   );
 }
 
+// The status badge on a roster row or player card: click "Active" to make the player inactive, click
+// "Inactive" to make them active again. Alumni are not switched from here (use the pencil to change that).
+function StatusBadge({ athlete, onChanged }) {
+  const status = (athlete.status || "active").toLowerCase();
+  if (status === "alumni") return <span className="badge neutral" title="Alumni. Use the pencil to change this.">Alumni</span>;
+  const active = status === "active";
+  const flip = (e) => {
+    e.stopPropagation();
+    window.AthleteStore.updateAthlete(athlete.id, { status: active ? "inactive" : "active" });
+    if (onChanged) onChanged();
+  };
+  return (
+    <button className={`badge status-toggle ${active ? "good" : "neutral"}`} title={active ? "Active. Click to make inactive." : "Inactive. Click to make active."} onClick={flip}>
+      {active ? "Active" : "Inactive"}
+    </button>
+  );
+}
+
 function StatusSelect({ athlete, onChanged }) {
   const value = (athlete.status || "active").toLowerCase();
   const handleChange = (e) => {
@@ -4069,7 +4088,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
-      <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
+      <td onClick={(e) => e.stopPropagation()}><StatusBadge athlete={athlete} onChanged={onDataChange} /></td>
       <td onClick={(e) => e.stopPropagation()}>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
         <button className="btn-link" style={{ color: "var(--danger)" }} onClick={handleDelete}>Remove</button>
@@ -6533,12 +6552,14 @@ function PlayerProfilesPage({ onSelect, dataVersion }) {
         <button className={`pill-tab ${tab === "active" ? "active" : ""}`} onClick={() => setTab("active")}>Active Players ({count("active") - cubsCount})</button>
         <button className={`pill-tab ${tab === "cubs" ? "active" : ""}`} onClick={() => setTab("cubs")}>Chicago Cubs ({cubsCount})</button>
         <button className={`pill-tab ${tab === "alumni" ? "active" : ""}`} onClick={() => setTab("alumni")}>Alumni ({count("alumni")})</button>
+        {/* players switched off with the status badge; clicking the badge on a card here makes them active again */}
+        <button className={`pill-tab ${tab === "inactive" ? "active" : ""}`} onClick={() => setTab("inactive")}>Inactive ({count("inactive")})</button>
         {/* everyone with a login; opening it makes sure each has a record (as the Coaches tile on Team Overview does) */}
         <button className={`pill-tab ${tab === "coaches" ? "active" : ""}`} onClick={() => { window.AthleteStore.ensureCoachRecords(COACH_ROSTER_GROUP, coachNameFromEmail); setTab("coaches"); }}>Coaches ({window.AthleteStore.accountHolders().length})</button>
       </div>
       {tab === "alumni"
         ? <AlumniPage onSelect={onSelect} dataVersion={dataVersion} />
-        : <PlayerDirectoryPage key={tab} onSelect={onSelect} dataVersion={dataVersion} cubs={tab === "cubs"} coaches={tab === "coaches"} />}
+        : <PlayerDirectoryPage key={tab} onSelect={onSelect} dataVersion={dataVersion} cubs={tab === "cubs"} coaches={tab === "coaches"} inactive={tab === "inactive"} />}
     </div>
   );
 }
@@ -6605,11 +6626,12 @@ function AlumniPage({ onSelect, dataVersion }) {
 }
 
 // `cubs` shows the Cubs-only roster (on the Cubs 40-man and not also a DST client); otherwise the active DST roster.
-function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = false }) {
+function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = false, inactive = false }) {
   const [tick, bump] = useState(0); // bumped when a card is edited, so the list re-reads the roster
   const [search, setSearch] = useState("");
   // the Coaches tab lists everyone with a login (see COACH_ROSTER_GROUP) rather than athletes
-  const roster = coaches ? getCoaches() : getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && isCubsOnlyAthlete(a) === cubs);
+  // the Inactive tab lists every inactive player, DST and Cubs alike
+  const roster = coaches ? getCoaches() : inactive ? getRoster().filter((a) => (a.status || "active").toLowerCase() === "inactive") : getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && isCubsOnlyAthlete(a) === cubs);
 
   const filtered = useMemo(() => {
     return roster
@@ -6654,9 +6676,7 @@ function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = fa
                 {athlete.team ? ` · ${athlete.team}` : ""}
                 {athlete.dstLocation ? ` · ${athlete.dstLocation}` : ""}
               </div>
-              <Badge tone={(athlete.status || "active").toLowerCase() === "active" ? "good" : "neutral"}>
-                {athlete.status || "active"}
-              </Badge>
+              <StatusBadge athlete={athlete} onChanged={() => bump((n) => n + 1)} />
             </div>
           ))}
         </div>

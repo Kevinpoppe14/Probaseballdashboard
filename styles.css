@@ -3210,3 +3210,19 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tag button:hover { color: var(--text); }
 .program-add-tags { font-size: 12px; }
 .program-tags .program-tag-input { height: 28px; min-width: 190px; padding: 0 8px; font-size: 13px; font-weight: 400; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
+/* Vitruve: the import preview on the Training Log, and a day of imported data */
+.vit-preview { flex: 1 1 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 10px; padding: 14px; border: 1px solid var(--dst-red); border-radius: 8px; background: var(--panel-2); font-size: 13px; }
+.vit-file { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.vit-file > span { color: var(--text-dim); }
+.vit-file .vit-warn { color: #e6b800; }
+.vit-file .facility-form-grid { margin: 0; }
+.vit-check { display: flex; align-items: center; gap: 8px; }
+.vit-ex h3 { margin: 12px 0 4px; font-size: 14px; }
+.vit-scroll { overflow-x: auto; }
+.vit-table { width: auto; min-width: 50%; }
+.vit-table th, .vit-table td { white-space: nowrap; text-align: right; }
+.vit-table th:first-child, .vit-table td:first-child { text-align: left; }
+.vit-table tr.vit-avg td { border-top: 1px solid var(--text-dim); font-weight: 700; color: var(--text-dim); }
+/* the Active / Inactive badge is a button: clicking it flips the player's status */
+.badge.status-toggle { border: 1px solid transparent; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.badge.status-toggle:hover { border-color: currentColor; filter: brightness(1.15); }

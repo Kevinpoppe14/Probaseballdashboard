@@ -890,6 +890,33 @@
     logSyncError(`upsert app_meta/${key}`, error);
     return !error;
   }
+  // Velocity data imported from Vitruve for one athlete (see vitruve.js and migration_013): read when their
+  // Training Log is opened, written by the CSV import there.
+  async function loadVitruveRows(athleteId) {
+    const all = [];
+    for (let from = 0; from < 50000; from += 1000) {
+      const { data, error } = await sb().from("vitruve_rows").select("id,data").eq("athlete_id", String(athleteId)).range(from, from + 999);
+      logSyncError(`load vitruve_rows/${athleteId}`, error);
+      if (error || !data) break;
+      all.push(...data.map((r) => ({ ...r.data, id: r.id })));
+      if (data.length < 1000) break;
+    }
+    return all;
+  }
+  async function saveVitruveRows(athleteId, rows) {
+    for (let i = 0; i < rows.length; i += 500) {
+      const batch = rows.slice(i, i + 500).map((r) => ({ id: r.id, athlete_id: String(athleteId), data: r.data, updated_at: new Date().toISOString() }));
+      const { error } = await sb().from("vitruve_rows").upsert(batch);
+      logSyncError(`upsert vitruve_rows/${athleteId}`, error);
+      if (error) return false;
+    }
+    return true;
+  }
+  async function deleteVitruveDay(athleteId, date) {
+    const { error } = await sb().from("vitruve_rows").delete().eq("athlete_id", String(athleteId)).eq("data->>date", date);
+    logSyncError(`delete vitruve_rows/${athleteId}/${date}`, error);
+    return !error;
+  }
   // Group speed sessions logged as done for this athlete in Coach Mode (see migration_012): read when their
   // Training Log is opened.
   async function loadSpeedLogs(athleteId) {
@@ -1048,6 +1075,9 @@
     loadKpiEntries,
     deleteKpiEntry,
     loadSpeedLogs,
+    loadVitruveRows,
+    saveVitruveRows,
+    deleteVitruveDay,
     loadMeta,
     saveMeta,
     deleteSpeedLog,

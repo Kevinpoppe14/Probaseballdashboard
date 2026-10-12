@@ -171,18 +171,28 @@
     const [tick, setTick] = useState(0);
     const [loading, setLoading] = useState(true);
     const [speed, setSpeed] = useState([]); // group speed sessions logged for them in Coach Mode
+    const [vit, setVit] = useState([]); // rows imported from Vitruve
+    const [vitNote, setVitNote] = useState(""); // what the last import did
     // pick up what the athlete has entered on their phone since the dashboard loaded
     const refresh = () => {
       setLoading(true);
-      Promise.all([store.refreshAthleteLogs(athlete.id), store.loadSpeedLogs(athlete.id).then(setSpeed)]).then(() => { setLoading(false); setTick((n) => n + 1); });
+      Promise.all([store.refreshAthleteLogs(athlete.id), store.loadSpeedLogs(athlete.id).then(setSpeed), store.loadVitruveRows(athlete.id).then(setVit)]).then(() => { setLoading(false); setTick((n) => n + 1); });
     };
     useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [athlete.id]);
 
     const { sessions, changes } = buildSessions(athlete.id, store.getPeriodization(athlete.id));
     const weeksText = (ws) => { const s = [...ws].sort((a, b) => a - b); return s.length === 1 ? `week ${s[0]}` : `weeks ${s.join(", ")}`; };
     // lifts and group speed sessions together, newest first
-    const feed = [...sessions.map((s) => ({ s, when: s.latest || "" })), ...speed.map((p) => ({ p, when: p.at || `${p.date}T12:00:00` }))]
+    // lifts, group speed sessions and Vitruve days together, newest first. A Vitruve day sorts just under that
+    // day's lift (it carries only a date, so it is placed at the start of the day).
+    const vitDays = Object.values(vit.reduce((days, r) => { (days[r.date] = days[r.date] || { date: r.date, rows: [] }).rows.push(r); return days; }, {}));
+    const feed = [...sessions.map((s) => ({ s, when: s.latest || "" })), ...speed.map((p) => ({ p, when: p.at || `${p.date}T12:00:00` })),
+      ...vitDays.map((v) => ({ v, when: `${v.date}T00:00:01` }))]
       .sort((a, b) => String(b.when).localeCompare(String(a.when)));
+    const removeVitruve = async (v) => {
+      if (!window.confirm(`Remove the Vitruve data for ${v.date} from ${athlete.name}'s training log?`)) return;
+      if (await store.deleteVitruveDay(athlete.id, v.date)) refresh();
+    };
     const removeSpeed = async (p) => {
       if (!window.confirm(`Remove this speed session (${p.group}, ${p.date}) from ${athlete.name}'s training log?`)) return;
       if (await store.deleteSpeedLog(p.id)) refresh();
@@ -193,6 +203,8 @@
           <h2>Training Log <small>What was actually done, newest first. Times are when each entry was typed in.</small></h2>
           <div className="tl-actions no-print">
             <button className="btn btn-secondary" onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+            {window.VitruveImport && <window.VitruveImport athlete={athlete} onDone={(text) => { setVitNote(text || ""); refresh(); }} />}
+            {vitNote && <span className="timestamp-note">{vitNote}</span>}
             <span className="timestamp-note">{feed.length} session{feed.length === 1 ? "" : "s"} with something logged for {athlete.name}.</span>
           </div>
         </div>
@@ -217,7 +229,7 @@
           <div className="panel"><div className="empty-state">Nothing logged yet. Weights and reps {athlete.name} enters on their phone link will show up here.</div></div>
         )}
 
-        {feed.map(({ s, p }) => p ? <SpeedCard key={p.id} p={p} onRemove={() => removeSpeed(p)} /> : (
+        {feed.map(({ s, p, v }) => v ? <window.VitruveDayCard key={`vit-${v.date}`} date={v.date} rows={v.rows} onRemove={() => removeVitruve(v)} /> : p ? <SpeedCard key={p.id} p={p} onRemove={() => removeSpeed(p)} /> : (
           <div className="panel tl-session" key={s.id}>
             <h2>
               {s.latest ? fmtDay(s.latest) : "Date not recorded"}
