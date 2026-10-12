@@ -1236,24 +1236,30 @@ async function openProgramPdf(program, athleteName, cubsLogo) {
     const { pdf, fits } = built;
     pdf.setProperties({ title });
     const { pages } = built;
-    // a program too long for one readable page prints on several; the coach is told before it opens
-    if (pages > 1 && !window.confirm(`"${program.name}" is too long to fit on one page at a readable size, so it will print on ${pages} pages. Continue?`)) {
-      if (tab) tab.close();
-      return;
-    }
-    if (!fits) window.alert("One week of this program is too long to fit on a page even at the smallest text size, so part of it is cut off. Try fewer exercises per day.");
+    // No question or alert is put up here: by now the new tab is in front, and a browser quietly cancels a
+    // dialog raised from a tab that is not (which used to leave the PDF never opening). How many pages it took,
+    // and whether anything had to be cut off, is handed back for the caller to show beside its button instead.
     if (tab) tab.location.href = pdf.output("bloburl");
     else pdf.save(`${title.replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+    return { pages, fits };
   } catch (e) {
     if (tab) tab.close();
     throw e;
   }
 }
+// what to tell the coach after a PDF opens, or "" when it fitted on one page
+function programPdfNote(result) {
+  if (!result) return "";
+  if (!result.fits) return "One week is too long to fit on a page even at the smallest text size, so part of it is cut off. Try fewer exercises per day.";
+  return result.pages > 1 ? `Too long for one page at a readable size, so it is on ${result.pages} pages.` : "";
+}
+window.programPdfNote = programPdfNote;
 window.openProgramPdf = openProgramPdf;
 
 // "Print / Save PDF" with an optional athlete name for the page's top-left corner.
 function ProgramPdfButton({ program, disabled }) {
   const [athleteId, setAthleteId] = useState("");
+  const [note, setNote] = useState(""); // said beside the button after the PDF opens (page count, or a failure)
   const athletes = window.AthleteStore.allAthletes()
     .filter((a) => (a.status || "active").toLowerCase() !== "alumni")
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -1261,7 +1267,9 @@ function ProgramPdfButton({ program, disabled }) {
   const run = async () => {
     const athlete = athletes.find((a) => String(a.id) === athleteId);
     const name = athlete ? athlete.name : "";
-    await openProgramPdf(program, name, !!athlete && isCubsOnlyAthlete(athlete));
+    setNote("");
+    try { setNote(programPdfNote(await openProgramPdf(program, name, !!athlete && isCubsOnlyAthlete(athlete)))); }
+    catch (e) { setNote("The PDF could not be built. Try again, and tell Kevin if it keeps happening."); console.error("Program PDF failed", e); }
   };
 
   return (
@@ -1271,6 +1279,7 @@ function ProgramPdfButton({ program, disabled }) {
         {athletes.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
       </select>
       <button className="btn-link" disabled={disabled} onClick={run} title="Opens the PDF in a new tab, where you can print it or save it">Print / Save PDF</button>
+      {note && <small className="program-pdf-note">{note}</small>}
     </span>
   );
 }
