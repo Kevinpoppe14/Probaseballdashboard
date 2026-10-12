@@ -73,6 +73,75 @@
     return { sessions, changes: Object.values(changes).sort((a, b) => (b.at || "").localeCompare(a.at || "")) };
   }
 
+  // KPI results logged from the Coach Board (a 10-yard start, a jump, anything not in a program): one card per
+  // KPI with its results over time as a line, the best one marked, and each result listed newest first.
+  function KpiTrend({ rows, better }) {
+    const pts = [...rows].sort((a, b) => `${a.date}${a.at || ""}`.localeCompare(`${b.date}${b.at || ""}`));
+    if (pts.length < 2) return null;
+    const W = 320, H = 90, P = 10;
+    const vals = pts.map((p) => p.value), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+    const x = (i) => P + (i / (pts.length - 1)) * (W - 2 * P);
+    const y = (v) => P + (1 - (v - lo) / span) * (H - 2 * P);
+    const best = better === "lower" ? lo : hi;
+    return (
+      <svg className="tl-kpi-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Results over time">
+        <polyline points={pts.map((p, i) => `${x(i)},${y(p.value)}`).join(" ")} />
+        {pts.map((p, i) => <circle key={i} cx={x(i)} cy={y(p.value)} r={p.value === best ? 4.5 : 3} className={p.value === best ? "best" : ""}><title>{`${p.date}: ${p.value}`}</title></circle>)}
+      </svg>
+    );
+  }
+  function KpiSection({ athlete }) {
+    const store = window.AthleteStore;
+    const [rows, setRows] = useState(null);
+    const load = () => store.loadKpiEntries(athlete.id).then(setRows);
+    useEffect(() => { load(); /* eslint-disable-next-line */ }, [athlete.id]);
+    if (!rows || !rows.length) return null;
+    const groups = {};
+    rows.forEach((r) => { (groups[r.kpiId || r.kpiName] = groups[r.kpiId || r.kpiName] || []).push(r); });
+    const remove = async (r) => {
+      if (!window.confirm(`Delete this ${r.kpiName} result (${r.value}${r.unit ? ` ${r.unit}` : ""}, ${r.date})?`)) return;
+      if (await store.deleteKpiEntry(r.id)) load();
+    };
+    return (
+      <div className="panel">
+        <h2>KPIs <small>results logged from the Coach Board</small></h2>
+        <div className="tl-kpis">
+          {Object.values(groups).sort((a, b) => a[0].kpiName.localeCompare(b[0].kpiName)).map((list) => {
+            const k = list[0];
+            const vals = list.map((r) => r.value);
+            const best = k.better === "lower" ? Math.min(...vals) : Math.max(...vals);
+            const u = k.unit ? ` ${k.unit}` : "";
+            const trialsOf = (r) => (Array.isArray(r.trials) && r.trials.length ? r.trials : [r.value]);
+            const all = list.flatMap(trialsOf);
+            const average = Math.round((all.reduce((s, v) => s + v, 0) / all.length) * 100) / 100;
+            const newest = [...list].sort((a, b) => `${b.date}${b.at || ""}`.localeCompare(`${a.date}${a.at || ""}`));
+            return (
+              <div className="tl-kpi" key={k.kpiId || k.kpiName}>
+                <h3>{k.kpiName} <small>PR {best}{u} · average {average}{u} · {list.length} session{list.length === 1 ? "" : "s"}</small></h3>
+                <KpiTrend rows={list} better={k.better} />
+                <table className="tl-table">
+                  <thead><tr><th>Session</th><th>Best</th><th>Avg</th><th>Trials</th><th>Entered by</th><th className="no-print"></th></tr></thead>
+                  <tbody>
+                    {newest.map((r) => (
+                      <tr key={r.id}>
+                        <td>{fmtDay(`${r.date}T12:00:00`)}</td>
+                        <td className="tl-done">{r.value}{u}{r.value === best ? <em> PR</em> : null}</td>
+                        <td>{r.avg != null ? r.avg : r.value}{u}</td>
+                        <td className="tl-when">{trialsOf(r).join(", ")}</td>
+                        <td className="tl-when">{r.by || ""}</td>
+                        <td className="no-print"><button className="btn-link" onClick={() => remove(r)}>Delete</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   function TrainingLogTab({ athlete }) {
     const store = window.AthleteStore;
     const [tick, setTick] = useState(0);
@@ -95,6 +164,8 @@
             <span className="timestamp-note">{sessions.length} session{sessions.length === 1 ? "" : "s"} with something logged for {athlete.name}.</span>
           </div>
         </div>
+
+        <KpiSection athlete={athlete} />
 
         {changes.length > 0 && (
           <div className="panel">

@@ -57,10 +57,40 @@
   .stage iframe { position: absolute; top: 0; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 680px; height: 100%; border: 0; border-left: 1px solid var(--border); border-right: 1px solid var(--border); background: var(--bg); }
   .stage .empty { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--dim); padding: 24px; font-size: 15px; }
 
+  /* KPI sheet: athletes down the side, trials across */
+  .kpi-btn { margin-left: auto; height: 34px; padding: 0 12px; border: 1px solid #555; border-radius: 8px; background: none; font-size: 13px; font-weight: 700; }
+  .kpi-btn.on { background: var(--accent); border-color: var(--accent); }
+  .kpi { position: absolute; inset: 0; overflow-y: auto; padding: 18px; }
+  .kpi-note { color: var(--dim); padding: 24px 0; font-size: 15px; }
+  .kpi-head, .kpi-new, .kpi-foot { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 14px; }
+  .kpi label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); }
+  .kpi select, .kpi-head input, .kpi-new input { height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 8px; padding: 0 10px; color-scheme: dark; }
+  .kpi-new { padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+  .kpi-ghost { height: 44px; padding: 0 14px; background: none; border: 1px solid #555; border-radius: 8px; font-size: 14px; }
+  .kpi-save { height: 44px; padding: 0 18px; background: var(--accent); border: none; border-radius: 8px; font-size: 15px; font-weight: 700; }
+  .kpi-save:disabled { opacity: 0.6; }
+  .kpi-status, .kpi-err { font-size: 13px; color: var(--dim); align-self: center; }
+  .kpi-err { color: #ff8a8a; }
+  .kpi-hint { color: var(--dim); font-size: 12px; margin: 0; max-width: 640px; }
+  .kpi-scroll { overflow-x: auto; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 10px; }
+  .kpi-sheet { border-collapse: collapse; font-size: 14px; }
+  .kpi-sheet th, .kpi-sheet td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 0; text-align: center; white-space: nowrap; }
+  .kpi-sheet tr:last-child > * { border-bottom: none; }
+  .kpi-sheet thead th { padding: 8px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); background: var(--panel); }
+  .kpi-sheet tbody th, .kpi-sheet thead th:first-child { position: sticky; left: 0; z-index: 1; text-align: left; padding: 0 12px; background: var(--panel); min-width: 150px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .kpi-sheet td input { display: block; width: 78px; height: 44px; border: none; background: transparent; text-align: center; font-size: 16px; }
+  .kpi-sheet td input:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--panel-2); }
+  .kpi-num { padding: 0 12px !important; min-width: 64px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--panel); }
+  .kpi-num.past, .kpi-sheet th.past { font-weight: 400; color: var(--dim); }
+  .kpi-num em { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 10px; font-style: normal; font-weight: 700; }
+  .kpi-num small { display: block; font-size: 10px; line-height: 1; padding-bottom: 3px; }
+
   /* phone: the athletes become a strip across the top */
   @media (max-width: 780px) {
-    .board { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    .side { border-right: none; border-bottom: 1px solid var(--border); }
+    .board { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+    .kpi { padding: 12px; }
+    .kpi-sheet tbody th, .kpi-sheet thead th:first-child { min-width: 110px; max-width: 130px; }
+    .side { min-width: 0; border-right: none; border-bottom: 1px solid var(--border); }
     .side-head { padding-bottom: 6px; }
     .add { padding-bottom: 8px; }
     .list { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 0 14px 8px; flex: 0 0 auto; scrollbar-width: none; }
@@ -90,7 +120,7 @@
 
 <div class="board" id="board" hidden>
   <aside class="side">
-    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Board</strong></div>
+    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Board</strong><button id="kpi-btn" class="kpi-btn" type="button">Log KPI</button></div>
     <div class="add">
       <input id="search" type="search" placeholder="Add an athlete…" aria-label="Add an athlete" autocomplete="off" />
       <div class="results" id="results" hidden></div>

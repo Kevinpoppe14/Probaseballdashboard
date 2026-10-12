@@ -35,6 +35,7 @@
   // ---- the athlete list and the picked athlete's page ----------------------------------------------
   function show(id) {
     active = id;
+    closeKpi();
     const stage = $("stage");
     if (!id) { stage.replaceChildren(el("div", { class: "empty" }, picked.length ? "Pick an athlete." : "Add an athlete to see their program.")); frames.forEach((f) => f.remove()); frames.clear(); draw(); remember(); return; }
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
@@ -52,23 +53,218 @@
     if (!picked.includes(id)) picked.push(id);
     $("search").value = "";
     $("results").hidden = true;
+    if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
     show(id);
   }
   function remove(id) {
     picked = picked.filter((x) => x !== id);
     const f = frames.get(id);
     if (f) { f.remove(); frames.delete(id); }
-    show(active === id ? (picked[picked.length - 1] || null) : active);
+    delete kpiSheet[id];
+    const next = active === id ? (picked[picked.length - 1] || null) : active;
+    if (kpiOpen) { active = next; remember(); openKpi(); return; }
+    show(next);
   }
   function draw() {
     const list = $("list");
+    $("kpi-btn").classList.toggle("on", kpiOpen);
     if (!picked.length) { list.replaceChildren(el("div", { class: "list-hint" }, "No athletes yet. Search above to add one.")); return; }
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
-      return el("div", { class: `who${id === active ? " on" : ""}` },
+      return el("div", { class: `who${id === active && !kpiOpen ? " on" : ""}` },
         el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, a.name), el("small", null, a.sub)),
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
     }));
+  }
+
+  // ---- KPI sheet: results for something the group did that is not in anyone's program ------------------
+  // A sheet with the athletes on the board down the side and trials across: pick the KPI (or make a new one)
+  // and the day, type each athlete's trials, and Save. Each athlete gets one entry per KPI per day holding the
+  // trials with their best and average, so saving the same day again updates it. Beside the trials the sheet
+  // shows that session's best and average, and the athlete's PR and average from every earlier session.
+  // KPIs to pick from are shared by all coaches (app_meta "kpiDefs"); results are in kpi_entries and show on
+  // the athlete's Training Log in the dashboard.
+  const KPI_STARTERS = [
+    { id: "10-yard-start", name: "10-Yard Start", unit: "sec", better: "lower" },
+    { id: "30-yard-sprint", name: "30-Yard Sprint", unit: "sec", better: "lower" },
+    { id: "60-yard-sprint", name: "60-Yard Sprint", unit: "sec", better: "lower" },
+    { id: "vertical-jump", name: "Vertical Jump", unit: "in", better: "higher" },
+    { id: "broad-jump", name: "Broad Jump", unit: "in", better: "higher" },
+  ];
+  const localDay = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const round2 = (v) => Math.round(v * 100) / 100;
+  const mean = (list) => list.reduce((s, v) => s + v, 0) / list.length;
+  const numbersIn = (list) => (list || []).map((v) => parseFloat(String(v).trim())).filter((v) => Number.isFinite(v));
+  const trialsOf = (entry) => (Array.isArray(entry.trials) && entry.trials.length ? entry.trials : [entry.value]).filter((v) => Number.isFinite(v));
+
+  let kpiOpen = false;
+  let kpiEl = null;
+  let kpiDefs = [];
+  let kpiId = null;
+  let kpiDate = localDay();
+  let kpiTrials = 3; // trial columns showing
+  let kpiHistory = []; // every saved entry for the athletes on the board, as { athleteId, ...data }
+  let kpiSheet = {}; // athlete id -> what is typed in each trial box
+  let kpiNew = false; // the "new KPI" form is open
+
+  async function loadKpiDefs() {
+    const { data, error } = await sb.from("app_meta").select("value").eq("key", "kpiDefs").maybeSingle();
+    if (error) throw error;
+    kpiDefs = data && Array.isArray(data.value) && data.value.length ? data.value : KPI_STARTERS.slice();
+    kpiDefs.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async function loadKpiHistory() {
+    if (!picked.length) { kpiHistory = []; return; }
+    const { data, error } = await sb.from("kpi_entries").select("id,athlete_id,data").in("athlete_id", picked).limit(10000);
+    if (error) throw error;
+    kpiHistory = data.map((r) => ({ ...r.data, id: r.id, athleteId: String(r.athlete_id) }));
+  }
+  const kpiSaved = (aid) => kpiHistory.find((e) => e.athleteId === aid && e.kpiId === kpiId && e.date === kpiDate);
+  // fills each athlete's row from what is already saved for this KPI and day; `reset` throws away what is typed
+  function fillKpiSheet(reset) {
+    if (reset) { kpiSheet = {}; kpiTrials = 3; }
+    picked.forEach((aid) => {
+      if (kpiSheet[aid]) return;
+      const saved = kpiSaved(aid);
+      kpiSheet[aid] = saved ? trialsOf(saved).map(String) : [];
+      kpiTrials = Math.max(kpiTrials, kpiSheet[aid].length);
+    });
+  }
+  function kpiStats(aid, def) {
+    const pick = def.better === "lower" ? Math.min : Math.max;
+    const now = numbersIn(kpiSheet[aid]);
+    const past = kpiHistory.filter((e) => e.athleteId === aid && e.kpiId === def.id && e.date !== kpiDate);
+    const pastTrials = past.flatMap(trialsOf);
+    const best = now.length ? pick(...now) : null, pr = pastTrials.length ? pick(...pastTrials) : null;
+    return {
+      now, best, avg: now.length ? round2(mean(now)) : null,
+      pr, pastAvg: pastTrials.length ? round2(mean(pastTrials)) : null, sessions: past.length,
+      newPr: best != null && pr != null && (def.better === "lower" ? best < pr : best > pr),
+    };
+  }
+
+  async function openKpi() {
+    kpiOpen = true;
+    const stage = $("stage");
+    stage.querySelectorAll(".empty").forEach((n) => n.remove());
+    frames.forEach((f) => { f.hidden = true; });
+    if (!kpiEl) kpiEl = el("div", { class: "kpi" });
+    if (!kpiEl.isConnected) stage.append(kpiEl);
+    draw();
+    if (!kpiEl.firstChild) kpiEl.replaceChildren(el("div", { class: "kpi-note" }, "Loading…"));
+    try {
+      if (!kpiDefs.length) await loadKpiDefs();
+      await loadKpiHistory();
+    } catch (e) {
+      kpiEl.replaceChildren(el("div", { class: "kpi-note" }, "Could not load KPIs. Check your connection and try again."));
+      return;
+    }
+    if (!kpiOpen) return;
+    fillKpiSheet(false);
+    drawKpi();
+  }
+  function closeKpi() {
+    kpiOpen = false;
+    if (kpiEl) kpiEl.remove();
+  }
+
+  function drawKpi(status) {
+    const def = kpiDefs.find((k) => k.id === kpiId) || kpiDefs[0];
+    kpiId = def.id;
+    const change = (fn) => { fn(); fillKpiSheet(true); drawKpi(); };
+    const select = el("select", { "aria-label": "KPI", onchange: (e) => change(() => { kpiId = e.target.value; }) },
+      kpiDefs.map((k) => el("option", { value: k.id, selected: k.id === kpiId }, `${k.name}${k.unit ? ` (${k.unit})` : ""}`)));
+    const date = el("input", { type: "date", value: kpiDate, max: localDay(), "aria-label": "Date", onchange: (e) => change(() => { kpiDate = e.target.value || localDay(); }) });
+    const head = el("div", { class: "kpi-head" },
+      el("label", null, "KPI", select),
+      el("label", null, "Date", date),
+      el("button", { class: "kpi-ghost", onclick: () => { kpiNew = !kpiNew; drawKpi(); } }, kpiNew ? "Cancel" : "+ New KPI"));
+
+    let form = null;
+    if (kpiNew) {
+      const name = el("input", { type: "text", placeholder: "e.g. 5-10-5 Shuttle", maxlength: "60" });
+      const unit = el("input", { type: "text", placeholder: "sec, in, mph…", maxlength: "12" });
+      const better = el("select", null, el("option", { value: "lower" }, "Lower is better (times)"), el("option", { value: "higher" }, "Higher is better (heights, speeds)"));
+      const err = el("span", { class: "kpi-err", role: "alert" });
+      form = el("form", { class: "kpi-new", onsubmit: async (e) => {
+        e.preventDefault();
+        const n = name.value.trim();
+        if (!n) { err.textContent = "Give the KPI a name."; return; }
+        try {
+          await loadKpiDefs(); // someone else may have added one since this page loaded
+          const same = kpiDefs.find((k) => k.name.toLowerCase() === n.toLowerCase());
+          if (same) kpiId = same.id;
+          else {
+            const made = { id: `${n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`, name: n, unit: unit.value.trim(), better: better.value };
+            kpiDefs.push(made);
+            kpiDefs.sort((a, b) => a.name.localeCompare(b.name));
+            const { error } = await sb.from("app_meta").upsert({ key: "kpiDefs", value: kpiDefs });
+            if (error) throw error;
+            kpiId = made.id;
+          }
+        } catch (ex) { err.textContent = "Could not save the KPI. Try again."; return; }
+        kpiNew = false;
+        fillKpiSheet(true);
+        drawKpi();
+      } },
+        el("label", null, "Name", name), el("label", null, "Unit", unit), el("label", null, "Best result", better),
+        el("button", { type: "submit", class: "kpi-save" }, "Add KPI"), err);
+    }
+
+    if (!picked.length) { kpiEl.replaceChildren(...[head, form, el("div", { class: "kpi-note" }, "Add athletes to the board, then enter their results here.")].filter(Boolean)); return; }
+
+    const show1 = (v) => (v == null ? "–" : `${v}`);
+    const rows = picked.map((aid) => {
+      const a = byId(aid) || { name: "Unknown athlete" };
+      const best = el("td", { class: "kpi-num" }), avg = el("td", { class: "kpi-num" });
+      const pr = el("td", { class: "kpi-num past" }), pastAvg = el("td", { class: "kpi-num past" });
+      const fill = () => {
+        const s = kpiStats(aid, def);
+        best.replaceChildren(...[show1(s.best), s.newPr ? el("em", null, "PR") : null].filter(Boolean));
+        avg.textContent = show1(s.avg);
+        pr.textContent = show1(s.pr);
+        pastAvg.replaceChildren(...[show1(s.pastAvg), s.sessions ? el("small", null, `${s.sessions} session${s.sessions === 1 ? "" : "s"}`) : null].filter(Boolean));
+      };
+      fill();
+      const cells = Array.from({ length: kpiTrials }, (_, i) => el("td", null, el("input", {
+        type: "text", inputmode: "decimal", autocomplete: "off", value: kpiSheet[aid][i] || "", "data-col": i, "aria-label": `${a.name} trial ${i + 1}`,
+        oninput: (e) => { kpiSheet[aid][i] = e.target.value; fill(); },
+        // Enter goes down the column, as in a spreadsheet
+        onkeydown: (e) => { if (e.key !== "Enter") return; e.preventDefault(); const next = e.target.closest("tr").nextElementSibling; const box = next && next.querySelector(`input[data-col="${i}"]`); if (box) box.focus(); else e.target.blur(); },
+      })));
+      return el("tr", null, el("th", { scope: "row" }, a.name), cells, best, avg, pr, pastAvg);
+    });
+    const table = el("table", { class: "kpi-sheet" },
+      el("thead", null, el("tr", null,
+        el("th", null, "Athlete"),
+        Array.from({ length: kpiTrials }, (_, i) => el("th", null, `Trial ${i + 1}`)),
+        el("th", null, "Best"), el("th", null, "Avg"), el("th", { class: "past" }, "PR"), el("th", { class: "past" }, "Past avg"))),
+      el("tbody", null, rows));
+
+    const note = el("span", { class: "kpi-status", role: "status" }, status || "");
+    const save = el("button", { class: "kpi-save", onclick: async () => {
+      const by = user.email || "";
+      const out = picked.map((aid) => ({ aid, s: kpiStats(aid, def) })).filter((r) => r.s.now.length).map(({ aid, s }) => ({
+        id: `kpi|${aid}|${def.id}|${kpiDate}`, athlete_id: aid, updated_at: new Date().toISOString(),
+        data: { kpiId: def.id, kpiName: def.name, unit: def.unit || "", better: def.better, date: kpiDate, trials: s.now, best: s.best, avg: s.avg, value: s.best, by, at: new Date().toISOString() },
+      }));
+      if (!out.length) { note.textContent = "Nothing to save yet: type at least one result."; return; }
+      save.disabled = true;
+      note.textContent = "Saving…";
+      const { error } = await sb.from("kpi_entries").upsert(out);
+      if (error) { save.disabled = false; note.textContent = "Could not save. Check your connection and try again."; return; }
+      try { await loadKpiHistory(); } catch (e) { /* the sheet still shows what was typed */ }
+      drawKpi(`Saved ${def.name} for ${out.length} athlete${out.length === 1 ? "" : "s"}.`);
+    } }, "Save results");
+
+    kpiEl.replaceChildren(...[head, form,
+      el("div", { class: "kpi-scroll" }, table),
+      el("div", { class: "kpi-foot" },
+        el("button", { class: "kpi-ghost", onclick: () => { kpiTrials += 1; drawKpi(); } }, "+ Add trial"),
+        kpiTrials > 1 ? el("button", { class: "kpi-ghost", onclick: () => { kpiTrials -= 1; picked.forEach((aid) => { kpiSheet[aid].length = Math.min(kpiSheet[aid].length, kpiTrials); }); drawKpi(); } }, "− Remove last trial") : null,
+        save, note),
+      el("p", { class: "kpi-hint" }, `Best and Avg are for this session${def.unit ? ` (${def.unit})` : ""}. PR and Past avg come from every earlier session. Rows left blank are not saved. Results show on each athlete’s Training Log.`),
+    ].filter(Boolean));
   }
 
   // ---- adding: type a few letters, pick from the matches ---------------------------------------------
@@ -120,6 +316,7 @@
   }
   function close() {
     user = null; picked = []; active = null;
+    closeKpi(); kpiSheet = {}; kpiHistory = [];
     frames.forEach((f) => f.remove()); frames.clear();
     $("board").hidden = true;
     $("login").hidden = false;
@@ -135,6 +332,7 @@
     else $("password").value = "";
   });
   $("signout").addEventListener("click", () => sb.auth.signOut());
+  $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
   $("search").addEventListener("input", search);
   $("search").addEventListener("focus", search);
   $("search").addEventListener("keydown", (e) => {

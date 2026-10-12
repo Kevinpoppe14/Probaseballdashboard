@@ -3034,3 +3034,11 @@ tbody tr:hover {
   border-bottom: 4px solid var(--hol-3);
 }
 @media (max-width: 760px) { .holiday-banner { font-size: 18px; letter-spacing: 2px; padding: 9px 12px; } }
+/* KPI results on the Training Log */
+.tl-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.tl-kpi h3 { font-size: 15px; margin: 0 0 6px; }
+.tl-kpi h3 small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+.tl-kpi-chart { display: block; width: 100%; max-width: 360px; height: auto; margin-bottom: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
+.tl-kpi-chart polyline { fill: none; stroke: var(--text); stroke-width: 1.5; }
+.tl-kpi-chart circle { fill: var(--text-dim); }
+.tl-kpi-chart circle.best { fill: var(--dst-red); stroke: var(--text); stroke-width: 1; }
