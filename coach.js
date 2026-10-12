@@ -54,6 +54,7 @@
     loadDone();
     $("search").value = "";
     $("results").hidden = true;
+    if (locFilter) search(); // picking through a location: keep its list open for the next one
     if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
     if (speedOpen) { if (!active) active = id; remember(); openSpeed(); return; } // adding while on the speed session adds them to its list
     show(id);
@@ -718,15 +719,28 @@
     speedEl.replaceChildren(...[head, groupForm, pickBar, body].filter(Boolean));
   }
 
-  // ---- adding: type a few letters, pick from the matches ---------------------------------------------
+  // ---- adding: pick a location and/or type a few letters, then pick from the matches -------------------
+  // With a location chosen, tapping the search box lists everyone there; typing narrows it.
+  let locFilter = "";
+  const locKey = () => `coachLocation:${user.id}`;
+  function fillLocations() {
+    const places = [...new Set(athletes.map((a) => a.where))].sort((a, b) => a.localeCompare(b));
+    try { locFilter = localStorage.getItem(locKey()) || ""; } catch (e) { locFilter = ""; }
+    if (!places.includes(locFilter)) locFilter = "";
+    $("loc").replaceChildren(el("option", { value: "" }, "All locations"), ...places.map((p) => el("option", { value: p, selected: p === locFilter }, `${p} (${athletes.filter((a) => a.where === p).length})`)));
+  }
   function search() {
     const q = $("search").value.trim().toLowerCase();
     const box = $("results");
-    if (!q) { box.hidden = true; return; }
-    const hits = athletes.filter((a) => !picked.includes(a.id) && `${a.name} ${a.sub}`.toLowerCase().includes(q)).slice(0, 12);
+    if (!q && !locFilter) { box.hidden = true; return; }
+    const pool = athletes.filter((a) => !locFilter || a.where === locFilter);
+    const hits = pool.filter((a) => !picked.includes(a.id) && (!q || `${a.name} ${a.sub}`.toLowerCase().includes(q))).slice(0, q ? 12 : 200);
+    const none = pool.some((a) => picked.includes(a.id) && (!q || a.name.toLowerCase().includes(q)))
+      ? (q ? "Already on the board." : "Everyone here is already on the board.")
+      : `No active athlete matches that${locFilter ? ` at ${locFilter}` : ""}.`;
     box.replaceChildren(...(hits.length
       ? hits.map((a) => el("button", { class: "result", onclick: () => add(a.id) }, lastFirst(a.name), el("small", null, a.sub)))
-      : [el("div", { class: "result none" }, athletes.some((a) => picked.includes(a.id) && a.name.toLowerCase().includes(q)) ? "Already on the board." : "No athlete matches that.")]));
+      : [el("div", { class: "result none" }, none)]));
     box.hidden = false;
   }
 
@@ -738,19 +752,22 @@
       all.push(...data);
       if (data.length < 1000) break;
     }
-    athletes = all.map((r) => {
+    // Only active people can be put on the board: athletes on any roster, and coaches. Inactive athletes and
+    // alumni are left out (and drop off a board they were on).
+    athletes = all.filter((r) => ((r.data || {}).status || "active").toLowerCase() === "active").map((r) => {
       const d = r.data || {};
       const coach = d.rosterGroup === "coaches";
       const cubsRoster = d.rosterGroup === "cubs-40man";
-      const where = coach ? "Coach" : d.dstLocation || (cubsRoster ? "Chicago Cubs" : "");
-      const status = (d.status || "active").toLowerCase();
+      const where = coach ? "Coaches" : d.dstLocation || (cubsRoster ? "Chicago Cubs" : "No location");
       return {
         id: String(r.id),
         name: d.name || "Unnamed",
-        sub: [where, d.position && d.position !== "Unassigned" ? d.position : "", status !== "active" ? status : ""].filter(Boolean).join(" · "),
+        where, // what the location picker goes by
+        sub: [where === "No location" ? "" : coach ? "Coach" : where, d.position && d.position !== "Unassigned" ? d.position : ""].filter(Boolean).join(" · "),
         cubs: cubsRoster && !d.dstLocation, // Cubs-only players get the Cubs look, as on their own link
       };
     }).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
+    fillLocations();
   }
 
   // ---- signing in ------------------------------------------------------------------------------------
@@ -790,13 +807,15 @@
   window.addEventListener("pageshow", () => modeSwitch.classList.remove("off"));
   $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
   $("speed-btn").addEventListener("click", () => { if (speedOpen) show(active); else openSpeed(); });
+  $("loc").addEventListener("change", (e) => { locFilter = e.target.value; try { localStorage.setItem(locKey(), locFilter); } catch (ex) { /* private window */ } $("search").value = ""; if (locFilter) $("search").focus(); search(); });
   $("search").addEventListener("input", search);
   $("search").addEventListener("focus", search);
   $("search").addEventListener("keydown", (e) => {
     if (e.key === "Escape") { $("results").hidden = true; e.target.blur(); }
     if (e.key === "Enter") { const first = $("results").querySelector("button.result"); if (first) first.click(); }
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest(".add")) $("results").hidden = true; });
+  // (a result just tapped has already been taken out of the list, so it is no longer inside .add: leave the list alone then)
+  document.addEventListener("click", (e) => { if (e.target.isConnected && !e.target.closest(".add")) $("results").hidden = true; });
 
   sb.auth.getSession().then(({ data }) => { if (data && data.session) open(data.session); else close(); });
   sb.auth.onAuthStateChange((event, session) => {
