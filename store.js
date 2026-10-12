@@ -877,6 +877,18 @@
     logSyncError(`delete kpi_entries/${id}`, error);
     return !error;
   }
+  // Group speed sessions logged as done for this athlete in Coach Mode (see migration_012): read when their
+  // Training Log is opened.
+  async function loadSpeedLogs(athleteId) {
+    const { data, error } = await sb().from("speed_logs").select("id,data").eq("athlete_id", String(athleteId)).limit(5000);
+    logSyncError(`load speed_logs/${athleteId}`, error);
+    return error || !data ? [] : data.map((r) => ({ ...r.data, id: r.id }));
+  }
+  async function deleteSpeedLog(id) {
+    const { error } = await sb().from("speed_logs").delete().eq("id", String(id));
+    logSyncError(`delete speed_logs/${id}`, error);
+    return !error;
+  }
   async function refreshEquipment(athleteId) {
     const { data, error } = await sb().from("athlete_equipment").select("*").eq("athlete_id", String(athleteId)).limit(1);
     logSyncError(`load athlete_equipment/${athleteId}`, error);
@@ -1022,6 +1034,8 @@
     refreshEquipment,
     loadKpiEntries,
     deleteKpiEntry,
+    loadSpeedLogs,
+    deleteSpeedLog,
     currentUserEmail: () => currentUser.email,
     removeAthleteOverride,
     allExercises,

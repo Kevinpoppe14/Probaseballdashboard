@@ -585,7 +585,7 @@
       parts.push(el("div", { class: "chips" }, items.map((it, i) => el("button", { class: `chip${i === itemIdx ? " on" : ""}`, onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }
     if (sessions.length > 1) {
-      parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => el("button", { class: `chip${i === dayIdx ? " on" : ""}`, onclick: go(() => { dayIdx = i; }) }, s.name || `Day ${i + 1}`))));
+      parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => { const done = logged(item.program.id, sessionKey(item, i)); return el("button", { class: `chip${i === dayIdx ? " on" : ""}${done ? " done" : ""}`, title: done ? "Session logged" : null, onclick: go(() => { dayIdx = i; }) }, done ? "✓ " : "", s.name || `Day ${i + 1}`); })));
     }
 
     const main = el("main");

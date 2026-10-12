@@ -142,26 +142,58 @@
     );
   }
 
+  // A group speed session a coach led and logged as done for this athlete in Coach Mode. It sits in the log in
+  // date order with the lifts.
+  function SpeedCard({ p, onRemove }) {
+    return (
+      <div className="panel tl-session">
+        <h2>
+          {fmtDay(`${p.date}T12:00:00`)}
+          <small>Group speed · {p.group}{p.title ? ` · ${p.title}` : ""}</small>
+          <span className="tl-badge marked">Logged in Coach Mode{p.by ? ` by ${p.by}` : ""}{p.at ? ` · ${fmtWhen(p.at)}` : ""}</span>
+        </h2>
+        <table className="tl-table">
+          <thead><tr><th>Drill</th><th>Prescribed</th><th>Notes</th></tr></thead>
+          <tbody>
+            {(p.items || []).map((it, i) => (
+              <tr key={i}><td className="tl-ex">{it.name}</td><td>{it.detail || "—"}</td><td>{it.notes || ""}</td></tr>
+            ))}
+          </tbody>
+        </table>
+        {p.notes && <p className="timestamp-note">{p.notes}</p>}
+        <div className="tl-actions no-print"><button className="btn-link" onClick={onRemove}>Remove from log</button></div>
+      </div>
+    );
+  }
+
   function TrainingLogTab({ athlete }) {
     const store = window.AthleteStore;
     const [tick, setTick] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [speed, setSpeed] = useState([]); // group speed sessions logged for them in Coach Mode
     // pick up what the athlete has entered on their phone since the dashboard loaded
     const refresh = () => {
       setLoading(true);
-      store.refreshAthleteLogs(athlete.id).then(() => { setLoading(false); setTick((n) => n + 1); });
+      Promise.all([store.refreshAthleteLogs(athlete.id), store.loadSpeedLogs(athlete.id).then(setSpeed)]).then(() => { setLoading(false); setTick((n) => n + 1); });
     };
     useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [athlete.id]);
 
     const { sessions, changes } = buildSessions(athlete.id, store.getPeriodization(athlete.id));
     const weeksText = (ws) => { const s = [...ws].sort((a, b) => a - b); return s.length === 1 ? `week ${s[0]}` : `weeks ${s.join(", ")}`; };
+    // lifts and group speed sessions together, newest first
+    const feed = [...sessions.map((s) => ({ s, when: s.latest || "" })), ...speed.map((p) => ({ p, when: p.at || `${p.date}T12:00:00` }))]
+      .sort((a, b) => String(b.when).localeCompare(String(a.when)));
+    const removeSpeed = async (p) => {
+      if (!window.confirm(`Remove this speed session (${p.group}, ${p.date}) from ${athlete.name}'s training log?`)) return;
+      if (await store.deleteSpeedLog(p.id)) refresh();
+    };
     return (
       <div className="tl-wrap" key={tick}>
         <div className="panel">
           <h2>Training Log <small>What was actually done, newest first. Times are when each entry was typed in.</small></h2>
           <div className="tl-actions no-print">
             <button className="btn btn-secondary" onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
-            <span className="timestamp-note">{sessions.length} session{sessions.length === 1 ? "" : "s"} with something logged for {athlete.name}.</span>
+            <span className="timestamp-note">{feed.length} session{feed.length === 1 ? "" : "s"} with something logged for {athlete.name}.</span>
           </div>
         </div>
 
@@ -181,11 +213,11 @@
           </div>
         )}
 
-        {sessions.length === 0 && !loading && (
+        {feed.length === 0 && !loading && (
           <div className="panel"><div className="empty-state">Nothing logged yet. Weights and reps {athlete.name} enters on their phone link will show up here.</div></div>
         )}
 
-        {sessions.map((s) => (
+        {feed.map(({ s, p }) => p ? <SpeedCard key={p.id} p={p} onRemove={() => removeSpeed(p)} /> : (
           <div className="panel tl-session" key={s.id}>
             <h2>
               {s.latest ? fmtDay(s.latest) : "Date not recorded"}

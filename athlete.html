@@ -62,6 +62,9 @@
   .chip { flex: 0 0 auto; min-height: 40px; padding: 8px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--panel); font-size: 14px; white-space: nowrap; }
   .chip.on { background: var(--accent); border-color: var(--accent); font-weight: 600; }
   .chips.days .chip { border-radius: 10px; }
+  /* days already logged step back so the ones still to do stand out; they can still be opened and edited */
+  .chips.days .chip.done:not(.on) { background: transparent; border-style: dashed; color: var(--dim, #8a8a8a); opacity: 0.6; }
+  .chips.days .chip.done.on { opacity: 0.75; }
   main { padding: 12px 16px 0; }
   .program-name { font-size: 13px; color: var(--dim); margin: 0 0 10px; }
   .warmup { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; white-space: pre-wrap; }
