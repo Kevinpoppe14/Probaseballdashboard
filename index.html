@@ -1097,7 +1097,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     const ops = [];
     let page = 0;
     chunks.forEach((chunk, ci) => {
-      const leftW = colW * (ncols === 1 ? 0.22 : 0.34); // side by side, the names need a bigger share to stay on one line
+      const leftW = colW * (ncols === 1 ? 0.22 : ncols === 2 ? 0.34 : 0.4); // side by side, the names need a bigger share to stay on one line
       const wkW = (colW - leftW) / chunk.length;
       page += 1;
       let col = 0, y = top;
@@ -1166,17 +1166,18 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     return { ops, pages: page, fs, ncols, colW, lineH, rowH, pctH, bandH, cellPad };
   };
 
-  // As few pages as the text allows at READABLE pt (8) or larger: four weeks go on one page unless that would
-  // take the text under 8 pt. Among the ways that reach that page count, the largest text wins, and one column
-  // of days is preferred over two when they tie.
-  const READABLE = 8;
+  // Every four weeks go on one page, whatever it takes: the text starts at 11 pt and comes down a quarter point
+  // at a time until each group of four weeks fits its page, trying the days in one, two and three columns at
+  // each size and taking the first that fits (so the text is as large as one page allows). Only a program too
+  // long to fit even at the smallest size (4 pt) runs onto extra pages.
+  const SMALLEST = 4;
   let plan = null;
-  [1, 2].forEach((ncols) => {
-    for (let fs = 11; fs >= READABLE; fs -= 0.5) {
+  for (let fs = 11; fs >= SMALLEST && !(plan && plan.pages <= chunks.length); fs -= 0.25) {
+    [1, 2, 3].forEach((ncols) => {
       const p = layout(fs, ncols);
-      if (!plan || p.pages < plan.pages || (p.pages === plan.pages && p.fs > plan.fs)) plan = p;
-    }
-  });
+      if (!plan || p.pages < plan.pages) plan = p;
+    });
+  }
   const { ops, pages, fs, colW, lineH, rowH, pctH, bandH, cellPad } = plan;
 
   for (let p = 1; p <= pages; p++) {
@@ -1263,7 +1264,7 @@ async function openProgramPdf(program, athleteName, cubsLogo) {
     // and whether anything had to be cut off, is handed back for the caller to show beside its button instead.
     if (tab) tab.location.href = pdf.output("bloburl");
     else pdf.save(`${title.replace(/[\\/:*?"<>|]/g, "")}.pdf`);
-    return { pages, fits };
+    return { pages, fits, fontSize: built.fontSize };
   } catch (e) {
     if (tab) tab.close();
     throw e;
@@ -1273,7 +1274,8 @@ async function openProgramPdf(program, athleteName, cubsLogo) {
 function programPdfNote(result) {
   if (!result) return "";
   if (!result.fits) return "One week is too long to fit on a page even at the smallest text size, so part of it is cut off. Try fewer exercises per day.";
-  return result.pages > 1 ? `Too long for one page without the text going under 8 pt, so it is on ${result.pages} pages.` : "";
+  if (result.pages > 1) return `Four weeks to a page, so it is on ${result.pages} pages.`;
+  return result.fontSize && result.fontSize < 8 ? `Fitted on one page at ${result.fontSize} pt text, which is small. Fewer exercises per day would print larger.` : "";
 }
 window.programPdfNote = programPdfNote;
 window.openProgramPdf = openProgramPdf;
