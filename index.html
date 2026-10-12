@@ -1698,8 +1698,8 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                     </div>
                   ))}
                   <div className="program-day-actions">
-                    <button className="btn btn-small-grey" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>Add {blockLetters.next} Block</button>
                     {blockLetters.last && <button className="btn btn-small-grey" title="Adds an exercise to the block above, as a superset (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>Add Exercise to {blockLetters.last} Block</button>}
+                    <button className="btn btn-small-grey" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>Add {blockLetters.next} Block</button>
                   </div>
                 </div>
               );
