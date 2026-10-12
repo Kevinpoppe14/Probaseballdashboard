@@ -1719,6 +1719,83 @@ const suggestedNextPrograms = (program) => {
 };
 window.suggestedNextPrograms = suggestedNextPrograms;
 
+// Assigning a program to a speed group (e.g. "DST North Pro Group") instead of to athletes one by one. The
+// group's coach then sees the program's week and days on the Speed screen in Coach Mode, starting the week
+// chosen here, and logs each day as done for whoever is on their board. Nothing is added to any athlete's
+// plan or phone app. Groups and assignments are small shared lists in app_meta.
+function ProgramGroupAssign({ program, startDate }) {
+  const store = window.AthleteStore;
+  const [groups, setGroups] = useState(null);
+  const [assigns, setAssigns] = useState([]);
+  const [groupId, setGroupId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const read = async () => {
+    const [g, a] = await Promise.all([store.loadMeta("speedGroups"), store.loadMeta("speedAssignments")]);
+    return { g: Array.isArray(g) ? g : [], a: Array.isArray(a) ? a : [] };
+  };
+  const show = ({ g, a }) => { setGroups([...g].sort((x, y) => x.name.localeCompare(y.name))); setAssigns(a); };
+  React.useEffect(() => { read().then(show); /* eslint-disable-next-line */ }, [program.id]);
+  const nameOf = (id) => ((groups || []).find((g) => g.id === id) || {}).name || "Unknown group";
+  const mine = assigns.filter((a) => a.programId === program.id);
+
+  const assign = async () => {
+    setBusy(true);
+    const now = await read(); // someone may have changed these in Coach Mode since this panel opened
+    let gid = groupId;
+    if (gid === "__new__") {
+      const name = newName.trim();
+      if (!name) { setMsg("Give the group a name."); setBusy(false); return; }
+      let g = now.g.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (!g) {
+        g = { id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`, name };
+        now.g.push(g);
+        if (!(await store.saveMeta("speedGroups", now.g))) { setMsg("Could not save the group. Try again."); setBusy(false); return; }
+      }
+      gid = g.id;
+    }
+    if (!gid) { setMsg("Pick a group."); setBusy(false); return; }
+    if (now.a.some((x) => x.groupId === gid && x.programId === program.id && x.startDate === startDate)) {
+      show(now); setMsg("Already assigned to that group for that week."); setBusy(false); return;
+    }
+    now.a.push({ id: `sa-${Math.random().toString(36).slice(2, 10)}`, groupId: gid, programId: program.id, programName: program.name, startDate, by: store.currentUserEmail(), at: new Date().toISOString() });
+    const ok = await store.saveMeta("speedAssignments", now.a);
+    show(now); setGroupId(gid); setNewName("");
+    setMsg(ok ? `Assigned. It shows on the Speed screen in Coach Mode for ${(now.g.find((g) => g.id === gid) || {}).name} from the week of ${startDate}.` : "Could not save. Try again.");
+    setBusy(false);
+  };
+  const remove = async (id) => {
+    const now = await read();
+    now.a = now.a.filter((x) => x.id !== id);
+    if (await store.saveMeta("speedAssignments", now.a)) { show(now); setMsg("Removed from the group. Sessions already logged for athletes stay on their training logs."); }
+  };
+
+  return (
+    <div className="group-assign">
+      <strong>Assign to a group</strong>
+      <span>For group speed work led from Coach Mode. The group's coach sees this program's week and days on the Speed screen, starting the week above. It is not added to any athlete's plan or phone app.</span>
+      <div className="group-assign-row">
+        <select value={groupId} onChange={(e) => { setGroupId(e.target.value); setMsg(""); }} aria-label="Group">
+          <option value="">{groups === null ? "Loading groups…" : "Choose a group…"}</option>
+          {(groups || []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          <option value="__new__">+ New group…</option>
+        </select>
+        {groupId === "__new__" && <input value={newName} placeholder="e.g. DST North Pro Group" onChange={(e) => setNewName(e.target.value)} aria-label="New group name" />}
+        <button className="btn btn-secondary" onClick={assign} disabled={busy || !groupId}>Assign to group</button>
+      </div>
+      {msg && <div className="timestamp-note">{msg}</div>}
+      {mine.length > 0 && (
+        <ul className="group-assign-list">
+          {mine.map((a) => (
+            <li key={a.id}>{nameOf(a.groupId)} · from the week of {a.startDate} <button className="btn-link" onClick={() => remove(a.id)}>Remove</button></li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
   const lib = window.PeriodizationLib;
   const [startDate, setStartDate] = useState(() => initialStart || lib.mondayOfToday());
@@ -1778,6 +1855,7 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
           </datalist>
         </label>
       </div>
+      <ProgramGroupAssign program={program} startDate={startDate} />
       <div className="facility-toolbar" style={{ marginBottom: 0 }}>
         <input className="facility-search" value={query} placeholder="Search by name, team, location, or position" onChange={(e) => setQuery(e.target.value)} />
         <button className="btn-link" onClick={pickShown}>Select all shown</button>

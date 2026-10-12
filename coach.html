@@ -106,11 +106,18 @@
   .speed-list { list-style: none; counter-reset: drill; margin: 0 0 14px; padding: 0; max-width: 760px; }
   .speed-list li { counter-increment: drill; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-bottom: 6px; }
   .speed-list li label { flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; font-size: 16px; color: var(--text); cursor: pointer; }
-  .speed-list li input { flex: 0 0 24px; width: 24px; height: 24px; accent-color: var(--accent); }
+  .speed-list li label > input { flex: 0 0 24px; width: 24px; height: 24px; accent-color: var(--accent); }
   .speed-list li strong::before { content: counter(drill) ". "; color: var(--dim); font-weight: 400; }
   .speed-list li b { margin-left: 10px; font-weight: 700; color: #ffb3b3; }
   .speed-list li small { display: block; margin-top: 2px; font-size: 13px; color: var(--dim); }
-  .speed-list li.ticked { opacity: 0.45; }
+  .speed-list li.ticked > label { opacity: 0.45; }
+  .speed-list li { display: flex; flex-wrap: wrap; align-items: center; }
+  .speed-list li > label { flex: 1; min-width: 0; }
+  .speed-swap { flex: 0 0 44px; height: 44px; margin-right: 6px; background: none; border: 1px solid #555; border-radius: 8px; font-size: 18px; }
+  .speed-swap.on { border-color: var(--accent); background: var(--accent); }
+  .speed-swap-form { flex: 0 0 100%; padding: 4px 12px 2px; border-top: 1px solid var(--border); }
+  .speed-swap-form .speed-row { margin-top: 10px; }
+  .speed-list li small.speed-changed { font-style: italic; }
   .speed-notes-text { max-width: 760px; margin: 0 0 14px; color: var(--dim); font-size: 14px; white-space: pre-wrap; }
   .speed-log { max-width: 760px; margin-top: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
   .speed-log h3 { margin: 0 0 10px; font-size: 15px; }
@@ -118,6 +125,11 @@
   .speed-who > * { padding: 6px 10px; border: 1px solid var(--border); border-radius: 16px; background: none; font-size: 13px; color: var(--dim); }
   .speed-who .logged { border-color: #2fb463; background: rgba(47, 180, 99, 0.16); color: #5fdc8f; }
   .speed-log .kpi-foot { margin-bottom: 8px; }
+  .speed-pick { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .speed-pick > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .speed-pick span { flex: 0 0 100%; font-size: 12px; color: var(--dim); }
+  .speed-chip { min-height: 40px; padding: 8px 14px; border: 1px solid #555; border-radius: 10px; background: var(--panel); font-size: 14px; }
+  .speed-chip.on { background: var(--accent); border-color: var(--accent); font-weight: 700; }
   @media (max-width: 780px) {
     .speed-row { flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
     .speed-name { flex: 1 1 60%; } .speed-detail, .speed-notes { flex: 1 1 40%; }
@@ -173,6 +185,7 @@
 <script crossorigin src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase-client.js"></script>
 <script src="holiday.js"></script>
+<script src="program_rx.js"></script>
 <script src="coach.js"></script>
 </body>
 </html>

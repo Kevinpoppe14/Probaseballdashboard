@@ -877,6 +877,19 @@
     logSyncError(`delete kpi_entries/${id}`, error);
     return !error;
   }
+  // Speed groups and the programs assigned to them (see Coach Mode, coach.js): small shared lists kept in
+  // app_meta under "speedGroups" and "speedAssignments". Read fresh each time, as coaches change them from
+  // Coach Mode too.
+  async function loadMeta(key) {
+    const { data, error } = await sb().from("app_meta").select("value").eq("key", key).maybeSingle();
+    logSyncError(`load app_meta/${key}`, error);
+    return error || !data ? null : data.value;
+  }
+  async function saveMeta(key, value) {
+    const { error } = await sb().from("app_meta").upsert({ key, value });
+    logSyncError(`upsert app_meta/${key}`, error);
+    return !error;
+  }
   // Group speed sessions logged as done for this athlete in Coach Mode (see migration_012): read when their
   // Training Log is opened.
   async function loadSpeedLogs(athleteId) {
@@ -1035,6 +1048,8 @@
     loadKpiEntries,
     deleteKpiEntry,
     loadSpeedLogs,
+    loadMeta,
+    saveMeta,
     deleteSpeedLog,
     currentUserEmail: () => currentUser.email,
     removeAthleteOverride,

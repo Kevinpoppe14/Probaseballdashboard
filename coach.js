@@ -311,7 +311,108 @@
   let speedNewGroup = false; // the "new group" form is open
   const speedTicks = new Set(); // drills ticked off while leading (this device only, not saved)
 
-  const speedId = () => `speed|${speedGroupId}|${speedDate}`;
+  // A program built in the dashboard's program builder can be assigned to a group from a start week (app_meta
+  // "speedAssignments": { id, groupId, programId, startDate }). On a day inside its run the Speed screen shows
+  // that week's days to pick from, beside the day's own one-off session.
+  let speedProgs = []; // assigned programs covering this day: [{ assign, program, week }] (week is 0-based)
+  let speedPick = null; // the program day showing, as { a: assignment id, d: day index }; null for the one-off session
+  let speedPickKey = ""; // the group and day speedPick was chosen for
+  const pickedProg = () => (speedPick && speedProgs.find((p) => p.assign.id === speedPick.a)) || null;
+  const speedDateId = () => `speed|${speedGroupId}|${speedDate}`;
+  // what "done" is recorded against: the program day when one is showing, otherwise the day's one-off session
+  const speedId = () => { const p = pickedProg(); return p ? `speed|${speedGroupId}|${p.assign.id}|${p.week}|${speedPick.d}` : speedDateId(); };
+  // one day of an assigned program, in the same shape as a one-off session
+  function progSession(p, d) {
+    const day = ((p.program.weeks[p.week] || {}).sessions || [])[d];
+    if (!day) return null;
+    const Rx = window.ProgramRx;
+    const group = speedGroups.find((g) => g.id === speedGroupId) || { name: "" };
+    return {
+      groupId: speedGroupId, group: group.name, date: speedDate, fromProgram: true,
+      title: `${p.program.name} · Week ${p.week + 1} · ${day.name || `Day ${d + 1}`}`,
+      items: (day.exercises || []).filter((e) => (e.name || "").trim()).map((e) => {
+        const base = {
+          name: e.name.trim(),
+          detail: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
+          notes: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", e.notes || ""].filter(Boolean).join(" · "),
+        };
+        const key = String(e.id || base.name.toLowerCase());
+        const swap = swapFor(p, d, key, base.name);
+        // _key, _orig and _swap are for this screen only; copyItems() drops them before anything is saved
+        return swap ? { ...swap.to, _key: key, _orig: base, _swap: swap } : { ...base, _key: key };
+      }),
+      notes: (day.warmup || "").trim() ? `Warm-up: ${day.warmup.trim()}` : "",
+    };
+  }
+
+  // ---- swapping a drill in a group's program ---------------------------------------------------------
+  // As in the athlete app: the coach leading a group can change a drill, or its sets, reps and distance,
+  // either for that one day or for the rest of the program (the same drill in this week and every later one).
+  // The program itself is not touched, so other groups on it are unaffected. Swaps are kept per assignment in
+  // speed_sessions under "ov|<assignment id>": [{ scope: "day" | "phase", week, day, key, fromName, to, by, at }].
+  let speedSwaps = {}; // assignment id -> its swaps, oldest first
+  let speedSwapOpen = null; // index of the drill whose swap form is open
+  let exerciseNames = null; // names from the exercise database, offered while typing; loaded the first time
+  function swapFor(p, d, key, name) {
+    let hit = null; // the latest one that applies wins
+    (speedSwaps[p.assign.id] || []).forEach((o) => {
+      const applies = o.scope === "phase" ? o.fromName === name.toLowerCase() && p.week >= o.week : o.week === p.week && o.day === d && o.key === key;
+      if (applies) hit = o;
+    });
+    return hit;
+  }
+  // changes an assignment's swaps: reads what is saved now, lets `change` edit the list, and saves it back
+  async function saveSwaps(assignId, change) {
+    const id = `ov|${assignId}`;
+    const got = await sb.from("speed_sessions").select("id,data").eq("id", id).maybeSingle();
+    if (got.error) throw got.error;
+    const list = change((got.data && got.data.data && Array.isArray(got.data.data.swaps) ? got.data.data.swaps : []).slice());
+    const put = await sb.from("speed_sessions").upsert({ id, data: { swaps: list }, updated_at: new Date().toISOString() });
+    if (put.error) throw put.error;
+    speedSwaps[assignId] = list;
+  }
+  function swapForm(p, d, it, redraw) {
+    const orig = it._orig || it;
+    if (!exerciseNames) {
+      exerciseNames = [];
+      sb.from("exercises").select("name:data->>name").limit(5000).then(({ data }) => {
+        exerciseNames = [...new Set((data || []).map((r) => (r.name || "").trim()).filter(Boolean))].sort();
+        const list = document.getElementById("speed-ex-names");
+        if (list) list.replaceChildren(...exerciseNames.map((n) => el("option", { value: n })));
+      });
+    }
+    const name = el("input", { type: "text", class: "speed-name", list: "speed-ex-names", value: it.name, placeholder: "Drill", "aria-label": "Drill" });
+    const detail = el("input", { type: "text", class: "speed-detail", value: it.detail, placeholder: "Sets, reps, distance", "aria-label": "Sets, reps, distance" });
+    const notes = el("input", { type: "text", class: "speed-notes", value: it.notes, placeholder: "Coaching notes", "aria-label": "Coaching notes" });
+    const err = el("span", { class: "kpi-err", role: "alert" });
+    const apply = (scope) => async () => {
+      const to = { name: name.value.trim(), detail: detail.value.trim(), notes: notes.value.trim() };
+      if (!to.name) { err.textContent = "Give the drill a name."; return; }
+      const mine = (o) => (o.scope === "phase" ? o.fromName === orig.name.toLowerCase() && o.week === p.week : o.week === p.week && o.day === d && o.key === it._key);
+      try {
+        await saveSwaps(p.assign.id, (list) => [
+          ...list.filter((o) => !(o.scope === scope && mine(o))), // changing it again replaces the earlier change
+          { scope, week: p.week, day: d, key: it._key, fromName: orig.name.toLowerCase(), to, by: user.email || "", at: new Date().toISOString() },
+        ]);
+      } catch (e) { err.textContent = "Could not save. Try again."; return; }
+      speedSwapOpen = null;
+      redraw();
+    };
+    const undo = async () => {
+      try { await saveSwaps(p.assign.id, (list) => list.filter((o) => o.at !== it._swap.at || o.key !== it._swap.key)); }
+      catch (e) { err.textContent = "Could not save. Try again."; return; }
+      speedSwapOpen = null;
+      redraw();
+    };
+    return el("div", { class: "speed-swap-form" },
+      el("datalist", { id: "speed-ex-names" }, exerciseNames.map((n) => el("option", { value: n }))),
+      el("div", { class: "speed-row" }, name, detail, notes),
+      el("div", { class: "kpi-foot" },
+        el("button", { class: "kpi-save", onclick: apply("day") }, "Change for today"),
+        el("button", { class: "kpi-ghost", onclick: apply("phase") }, "Change for the rest of the program"),
+        it._swap ? el("button", { class: "kpi-ghost", onclick: undo }, it._swap.scope === "phase" ? "Back to the program’s drill (every week)" : "Back to the program’s drill") : null,
+        el("button", { class: "kpi-ghost", onclick: () => { speedSwapOpen = null; redraw(); } }, "Cancel"), err));
+  }
   const speedGroupKey = () => `coachSpeedGroup:${user.id}`;
   const dayText = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
   const copyItems = (items) => (items || []).map((it) => ({ name: it.name || "", detail: it.detail || "", notes: it.notes || "" }));
@@ -327,11 +428,38 @@
       try { last = localStorage.getItem(speedGroupKey()); } catch (e) { /* private window */ }
       speedGroupId = (speedGroups.find((g) => g.id === last) || speedGroups[0] || {}).id || null;
     }
-    if (!speedGroupId) { speedSession = null; speedDraft = null; speedLogged = new Set(); speedRecent = []; speedKey = ""; return; }
-    const id = speedId();
+    if (!speedGroupId) { speedSession = null; speedDraft = null; speedLogged = new Set(); speedRecent = []; speedKey = ""; speedProgs = []; speedPick = null; return; }
+
+    // programs assigned to this group that are running on this day
+    const meta = await sb.from("app_meta").select("value").eq("key", "speedAssignments").maybeSingle();
+    if (meta.error) throw meta.error;
+    const mine = (meta.data && Array.isArray(meta.data.value) ? meta.data.value : []).filter((a) => a.groupId === speedGroupId);
+    const progs = [];
+    if (mine.length) {
+      const got = await sb.from("programs").select("id,data").in("id", [...new Set(mine.map((a) => String(a.programId)))]);
+      if (got.error) throw got.error;
+      mine.forEach((a) => {
+        const row = got.data.find((r) => String(r.id) === String(a.programId));
+        const count = row && row.data && Array.isArray(row.data.weeks) ? row.data.weeks.length : 0;
+        const week = Math.floor(Math.round((dayOf(speedDate) - dayOf(a.startDate)) / 864e5) / 7);
+        if (count && week >= 0 && week < count) progs.push({ assign: a, program: row.data, week });
+      });
+    }
+    speedSwaps = {}; speedSwapOpen = null;
+    if (progs.length) {
+      const ov = await sb.from("speed_sessions").select("id,data").in("id", progs.map((p) => `ov|${p.assign.id}`));
+      if (ov.error) throw ov.error;
+      ov.data.forEach((r) => { if (String(r.id).startsWith("ov|")) speedSwaps[String(r.id).slice(3)] = (r.data && Array.isArray(r.data.swaps)) ? r.data.swaps : []; });
+    }
+    speedProgs = progs;
+    const first = progs.length ? { a: progs[0].assign.id, d: 0 } : null;
+    if (speedPickKey !== `${speedGroupId}|${speedDate}`) { speedPickKey = `${speedGroupId}|${speedDate}`; speedPick = first; } // a new group or day opens on its program
+    else if (speedPick && !pickedProg()) speedPick = first;
+
+    const id = speedDateId();
     const [one, logs, recent] = await Promise.all([
       sb.from("speed_sessions").select("id,data").eq("id", id).maybeSingle(),
-      sb.from("speed_logs").select("athlete_id").eq("data->>sessionId", id).limit(2000),
+      sb.from("speed_logs").select("athlete_id").eq("data->>sessionId", speedId()).limit(2000),
       sb.from("speed_sessions").select("id,data").order("updated_at", { ascending: false }).limit(40),
     ]);
     const failed = one.error || logs.error || recent.error;
@@ -486,8 +614,21 @@
       drawSpeed();
     } }, el("option", { value: "" }, "Choose a session…"), speedRecent.map((s, i) => el("option", { value: i }, `${s.group} · ${dayText(s.date)}${s.title ? ` · ${s.title}` : ""}`)))) : null);
 
+    // ---- which session: a day of an assigned program, or this day's one-off
+    const prog = pickedProg();
+    const pickBar = speedProgs.length ? el("div", { class: "speed-pick" },
+      speedProgs.map((p) => el("div", null,
+        el("span", null, `${p.program.name} · Week ${p.week + 1} of ${p.program.weeks.length}`),
+        ((p.program.weeks[p.week] || {}).sessions || []).map((day, d) => el("button", {
+          class: `speed-chip${prog === p && speedPick.d === d ? " on" : ""}`, onclick: () => { speedPick = { a: p.assign.id, d }; reload(); },
+        }, day.name || `Day ${d + 1}`)))),
+      el("div", null, el("span", null, "Not from a program"),
+        el("button", { class: `speed-chip${prog ? "" : " on"}`, onclick: () => { speedPick = null; reload(); } }, "One-off session"))) : null;
+
     let body;
-    if (speedDraft) {
+    if (prog && !progSession(prog, speedPick.d)) {
+      body = el("div", { class: "kpi-note" }, "This week of the program has no days. Add them in the program builder.");
+    } else if (!prog && speedDraft) {
       // ---- writing or changing the session
       const d = speedDraft;
       const field = (it, key, placeholder, cls) => el("input", { type: "text", class: cls, placeholder, value: it[key], "aria-label": placeholder, oninput: (e) => { it[key] = e.target.value; } });
@@ -515,7 +656,7 @@
           copyFrom("Or copy from")),
         el("label", null, "Session notes (optional)", el("textarea", { class: "speed-area", rows: "2", oninput: (e) => { d.notes = e.target.value; } }, d.notes)),
         el("div", { class: "kpi-foot" }, save, el("button", { class: "kpi-ghost", onclick: () => { speedDraft = null; drawSpeed(); } }, "Cancel"), note));
-    } else if (!speedSession) {
+    } else if (!prog && !speedSession) {
       // ---- nothing written for this group and day yet
       body = el("div", null,
         el("div", { class: "kpi-note" }, `No speed session for ${group.name} on ${dayText(speedDate)} yet.`),
@@ -524,11 +665,11 @@
           copyFrom("Or copy from"), note));
     } else {
       // ---- leading the session, and logging it as done
-      const s = speedSession;
+      const s = prog ? progSession(prog, speedPick.d) : speedSession;
       const todo = picked.filter((aid) => !speedLogged.has(aid));
       const logAll = el("button", { class: "kpi-save", disabled: !todo.length, onclick: async () => {
         const at = new Date().toISOString();
-        const rowsOut = todo.map((aid) => ({ id: `speedlog|${aid}|${speedId()}`, athlete_id: aid, updated_at: at, data: { sessionId: speedId(), groupId: s.groupId, group: s.group, date: s.date, title: s.title || "", items: s.items, notes: s.notes || "", by: user.email || "", at } }));
+        const rowsOut = todo.map((aid) => ({ id: `speedlog|${aid}|${speedId()}`, athlete_id: aid, updated_at: at, data: { sessionId: speedId(), groupId: s.groupId, group: s.group, date: s.date, title: s.title || "", items: copyItems(s.items), notes: s.notes || "", by: user.email || "", at } }));
         logAll.disabled = true;
         note.textContent = "Logging…";
         // ignoreDuplicates: an athlete someone else logged a moment ago is left as they are, never written twice
@@ -549,11 +690,16 @@
           const li = el("li", { class: speedTicks.has(key) ? "ticked" : "" },
             el("label", null,
               el("input", { type: "checkbox", checked: speedTicks.has(key), onchange: (e) => { if (e.target.checked) speedTicks.add(key); else speedTicks.delete(key); li.classList.toggle("ticked", e.target.checked); } }),
-              el("span", null, el("strong", null, it.name), it.detail ? el("b", null, it.detail) : null, it.notes ? el("small", null, it.notes) : null)));
+              el("span", null, el("strong", null, it.name), it.detail ? el("b", null, it.detail) : null, it.notes ? el("small", null, it.notes) : null,
+                it._orig ? el("small", { class: "speed-changed" }, `Changed ${it._swap.scope === "phase" ? "for the rest of the program" : "for today"}. Program: ${it._orig.name}${it._orig.detail ? `, ${it._orig.detail}` : ""}`) : null)),
+            prog ? el("button", { class: `speed-swap${it._orig ? " on" : ""}`, title: "Change drill or sets and reps", "aria-label": `Change ${it.name} or its sets and reps`, onclick: () => { speedSwapOpen = speedSwapOpen === i ? null : i; drawSpeed(); } }, "⇄") : null,
+            prog && speedSwapOpen === i ? swapForm(prog, speedPick.d, it, () => drawSpeed()) : null);
           return li;
         })),
         s.notes ? el("p", { class: "speed-notes-text" }, s.notes) : null,
-        el("div", { class: "kpi-foot" }, el("button", { class: "kpi-ghost", onclick: () => { speedDraft = { title: s.title || "", items: copyItems(s.items), notes: s.notes || "" }; drawSpeed(); } }, "Edit session")),
+        prog
+          ? el("p", { class: "kpi-hint", style: "margin-bottom:14px" }, "From the program builder. To change it, edit the program in the dashboard.")
+          : el("div", { class: "kpi-foot" }, el("button", { class: "kpi-ghost", onclick: () => { speedDraft = { title: s.title || "", items: copyItems(s.items), notes: s.notes || "" }; drawSpeed(); } }, "Edit session")),
         el("div", { class: "speed-log" },
           el("h3", null, "Log as done"),
           picked.length
@@ -569,7 +715,7 @@
         sendPanel(s));
     }
 
-    speedEl.replaceChildren(...[head, groupForm, body].filter(Boolean));
+    speedEl.replaceChildren(...[head, groupForm, pickBar, body].filter(Boolean));
   }
 
   // ---- adding: type a few letters, pick from the matches ---------------------------------------------

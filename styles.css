@@ -3042,3 +3042,10 @@ tbody tr:hover {
 .tl-kpi-chart polyline { fill: none; stroke: var(--text); stroke-width: 1.5; }
 .tl-kpi-chart circle { fill: var(--text-dim); }
 .tl-kpi-chart circle.best { fill: var(--dst-red); stroke: var(--text); stroke-width: 1; }
+/* Assign a program to a speed group (Programs → Assign) */
+.group-assign { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-size: 13px; }
+.group-assign > span { color: var(--text-dim); }
+.group-assign-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.group-assign-row select, .group-assign-row input { height: 36px; padding: 0 10px; min-width: 220px; }
+.group-assign-list { list-style: none; margin: 0; padding: 0; }
+.group-assign-list li { padding: 4px 0; }
