@@ -3252,3 +3252,5 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .bcs-meals tr.bcs-total td { font-weight: 700; border-top: 1px solid var(--text-dim); }
 .bcs-meals tr.bcs-target td { color: var(--text-dim); font-style: italic; }
 .bcs-form .tl-actions { margin-top: 16px; }
+.bcs-auto-cell { display: inline-block; min-width: 60px; padding: 5px 6px; font-variant-numeric: tabular-nums; }
+.bcs-auto { margin: 4px 0 6px; font-size: 13px; }

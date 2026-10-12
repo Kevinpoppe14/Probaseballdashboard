@@ -25,7 +25,7 @@
     chest: "", abdomen: "", iliac: "", subscap: "", tricep: "", axillary: "", thigh: "",
     gUpperArm: "", gForearm: "", gThigh: "", gCalf: "",
     sTriceps: "", sBiceps: "", sForearm1: "", sForearm2: "", sThigh: "", sCalf: "",
-    goalLeanLb: "", goalMuscleLb: "", goalFatPct: "",
+    goalLeanLb: "", goalMuscleLb: "", goalFatPct: "", auto: true, calAdjust: "",
     trainMin: "60", sportMin: "30", proteinGkg: "2.2", carbGkg: "3.4",
     meals: MEALS.map(() => ({ qty: "1", cho: "", pro: "", fat: "" })),
     tCarb: "0.5", tPro: "0.3", tFat: "0.2", nCarb: "0.45", nPro: "0.35", nFat: "0.2",
@@ -34,6 +34,29 @@
 
   const n = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : 0; };
   const has = (v) => String(v == null ? "" : v).trim() !== "";
+
+  // AUTO: how the daily targets and the meal plan are worked out when "work it out automatically" is on.
+  // (The spreadsheet left this to the coach: the meals were typed in and the targets taken from their total.)
+  //   calories  estimated energy expenditure, plus 10% when the goal weight is above today's (a small surplus
+  //             favors lean gain over fat gain) and minus 15% when it is below (roughly half a kilo a week,
+  //             the slower rate that best keeps lean mass). The coach can type a different percentage.
+  //   protein   the sheet's g/kg figure times body mass (1.6 to 2.2 g/kg covers what training can use)
+  //   fat       a share of calories (20% on the sheet; 20 to 35% is the usual range for athletes)
+  //   carbs     the calories left over, so they rise and fall with the day's training
+  //   rest day  the same sums without the training and sport calories: same protein and fat share, fewer carbs
+  //   meals     protein spread evenly across the day with a full serving after training (about 0.4 g/kg a
+  //             meal, four or more times a day); carbohydrate weighted to breakfast, lunch and the post-workout
+  //             shake to refill glycogen; fat kept low in the shake so it is absorbed quickly.
+  //             Order: Breakfast, Lunch, Dinner, Snack 1, Snack 2, Post-Workout. Each column adds up to 1.
+  const AUTO = {
+    gainPct: 10, lossPct: -15, fatShare: 0.2,
+    split: [
+      { cho: 0.22, pro: 0.21, fat: 0.25 }, { cho: 0.22, pro: 0.21, fat: 0.25 }, { cho: 0.20, pro: 0.21, fat: 0.25 },
+      { cho: 0.08, pro: 0.10, fat: 0.10 }, { cho: 0.08, pro: 0.10, fat: 0.10 }, { cho: 0.20, pro: 0.17, fat: 0.05 },
+    ],
+  };
+  // on for new sheets; a sheet saved before this existed counts as typed by hand if any meal has figures
+  const isAuto = (f) => (f.auto === true || f.auto === false ? f.auto : !(f.meals || []).some((m) => has(m.cho) || has(m.pro) || has(m.fat)));
 
   // every figure on the sheet, from what has been typed (cell references are the spreadsheet's)
   function calc(f) {
@@ -63,9 +86,15 @@
       muscleLb: muscleKg * 2.2, muscleKg, pctFat, pctMuscle: massKg ? (muscleKg / massKg) * 100 : null,
     };
 
-    // goal: the coach sets lean weight, muscle weight and percent fat; the rest follows
-    const gLean = n(f.goalLeanLb), gMuscle = n(f.goalMuscleLb), gFatPct = n(f.goalFatPct);
-    const goalSet = has(f.goalLeanLb) && has(f.goalFatPct);
+    // Goal: the coach sets percent body fat and muscle weight, and the goal body weight follows. The goal lean
+    // weight is today's lean weight plus the muscle to be gained (everything lean that is not muscle, such as
+    // bone and organs, is taken to stay as it is); a goal lean weight typed in is used instead when given, as
+    // on the spreadsheet. Goal body weight = goal lean weight / (1 - goal percent fat).
+    const muscleKnown = girthsIn && has(f.heightCm);
+    const gMuscle = n(f.goalMuscleLb), gFatPct = n(f.goalFatPct);
+    const leanFromMuscle = has(f.goalMuscleLb) && muscleKnown ? leanLb + (gMuscle - muscleKg * 2.2) : null;
+    const gLean = has(f.goalLeanLb) ? n(f.goalLeanLb) : leanFromMuscle != null ? leanFromMuscle : 0;
+    const goalSet = has(f.goalFatPct) && (has(f.goalLeanLb) || leanFromMuscle != null);
     const gWeight = gLean / ((100 - gFatPct) / 100); // G29
     const goal = {
       weight: gWeight, massKg: gWeight / 2.2, fatLb: gWeight - gLean, fatKg: (gWeight - gLean) / 2.2, leanLb: gLean, leanKg: gLean / 2.2,
@@ -87,7 +116,41 @@
     const dit = trainCal * 0.1; // Q20
     const rmr = age < 18 ? 17.5 * cur.leanKg + 651 : age < 30 ? 15.3 * cur.leanKg + 679 : 11.6 * cur.leanKg + 879; // Q22
     const split = (cal, c, p, fat) => ({ carbs: (cal * n(c)) / 4, protein: (cal * n(p)) / 4, fat: (cal * n(fat)) / 9, total: n(c) + n(p) + n(fat) });
+
+    // ---- automatic targets and meal plan (see AUTO above) ----
+    if (isAuto(f)) {
+      // calories: expenditure, moved up for a goal of gaining weight and down for one of losing it
+      const direction = goalSet ? (goal.weight - weight > 1 ? 1 : goal.weight - weight < -1 ? -1 : 0) : 0;
+      const autoAdjust = direction > 0 ? AUTO.gainPct : direction < 0 ? AUTO.lossPct : 0;
+      const adjust = has(f.calAdjust) ? n(f.calAdjust) : autoAdjust;
+      const k = 1 + adjust / 100;
+      // thermogenesis is a tenth of what is eaten, and what is eaten is k times expenditure, so expenditure is
+      // (resting + activity) / (1 - 0.1k)
+      const teeTrain = (rmr + dstEE + sportEE) / (1 - 0.1 * k), teeRest = rmr / (1 - 0.1 * k);
+      const calTrain = k * teeTrain, calRest = k * teeRest;
+      const proteinG = n(f.proteinGkg) * massKg;
+      const fatShare = has(f.tFat) ? n(f.tFat) : AUTO.fatShare;
+      const macros = (cal) => {
+        const fat = (cal * fatShare) / 9, carbs = Math.max(0, (cal - proteinG * 4 - fat * 9) / 4);
+        return { carbs, protein: proteinG, fat, total: 1, shares: cal ? { carbs: (carbs * 4) / cal, protein: (proteinG * 4) / cal, fat: fatShare } : { carbs: 0, protein: 0, fat: 0 } };
+      };
+      const trainMacros = macros(calTrain), nonMacros = macros(calRest);
+      const plan = AUTO.split.map((s) => ({ qty: "1", cho: String(Math.round(trainMacros.carbs * s.cho)), pro: String(Math.round(trainMacros.protein * s.pro)), fat: String(Math.round(trainMacros.fat * s.fat)) }));
+      const planCal = plan.map((m) => ({ cal: n(m.cho) * 4 + n(m.pro) * 4 + n(m.fat) * 9 }));
+      const sum = (k2) => plan.reduce((s, m) => s + n(m[k2]), 0);
+      const planTotal = planCal.reduce((s, m) => s + m.cal, 0);
+      return {
+        auto: true, adjust, autoAdjust, direction, mealPlan: plan,
+        sum7, maleDensity, femaleDensity, density, male, CDU, CDF, CDT, CDC, girthsIn, cur, goal, goalSet, change, leanFromMuscle,
+        meals: planCal, totals: { cho: sum("cho"), pro: sum("pro"), fat: sum("fat"), cal: planTotal },
+        trainCal: calTrain, nonTrainCal: calRest, calPerLbTrain: weight ? calTrain / weight : null, calPerLbNon: weight ? calRest / weight : null,
+        dstEE, sportEE, sportKnown: !!factor, activityEE: dstEE + sportEE, dit: 0.1 * calTrain, rmr, tee: teeTrain, teeRest,
+        proteinGlb: n(f.proteinGkg) / 2.2, carbGlb: massKg ? trainMacros.carbs / massKg / 2.2 : 0, carbGkg: massKg ? trainMacros.carbs / massKg : 0, proteinG,
+        trainMacros, nonMacros,
+      };
+    }
     return {
+      leanFromMuscle,
       sum7, maleDensity, femaleDensity, density, male, CDU, CDF, CDT, CDC, girthsIn, cur, goal, goalSet, change,
       meals, totals: { cho: tot("cho"), pro: tot("pro"), fat: tot("fat"), cal: trainCal },
       trainCal, nonTrainCal, calPerLbTrain: weight ? trainCal / weight : null, calPerLbNon: weight ? nonTrainCal / weight : null,
@@ -108,6 +171,17 @@
     const setMeal = (i, k, v) => setF((p) => ({ ...p, meals: p.meals.map((m, j) => (j === i ? { ...m, [k]: v } : m)) }));
     const r = calc(f);
     const ready = has(f.weightLb) && SITES.every(([k]) => has(f[k]));
+    // the automatic targets need the body composition and the age (for the resting rate) before they mean anything
+    const autoReady = ready && has(f.age);
+    const mealsReady = !r.auto || autoReady;
+    // Enter moves to the next box down the sheet, like a spreadsheet, instead of doing nothing
+    const nextOnEnter = (e) => {
+      if (e.key !== "Enter" || e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON" || e.target.type === "checkbox") return;
+      e.preventDefault();
+      const boxes = [...e.currentTarget.querySelectorAll("input:not([type=checkbox]):not([disabled]), select")];
+      const next = boxes[boxes.indexOf(e.target) + (e.shiftKey ? -1 : 1)];
+      if (next) { next.focus(); if (next.select) next.select(); }
+    };
     const num = (k, extra = {}) => <input type="number" step="any" inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} {...extra} />;
     const text = (k, placeholder) => <input value={f[k]} placeholder={placeholder || ""} onChange={(e) => set(k, e.target.value)} />;
     const row = (label, control, unit) => <label className="bcs-row"><span>{label}</span>{control}{unit ? <em>{unit}</em> : null}</label>;
@@ -134,7 +208,7 @@
       onSaved();
     };
     return (
-      <div className="bcs-form">
+      <div className="bcs-form" onKeyDown={nextOnEnter}>
         <div className="bcs-top">
           {row("Date", <input type="date" value={f.date} onChange={(e) => set("date", e.target.value)} />)}
           {row("Tester", text("tester"))}
@@ -160,9 +234,10 @@
             <h3>Current body composition</h3>
             {comp({ ...r.cur, muscleOk }, ready)}
             <h3>Goal body composition</h3>
-            {row("Goal lean weight", num("goalLeanLb"), "lb")}
-            {row("Goal muscle weight", num("goalMuscleLb"), "lb")}
             {row("Goal percent body fat", num("goalFatPct"), "%")}
+            {row("Goal muscle weight", num("goalMuscleLb"), "lb")}
+            {row("Goal lean weight", num("goalLeanLb", { placeholder: r.leanFromMuscle != null ? String(Math.round(r.leanFromMuscle * 10) / 10) : "" }), "lb")}
+            <p className="bcs-hint">Goal lean weight is worked out from the muscle to be gained (today's lean weight plus the added muscle). Type a figure only to override it. Without girths there is no muscle figure, so enter the goal lean weight yourself.</p>
             {out("Goal body weight", r.goalSet ? show(r.goal.weight) : "—", "lb")}
             {out("Goal fat weight", r.goalSet ? show(r.goal.fatLb) : "—", "lb")}
             {out("Goal percent muscle", r.goalSet && has(f.goalMuscleLb) ? show(r.goal.pctMuscle) : "—", "%")}
@@ -201,23 +276,40 @@
             {out("DST energy expenditure", ready ? show(r.dstEE, 0) : "—", "cal")}
             {out("Sport energy expenditure", ready ? (r.sportKnown ? show(r.sportEE, 0) : "0 (sport not listed)") : "—", "cal")}
             {out("Total physical activity", ready ? show(r.activityEE, 0) : "—", "cal")}
-            {out("Dietary induced thermogenesis", show(r.dit, 0), "cal")}
+            {out("Dietary induced thermogenesis", r.auto && !(ready && has(f.age)) ? "—" : show(r.dit, 0), "cal")}
             {out("Estimated resting metabolic rate", ready && has(f.age) ? show(r.rmr, 0) : "—", "cal")}
             {out("Total estimated energy expenditure", ready && has(f.age) ? show(r.tee, 0) : "—", "cal")}
             <h4>Recommendations</h4>
             {row("Protein intake", num("proteinGkg"), "g/kg")}
             {out("Protein intake", show(r.proteinGlb, 2), "g/lb")}
-            {row("Carbohydrate intake", num("carbGkg"), "g/kg")}
-            {out("Carbohydrate intake", show(r.carbGlb, 2), "g/lb")}
+            {r.auto ? (
+              <React.Fragment>
+                {out("Protein each day", autoReady ? show(r.proteinG, 0) : "—", "g")}
+                {row("Fat, share of calories", num("tFat"), "0.20 to 0.35")}
+                {out("Carbohydrate (what is left)", autoReady ? show(r.carbGkg, 1) : "—", "g/kg")}
+                {row("Calories against expenditure", num("calAdjust", { placeholder: String(r.autoAdjust) }), "%")}
+                <p className="bcs-hint">{r.direction > 0 ? "The goal weight is above today's, so intake is set 10% over expenditure." : r.direction < 0 ? "The goal weight is below today's, so intake is set 15% under expenditure." : "With no weight change in the goal, intake matches expenditure."} Type a percentage to change it (for example 5, or -20).</p>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                {row("Carbohydrate intake", num("carbGkg"), "g/kg")}
+                {out("Carbohydrate intake", show(r.carbGlb, 2), "g/lb")}
+              </React.Fragment>
+            )}
             <h4>Assigned intake</h4>
-            {out("Training day calories", show(r.trainCal, 0), "cal")}
-            {out("Training day", show(r.calPerLbTrain, 1), "cal/lb")}
-            {out("Non-training day calories", show(r.nonTrainCal, 0), "cal")}
-            {out("Non-training day", show(r.calPerLbNon, 1), "cal/lb")}
+            {out("Training day calories", !r.auto || autoReady ? show(r.trainCal, 0) : "—", "cal")}
+            {out("Training day", !r.auto || autoReady ? show(r.calPerLbTrain, 1) : "—", "cal/lb")}
+            {out("Non-training day calories", !r.auto || autoReady ? show(r.nonTrainCal, 0) : "—", "cal")}
+            {out("Non-training day", !r.auto || autoReady ? show(r.calPerLbNon, 1) : "—", "cal/lb")}
           </section>
         </div>
 
         <h3>Meal plan</h3>
+        <label className="vit-check bcs-auto">
+          <input type="checkbox" checked={r.auto} onChange={(e) => setF((p) => (e.target.checked ? { ...p, auto: true } : { ...p, auto: false, meals: r.auto && autoReady ? r.mealPlan : p.meals }))} />
+          Work out the calories, macros and meal plan automatically from the energy expenditure and the goal
+        </label>
+        {r.auto && <p className="bcs-hint">Protein is spread evenly through the day with a full serving after training; carbohydrate is weighted to breakfast, lunch and the post-workout shake; fat is kept low in the shake. Untick the box to type the meals yourself, starting from these figures.</p>}
         <div className="bcs-scroll">
           <table className="bcs-meals">
             <thead><tr><th>Meal</th><th>Qty</th><th>Carbs (g)</th><th>Protein (g)</th><th>Fat (g)</th><th>Cal density %</th><th>Cal</th></tr></thead>
@@ -225,13 +317,19 @@
               {MEALS.map((name, i) => (
                 <tr key={name}>
                   <td>{name}</td>
-                  {["qty", "cho", "pro", "fat"].map((k) => <td key={k}><input type="number" step="any" inputMode="decimal" value={f.meals[i][k]} onChange={(e) => setMeal(i, k, e.target.value)} aria-label={`${name} ${k}`} /></td>)}
-                  <td>{r.trainCal ? show((r.meals[i].cal / r.trainCal) * 100) : "—"}</td>
-                  <td><b>{show(r.meals[i].cal, 0)}</b></td>
+                  {["qty", "cho", "pro", "fat"].map((k) => (
+                    <td key={k}>
+                      {r.auto
+                        ? <span className="bcs-auto-cell">{autoReady ? r.mealPlan[i][k] : "—"}</span>
+                        : <input type="number" step="any" inputMode="decimal" value={f.meals[i][k]} onChange={(e) => setMeal(i, k, e.target.value)} aria-label={`${name} ${k}`} />}
+                    </td>
+                  ))}
+                  <td>{mealsReady && r.totals.cal ? show((r.meals[i].cal / r.totals.cal) * 100) : "—"}</td>
+                  <td><b>{mealsReady ? show(r.meals[i].cal, 0) : "—"}</b></td>
                 </tr>
               ))}
-              <tr className="bcs-total"><td>Totals</td><td></td><td>{show(r.totals.cho)}</td><td>{show(r.totals.pro)}</td><td>{show(r.totals.fat)}</td><td>{r.trainCal ? "100" : "—"}</td><td>{show(r.totals.cal, 0)}</td></tr>
-              <tr className="bcs-target"><td>Training day target</td><td></td><td>{show(r.trainMacros.carbs)}</td><td>{show(r.trainMacros.protein)}</td><td>{show(r.trainMacros.fat)}</td><td></td><td></td></tr>
+              <tr className="bcs-total"><td>Totals</td><td></td><td>{mealsReady ? show(r.totals.cho) : "—"}</td><td>{mealsReady ? show(r.totals.pro) : "—"}</td><td>{mealsReady ? show(r.totals.fat) : "—"}</td><td>{mealsReady && r.totals.cal ? "100" : "—"}</td><td>{mealsReady ? show(r.totals.cal, 0) : "—"}</td></tr>
+              <tr className="bcs-target"><td>Training day target</td><td></td><td>{mealsReady ? show(r.trainMacros.carbs) : "—"}</td><td>{mealsReady ? show(r.trainMacros.protein) : "—"}</td><td>{mealsReady ? show(r.trainMacros.fat) : "—"}</td><td></td><td>{r.auto && autoReady ? show(r.trainCal, 0) : ""}</td></tr>
             </tbody>
           </table>
         </div>
@@ -240,11 +338,22 @@
           {[["Training day macros (with shake)", "t", r.trainMacros, r.trainCal], ["Non-training day macros (no shake)", "n", r.nonMacros, r.nonTrainCal]].map(([title, p, m, cal]) => (
             <section key={p}>
               <h3>{title}</h3>
-              {row("Carbs share", num(`${p}Carb`), `= ${show(m.carbs)} g`)}
-              {row("Protein share", num(`${p}Pro`), `= ${show(m.protein)} g`)}
-              {row("Fat share", num(`${p}Fat`), `= ${show(m.fat)} g`)}
-              {out("Shares add up to", show(m.total, 2), Math.abs(m.total - 1) > 0.001 ? "should be 1.00" : "")}
-              {out("Calories", show(cal, 0), "cal")}
+              {r.auto ? (
+                <React.Fragment>
+                  {out("Carbs", autoReady ? show(m.carbs, 0) : "—", autoReady ? `g · ${show(m.shares.carbs * 100, 0)}%` : "g")}
+                  {out("Protein", autoReady ? show(m.protein, 0) : "—", autoReady ? `g · ${show(m.shares.protein * 100, 0)}%` : "g")}
+                  {out("Fat", autoReady ? show(m.fat, 0) : "—", autoReady ? `g · ${show(m.shares.fat * 100, 0)}%` : "g")}
+                  {out("Calories", autoReady ? show(cal, 0) : "—", "cal")}
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  {row("Carbs share", num(`${p}Carb`), `= ${show(m.carbs)} g`)}
+                  {row("Protein share", num(`${p}Pro`), `= ${show(m.protein)} g`)}
+                  {row("Fat share", num(`${p}Fat`), `= ${show(m.fat)} g`)}
+                  {out("Shares add up to", show(m.total, 2), Math.abs(m.total - 1) > 0.001 ? "should be 1.00" : "")}
+                  {out("Calories", show(cal, 0), "cal")}
+                </React.Fragment>
+              )}
             </section>
           ))}
         </div>
