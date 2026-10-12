@@ -956,6 +956,7 @@ const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`,
 // Brings a program saved in the older single sets / reps / load format up to set groups (see ProgramRx in periodization.js).
 const normalizeProgramWeeks = (weeks) => (weeks || []).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => window.ProgramRx.normalize(e)) })) }));
 const DEFAULT_DAYS = 1; // a new program starts with one day; more are added with "+ Add day"
+const MAX_DAYS = 7; // a week holds at most seven days
 const newSession = (n) => ({ name: `Day ${n}`, exercises: [newExercise()] });
 const newWeek = (n) => ({ name: `Week ${n}`, sessions: Array.from({ length: DEFAULT_DAYS }, (_, i) => newSession(i + 1)) });
 // A week added to a program starts as a copy of the week before it: same days, exercises and supersets.
@@ -1496,6 +1497,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   const [dayOver, setDayOver] = useState(null); // "week|day" being hovered while dragging
   const moveDay = (fromW, fromS, toW, toS) => {
     if (fromW === toW && fromS === toS) return;
+    if (fromW !== toW && draft.weeks[toW].sessions.length >= MAX_DAYS) { setClipNote(`${draft.weeks[toW].name || "That week"} already has ${MAX_DAYS} days, so the day was not moved there.`); return; }
     edit((d) => {
       const [day] = d.weeks[fromW].sessions.splice(fromS, 1);
       d.weeks[toW].sessions.splice(toS, 0, day);
@@ -1749,7 +1751,8 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                 </div>
               );
             })}
-            <button className="program-add-day" onClick={() => edit((d) => { d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>
+            {/* a week holds at most seven days */}
+            {week.sessions.length < MAX_DAYS && <button className="program-add-day" onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < MAX_DAYS) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>}
           </div>
         </div>
       ))}
