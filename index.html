@@ -4051,6 +4051,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <input className="inline-select" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={{ maxWidth: 160 }} />
             <input className="inline-select" value={jersey} onChange={(e) => setJersey(e.target.value)} placeholder="Jersey #" style={{ maxWidth: 80 }} />
+            <StatusSelect athlete={athlete} onChanged={onDataChange} />
           </div>
         </td>
         <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
@@ -4061,7 +4062,6 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
         <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
         <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
-        <td><StatusSelect athlete={athlete} onChanged={onDataChange} /></td>
         <td>
           <button className="btn-link" style={{ marginRight: 10 }} onClick={saveEdit}>Save</button>
           <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditing(false); }}>Cancel</button>
@@ -4079,6 +4079,8 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
         {/* edit sits at the left of the row, ahead of the name */}
         <button className="row-edit" onClick={startEdit} title={`Edit ${athlete.name}`} aria-label={`Edit ${athlete.name}`}>&#9998;</button>
         <Avatar athlete={athlete} />{displayName(athlete)}
+        {/* click to switch between active and inactive */}
+        <span className="row-status"><StatusBadge athlete={athlete} onChanged={onDataChange} /></span>
       </td>
       <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
@@ -4088,7 +4090,6 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
-      <td onClick={(e) => e.stopPropagation()}><StatusBadge athlete={athlete} onChanged={onDataChange} /></td>
       <td onClick={(e) => e.stopPropagation()}>
         <MergeControl athlete={athlete} onChanged={onDataChange} />
         <button className="btn-link" style={{ color: "var(--danger)" }} onClick={handleDelete}>Remove</button>
@@ -4416,7 +4417,8 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                 <th title="Latest force-plate test vs. the closest one from about a week earlier. Click to jump to Performance Metrics.">This Week</th>
                 <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
                 <th title="Red: no assessment on file. Yellow: latest one is 3+ weeks old. Green: current. Click to jump to it.">Assessment</th>
-                {ROSTER_COLUMNS.slice(2).map((col) => (
+                {/* no Roster column: active or inactive is the badge beside each name */}
+                {ROSTER_COLUMNS.slice(2).filter((col) => col.key !== "roster").map((col) => (
                   <SortableHeader
                     key={col.key}
                     column={locationFilter === CUBS_LOCATION_LABEL && col.key === "location" ? { ...col, label: "Location" } : col}

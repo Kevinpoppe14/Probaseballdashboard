@@ -3226,3 +3226,4 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* the Active / Inactive badge is a button: clicking it flips the player's status */
 .badge.status-toggle { border: 1px solid transparent; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 .badge.status-toggle:hover { border-color: currentColor; filter: brightness(1.15); }
+.row-status { margin-left: 8px; vertical-align: middle; }
