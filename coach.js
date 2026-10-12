@@ -54,7 +54,10 @@
     loadDone();
     $("search").value = "";
     $("results").hidden = true;
-    if (locFilter) search(); // picking through a location: keep its list open for the next one
+    // picking through a location on a wide screen: keep its list open for the next one. On a phone the list
+    // covers the program, so it closes there; tapping the search box brings it back.
+    if (window.matchMedia("(max-width: 780px)").matches) $("search").blur();
+    else if (locFilter) search();
     if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
     if (speedOpen) { if (!active) active = id; remember(); openSpeed(); return; } // adding while on the speed session adds them to its list
     show(id);
@@ -843,6 +846,7 @@
   $("loc").addEventListener("change", (e) => { locFilter = e.target.value; try { localStorage.setItem(locKey(), locFilter); } catch (ex) { /* private window */ } $("search").value = ""; if (locFilter) $("search").focus(); search(); });
   $("search").addEventListener("input", search);
   $("search").addEventListener("focus", search);
+  $("search").addEventListener("click", search);
   $("search").addEventListener("keydown", (e) => {
     if (e.key === "Escape") { $("results").hidden = true; e.target.blur(); }
     if (e.key === "Enter") { const first = $("results").querySelector("button.result"); if (first) first.click(); }
