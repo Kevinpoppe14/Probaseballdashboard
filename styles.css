@@ -3176,3 +3176,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-editor .program-day-actions { flex-direction: column; align-items: flex-start; gap: 6px; }
 .program-add-to-block { display: block; margin: 6px 0 12px; }
 .program-add-notes { display: inline-block; margin-top: 6px; font-size: 12px; }
+/* Program builder: dragging a day by its grip to reorder */
+.program-day-grip { flex: 0 0 auto; margin-right: 6px; padding: 0 2px; font-size: 16px; line-height: 1; color: rgba(255, 255, 255, 0.8); cursor: grab; user-select: none; }
+.program-day-grip:active { cursor: grabbing; }
+.program-editor .program-day.day-drop-over { outline: 3px dashed var(--text); outline-offset: 2px; }

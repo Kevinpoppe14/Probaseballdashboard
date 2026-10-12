@@ -1491,6 +1491,20 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
     setTicks(new Set());
     setClipNote(`Pasted ${clip.exercises.length} exercise${clip.exercises.length === 1 ? "" : "s"} into ${targets.length} day${targets.length === 1 ? "" : "s"}. Press Ctrl+V on another ticked day to paste again.`);
   };
+  // ---- moving a day: drag it by the grip in its header onto another day, and it takes that day's place -------
+  const dayDrag = React.useRef(null); // { wi, si } of the day being dragged
+  const [dayOver, setDayOver] = useState(null); // "week|day" being hovered while dragging
+  const moveDay = (fromW, fromS, toW, toS) => {
+    if (fromW === toW && fromS === toS) return;
+    edit((d) => {
+      const [day] = d.weeks[fromW].sessions.splice(fromS, 1);
+      d.weeks[toW].sessions.splice(toS, 0, day);
+      if (!d.weeks[fromW].sessions.length) d.weeks[fromW].sessions.push(newSession(1)); // a week always keeps one day
+      // days still called "Day 3" and the like are renumbered to match where they now sit; named days keep their names
+      [...new Set([fromW, toW])].forEach((w) => d.weeks[w].sessions.forEach((s, i) => { if (/^Day \d+$/.test((s.name || "").trim())) s.name = `Day ${i + 1}`; }));
+    });
+    setTicks(new Set()); // ticks are by position, which has just changed
+  };
   // Keyboard: Ctrl+Z / Ctrl+Y anywhere in the builder; Ctrl+C / Ctrl+V for ticked days and blocks, except while
   // typing in a box or with text highlighted, where they copy and paste text as usual (Cmd on a Mac).
   // The shortcuts only act when the builder is where the coach is working: keys pressed inside it are handled
@@ -1598,10 +1612,28 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
               const blockLetters = { last: lastLetter, next: lastLetter ? String.fromCharCode(lastLetter.charCodeAt(lastLetter.length - 1) + 1) : "A" };
               const setEx = (ei, key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei][key] = v; });
               return (
-                <div className={`program-day ${focusSet && focusSet.wi === wi && focusSet.si !== si ? "day-dimmed" : ""}`} key={si}>
+                <div
+                  className={`program-day ${focusSet && focusSet.wi === wi && focusSet.si !== si ? "day-dimmed" : ""} ${dayOver === `${wi}|${si}` ? "day-drop-over" : ""}`}
+                  key={si}
+                  onDragOver={(e) => { if (dayDrag.current) { e.preventDefault(); if (dayOver !== `${wi}|${si}`) setDayOver(`${wi}|${si}`); } }}
+                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDayOver(null); }}
+                  onDrop={(e) => { if (!dayDrag.current) return; e.preventDefault(); const from = dayDrag.current; dayDrag.current = null; setDayOver(null); moveDay(from.wi, from.si, wi, si); }}
+                >
                   <div className="program-session-head">
+                    {/* drag this grip to put the day somewhere else in the week (or in another week) */}
+                    <span
+                      className="program-day-grip"
+                      draggable
+                      title="Drag to move this day"
+                      aria-hidden="true"
+                      onDragStart={(e) => { dayDrag.current = { wi, si }; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", session.name || ""); const card = e.currentTarget.closest(".program-day"); if (card && e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(card, 24, 18); }}
+                      onDragEnd={() => { dayDrag.current = null; setDayOver(null); }}
+                    >⠿</span>
                     <input type="checkbox" className="program-tick" title="Tick this whole day: to copy it (Ctrl+C), or as the day to paste into (Ctrl+V)" aria-label={`Select ${session.name || `Day ${si + 1}`}`} checked={dayTicked(wi, si)} onChange={() => toggleDay(wi, si)} />
                     {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
+                    {/* the same move without dragging, for a tablet: one place earlier or later in the week */}
+                    <button className="btn-link" title="Move this day earlier" aria-label="Move this day earlier" disabled={si === 0} onClick={() => moveDay(wi, si, wi, si - 1)}>‹</button>
+                    <button className="btn-link" title="Move this day later" aria-label="Move this day later" disabled={si === week.sessions.length - 1} onClick={() => moveDay(wi, si, wi, si + 1)}>›</button>
                     <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
                   </div>
                   <textarea
