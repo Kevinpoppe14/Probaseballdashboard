@@ -1337,6 +1337,47 @@ function swapInSuperset(exercises, index, dir) {
 }
 
 // Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
+// Tags on a program ("Pitchers", "In-season", "Hypertrophy"…), for sorting the Programs list. Shown as chips
+// with a "+ Add tags" link, both on a program's card and in the builder. Several can be typed at once with
+// commas, and tags already used on other programs are offered while typing so the spelling stays the same.
+function ProgramTags({ tags, all, onChange }) {
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState("");
+  const list = tags || [];
+  const listId = useMemo(() => `program-tags-${Math.random().toString(36).slice(2, 8)}`, []);
+  const add = () => {
+    const typed = text.split(",").map((t) => t.trim()).filter(Boolean);
+    const fresh = [];
+    typed.forEach((t) => {
+      const known = (all || []).find((a) => a.toLowerCase() === t.toLowerCase()) || t;
+      if (![...list, ...fresh].some((x) => x.toLowerCase() === known.toLowerCase())) fresh.push(known);
+    });
+    if (fresh.length) onChange([...list, ...fresh]);
+    setText("");
+    setAdding(false);
+  };
+  return (
+    <div className="program-tags">
+      {list.map((t) => (
+        <span className="program-tag" key={t}>{t}<button title={`Remove the tag ${t}`} aria-label={`Remove the tag ${t}`} onClick={() => onChange(list.filter((x) => x !== t))}>×</button></span>
+      ))}
+      {adding ? (
+        <React.Fragment>
+          <input
+            className="program-tag-input" autoFocus list={listId} value={text} placeholder="Tag, or several with commas"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } else if (e.key === "Escape") { setText(""); setAdding(false); } }}
+            onBlur={add}
+          />
+          <datalist id={listId}>{(all || []).filter((a) => !list.includes(a)).map((a) => <option key={a} value={a} />)}</datalist>
+        </React.Fragment>
+      ) : (
+        <button className="btn-link program-add-tags no-print" onClick={() => setAdding(true)}>+ Add tags</button>
+      )}
+    </div>
+  );
+}
+
 function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   // ---- undo and redo ---------------------------------------------------------------------------------
@@ -1401,14 +1442,14 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
 
   const save = () => {
     if (!canSave) return;
-    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [] };
+    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [], tags: draft.tags || [] };
     if (initial && initial.id) rec.id = initial.id;
     onSave(rec);
   };
   // saves what is on screen, then goes straight to the assign screen (athletes or a group)
   const saveAndAssign = () => {
     if (!canSave) return;
-    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [] };
+    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [], tags: draft.tags || [] };
     if (initial && initial.id) rec.id = initial.id;
     onSaveAndAssign(rec);
   };
@@ -1563,6 +1604,9 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
           <textarea rows={2} value={draft.description || ""} onChange={(e) => edit((d) => { d.description = e.target.value; })} placeholder="Goal, who it's for, how it fits in the plan" />
         </label>
         {/* suggested next phase(s): only ever offered as a suggestion when assigning or building, never applied automatically */}
+        <div className="facility-field wide"><span>Tags</span>
+          <ProgramTags tags={draft.tags} all={[...new Set(window.AthleteStore.allPrograms().flatMap((p) => p.tags || []))].sort((a, b) => a.localeCompare(b))} onChange={(t) => edit((d) => { d.tags = t; })} />
+        </div>
         <div className="facility-field wide"><span>Suggested next phase (optional, a suggestion only)</span>
           <div className="program-next">
             {(draft.nextProgramIds || []).map((id) => {
@@ -2128,7 +2172,7 @@ function ProgramsPage({ nav, setNav }) {
   const editing = nav.editingId === "new" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
   // a new program started from an existing one: a copy of it with its own exercise ids, saved as a separate program
   const copySource = nav.editingId === "new" && nav.copyFromId ? programs.find((p) => p.id === nav.copyFromId) : null;
-  const copyStart = copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
+  const copyStart = copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], tags: [...(copySource.tags || [])], weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
   const [newChoice, setNewChoice] = useState(null); // null, "ask" (the two choices showing) or "copy" (picking a program)
   const [copyQuery, setCopyQuery] = useState("");
   const assigning = (nav.assigningId && programs.find((p) => p.id === nav.assigningId)) || null;
@@ -2145,15 +2189,18 @@ function ProgramsPage({ nav, setNav }) {
   const subfolders = folders.filter((f) => parentOf(f) === folder);
   // Search: by program name or coach, and a coach picker. While either is in use the list covers every folder.
   const [query, setQuery] = useState("");
+  const [tag, setTag] = useState("");
+  const allTags = [...new Set(programs.flatMap((p) => p.tags || []))].sort((a, b) => a.localeCompare(b));
   const [coach, setCoach] = useState("");
   const coachName = (email) => USER_DISPLAY_NAMES[email] || email;
   const coaches = [...new Set(programs.map((p) => p.createdBy).filter(Boolean))].sort((a, b) => coachName(a).localeCompare(coachName(b)));
   const q = query.trim().toLowerCase();
-  const searching = !!q || !!coach;
+  const searching = !!q || !!coach || !!tag;
   const here = searching
     ? programs.filter((p) =>
         (!coach || (coach === "__none__" ? !p.createdBy : p.createdBy === coach)) &&
-        (!q || [p.name, p.createdBy, p.createdBy && coachName(p.createdBy)].some((v) => (v || "").toLowerCase().includes(q))))
+        (!tag || (p.tags || []).includes(tag)) &&
+        (!q || [p.name, p.createdBy, p.createdBy && coachName(p.createdBy), ...(p.tags || [])].some((v) => (v || "").toLowerCase().includes(q))))
     : programs.filter((p) => (p.folder || "") === folder);
   const countIn = (f) => programs.filter((p) => inFolder(p.folder || "", f)).length;
   const cleanName = (raw) => (raw || "").replace(/\//g, " ").trim();
@@ -2343,7 +2390,13 @@ function ProgramsPage({ nav, setNav }) {
           {coaches.map((c) => <option key={c} value={c}>{coachName(c)}</option>)}
           {programs.some((p) => !p.createdBy) && <option value="__none__">No coach recorded</option>}
         </select>
-        {searching && <button className="btn-link" onClick={() => { setQuery(""); setCoach(""); }}>Clear</button>}
+        {allTags.length > 0 && (
+          <select value={tag} onChange={(e) => setTag(e.target.value)} title="Show programs with one tag">
+            <option value="">All tags</option>
+            {allTags.map((t) => <option key={t} value={t}>{t} ({programs.filter((p) => (p.tags || []).includes(t)).length})</option>)}
+          </select>
+        )}
+        {searching && <button className="btn-link" onClick={() => { setQuery(""); setCoach(""); setTag(""); }}>Clear</button>}
       </div>
       {searching && <div className="facility-note" style={{ marginTop: 0, marginBottom: 10 }}>{here.length} program{here.length === 1 ? "" : "s"} found across all folders.</div>}
       {!searching && subfolders.length > 0 && (
@@ -2409,6 +2462,7 @@ function ProgramsPage({ nav, setNav }) {
                 <button className="program-name-link" title="Open this program" onClick={() => setEditing(p)}>{p.name}</button>
                 <span className="facility-used">{c.weeks} wk · {c.sessions} days · {c.exercises} exercises</span>
               </div>
+              <ProgramTags tags={p.tags} all={allTags} onChange={(t) => { S.saveProgram({ ...p, tags: t }); bump(); }} />
               {searching && <div className="program-created">In {p.folder ? p.folder.replace(/\//g, " › ") : "All programs (no folder)"}</div>}
               {p.createdBy && (
                 <div className="program-created">
@@ -3427,7 +3481,7 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
           Team Reports
         </button>
         <button className={`nav-tab ${view === "programs" ? "active" : ""}`} onClick={onGoPrograms}>
-          Programs
+          Programming
         </button>
         {(showFacilities || view === "facilities") && (
           <button className={`nav-tab ${view === "facilities" ? "active" : ""}`} onClick={onGoFacilities}>

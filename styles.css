@@ -3203,3 +3203,10 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
   border-color: #fff; background-color: #fff;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a52a34' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5 5 9l4.5-6'/%3E%3C/svg%3E");
 }
+/* Tags on a program: chips with a small x, and the "+ Add tags" link and its box */
+.program-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 2px; }
+.program-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--dst-red); border-radius: 12px; font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.program-tag button { padding: 0 4px; border: none; background: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
+.program-tag button:hover { color: var(--text); }
+.program-add-tags { font-size: 12px; }
+.program-tags .program-tag-input { height: 28px; min-width: 190px; padding: 0 8px; font-size: 13px; font-weight: 400; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
