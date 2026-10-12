@@ -1097,7 +1097,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
     const ops = [];
     let page = 0;
     chunks.forEach((chunk, ci) => {
-      const leftW = colW * (ncols === 1 ? 0.22 : 0.27);
+      const leftW = colW * (ncols === 1 ? 0.22 : 0.34); // side by side, the names need a bigger share to stay on one line
       const wkW = (colW - leftW) / chunk.length;
       page += 1;
       let col = 0, y = top;
@@ -1109,9 +1109,10 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
         const warmH = warmLines.length ? warmLines.length * lineH + 4 : 0;
         const rows = block.rows.map((r) => {
           pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
-          const nameLines = pdf.splitTextToSize(`${r.label} ${r.first.name.trim().toUpperCase()}`, leftW - 2 * pad);
+          const nameLines = pdf.splitTextToSize(`${r.label} ${r.first.name.trim().toUpperCase()}${r.first.tempo ? `  ${r.first.tempo}` : ""}`, leftW - 2 * pad);
           pdf.setFont("helvetica", "italic");
-          const sub = [r.first.tempo ? `Tempo ${r.first.tempo}` : "", (r.first.rest || "").trim() ? `Rest ${r.first.rest.trim()}` : "", (r.first.notes || "").trim()].filter(Boolean).join(" · ");
+          // tempo follows the name on its line; rest and notes go under it
+          const sub = [(r.first.rest || "").trim() ? `Rest ${r.first.rest.trim()}` : "", (r.first.notes || "").trim()].filter(Boolean).join(" · ");
           const subLines = sub ? pdf.splitTextToSize(sub, leftW - 2 * pad) : [];
           const cells = r.cells.map((e) => {
             if (!e) return null;
@@ -1119,21 +1120,31 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
             const gs = Rx.groups(e).map((g) => ({ reps: Rx.repsText(g), int: Rx.intensityText(e, g) }));
             const inner = wkW - 2 * cellPad;
             const hasInt = gs.some((g) => g.int);
-            const lines = [];
-            let cur = [], x = 0;
-            gs.forEach((g) => {
-              const rw = pdf.getTextWidth(g.reps) + 2.5;
-              // the write-in line is as long as the intensity under it needs, within sensible limits
-              pdf.setFont("helvetica", "bolditalic");
-              const lw = Math.min(Math.max(fs * (gs.length > 1 ? 1.7 : 2.6), g.int ? pdf.getTextWidth(g.int) + 2 : 0), Math.max(fs * 2.2, inner - rw));
-              pdf.setFont("helvetica", "bold");
-              const bw = rw + lw;
-              if (cur.length && x + bw > inner + 0.5) { lines.push(cur); cur = []; x = 0; }
-              cur.push({ reps: g.reps, int: g.int, x, rw, lw });
-              x += bw + sp;
-            });
-            if (cur.length) lines.push(cur);
-            return { lines, lineH: rowH + (hasInt ? pctH : 0) + 1.5 };
+            // Set groups sit side by side with the intensity under each write-in line. If they do not all fit
+            // on one line of the cell, they are stacked instead with the intensity beside the line rather than
+            // under it, which takes about half the height.
+            const flow = (inline) => {
+              const lines = [];
+              let cur = [], x = 0;
+              gs.forEach((g) => {
+                const rw = pdf.getTextWidth(g.reps) + 2.5;
+                pdf.setFont("helvetica", "bolditalic");
+                const iw = g.int ? pdf.getTextWidth(g.int) + 3 : 0;
+                pdf.setFont("helvetica", "bold");
+                const lw = inline
+                  ? Math.max(fs * 1.4, Math.min(fs * 2.2, inner - rw - iw - 1.5))
+                  : Math.min(Math.max(fs * (gs.length > 1 ? 1.7 : 2.6), iw), Math.max(fs * 2.2, inner - rw));
+                const bw = rw + lw + (inline && iw ? iw + 1.5 : 0);
+                if (cur.length && x + bw > inner + 0.5) { lines.push(cur); cur = []; x = 0; }
+                cur.push({ reps: g.reps, int: g.int, x, rw, lw, iw });
+                x += bw + sp;
+              });
+              if (cur.length) lines.push(cur);
+              return lines;
+            };
+            let lines = flow(false), inline = false;
+            if (lines.length > 1) { lines = flow(true); inline = true; }
+            return { lines, inline, lineH: rowH + (hasInt && !inline ? pctH : 0) + 1.5 };
           });
           const h = Math.max(nameLines.length * lineH + subLines.length * lineH, ...cells.map((c) => (c ? c.lines.length * c.lineH : 0)), lineH) + 3;
           return { nameLines, subLines, cells, h, newGroup: r.newGroup };
@@ -1214,7 +1225,14 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
               const lx = cx + b.x + b.rw;
               pdf.setDrawColor(40); pdf.setLineWidth(0.6);
               pdf.line(lx, base + 1, lx + b.lw, base + 1);
-              if (b.int) {
+              if (b.int && c.inline) {
+                // beside the line
+                const ix = lx + b.lw + 1.5;
+                pdf.setFillColor(...C.pct); pdf.rect(ix, base - pctH * 0.82, b.iw, pctH, "F");
+                pdf.setFont("helvetica", "bolditalic"); pdf.setTextColor(0);
+                pdf.text(b.int, ix + b.iw / 2, base, { align: "center" });
+              } else if (b.int) {
+                // under the line
                 pdf.setFillColor(...C.pct); pdf.rect(lx, base + 1.6, b.lw, pctH, "F");
                 pdf.setFont("helvetica", "bolditalic"); pdf.setTextColor(0);
                 pdf.text(b.int, lx + b.lw / 2, base + 1.6 + pctH * 0.78, { align: "center" });
