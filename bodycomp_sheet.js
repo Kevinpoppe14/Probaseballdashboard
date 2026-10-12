@@ -19,6 +19,7 @@
   const SITES = [["chest", "Chest"], ["abdomen", "Abdomen"], ["iliac", "Iliac"], ["subscap", "Subscap"], ["tricep", "Tricep"], ["axillary", "Axillary"], ["thigh", "Thigh"]];
   const GIRTHS = [["gUpperArm", "Upper arm"], ["gForearm", "Max forearm"], ["gThigh", "Mid thigh"], ["gCalf", "Max calf"]];
   const MEALS = ["Breakfast", "Lunch", "Dinner", "Snack 1", "Snack 2", "Post-Workout"];
+  const OVERRIDES = ["oRmr", "oTrainCal", "oNonCal", "oTCarb", "oTPro", "oTFat", "oNCarb", "oNPro", "oNFat", "calAdjust", "goalLeanLb"];
   const blank = () => ({
     date: new Date().toISOString().slice(0, 10), tester: "", sport: "BASEBALL",
     weightLb: "", heightCm: "", age: "", sex: "M",
@@ -26,6 +27,7 @@
     gUpperArm: "", gForearm: "", gThigh: "", gCalf: "",
     sTriceps: "", sBiceps: "", sForearm1: "", sForearm2: "", sThigh: "", sCalf: "",
     goalLeanLb: "", goalMuscleLb: "", goalFatPct: "", auto: true, calAdjust: "",
+    oRmr: "", oTrainCal: "", oNonCal: "", oTCarb: "", oTPro: "", oTFat: "", oNCarb: "", oNPro: "", oNFat: "", // figures typed over the automatic ones
     trainMin: "60", sportMin: "30", proteinGkg: "2.2", carbGkg: "3.4",
     meals: MEALS.map(() => ({ qty: "1", cho: "", pro: "", fat: "" })),
     tCarb: "0.5", tPro: "0.3", tFat: "0.2", nCarb: "0.45", nPro: "0.35", nFat: "0.2",
@@ -114,10 +116,17 @@
     const dstEE = n(f.trainMin) * massKg * 0.075; // Q16
     const sportEE = factor ? massKg * n(f.sportMin) * factor : 0; // Q17
     const dit = trainCal * 0.1; // Q20
-    const rmr = age < 18 ? 17.5 * cur.leanKg + 651 : age < 30 ? 15.3 * cur.leanKg + 679 : 11.6 * cur.leanKg + 879; // Q22
+    // Resting metabolic rate: the FAO/WHO equations for body weight, by sex and age band. (The spreadsheet put
+    // lean mass into the male versions of these for everyone, which read low; this is the corrected form.)
+    // A figure typed in by the coach is used instead.
+    const rmrAuto = male
+      ? (age < 18 ? 17.5 * massKg + 651 : age < 30 ? 15.3 * massKg + 679 : age < 60 ? 11.6 * massKg + 879 : 13.5 * massKg + 487)
+      : (age < 18 ? 12.2 * massKg + 746 : age < 30 ? 14.7 * massKg + 496 : age < 60 ? 8.7 * massKg + 829 : 10.5 * massKg + 596);
+    const rmr = has(f.oRmr) ? n(f.oRmr) : rmrAuto;
     const split = (cal, c, p, fat) => ({ carbs: (cal * n(c)) / 4, protein: (cal * n(p)) / 4, fat: (cal * n(fat)) / 9, total: n(c) + n(p) + n(fat) });
 
-    // ---- automatic targets and meal plan (see AUTO above) ----
+    // ---- automatic targets and meal plan (see AUTO above). Every figure worked out here can be typed over:
+    // the "o…" fields hold what the coach typed, and are used in place of the automatic figure when filled.
     if (isAuto(f)) {
       // calories: expenditure, moved up for a goal of gaining weight and down for one of losing it
       const direction = goalSet ? (goal.weight - weight > 1 ? 1 : goal.weight - weight < -1 ? -1 : 0) : 0;
@@ -126,31 +135,40 @@
       const k = 1 + adjust / 100;
       // thermogenesis is a tenth of what is eaten, and what is eaten is k times expenditure, so expenditure is
       // (resting + activity) / (1 - 0.1k)
-      const teeTrain = (rmr + dstEE + sportEE) / (1 - 0.1 * k), teeRest = rmr / (1 - 0.1 * k);
-      const calTrain = k * teeTrain, calRest = k * teeRest;
+      const autoTrain = (k * (rmr + dstEE + sportEE)) / (1 - 0.1 * k), autoRest = (k * rmr) / (1 - 0.1 * k);
+      const calTrain = has(f.oTrainCal) ? n(f.oTrainCal) : autoTrain, calRest = has(f.oNonCal) ? n(f.oNonCal) : autoRest;
+      const ditTrain = 0.1 * calTrain;
       const proteinG = n(f.proteinGkg) * massKg;
       const fatShare = has(f.tFat) ? n(f.tFat) : AUTO.fatShare;
-      const macros = (cal) => {
-        const fat = (cal * fatShare) / 9, carbs = Math.max(0, (cal - proteinG * 4 - fat * 9) / 4);
-        return { carbs, protein: proteinG, fat, total: 1, shares: cal ? { carbs: (carbs * 4) / cal, protein: (proteinG * 4) / cal, fat: fatShare } : { carbs: 0, protein: 0, fat: 0 } };
+      const macros = (cal, p) => {
+        const auto = { protein: proteinG, fat: (cal * fatShare) / 9 };
+        const protein = has(f[`o${p}Pro`]) ? n(f[`o${p}Pro`]) : auto.protein;
+        const fat = has(f[`o${p}Fat`]) ? n(f[`o${p}Fat`]) : auto.fat;
+        auto.carbs = Math.max(0, (cal - protein * 4 - fat * 9) / 4); // carbohydrate takes up whatever the other two leave
+        const carbs = has(f[`o${p}Carb`]) ? n(f[`o${p}Carb`]) : auto.carbs;
+        const kcal = carbs * 4 + protein * 4 + fat * 9;
+        return { carbs, protein, fat, auto, kcal, total: 1, shares: kcal ? { carbs: (carbs * 4) / kcal, protein: (protein * 4) / kcal, fat: (fat * 9) / kcal } : { carbs: 0, protein: 0, fat: 0 } };
       };
-      const trainMacros = macros(calTrain), nonMacros = macros(calRest);
-      const plan = AUTO.split.map((s) => ({ qty: "1", cho: String(Math.round(trainMacros.carbs * s.cho)), pro: String(Math.round(trainMacros.protein * s.pro)), fat: String(Math.round(trainMacros.fat * s.fat)) }));
-      const planCal = plan.map((m) => ({ cal: n(m.cho) * 4 + n(m.pro) * 4 + n(m.fat) * 9 }));
+      const trainMacros = macros(calTrain, "T"), nonMacros = macros(calRest, "N");
+      // the meal plan: the automatic spread, with any cell the coach typed used instead
+      const autoPlan = AUTO.split.map((s) => ({ qty: "1", cho: String(Math.round(trainMacros.carbs * s.cho)), pro: String(Math.round(trainMacros.protein * s.pro)), fat: String(Math.round(trainMacros.fat * s.fat)) }));
+      const typed = f.meals || [];
+      const plan = autoPlan.map((m, i) => { const t = typed[i] || {}; return { qty: has(t.qty) ? t.qty : "1", cho: has(t.cho) ? t.cho : m.cho, pro: has(t.pro) ? t.pro : m.pro, fat: has(t.fat) ? t.fat : m.fat }; });
+      const planCal = plan.map((m) => ({ cal: (n(m.cho) * 4 + n(m.pro) * 4 + n(m.fat) * 9) * n(m.qty) }));
       const sum = (k2) => plan.reduce((s, m) => s + n(m[k2]), 0);
       const planTotal = planCal.reduce((s, m) => s + m.cal, 0);
       return {
-        auto: true, adjust, autoAdjust, direction, mealPlan: plan,
+        auto: true, adjust, autoAdjust, direction, mealPlan: plan, autoPlan, autoTrain, autoRest, rmrAuto,
         sum7, maleDensity, femaleDensity, density, male, CDU, CDF, CDT, CDC, girthsIn, cur, goal, goalSet, change, leanFromMuscle,
         meals: planCal, totals: { cho: sum("cho"), pro: sum("pro"), fat: sum("fat"), cal: planTotal },
         trainCal: calTrain, nonTrainCal: calRest, calPerLbTrain: weight ? calTrain / weight : null, calPerLbNon: weight ? calRest / weight : null,
-        dstEE, sportEE, sportKnown: !!factor, activityEE: dstEE + sportEE, dit: 0.1 * calTrain, rmr, tee: teeTrain, teeRest,
+        dstEE, sportEE, sportKnown: !!factor, activityEE: dstEE + sportEE, dit: ditTrain, rmr, tee: rmr + dstEE + sportEE + ditTrain,
         proteinGlb: n(f.proteinGkg) / 2.2, carbGlb: massKg ? trainMacros.carbs / massKg / 2.2 : 0, carbGkg: massKg ? trainMacros.carbs / massKg : 0, proteinG,
         trainMacros, nonMacros,
       };
     }
     return {
-      leanFromMuscle,
+      leanFromMuscle, rmrAuto,
       sum7, maleDensity, femaleDensity, density, male, CDU, CDF, CDT, CDC, girthsIn, cur, goal, goalSet, change,
       meals, totals: { cho: tot("cho"), pro: tot("pro"), fat: tot("fat"), cal: trainCal },
       trainCal, nonTrainCal, calPerLbTrain: weight ? trainCal / weight : null, calPerLbNon: weight ? nonTrainCal / weight : null,
@@ -174,6 +192,7 @@
     // the automatic targets need the body composition and the age (for the resting rate) before they mean anything
     const autoReady = ready && has(f.age);
     const mealsReady = !r.auto || autoReady;
+    const overridden = OVERRIDES.some((k) => has(f[k])) || f.meals.some((m) => has(m.cho) || has(m.pro) || has(m.fat) || (has(m.qty) && m.qty !== "1"));
     // Enter moves to the next box down the sheet, like a spreadsheet, instead of doing nothing
     const nextOnEnter = (e) => {
       if (e.key !== "Enter" || e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON" || e.target.type === "checkbox") return;
@@ -277,7 +296,7 @@
             {out("Sport energy expenditure", ready ? (r.sportKnown ? show(r.sportEE, 0) : "0 (sport not listed)") : "—", "cal")}
             {out("Total physical activity", ready ? show(r.activityEE, 0) : "—", "cal")}
             {out("Dietary induced thermogenesis", r.auto && !(ready && has(f.age)) ? "—" : show(r.dit, 0), "cal")}
-            {out("Estimated resting metabolic rate", ready && has(f.age) ? show(r.rmr, 0) : "—", "cal")}
+            {row("Estimated resting metabolic rate", num("oRmr", { placeholder: ready && has(f.age) ? String(Math.round(r.rmrAuto)) : "" }), "cal")}
             {out("Total estimated energy expenditure", ready && has(f.age) ? show(r.tee, 0) : "—", "cal")}
             <h4>Recommendations</h4>
             {row("Protein intake", num("proteinGkg"), "g/kg")}
@@ -297,9 +316,13 @@
               </React.Fragment>
             )}
             <h4>Assigned intake</h4>
-            {out("Training day calories", !r.auto || autoReady ? show(r.trainCal, 0) : "—", "cal")}
+            {r.auto
+              ? row("Training day calories", num("oTrainCal", { placeholder: autoReady ? String(Math.round(r.autoTrain)) : "" }), "cal")
+              : out("Training day calories", show(r.trainCal, 0), "cal")}
             {out("Training day", !r.auto || autoReady ? show(r.calPerLbTrain, 1) : "—", "cal/lb")}
-            {out("Non-training day calories", !r.auto || autoReady ? show(r.nonTrainCal, 0) : "—", "cal")}
+            {r.auto
+              ? row("Non-training day calories", num("oNonCal", { placeholder: autoReady ? String(Math.round(r.autoRest)) : "" }), "cal")
+              : out("Non-training day calories", show(r.nonTrainCal, 0), "cal")}
             {out("Non-training day", !r.auto || autoReady ? show(r.calPerLbNon, 1) : "—", "cal/lb")}
           </section>
         </div>
@@ -310,6 +333,12 @@
           Work out the calories, macros and meal plan automatically from the energy expenditure and the goal
         </label>
         {r.auto && <p className="bcs-hint">Protein is spread evenly through the day with a full serving after training; carbohydrate is weighted to breakfast, lunch and the post-workout shake; fat is kept low in the shake. Untick the box to type the meals yourself, starting from these figures.</p>}
+        {r.auto && (
+          <p className="bcs-hint">
+            The grey figures in the boxes are worked out for you. Type in any box to use your own figure instead, and clear the box to go back to the automatic one.
+            {overridden && <React.Fragment> <button className="btn-link" onClick={() => setF((p) => ({ ...p, ...Object.fromEntries(OVERRIDES.map((k) => [k, ""])), meals: MEALS.map(() => ({ qty: "1", cho: "", pro: "", fat: "" })) }))}>Clear everything I typed over</button></React.Fragment>}
+          </p>
+        )}
         <div className="bcs-scroll">
           <table className="bcs-meals">
             <thead><tr><th>Meal</th><th>Qty</th><th>Carbs (g)</th><th>Protein (g)</th><th>Fat (g)</th><th>Cal density %</th><th>Cal</th></tr></thead>
@@ -320,7 +349,7 @@
                   {["qty", "cho", "pro", "fat"].map((k) => (
                     <td key={k}>
                       {r.auto
-                        ? <span className="bcs-auto-cell">{autoReady ? r.mealPlan[i][k] : "—"}</span>
+                        ? <input type="number" step="any" inputMode="decimal" value={f.meals[i][k] === "1" && k === "qty" ? "" : f.meals[i][k]} placeholder={k === "qty" ? "1" : autoReady ? r.autoPlan[i][k] : ""} onChange={(e) => setMeal(i, k, e.target.value)} aria-label={`${name} ${k}`} />
                         : <input type="number" step="any" inputMode="decimal" value={f.meals[i][k]} onChange={(e) => setMeal(i, k, e.target.value)} aria-label={`${name} ${k}`} />}
                     </td>
                   ))}
@@ -340,9 +369,9 @@
               <h3>{title}</h3>
               {r.auto ? (
                 <React.Fragment>
-                  {out("Carbs", autoReady ? show(m.carbs, 0) : "—", autoReady ? `g · ${show(m.shares.carbs * 100, 0)}%` : "g")}
-                  {out("Protein", autoReady ? show(m.protein, 0) : "—", autoReady ? `g · ${show(m.shares.protein * 100, 0)}%` : "g")}
-                  {out("Fat", autoReady ? show(m.fat, 0) : "—", autoReady ? `g · ${show(m.shares.fat * 100, 0)}%` : "g")}
+                  {row("Carbs", num(`o${p.toUpperCase()}Carb`, { placeholder: autoReady ? String(Math.round(m.auto.carbs)) : "" }), autoReady ? `g · ${show(m.shares.carbs * 100, 0)}%` : "g")}
+                  {row("Protein", num(`o${p.toUpperCase()}Pro`, { placeholder: autoReady ? String(Math.round(m.auto.protein)) : "" }), autoReady ? `g · ${show(m.shares.protein * 100, 0)}%` : "g")}
+                  {row("Fat", num(`o${p.toUpperCase()}Fat`, { placeholder: autoReady ? String(Math.round(m.auto.fat)) : "" }), autoReady ? `g · ${show(m.shares.fat * 100, 0)}%` : "g")}
                   {out("Calories", autoReady ? show(cal, 0) : "—", "cal")}
                 </React.Fragment>
               ) : (

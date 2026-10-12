@@ -3254,3 +3254,4 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .bcs-form .tl-actions { margin-top: 16px; }
 .bcs-auto-cell { display: inline-block; min-width: 60px; padding: 5px 6px; font-variant-numeric: tabular-nums; }
 .bcs-auto { margin: 4px 0 6px; font-size: 13px; }
+.bcs-form input::placeholder { color: var(--text-dim); opacity: 0.85; }
