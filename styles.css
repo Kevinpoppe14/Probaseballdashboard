@@ -3180,3 +3180,6 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-day-grip { flex: 0 0 auto; margin-right: 6px; padding: 0 2px; font-size: 16px; line-height: 1; color: rgba(255, 255, 255, 0.8); cursor: grab; user-select: none; }
 .program-day-grip:active { cursor: grabbing; }
 .program-editor .program-day.day-drop-over { outline: 3px dashed var(--text); outline-offset: 2px; }
+/* "+ Add week" matches "+ Add day": a dashed outlined box, here running the full width under the last week */
+.program-add-week { display: block; width: 100%; box-sizing: border-box; margin: 4px 0 16px; padding: 14px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; }
+.program-add-week:hover { color: var(--text); border-color: var(--text-dim); }

@@ -1753,7 +1753,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
           </div>
         </div>
       ))}
-      <button className="btn-link" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
+      <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
       <div className="facility-form-actions">
         <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
