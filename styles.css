@@ -3183,3 +3183,6 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* "+ Add week" matches "+ Add day": a dashed outlined box, here running the full width under the last week */
 .program-add-week { display: block; width: 100%; box-sizing: border-box; margin: 4px 0 16px; padding: 14px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; }
 .program-add-week:hover { color: var(--text); border-color: var(--text-dim); }
+/* "+ Add week": same full-width box, now solid red */
+.program-add-week { border: 1px solid var(--dst-red); background: var(--dst-red); color: #fff; font-weight: 700; }
+.program-add-week:hover { color: #fff; border-color: var(--dst-red); filter: brightness(1.12); }
