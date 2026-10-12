@@ -928,7 +928,7 @@ function ExerciseLibrary({ sectionTabs }) {
           <option value="">All tags</option>
           {EXERCISE_EXTRA_TAGS.map((t) => <option key={t} value={t}>{t} ({all.filter((e) => (e.tags || []).includes(t)).length})</option>)}
         </select>
-        <button className="btn" onClick={() => setEditing({})}>+ Add exercise</button>
+        <button className="btn btn-assign" onClick={() => setEditing({})}>+ Add exercise</button>
       </div>
       {shown.length === 0 && <div className="empty-state">{all.length ? "No exercises match." : "No exercises yet. Add one, and any program exercise with the same name will link to it."}</div>}
       <div className="exercise-list">
@@ -1950,9 +1950,14 @@ function ProgramsPage({ nav, setNav }) {
   const folder = nav.folder && folders.includes(nav.folder) ? nav.folder : "";
   // editing: null = list, {} = new program, record = editing that one. assigning: the program being assigned, if any.
   const editing = nav.editingId === "new" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
+  // a new program started from an existing one: a copy of it with its own exercise ids, saved as a separate program
+  const copySource = nav.editingId === "new" && nav.copyFromId ? programs.find((p) => p.id === nav.copyFromId) : null;
+  const copyStart = copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
+  const [newChoice, setNewChoice] = useState(null); // null, "ask" (the two choices showing) or "copy" (picking a program)
+  const [copyQuery, setCopyQuery] = useState("");
   const assigning = (nav.assigningId && programs.find((p) => p.id === nav.assigningId)) || null;
   // Opening a screen adds a step to the Back history; closing one (save, cancel, done) steps back out of it.
-  const setEditing = (x) => (x ? setNav((n) => ({ ...n, editingId: x.id || "new" })) : window.history.back());
+  const setEditing = (x) => (x ? setNav((n) => ({ ...n, editingId: x.id || "new", copyFromId: x.copyFromId || null })) : window.history.back());
   const setAssigning = (p) => (p ? setNav((n) => ({ ...n, assigningId: p.id, assignStart: null })) : window.history.back());
   const setFolder = (f, opts) => setNav((n) => ({ ...n, folder: f }), opts);
   const bump = () => setVersion((v) => v + 1);
@@ -2067,8 +2072,8 @@ function ProgramsPage({ nav, setNav }) {
   if (editing) {
     return (
       <ProgramEditor
-        key={editing.id || "new"}
-        initial={editing.id ? editing : null}
+        key={editing.id || `new-${nav.copyFromId || ""}`}
+        initial={editing.id ? editing : copyStart}
         onSave={save}
         onSaveAndAssign={(rec) => {
           const saved = window.AthleteStore.saveProgram({ ...rec, folder: editing && editing.id ? (editing.folder || "") : folder });
@@ -2125,8 +2130,36 @@ function ProgramsPage({ nav, setNav }) {
         <button className="btn-link" onClick={addFolder}>{folder ? "+ New subfolder" : "+ New folder"}</button>
         {folder && <button className="btn-link" onClick={renameFolder}>Rename folder</button>}
         {folder && <button className="btn-link" onClick={deleteFolder}>Delete folder</button>}
-        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setEditing({})}>+ New program{folder ? ` in ${leafOf(folder)}` : ""}</button>
+        <button className="btn btn-assign" style={{ marginLeft: "auto" }} onClick={() => setNewChoice(newChoice ? null : "ask")}>+ New program{folder ? ` in ${leafOf(folder)}` : ""}</button>
       </div>
+      {/* "+ New program" first asks how to start: a blank program, or a copy of an existing one to change */}
+      {newChoice && (
+        <div className="new-program-choice">
+          <strong>How do you want to start?</strong>
+          <div className="new-program-options">
+            <button className="btn btn-assign" onClick={() => { setNewChoice(null); setEditing({}); }}>Build from scratch</button>
+            <button className={`btn ${newChoice === "copy" ? "btn-assign" : "btn-secondary"}`} onClick={() => setNewChoice("copy")}>Modify an existing program</button>
+            <button className="btn-link" onClick={() => setNewChoice(null)}>Cancel</button>
+          </div>
+          {newChoice === "copy" && (
+            <React.Fragment>
+              <span>Pick the program to start from. You get a copy to change and save as a new program; the original is left as it is.</span>
+              <input className="facility-search" autoFocus value={copyQuery} placeholder="Search programs by name or coach" onChange={(e) => setCopyQuery(e.target.value)} />
+              <div className="new-program-list">
+                {programs
+                  .filter((p) => { const cq = copyQuery.trim().toLowerCase(); return !cq || [p.name, p.createdBy, p.createdBy && coachName(p.createdBy)].some((v) => (v || "").toLowerCase().includes(cq)); })
+                  .map((p) => (
+                    <button key={p.id} onClick={() => { setNewChoice(null); setCopyQuery(""); setEditing({ copyFromId: p.id }); }}>
+                      <b>{p.name}</b>
+                      <small>{(p.weeks || []).length} wk{(p.weeks || []).length === 1 ? "" : "s"}{p.folder ? ` · ${p.folder}` : ""}{p.createdBy ? ` · ${coachName(p.createdBy)}` : ""}</small>
+                    </button>
+                  ))}
+                {programs.length === 0 && <div className="empty-state">No programs saved yet.</div>}
+              </div>
+            </React.Fragment>
+          )}
+        </div>
+      )}
       {/* search by name, and by the coach who wrote the program; both look across every folder */}
       <div className="facility-toolbar program-search">
         <input className="facility-search" value={query} placeholder="Search programs by name or coach" onChange={(e) => setQuery(e.target.value)} />
