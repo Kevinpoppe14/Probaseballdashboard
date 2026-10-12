@@ -1618,6 +1618,10 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                       onFocusCapture={() => pickSet(wi, si, labels[ei])}
                     >
                       <div className="program-ex-top">
+                        {/* ticks the whole block (this exercise and any supersetted under it), for copy and paste */}
+                        {!(ei > 0 && ex.linked) && (
+                          <input type="checkbox" className="program-tick" title={`Tick the whole ${labels[ei].replace(/[^A-Za-z]/g, "")} block: to copy it (Ctrl+C), or to paste into this day (Ctrl+V)`} aria-label={`Select the ${labels[ei].replace(/[^A-Za-z]/g, "")} block`} checked={blockTicked(wi, si, ei)} onChange={() => toggleBlock(wi, si, ei)} />
+                        )}
                         {/* the label is a picker: choose another letter to move this exercise into that superset */}
                         <select
                           className="superset-pick"
@@ -1629,12 +1633,6 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                           {[...new Set(labels.map((l) => l.replace(/\d+\.$/, "")))].filter((l) => l !== labels[ei].replace(/\d+\.$/, "")).map((l) => <option key={l} value={l}>Move to {l}</option>)}
                           <option value="__new__">Its own superset</option>
                         </select>
-                        {!(ei > 0 && ex.linked) && (
-                          <label className="program-tick-block" title={`Tick the whole ${labels[ei].replace(/[^A-Za-z]/g, "")} block: to copy it (Ctrl+C), or to paste into this day (Ctrl+V)`}>
-                            <input type="checkbox" checked={blockTicked(wi, si, ei)} onChange={() => toggleBlock(wi, si, ei)} />
-                            {labels[ei].replace(/[^A-Za-z]/g, "")} block
-                          </label>
-                        )}
                         {/* order within the superset: move this exercise earlier or later (A2 up to A1) */}
                         {(() => {
                           const letter = (i) => (labels[i] || "").replace(/\d+\.$/, "");
