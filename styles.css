@@ -3186,3 +3186,20 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* "+ Add week": same full-width box, now solid red */
 .program-add-week { border: 1px solid var(--dst-red); background: var(--dst-red); color: #fff; font-weight: 700; }
 .program-add-week:hover { color: #fff; border-color: var(--dst-red); filter: brightness(1.12); }
+/* the copy-and-paste tick boxes: smaller, and an outline with no fill until ticked */
+.program-tick {
+  -webkit-appearance: none; appearance: none; width: 13px; height: 13px; margin: 0 6px 0 0; padding: 0; box-sizing: border-box;
+  border: 1.5px solid var(--text-dim); border-radius: 3px; background: transparent no-repeat center / 9px 9px;
+}
+.program-tick:hover { border-color: var(--text); }
+.program-tick:checked {
+  border-color: var(--dst-red); background-color: var(--dst-red);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5 5 9l4.5-6'/%3E%3C/svg%3E");
+}
+.program-tick:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+/* on a day's red header the box is white-outlined, and white with a red tick once ticked */
+.program-session-head .program-tick { border-color: rgba(255, 255, 255, 0.85); }
+.program-session-head .program-tick:checked {
+  border-color: #fff; background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a52a34' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5 5 9l4.5-6'/%3E%3C/svg%3E");
+}
