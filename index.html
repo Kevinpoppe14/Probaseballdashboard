@@ -2130,7 +2130,7 @@ function ProgramsPage({ nav, setNav }) {
         <button className="btn-link" onClick={addFolder}>{folder ? "+ New subfolder" : "+ New folder"}</button>
         {folder && <button className="btn-link" onClick={renameFolder}>Rename folder</button>}
         {folder && <button className="btn-link" onClick={deleteFolder}>Delete folder</button>}
-        <button className="btn btn-assign" style={{ marginLeft: "auto" }} onClick={() => setNewChoice(newChoice ? null : "ask")}>+ New program{folder ? ` in ${leafOf(folder)}` : ""}</button>
+        <button className="btn btn-assign" style={{ marginLeft: "auto" }} onClick={() => setNewChoice(newChoice ? null : "ask")}>{`+ New ${folder ? `${leafOf(folder)} ` : ""}program`.toUpperCase()}</button>
       </div>
       {/* "+ New program" first asks how to start: a blank program, or a copy of an existing one to change */}
       {newChoice && (
