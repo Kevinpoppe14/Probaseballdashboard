@@ -1464,6 +1464,9 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
           <div className="program-days">
             {week.sessions.map((session, si) => {
               const labels = window.exerciseLabels(session.exercises);
+              // the letter of the last block in this day, and the letter a new block would take (for the add buttons)
+              const lastLetter = labels.length ? labels[labels.length - 1].replace(/[^A-Za-z]/g, "") : "";
+              const blockLetters = { last: lastLetter, next: lastLetter ? String.fromCharCode(lastLetter.charCodeAt(lastLetter.length - 1) + 1) : "A" };
               const setEx = (ei, key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei][key] = v; });
               return (
                 <div className={`program-day ${focusSet && focusSet.wi === wi && focusSet.si !== si ? "day-dimmed" : ""}`} key={si}>
@@ -1560,8 +1563,8 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                     </div>
                   ))}
                   <div className="program-day-actions">
-                    <button className="btn-link" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>+ Exercise</button>
-                    <button className="btn-link" title="Adds an exercise linked to the one above (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>+ Superset</button>
+                    <button className="btn btn-small-grey" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>Add {blockLetters.next} Block</button>
+                    {blockLetters.last && <button className="btn btn-small-grey" title="Adds an exercise to the block above, as a superset (A1, A2…)" onClick={() => edit((d) => { const xs = d.weeks[wi].sessions[si].exercises; xs.push({ ...newExercise(), linked: xs.length > 0 }); })}>Add Exercise to {blockLetters.last} Block</button>}
                     <select
                       className="program-copy-day"
                       value=""
