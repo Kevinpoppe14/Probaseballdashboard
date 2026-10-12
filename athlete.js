@@ -589,7 +589,10 @@
     }
 
     const main = el("main");
-    if (!item) main.append(el("div", { class: "empty" }, "Nothing is scheduled for this week."));
+    if (!item) {
+      main.append(el("div", { class: "empty" }, "Nothing is scheduled for this week."));
+      if (coachId && window.parent !== window) window.parent.postMessage({ type: "coach-preview", aid: String(coachId), title: "Nothing is scheduled for this week.", sub: "", warmup: "", rows: [] }, window.location.origin);
+    }
     else {
       main.append(el("p", { class: "program-name" }, `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`));
       const s = sessions[dayIdx];
@@ -597,6 +600,21 @@
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
       const labels = window.exerciseLabels(rows);
+      // Coach Mode shows the whole day as plain text beside this page, so the coach can read it without scrolling
+      if (coachId && window.parent !== window) {
+        window.parent.postMessage({
+          type: "coach-preview", aid: String(coachId),
+          title: `${s && s.name ? s.name : `Day ${dayIdx + 1}`} · ${item.week.name || `Week ${item.weekNo}`}`,
+          sub: item.program.name,
+          warmup: s ? (s.warmup || "").trim() : "",
+          rows: rows.map((e, ei) => ({
+            label: labels[ei] || "", name: e.name.trim(), first: !(ei > 0 && e.linked),
+            rx: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
+            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : ""].filter(Boolean).join(" · "),
+            notes: e.notes || "",
+          })),
+        }, window.location.origin);
+      }
       let group = null;
       rows.forEach((e, ei) => {
         if (!group || !(ei > 0 && e.linked)) { group = el("div", { class: "group" }); main.append(group); } // a superset shares one card

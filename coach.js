@@ -63,6 +63,7 @@
     picked = picked.filter((x) => x !== id);
     const f = frames.get(id);
     if (f) { f.remove(); frames.delete(id); }
+    previews.delete(id);
     delete kpiSheet[id];
     const next = active === id ? (picked[picked.length - 1] || null) : active;
     if (kpiOpen) { active = next; remember(); openKpi(); return; }
@@ -73,6 +74,7 @@
     const list = $("list");
     $("kpi-btn").classList.toggle("on", kpiOpen);
     $("speed-btn").classList.toggle("on", speedOpen);
+    drawPreview();
     if (!picked.length) { list.replaceChildren(el("div", { class: "list-hint" }, "No athletes yet. Search above to add one.")); return; }
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
@@ -82,6 +84,37 @@
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
     }));
   }
+
+  // ---- workout preview -------------------------------------------------------------------------------
+  // On a wide screen the athlete's page sits against the side bar and the rest of the width shows the day
+  // being viewed as plain text, start to finish, so the coach can read the whole workout without scrolling.
+  // The athlete's page sends the text each time it draws a day (see "coach-preview" in athlete.js).
+  const previews = new Map(); // athlete id -> what their page last sent
+  let previewEl = null;
+  function drawPreview() {
+    if (!previewEl) previewEl = el("aside", { class: "preview", "aria-label": "Workout preview" });
+    const stage = $("stage");
+    if (!active || kpiOpen || speedOpen) { previewEl.remove(); return; }
+    if (!previewEl.isConnected) stage.append(previewEl);
+    const p = previews.get(active);
+    const a = byId(active) || { name: "" };
+    if (!p) { previewEl.replaceChildren(el("h3", null, a.name), el("p", { class: "pv-sub" }, "Loading…")); return; }
+    previewEl.replaceChildren(...[
+      el("h3", null, a.name),
+      el("p", { class: "pv-title" }, p.title),
+      p.sub ? el("p", { class: "pv-sub" }, p.sub) : null,
+      p.warmup ? el("p", { class: "pv-warm" }, `Warm-up: ${p.warmup}`) : null,
+      ...p.rows.map((r) => el("div", { class: `pv-row${r.first ? " first" : ""}` },
+        el("div", null, el("span", { class: "pv-label" }, r.label), el("span", { class: "pv-name" }, r.name), r.rx ? el("span", { class: "pv-rx" }, r.rx) : null),
+        r.meta || r.notes ? el("small", null, [r.meta, r.notes].filter(Boolean).join(" · ")) : null)),
+      p.rows.length || !p.sub ? null : el("p", { class: "pv-sub" }, "No exercises for this day."),
+    ].filter(Boolean));
+  }
+  window.addEventListener("message", (e) => {
+    if (e.origin !== window.location.origin || !e.data || e.data.type !== "coach-preview") return;
+    previews.set(String(e.data.aid), e.data);
+    if (String(e.data.aid) === active) drawPreview();
+  });
 
   // ---- who has finished today ------------------------------------------------------------------------
   // An athlete is marked done once a session of theirs has been logged today (the Log session button, here or
