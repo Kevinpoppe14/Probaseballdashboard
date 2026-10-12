@@ -54,10 +54,7 @@
     loadDone();
     $("search").value = "";
     $("results").hidden = true;
-    // picking through a location on a wide screen: keep its list open for the next one. On a phone the list
-    // covers the program, so it closes there; tapping the search box brings it back.
-    if (window.matchMedia("(max-width: 780px)").matches) $("search").blur();
-    else if (locFilter) search();
+    $("search").blur(); // the list closes once someone is picked; tapping the search box brings it back
     if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
     if (speedOpen) { if (!active) active = id; remember(); openSpeed(); return; } // adding while on the speed session adds them to its list
     show(id);
