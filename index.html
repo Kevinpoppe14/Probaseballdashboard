@@ -2203,7 +2203,7 @@ function ProgramsPage({ nav, setNav }) {
                 );
               })()}
               <div className="facility-card-actions no-print">
-                <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes</button>
+                <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes or a group</button>
                 <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>
                 <select className="program-copy-day" style={{ marginLeft: 0, maxWidth: 150 }} value="" title="Move this program to another folder" onChange={(e) => e.target.value !== "" && moveProgram(p, e.target.value === "__top__" ? "" : e.target.value)}>
                   <option value="">Move to…</option>
