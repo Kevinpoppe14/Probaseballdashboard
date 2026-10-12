@@ -3049,7 +3049,9 @@ tbody tr:hover {
 .group-assign-row select, .group-assign-row input { height: 36px; padding: 0 10px; min-width: 220px; }
 .group-assign-list { list-style: none; margin: 0; padding: 0; }
 .group-assign-list li { padding: 4px 0; }
-.btn.btn-assign { padding: 6px 14px; font-size: 13px; font-weight: 700; }
+.btn.btn-assign { font-weight: 700; background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
+.btn.btn-assign:hover:not(:disabled) { filter: brightness(1.12); }
+.facility-card-actions .btn.btn-assign { padding: 6px 14px; }
 /* Coach Mode switch (bottom menu): flips on, then opens Coach Mode */
 .coach-switch { display: inline-flex; align-items: center; gap: 10px; padding: 6px 12px; background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--text); cursor: pointer; }
 .coach-switch:hover { border-color: var(--text-dim); }

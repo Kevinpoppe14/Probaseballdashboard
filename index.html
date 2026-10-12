@@ -1413,7 +1413,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
       <div className="program-editor-top">
         <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
         {onSaveAndAssign && (
-          <button className="btn btn-secondary" disabled={!canSave} title={canSave ? "Saves this program, then lets you assign it to athletes or to a group" : "Give the program a name first"} onClick={saveAndAssign}>
+          <button className="btn btn-assign" disabled={!canSave} title={canSave ? "Saves this program, then lets you assign it to athletes or to a group" : "Give the program a name first"} onClick={saveAndAssign}>
             Save &amp; assign to athletes or a group
           </button>
         )}
@@ -1797,7 +1797,7 @@ function ProgramGroupAssign({ program, startDate }) {
           <option value="__new__">+ New group…</option>
         </select>
         {groupId === "__new__" && <input value={newName} placeholder="e.g. DST North Pro Group" onChange={(e) => setNewName(e.target.value)} aria-label="New group name" />}
-        <button className="btn btn-secondary" onClick={assign} disabled={busy || !groupId}>Assign to group</button>
+        <button className="btn btn-assign" onClick={assign} disabled={busy || !groupId}>Assign to group</button>
       </div>
       {msg && <div className="timestamp-note">{msg}</div>}
       {mine.length > 0 && (
@@ -1930,7 +1930,7 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
         </div>
       )}
       <div className="facility-form-actions">
-        <button className="btn" disabled={picked.size === 0 || !startDate} onClick={assign}>Assign to {picked.size} athlete{picked.size === 1 ? "" : "s"}</button>
+        <button className="btn btn-assign" disabled={picked.size === 0 || !startDate} onClick={assign}>Assign to {picked.size} athlete{picked.size === 1 ? "" : "s"}</button>
         <button className="btn-link" onClick={onClose}>{result ? "Done" : "Cancel"}</button>
       </div>
     </div>
