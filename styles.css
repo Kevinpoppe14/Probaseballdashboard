@@ -3049,3 +3049,4 @@ tbody tr:hover {
 .group-assign-row select, .group-assign-row input { height: 36px; padding: 0 10px; min-width: 220px; }
 .group-assign-list { list-style: none; margin: 0; padding: 0; }
 .group-assign-list li { padding: 4px 0; }
+.btn.btn-assign { padding: 6px 14px; font-size: 13px; font-weight: 700; }

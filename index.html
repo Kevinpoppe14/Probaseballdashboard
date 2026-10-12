@@ -1333,7 +1333,7 @@ function swapInSuperset(exercises, index, dir) {
 }
 
 // Create or edit one program. Works on a copy, so Cancel leaves the saved program untouched.
-function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel }) {
+function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   const edit = (fn) => { if (onDirty) onDirty(); setDraft((d) => { const c = JSON.parse(JSON.stringify(d)); fn(c); return c; }); };
 
@@ -1372,6 +1372,13 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
     if (initial && initial.id) rec.id = initial.id;
     onSave(rec);
   };
+  // saves what is on screen, then goes straight to the assign screen (athletes or a group)
+  const saveAndAssign = () => {
+    if (!canSave) return;
+    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [] };
+    if (initial && initial.id) rec.id = initial.id;
+    onSaveAndAssign(rec);
+  };
 
   // Copies one day's exercises (with their supersets) onto another day in the same week, or into a new day.
   // The target keeps its own name; anything already entered there is replaced, after a confirm.
@@ -1402,6 +1409,11 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
       </datalist>
       <div className="program-editor-top">
         <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
+        {onSaveAndAssign && (
+          <button className="btn btn-secondary" disabled={!canSave} title={canSave ? "Saves this program, then lets you assign it to athletes or to a group" : "Give the program a name first"} onClick={saveAndAssign}>
+            Save &amp; assign to athletes or a group
+          </button>
+        )}
         <ProgramPdfButton program={{ name: (draft.name || "").trim() || "Program", weeks: draft.weeks }} />
       </div>
       <div className="facility-form-grid">
@@ -2055,6 +2067,12 @@ function ProgramsPage({ nav, setNav }) {
         key={editing.id || "new"}
         initial={editing.id ? editing : null}
         onSave={save}
+        onSaveAndAssign={(rec) => {
+          const saved = window.AthleteStore.saveProgram({ ...rec, folder: editing && editing.id ? (editing.folder || "") : folder });
+          setVersion((v) => v + 1);
+          // fromEditor: closing the assign screen then goes to the Programs list, not back into the builder
+          setNav((n) => ({ ...n, editingId: null, assigningId: saved.id, assignStart: null, fromEditor: true }));
+        }}
         onCancel={() => setEditing(null)}
         onDelete={editing.id ? () => remove(editing) : null}
       />
@@ -2067,7 +2085,7 @@ function ProgramsPage({ nav, setNav }) {
         key={assigning.id}
         program={assigning}
         initialStart={nav.assignStart}
-        onClose={() => setAssigning(null)}
+        onClose={() => (nav.fromEditor ? setNav((n) => ({ ...n, editingId: null, assigningId: null, assignStart: null, fromEditor: false })) : setAssigning(null))}
         onAssignOther={(p, start) => setNav((n) => ({ ...n, assigningId: p.id, assignStart: start }))}
       />
     );
@@ -2203,7 +2221,7 @@ function ProgramsPage({ nav, setNav }) {
                 );
               })()}
               <div className="facility-card-actions no-print">
-                <button className="btn-link" onClick={() => setAssigning(p)}>Assign to athletes or a group</button>
+                <button className="btn btn-assign" onClick={() => setAssigning(p)}>Assign to athletes or a group</button>
                 <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>
                 <select className="program-copy-day" style={{ marginLeft: 0, maxWidth: 150 }} value="" title="Move this program to another folder" onChange={(e) => e.target.value !== "" && moveProgram(p, e.target.value === "__top__" ? "" : e.target.value)}>
                   <option value="">Move to…</option>
