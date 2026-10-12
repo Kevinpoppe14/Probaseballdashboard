@@ -31,13 +31,13 @@
   .login .err { color: #ff8a8a; font-size: 13px; margin-top: 12px; min-height: 18px; }
 
   /* the board: athletes down the side, the picked athlete's program beside them */
-  .board { display: grid; grid-template-columns: 290px 1fr; height: 100%; }
+  .board { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
   .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
-  .side-head { display: flex; align-items: center; gap: 10px; padding: calc(12px + env(safe-area-inset-top)) 14px 10px; }
-  .side-head img { height: 26px; }
+  .side-head { display: flex; align-items: center; gap: 8px; padding: calc(12px + env(safe-area-inset-top)) 14px 10px; }
+  .side-head img { height: 20px; }
   /* the page name: condensed and heavy, to sit with the logo */
   .side-head strong, .login h1 { font-family: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; line-height: 1; white-space: nowrap; }
-  .side-head strong { font-size: 26px; }
+  .side-head strong { font-size: 19px; }
   /* the same switch as on the dashboard, shown on: flipping it off goes back there */
   .mode-switch { position: relative; flex: 0 0 46px; width: 46px; height: 24px; margin-left: auto; border-radius: 12px; background: var(--accent); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5); transition: background 0.25s; }
   .mode-switch span { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); transform: translateX(22px); transition: transform 0.25s; }
@@ -72,9 +72,9 @@
   .stage .empty { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--dim); padding: 24px; font-size: 15px; }
 
   /* KPI sheet: athletes down the side, trials across */
-  .modes { display: flex; gap: 8px; padding: 0 14px 10px; }
+  .modes { display: flex; gap: 6px; padding: 0 14px 10px; }
   .modes .kpi-btn { flex: 1; height: 38px; }
-  .kpi-btn { white-space: nowrap; height: 34px; padding: 0 12px; border: 1px solid #555; border-radius: 8px; background: none; font-size: 13px; font-weight: 700; }
+  .kpi-btn { white-space: nowrap; height: 34px; padding: 0 6px; border: 1px solid #555; border-radius: 8px; background: none; font-size: 13px; font-weight: 700; }
   .kpi-btn.on { background: var(--accent); border-color: var(--accent); }
   .kpi { position: absolute; inset: 0; overflow-y: auto; padding: 18px; }
   .kpi-note { color: var(--dim); padding: 24px 0; font-size: 15px; }
@@ -172,7 +172,7 @@
     .kpi { padding: 12px; }
     .kpi-sheet tbody th, .kpi-sheet thead th:first-child { min-width: 110px; max-width: 130px; }
     .side { min-width: 0; border-right: none; border-bottom: 1px solid var(--border); }
-    .side-head { padding-bottom: 6px; gap: 8px; }
+    .side-head { padding-bottom: 6px; }
     .side-head img { height: 22px; }
     .side-head strong { font-size: 22px; }
     .add { padding-bottom: 8px; }
