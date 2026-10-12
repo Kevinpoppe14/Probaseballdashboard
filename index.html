@@ -955,7 +955,7 @@ const newSetGroup = () => ({ sets: "", reps: "", intensity: "" });
 const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`, name: "", tempo: "", intensityUnit: "%", groups: [newSetGroup()], rest: "", notes: "" });
 // Brings a program saved in the older single sets / reps / load format up to set groups (see ProgramRx in periodization.js).
 const normalizeProgramWeeks = (weeks) => (weeks || []).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => window.ProgramRx.normalize(e)) })) }));
-const DEFAULT_DAYS = 4;
+const DEFAULT_DAYS = 1; // a new program starts with one day; more are added with "+ Add day"
 const newSession = (n) => ({ name: `Day ${n}`, exercises: [newExercise()] });
 const newWeek = (n) => ({ name: `Week ${n}`, sessions: Array.from({ length: DEFAULT_DAYS }, (_, i) => newSession(i + 1)) });
 // A week added to a program starts as a copy of the week before it: same days, exercises and supersets.
