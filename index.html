@@ -2019,7 +2019,6 @@ function ProgramsPage({ nav, setNav }) {
     bump();
   };
 
-  const moveProgram = (p, to) => { S.saveProgram({ ...p, folder: to }); bump(); };
 
   // Drag a program card onto a folder tile, or onto a breadcrumb to move it back up.
   const [dropOver, setDropOver] = useState(null); // folder path being hovered while dragging, or null
@@ -2259,11 +2258,6 @@ function ProgramsPage({ nav, setNav }) {
               <div className="facility-card-actions no-print">
                 <button className="btn btn-assign" onClick={() => setAssigning(p)}>Assign to athletes or a group</button>
                 <span className="facility-used">{athletesOnProgram(p.id).length} assigned</span>
-                <select className="program-copy-day" style={{ marginLeft: 0, maxWidth: 150 }} value="" title="Move this program to another folder" onChange={(e) => e.target.value !== "" && moveProgram(p, e.target.value === "__top__" ? "" : e.target.value)}>
-                  <option value="">Move to…</option>
-                  {(p.folder || "") !== "" && <option value="__top__">All programs (no folder)</option>}
-                  {folders.filter((f) => f !== (p.folder || "")).map((f) => <option key={f} value={f}>{f.replace(/\//g, " › ")}</option>)}
-                </select>
                 <ProgramPdfButton program={p} />
               </div>
             </div>
