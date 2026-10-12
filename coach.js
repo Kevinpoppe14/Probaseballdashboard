@@ -1,4 +1,4 @@
-// Coach Board — several athletes' programs side by side, for a coach running a session from a tablet, a phone
+// Coach Mode — several athletes' programs side by side, for a coach running a session from a tablet, a phone
 // or a browser. The coach signs in with their dashboard account, adds whichever athletes they want (anyone on
 // any roster), and taps between them. Each athlete's program is the same page the athlete sees on their own
 // phone link (athlete.html), shown in a frame in "coach" mode: it reads and writes under the coach's login, so

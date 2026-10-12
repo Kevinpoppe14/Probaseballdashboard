@@ -10,12 +10,12 @@
   const overlay = document.getElementById("overlay");
   const token = (window.location.hash || "").replace(/^#/, "").trim();
   const query = new URLSearchParams(window.location.search);
-  // On the coach board (coach.html) this page is shown inside a frame for an athlete a signed-in coach picked:
+  // In Coach Mode (coach.html) this page is shown inside a frame for an athlete a signed-in coach picked:
   // ?coach=1&aid=<athlete id>, with no token.
   const coachId = query.get("coach") === "1" ? query.get("aid") : null;
 
   // Where the page's data comes from and goes to. An athlete's own link goes through the token-checked
-  // athlete_portal_* database functions and can reach nothing else. On the coach board there is no token: the
+  // athlete_portal_* database functions and can reach nothing else. In Coach Mode there is no token: the
   // coach is signed in, so the same data is read from and written to the tables under their own login, and
   // what they log is recorded as entered by a coach.
   const api = coachId ? {
@@ -629,7 +629,7 @@
     let res;
     try { res = await api.get(); }
     catch (e) { res = { error: e }; }
-    if (res.error && res.error.signedOut) { message("Sign in on the coach board to see this athlete."); return; }
+    if (res.error && res.error.signedOut) { message("Sign in in Coach Mode to see this athlete."); return; }
     if (res.error) { message("Could not load your program. Check your connection and try again."); return; }
     if (!res.data) { message("This link is no longer active. Ask your coach for a new one."); return; }
     data = res.data;

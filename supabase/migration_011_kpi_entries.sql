@@ -1,4 +1,4 @@
--- KPI results logged from the Coach Board (coach.html): a quick way to record something a group did that is not
+-- KPI results logged from the Coach Mode (coach.html): a quick way to record something a group did that is not
 -- part of anyone's program, such as a 10-yard start time or a jump height.
 --   kpi_entries  one row per result: { kpiId, kpiName, unit, value, date, by } for one athlete.
 -- The list of KPIs to pick from (name, unit, whether lower or higher is better) is kept in app_meta under

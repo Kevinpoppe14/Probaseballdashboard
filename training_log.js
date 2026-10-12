@@ -73,7 +73,7 @@
     return { sessions, changes: Object.values(changes).sort((a, b) => (b.at || "").localeCompare(a.at || "")) };
   }
 
-  // KPI results logged from the Coach Board (a 10-yard start, a jump, anything not in a program): one card per
+  // KPI results from Group Testing in Coach Mode (a 10-yard start, a jump, anything not in a program): one card per
   // KPI with its results over time as a line, the best one marked, and each result listed newest first.
   function KpiTrend({ rows, better }) {
     const pts = [...rows].sort((a, b) => `${a.date}${a.at || ""}`.localeCompare(`${b.date}${b.at || ""}`));
@@ -104,7 +104,7 @@
     };
     return (
       <div className="panel">
-        <h2>KPIs <small>results logged from the Coach Board</small></h2>
+        <h2>KPIs <small>results from Group Testing in Coach Mode</small></h2>
         <div className="tl-kpis">
           {Object.values(groups).sort((a, b) => a[0].kpiName.localeCompare(b[0].kpiName)).map((list) => {
             const k = list[0];

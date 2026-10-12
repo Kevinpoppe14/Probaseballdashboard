@@ -865,7 +865,7 @@
       .then(({ error }) => logSyncError(`upsert athlete_equipment/${athleteId}`, error));
     return next;
   }
-  // KPI results logged from the Coach Board (see migration_011): read for one athlete when their Training Log is
+  // KPI results logged from the Coach Mode (see migration_011): read for one athlete when their Training Log is
   // opened, not kept in memory. Each is { id, kpiId, kpiName, unit, better, value, date, by, at }.
   async function loadKpiEntries(athleteId) {
     const { data, error } = await sb().from("kpi_entries").select("id,data").eq("athlete_id", String(athleteId)).limit(5000);
