@@ -432,6 +432,20 @@
   // same log as the weights, under a key of its own, so the coach's Training Log can show it with its time.
   // If some sets have no weight yet, a sheet asks for them first; the athlete can fill them in or skip.
   const sessionKey = (item, si) => `session-${item.weekNo - 1}-${si}|0`;
+  // Coach Mode can finish the day showing here for a whole group at once ("Log session for everyone"): it asks
+  // each athlete's page to mark its current day done, exactly as the Log session button does, without the
+  // prompt for missing weights. `shown` is the day this page last drew.
+  let shown = null; // { item, dayIdx }
+  if (coachId) {
+    window.addEventListener("message", (e) => {
+      if (e.origin !== window.location.origin || !e.data || e.data.type !== "coach-log-session" || !shown) return;
+      const { item, dayIdx: di } = shown;
+      if (logged(item.program.id, sessionKey(item, di))) return;
+      save(item.program.id, sessionKey(item, di), "done");
+      render();
+    });
+  }
+
   function logSession(item, si, rows) {
     const pid = item.program.id;
     const maxes = window.planMaxes(plan, programById);
@@ -591,7 +605,8 @@
     const main = el("main");
     if (!item) {
       main.append(el("div", { class: "empty" }, "Nothing is scheduled for this week."));
-      if (coachId && window.parent !== window) window.parent.postMessage({ type: "coach-preview", aid: String(coachId), title: "Nothing is scheduled for this week.", sub: "", warmup: "", rows: [] }, window.location.origin);
+      shown = null;
+      if (coachId && window.parent !== window) window.parent.postMessage({ type: "coach-preview", aid: String(coachId), title: "Nothing is scheduled for this week.", sub: "", warmup: "", rows: [], hasDay: false, done: false }, window.location.origin);
     }
     else {
       main.append(el("p", { class: "program-name" }, `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`));
@@ -601,12 +616,15 @@
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
       const labels = window.exerciseLabels(rows);
       // Coach Mode shows the whole day as plain text beside this page, so the coach can read it without scrolling
+      shown = s ? { item, dayIdx } : null;
       if (coachId && window.parent !== window) {
         window.parent.postMessage({
           type: "coach-preview", aid: String(coachId),
           title: `${s && s.name ? s.name : `Day ${dayIdx + 1}`} · ${item.week.name || `Week ${item.weekNo}`}`,
           sub: item.program.name,
           warmup: s ? (s.warmup || "").trim() : "",
+          day: s && s.name ? s.name : `Day ${dayIdx + 1}`, week: item.week.name || `Week ${item.weekNo}`, hasDay: !!s,
+          done: !!s && !!logged(item.program.id, sessionKey(item, dayIdx)),
           rows: rows.map((e, ei) => ({
             label: labels[ei] || "", name: e.name.trim(), first: !(ei > 0 && e.linked),
             rx: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
@@ -672,6 +690,13 @@
     if (data.rmChart && typeof data.rmChart === "object") Rx.chart = () => data.rmChart;
     else Rx.chart = () => ({ 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65, 15: 60, 16: 55, 17: 50 });
     weekIdx = currentWeek();
+    // open on the next workout: the first day of this week's program that has not been logged yet
+    {
+      const first = itemsAt(weekIdx)[0];
+      const days = first ? (first.week.sessions || []) : [];
+      const next = days.findIndex((s, i) => !logged(first.program.id, sessionKey(first, i)));
+      if (next > 0) dayIdx = next;
+    }
     // a remote athlete fills in their equipment before they see the program for the first time
     if (remote && !equipment.surveyedAt) view = "equipment";
     render();

@@ -3302,3 +3302,14 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .badge.program-phase-badge { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 .text-link.text-edit { text-decoration: none; color: var(--text-dim); font-size: 13px; }
 .text-link.text-edit:hover { color: var(--text); }
+/* Today panel at the top of the home page */
+.today-panel h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.today-toggle { margin-left: auto; font-size: 12px; }
+.today-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.today-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-size: 13px; }
+.today-head { display: flex; align-items: center; gap: 8px; }
+.today-hint { margin: 2px 0 6px; font-size: 11.5px; color: var(--text-dim); }
+.today-card ul { list-style: none; margin: 0; padding: 0; }
+.today-card li { padding: 2px 0; }
+.today-card li small { color: var(--text-dim); }
+.today-more { margin-top: 4px; font-size: 12px; }

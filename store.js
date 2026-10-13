@@ -856,6 +856,17 @@
     const m = (athleteLogMeta[r.athlete_id] = athleteLogMeta[r.athlete_id] || {});
     (m[r.program_id] = m[r.program_id] || {})[r.key] = { at: r.updated_at || null, source: r.source || "" };
   }
+  // When anything was last logged for an athlete (a weight, reps, or a finished session), or null if nothing
+  // ever has been. Used by the Today panel on the home page.
+  function lastLoggedAt(athleteId) {
+    const meta = athleteLogMeta[String(athleteId)] || {}, values = athleteLogs[String(athleteId)] || {};
+    let last = null;
+    Object.keys(meta).forEach((pid) => Object.keys(meta[pid]).forEach((key) => {
+      const at = meta[pid][key].at;
+      if (at && (values[pid] || {})[key] && (!last || at > last)) last = at;
+    }));
+    return last;
+  }
   // Everything logged for an athlete, one entry per weight or reps box: { programId, key, value, at, source }.
   // Entries from before the log table existed (kept on the plan itself) have no time or source.
   function athleteLogEntries(athleteId, plan) {
@@ -1111,6 +1122,7 @@
     setAthleteLog,
     refreshAthleteLogs,
     athleteLogEntries,
+    lastLoggedAt,
     overridesFor,
     getEquipment,
     setEquipment,

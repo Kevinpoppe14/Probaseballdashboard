@@ -33,18 +33,22 @@
   const lastFirst = (name) => { const p = (name || "").trim().split(/\s+/); return p.length > 1 ? `${p[p.length - 1]}, ${p.slice(0, -1).join(" ")}` : name || ""; };
 
   // ---- the athlete list and the picked athlete's page ----------------------------------------------
+  // an athlete's page, made the first time it is needed and kept while they are on the board
+  function ensureFrame(id) {
+    if (frames.has(id)) return frames.get(id);
+    const a = byId(id);
+    const frame = el("iframe", { src: `athlete.html?coach=1&aid=${encodeURIComponent(id)}${a && a.cubs ? "&team=cubs" : ""}`, title: a ? a.name : "Athlete", hidden: true });
+    frames.set(id, frame);
+    $("stage").append(frame);
+    return frame;
+  }
   function show(id) {
     active = id;
-    closeKpi(); closeSpeed();
+    closeKpi(); closeSpeed(); closeLog();
     const stage = $("stage");
     if (!id) { stage.replaceChildren(el("div", { class: "empty" }, picked.length ? "Pick an athlete." : "Add an athlete to see their program.")); frames.forEach((f) => f.remove()); frames.clear(); draw(); remember(); return; }
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
-    if (!frames.has(id)) {
-      const a = byId(id);
-      const frame = el("iframe", { src: `athlete.html?coach=1&aid=${encodeURIComponent(id)}${a && a.cubs ? "&team=cubs" : ""}`, title: a ? a.name : "Athlete" });
-      frames.set(id, frame);
-      stage.append(frame);
-    }
+    ensureFrame(id);
     frames.forEach((f, fid) => { f.hidden = fid !== id; });
     draw();
     remember();
@@ -57,6 +61,7 @@
     $("search").blur(); // the list closes once someone is picked; tapping the search box brings it back
     if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
     if (speedOpen) { if (!active) active = id; remember(); openSpeed(); return; } // adding while on the speed session adds them to its list
+    if (logOpen) { if (!active) active = id; remember(); openLog(); return; }
     show(id);
   }
   function remove(id) {
@@ -68,18 +73,20 @@
     const next = active === id ? (picked[picked.length - 1] || null) : active;
     if (kpiOpen) { active = next; remember(); openKpi(); return; }
     if (speedOpen) { active = next; remember(); openSpeed(); return; }
+    if (logOpen) { active = next; remember(); openLog(); return; }
     show(next);
   }
   function draw() {
     const list = $("list");
     $("kpi-btn").classList.toggle("on", kpiOpen);
     $("speed-btn").classList.toggle("on", speedOpen);
+    $("log-btn").classList.toggle("on", logOpen);
     drawPreview();
     if (!picked.length) { list.replaceChildren(el("div", { class: "list-hint" }, "No athletes yet. Search above to add one.")); return; }
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
       const done = doneToday.has(id);
-      return el("div", { class: `who${id === active && !kpiOpen && !speedOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
+      return el("div", { class: `who${id === active && !kpiOpen && !speedOpen && !logOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
         el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, done ? "✓ " : "", a.name), el("small", null, done ? `Done today${a.sub ? ` · ${a.sub}` : ""}` : a.sub)),
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
     }));
@@ -94,7 +101,7 @@
   function drawPreview() {
     if (!previewEl) previewEl = el("aside", { class: "preview", "aria-label": "Workout preview" });
     const stage = $("stage");
-    if (!active || kpiOpen || speedOpen) { previewEl.remove(); return; }
+    if (!active || kpiOpen || speedOpen || logOpen) { previewEl.remove(); return; }
     if (!previewEl.isConnected) stage.append(previewEl);
     const p = previews.get(active);
     const a = byId(active) || { name: "" };
@@ -114,7 +121,56 @@
     if (e.origin !== window.location.origin || !e.data || e.data.type !== "coach-preview") return;
     previews.set(String(e.data.aid), e.data);
     if (String(e.data.aid) === active) drawPreview();
+    drawLog(); // the Log lifts list shows each athlete's day and whether it is logged
   });
+
+  // ---- Log lifts: finish today's session for everyone on the board at once ---------------------------
+  // Each athlete's page knows which day it is showing (it opens on their next unlogged day of the week, or
+  // wherever the coach has moved it to). This screen lists that day for every athlete on the board and, on
+  // one tap, asks each page to mark it done, the same as pressing Log session on each. Athletes whose day is
+  // already logged, or who have no program this week, are left alone.
+  let logOpen = false;
+  let logEl = null;
+  function openLog() {
+    logOpen = true; closeKpi(); closeSpeed(); logOpen = true;
+    const stage = $("stage");
+    stage.querySelectorAll(".empty").forEach((n) => n.remove());
+    picked.forEach(ensureFrame); // pages not opened yet load now, out of sight
+    frames.forEach((f) => { f.hidden = true; });
+    if (!logEl) logEl = el("div", { class: "kpi" });
+    if (!logEl.isConnected) stage.append(logEl);
+    draw();
+    drawLog();
+  }
+  function closeLog() {
+    logOpen = false;
+    if (logEl) logEl.remove();
+  }
+  function drawLog(status) {
+    if (!logOpen || !logEl) return;
+    const rows = picked.map((id) => {
+      const a = byId(id) || { name: "Unknown athlete" };
+      const p = previews.get(id);
+      const state = !p ? "loading" : !p.hasDay ? "none" : p.done ? "done" : "ready";
+      return { id, name: a.name, p, state };
+    });
+    const ready = rows.filter((r) => r.state === "ready");
+    const go = el("button", { class: "kpi-save", disabled: !ready.length, onclick: () => {
+      ready.forEach((r) => { const f = frames.get(r.id); if (f && f.contentWindow) f.contentWindow.postMessage({ type: "coach-log-session" }, window.location.origin); });
+      drawLog(`Logging ${ready.length} session${ready.length === 1 ? "" : "s"}…`);
+    } }, ready.length ? `Log session for ${ready.length} athlete${ready.length === 1 ? "" : "s"}` : "Nothing to log");
+    const text = { loading: "Loading…", none: "No program this week", done: "Logged", ready: "Ready to log" };
+    logEl.replaceChildren(
+      el("h2", { class: "speed-h" }, "Log lifts", el("small", null, "Marks today's session done for everyone on the board, as the Log session button does for one athlete.")),
+      picked.length
+        ? el("div", { class: "log-list" }, rows.map((r) => el("div", { class: `log-row ${r.state}` },
+          el("button", { class: "log-name", title: "Open their program to change the day", onclick: () => show(r.id) }, r.name),
+          el("span", { class: "log-day" }, r.p && r.p.hasDay ? `${r.p.day} · ${r.p.week}` : ""),
+          el("span", { class: "log-state" }, text[r.state]))))
+        : el("div", { class: "kpi-note" }, "Add athletes to the board first."),
+      el("div", { class: "kpi-foot" }, go, el("span", { class: "kpi-status", role: "status" }, status && ready.length ? status : "")),
+      el("p", { class: "kpi-hint" }, "Each athlete is logged for the day shown beside their name: their next unlogged day this week. To log a different day, tap the name, pick the day on their program, then come back here. Weights are not asked for; type those on the athlete's program."));
+  }
 
   // ---- who has finished today ------------------------------------------------------------------------
   // An athlete is marked done once a session of theirs has been logged today (the Log session button, here or
@@ -200,7 +256,7 @@
   }
 
   async function openKpi() {
-    kpiOpen = true; closeSpeed();
+    kpiOpen = true; closeSpeed(); closeLog();
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -511,7 +567,7 @@
   }
 
   async function openSpeed() {
-    speedOpen = true; closeKpi(); speedOpen = true;
+    speedOpen = true; closeKpi(); closeLog(); speedOpen = true;
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -777,6 +833,47 @@
     speedEl.replaceChildren(...[head, groupForm, pickBar, body].filter(Boolean));
   }
 
+  // ---- saved groups: put a whole group on the board in one go ----------------------------------------
+  // A group (the same ones the Speed screen and the dashboard's "Assign to a group" use) can remember who is in
+  // it. "Save these athletes as a group" stores the board under a group's name; choosing a group later puts
+  // those athletes back on the board, replacing whoever was there. Members are kept on the group in app_meta
+  // "speedGroups" as `members`, so every coach sees the same groups.
+  function fillGroups() {
+    const groups = speedGroups || [];
+    $("grp").replaceChildren(
+      el("option", { value: "" }, groups.some((g) => (g.members || []).length) ? "Load a group…" : "Groups"),
+      ...groups.filter((g) => (g.members || []).length).map((g) => el("option", { value: g.id }, `${g.name} (${g.members.length})`)),
+      el("option", { value: "__save__" }, "Save these athletes as a group…"));
+  }
+  async function saveGroup() {
+    if (!picked.length) { window.alert("Add the group's athletes to the board first, then save them as a group."); return; }
+    const current = (speedGroups || []).find((g) => g.id === speedGroupId);
+    const typed = window.prompt(`Save these ${picked.length} athletes as which group?\nUse an existing name to replace who is in it${(speedGroups || []).length ? ` (${speedGroups.map((g) => g.name).join(", ")})` : ""}, or type a new name.`, current ? current.name : "");
+    if (typed == null || !typed.trim()) return;
+    const name = typed.trim();
+    try {
+      await loadSpeedGroups(); // someone else may have changed the groups since this page loaded
+      let g = speedGroups.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (!g) { g = { id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`, name }; speedGroups.push(g); speedGroups.sort((a, b) => a.name.localeCompare(b.name)); }
+      g.members = picked.slice();
+      const { error } = await sb.from("app_meta").upsert({ key: "speedGroups", value: speedGroups });
+      if (error) throw error;
+    } catch (e) { window.alert("Could not save the group. Check your connection and try again."); }
+    fillGroups();
+  }
+  function loadGroup(id) {
+    const g = (speedGroups || []).find((x) => x.id === id);
+    if (!g) return;
+    const members = (g.members || []).map(String).filter((m) => byId(m)); // anyone no longer active is left off
+    frames.forEach((f, fid) => { if (!members.includes(fid)) { f.remove(); frames.delete(fid); previews.delete(fid); } });
+    picked = members;
+    speedGroupId = g.id; // the Speed screen opens on this group too
+    try { localStorage.setItem(speedGroupKey(), g.id); } catch (e) { /* private window */ }
+    active = picked.includes(active) ? active : picked[0] || null;
+    loadDone();
+    if (kpiOpen) { remember(); openKpi(); } else if (speedOpen) { remember(); openSpeed(); } else if (logOpen) { remember(); openLog(); } else show(active);
+  }
+
   // ---- adding: pick a location and/or type a few letters, then pick from the matches -------------------
   // With a location chosen, tapping the search box lists everyone there; typing narrows it.
   let locFilter = "";
@@ -838,13 +935,16 @@
     try { await loadAthletes(); }
     catch (e) { $("stage").replaceChildren(el("div", { class: "empty" }, "Could not load the roster. Check your connection and reload.")); return; }
     const saved = recall();
+    // the saved groups, for the "Load a group" list (the board still opens without them if this fails)
+    try { await loadSpeedGroups(); } catch (e) { speedGroups = speedGroups || []; }
+    fillGroups();
     picked = (saved.picked || []).filter((id) => byId(id)); // anyone removed from the roster since drops off
     show(picked.includes(saved.active) ? saved.active : picked[0] || null);
     loadDone();
   }
   function close() {
     user = null; picked = []; active = null;
-    closeKpi(); closeSpeed(); kpiSheet = {}; kpiHistory = [];
+    closeKpi(); closeSpeed(); closeLog(); kpiSheet = {}; kpiHistory = [];
     frames.forEach((f) => f.remove()); frames.clear();
     $("board").hidden = true;
     $("login").hidden = false;
@@ -866,6 +966,8 @@
   window.addEventListener("pageshow", () => modeSwitch.classList.remove("off"));
   $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
   $("speed-btn").addEventListener("click", () => { if (speedOpen) show(active); else openSpeed(); });
+  $("log-btn").addEventListener("click", () => { if (logOpen) show(active); else openLog(); });
+  $("grp").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "__save__") saveGroup(); else if (v) loadGroup(v); });
   $("loc").addEventListener("change", (e) => { locFilter = e.target.value; try { localStorage.setItem(locKey(), locFilter); } catch (ex) { /* private window */ } $("search").value = ""; if (locFilter) $("search").focus(); search(); });
   $("search").addEventListener("input", search);
   $("search").addEventListener("focus", search);

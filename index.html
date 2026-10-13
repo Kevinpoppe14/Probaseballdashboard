@@ -4535,6 +4535,92 @@ function coachNameFromEmail(email) {
   return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") || "Coach";
 }
 
+// ---- Today: who needs something from a coach right now -------------------------------------------------
+// The top of the home page gathers what the roster's flags already say, so nobody has to scan every row:
+//   Program gap        a block ended last week and nothing is scheduled in that row this week
+//   Ending this week   a block's last week is this one (line up what comes next)
+//   Not logging        they have a program this week and nothing has been logged for LOG_QUIET_DAYS days
+//   Text due           Cubs players not texted in the past month (the Texted flag on the Cubs roster)
+//   Assessment due     no biomechanical assessment on file, or the latest is three or more weeks old
+// Only active players are listed. Each name opens that player on the tab where it gets dealt with.
+const LOG_QUIET_DAYS = 5;
+function todayItems() {
+  const S = window.AthleteStore;
+  const lib = window.PeriodizationLib;
+  const now = new Date(new Date().toDateString());
+  const daysSince = (iso) => (iso ? Math.floor((now - new Date(new Date(iso).toDateString())) / 864e5) : null);
+  const out = { gap: [], ending: [], quiet: [], text: [], assess: [] };
+  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active").forEach((a) => {
+    const plan = S.getPeriodization(a.id);
+    if (plan && lib) {
+      const progress = lib.planProgress(plan);
+      if (progress.state === "active") {
+        const wk = progress.week - 1;
+        const covers = (b) => b.start <= wk && wk < b.start + b.len;
+        const lane = (b) => (plan.lanes.find((l) => l.id === b.lane) || {}).name || "Program";
+        const ended = plan.blocks.filter((b) => b.start + b.len - 1 === wk - 1 && !plan.blocks.some((o) => o.lane === b.lane && covers(o)));
+        const ending = plan.blocks.filter((b) => b.start + b.len - 1 === wk);
+        if (ended.length) out.gap.push({ a, note: ended.map(lane).join(", "), tab: "plan" });
+        else if (ending.length) out.ending.push({ a, note: ending.map((b) => (b.label || "").trim() || lane(b)).join(", "), tab: "plan" });
+        // a program this week (and the plan at least that many days old), but nothing typed in lately
+        if (plan.blocks.some((b) => b.programId && covers(b)) && progress.days >= LOG_QUIET_DAYS) {
+          const quiet = daysSince(S.lastLoggedAt(a.id));
+          if (quiet == null || quiet >= LOG_QUIET_DAYS) out.quiet.push({ a, note: quiet == null ? "nothing logged yet" : `${quiet} days`, tab: "log", sort: quiet == null ? 9999 : quiet });
+        }
+      }
+    }
+    if (a.rosterGroup === CUBS_ROSTER_GROUP) {
+      const since = daysSince(a.lastTexted ? `${a.lastTexted}T12:00:00` : null);
+      if (since == null || since >= CONTACT_DAYS) out.text.push({ a, note: since == null ? "never" : `${since} days`, tab: "plan", sort: since == null ? 9999 : since });
+    }
+    const assessments = S.getAssessments(a.id);
+    const latest = assessments[assessments.length - 1];
+    const old = latest ? daysSince(`${latest.date}T12:00:00`) : null;
+    if (!latest || old >= ASSESSMENT_DUE_SOON_DAYS) out.assess.push({ a, note: latest ? `${old} days` : "none on file", tab: "assessment", sort: latest ? old : 9999 });
+  });
+  const byName = (x, y) => lastNameOnly(x.a.name).localeCompare(lastNameOnly(y.a.name));
+  const longestFirst = (x, y) => (y.sort || 0) - (x.sort || 0) || byName(x, y);
+  return [
+    { key: "gap", title: "Program gap", tone: "danger", hint: "A block ended last week with nothing after it", list: out.gap.sort(byName) },
+    { key: "ending", title: "Program ending this week", tone: "warn", hint: "Line up the next phase", list: out.ending.sort(byName) },
+    { key: "quiet", title: "Not logging", tone: "warn", hint: `Has a program, nothing logged in ${LOG_QUIET_DAYS}+ days`, list: out.quiet.sort(longestFirst) },
+    { key: "text", title: "Text due", tone: "neutral", hint: "Cubs players not texted in the past month", list: out.text.sort(longestFirst) },
+    { key: "assess", title: "Assessment due", tone: "neutral", hint: "None on file, or three or more weeks old", list: out.assess.sort(longestFirst) },
+  ];
+}
+function TodayPanel({ onOpenTab, dataVersion }) {
+  const [open, setOpen] = useState({}); // which lists are showing every name
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("todayPanelHidden") === "1"; } catch (e) { return false; } });
+  const items = useMemo(() => todayItems(), [dataVersion]); // eslint-disable-line
+  const toggle = () => { const next = !hidden; setHidden(next); try { localStorage.setItem("todayPanelHidden", next ? "1" : "0"); } catch (e) { /* not remembered */ } };
+  const total = items.reduce((n, it) => n + it.list.length, 0);
+  const SHOWN = 6;
+  return (
+    <div className="panel today-panel no-print">
+      <h2>
+        Today <small>{total ? `${total} thing${total === 1 ? "" : "s"} to look at across the active roster` : "Nothing needs attention right now"}</small>
+        <button className="btn-link today-toggle" onClick={toggle}>{hidden ? "Show" : "Hide"}</button>
+      </h2>
+      {!hidden && total > 0 && (
+        <div className="today-grid">
+          {items.filter((it) => it.list.length).map((it) => (
+            <div className="today-card" key={it.key}>
+              <div className="today-head"><span className={`badge ${it.tone}`}>{it.list.length}</span><strong>{it.title}</strong></div>
+              <div className="today-hint">{it.hint}</div>
+              <ul>
+                {(open[it.key] ? it.list : it.list.slice(0, SHOWN)).map(({ a, note, tab }) => (
+                  <li key={a.id}><button className="btn-link" onClick={() => onOpenTab(a.id, tab)}>{lastFirstName(a.name)}</button>{note ? <small> {note}</small> : null}</li>
+                ))}
+              </ul>
+              {it.list.length > SHOWN && <button className="btn-link today-more" onClick={() => setOpen((o) => ({ ...o, [it.key]: !o[it.key] }))}>{open[it.key] ? "Show fewer" : `+ ${it.list.length - SHOWN} more`}</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
   const isCubs = (a) => a.rosterGroup === CUBS_ROSTER_GROUP;
   const [sortConfig, setSortConfig] = useState({ key: null, dir: "asc" });
@@ -4672,6 +4758,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
 
   return (
     <div>
+      <TodayPanel onOpenTab={onOpenTab} dataVersion={dataVersion} />
       <div className="kpi-row">
         <KpiCard
           label={locationFilter === "All" ? "Roster (filtered)" : `Roster (${locationFilter}) — click to show all`}
