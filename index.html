@@ -1841,28 +1841,35 @@ function ProgramIndividualize({ program, athlete, onDone, skipLink = false }) {
   const own = String(program.athleteId) === String(athlete.id);
   const S = window.AthleteStore;
   const [weeks, setWeeks] = useState(() => normalizeProgramWeeks(JSON.parse(JSON.stringify(program.weeks || []))));
-  const [swaps, setSwaps] = useState({}); // original exercise name -> replacement
+  // Swaps go by spot, not just by name: an exercise is the same one from week to week when it has the same
+  // name on the same day in the same place (A2, B2…). So a placeholder used twice in a day, such as "Re-Ed" at
+  // A2 and again at B2, is listed twice and each can be given its own replacement, which then applies to that
+  // spot in every week.
+  const [swaps, setSwaps] = useState({}); // spot key -> replacement
   const newName = own ? program.name : `${athleteLastName(athlete.name)} - ${program.name}`;
   const named = (e) => (e.name || "").trim();
-  const shownName = (e) => (swaps[named(e)] != null && swaps[named(e)].trim() ? swaps[named(e)].trim() : named(e));
-
-  // every exercise in the program, once, in the order it first appears, with the days it's used on
+  const spotOf = new Map(); // exercise -> its spot key
+  // every spot in the program, once, in the order it first appears
   const unique = [];
-  weeks.forEach((w) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e) => {
-    if (!named(e)) return;
-    let u = unique.find((x) => x.name === named(e));
-    if (!u) { u = { name: named(e), days: [] }; unique.push(u); }
-    const day = s.name || `Day ${si + 1}`;
-    if (!u.days.includes(day)) u.days.push(day);
-  })));
-  const changed = unique.filter((u) => swaps[u.name] && swaps[u.name].trim() && swaps[u.name].trim() !== u.name).length;
+  weeks.forEach((w) => (w.sessions || []).forEach((s, si) => {
+    const labels = window.exerciseLabels(s.exercises || []);
+    (s.exercises || []).forEach((e, ei) => {
+      if (!named(e)) return;
+      const label = (labels[ei] || "").replace(/\.$/, "");
+      const key = `${si}|${label}|${named(e).toLowerCase()}`;
+      spotOf.set(e, key);
+      if (!unique.some((x) => x.key === key)) unique.push({ key, name: named(e), where: `${s.name || `Day ${si + 1}`} · ${label}` });
+    });
+  }));
+  const shownName = (e) => { const typed = swaps[spotOf.get(e)]; return typed != null && typed.trim() ? typed.trim() : named(e); };
+  const changed = unique.filter((u) => swaps[u.key] && swaps[u.key].trim() && swaps[u.key].trim() !== u.name).length;
 
   const maxDays = Math.max(0, ...weeks.map((w) => (w.sessions || []).length));
   const setCell = (wi, si, ei, gi, key, v) => setWeeks((ws) => { const c = JSON.parse(JSON.stringify(ws)); c[wi].sessions[si].exercises[ei].groups[gi][key] = v; return c; });
 
   const save = () => {
     const finalWeeks = JSON.parse(JSON.stringify(weeks));
-    finalWeeks.forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => { e.name = shownName(e); })));
+    finalWeeks.forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e, ei) => { e.name = shownName(weeks[wi].sessions[si].exercises[ei]); })));
     // a program that's already this athlete's own is updated in place; a shared one is copied for them
     const saved = own
       ? S.saveProgram({ ...program, weeks: finalWeeks })
@@ -1887,16 +1894,16 @@ function ProgramIndividualize({ program, athlete, onDone, skipLink = false }) {
       <button className="btn btn-small-grey no-print" style={{ marginBottom: 10 }} onClick={() => onDone(null)}>← Back without saving</button>
       <h2>Individualize for {athlete.name} <small>saves as “{newName}”</small></h2>
 
-      <h3 className="indiv-heading">1. Exercises <small>Type a replacement to swap an exercise everywhere it appears. Leave blank to keep it.</small></h3>
+      <h3 className="indiv-heading">1. Exercises <small>Type a replacement to swap an exercise in that spot (the same day and place, such as Day 1 · A2) in every week. Leave blank to keep it.</small></h3>
       <div className="indiv-swaps">
         {unique.map((u) => (
-          <div className="indiv-swap" key={u.name}>
+          <div className="indiv-swap" key={u.key}>
             <div className="indiv-swap-from">
               {S.findExerciseByName(u.name) ? <button className="exercise-link" onClick={() => window.openExercise(u.name)}>{u.name}</button> : u.name}
-              <small>{u.days.join(", ")}</small>
+              <small>{u.where}</small>
             </div>
             <span className="indiv-arrow">→</span>
-            <input list="individualize-exercise-names" value={swaps[u.name] || ""} placeholder="Keep as is" onChange={(e) => setSwaps((s) => ({ ...s, [u.name]: e.target.value }))} />
+            <input list="individualize-exercise-names" value={swaps[u.key] || ""} placeholder="Keep as is" onChange={(e) => setSwaps((s) => ({ ...s, [u.key]: e.target.value }))} />
           </div>
         ))}
         {unique.length === 0 && <div className="empty-state">This program has no exercises yet.</div>}
