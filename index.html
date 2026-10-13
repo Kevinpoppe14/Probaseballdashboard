@@ -4277,7 +4277,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
         <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
         {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
         {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
-        <td></td>
+        {!showFacility && <td></td>}
         <td></td>
         <td></td>
         <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
@@ -4306,7 +4306,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
       {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
-      <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
+      {!showFacility && <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>}
       <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
       <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
@@ -4639,7 +4639,8 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                 ))}
                 {locationFilter === CUBS_LOCATION_LABEL && <th>Off-Season Facility / Contact</th>}
                 {locationFilter === CUBS_LOCATION_LABEL && <React.Fragment><th title="Green when texted in the past month. Click a flag to change it.">Texted</th><th title="Green when called in the past month. Click a flag to change it.">Called</th><th>Program Start</th></React.Fragment>}
-                <th title="Latest force-plate test vs. the closest one from about a week earlier. Click to jump to Performance Metrics.">This Week</th>
+                {/* no This Week column on the Cubs roster */}
+                {locationFilter !== CUBS_LOCATION_LABEL && <th title="Latest force-plate test vs. the closest one from about a week earlier. Click to jump to Performance Metrics.">This Week</th>}
                 <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
                 <th title="Red: no assessment on file. Yellow: latest one is 3+ weeks old. Green: current. Click to jump to it.">Assessment</th>
                 {/* no Roster column: active or inactive is the badge beside each name */}
