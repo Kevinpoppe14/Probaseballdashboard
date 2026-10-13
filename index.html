@@ -682,7 +682,10 @@ const smsHref = (athlete) => {
   return `sms:${dialable(athlete.phone)}${body ? `?&body=${encodeURIComponent(body)}` : ""}`;
 };
 function TextCallLinks({ athlete, onChanged, text = true, call = true }) {
-  const mark = (field) => () => { window.AthleteStore.updateAthlete(athlete.id, { [field]: todayISO() }); if (onChanged) setTimeout(onChanged, 0); };
+  // the link is rebuilt at the moment it is tapped, so it carries whatever the message box says right now
+  // (built only when the row was drawn, it missed a message typed afterwards and opened an empty text)
+  const mark = (field) => (e) => {
+    if (field === "lastTexted" && e && e.currentTarget) e.currentTarget.href = smsHref(athlete); window.AthleteStore.updateAthlete(athlete.id, { [field]: todayISO() }); if (onChanged) setTimeout(onChanged, 0); };
   const addNumber = (e) => {
     e.stopPropagation();
     const typed = window.prompt(`Mobile number for ${athlete.name}:`, "");
