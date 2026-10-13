@@ -126,11 +126,7 @@
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const { data, error } = await sb.from("athlete_logs").select("athlete_id").in("athlete_id", picked).like("key", "session-%").eq("value", "done").gte("updated_at", start.toISOString()).limit(2000);
     if (error || !data) return; // keep what is showing
-    // a group speed session logged for them today counts as well
-    const d0 = new Date();
-    const today = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, "0")}-${String(d0.getDate()).padStart(2, "0")}`;
-    const speed = await sb.from("speed_logs").select("athlete_id").in("athlete_id", picked).eq("data->>date", today).limit(2000);
-    doneToday = new Set([...data, ...((!speed.error && speed.data) || [])].map((r) => String(r.athlete_id)));
+    doneToday = new Set(data.map((r) => String(r.athlete_id))); // lifts only: a group speed session does not mark the name
     draw();
   }
   window.addEventListener("message", (e) => { if (e.origin === window.location.origin && e.data === "coach-session-changed") loadDone(); });
@@ -739,7 +735,6 @@
         const { error } = await sb.from("speed_logs").upsert(rowsOut, { onConflict: "id", ignoreDuplicates: true });
         if (error) { logAll.disabled = false; note.textContent = "Could not log. Check your connection and try again."; return; }
         const already = picked.length - todo.length;
-        loadDone(); // the names in the side bar pick up their "done today" mark
         reload(`Logged for ${todo.length} athlete${todo.length === 1 ? "" : "s"}.${already ? ` ${already} already logged, left as ${already === 1 ? "it was" : "they were"}.` : ""}`);
       } }, !picked.length ? "Log for all" : todo.length ? `Log for all ${todo.length} not yet logged` : "Everyone on the board is logged");
       const unlog = async (aid, name) => {
