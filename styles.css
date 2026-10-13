@@ -3289,3 +3289,4 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .goal-badge.goal-none b { background: #6b7078; color: #fff; }
 .goal-badge.done { color: var(--text-dim); }
 .badge.contact-flag { white-space: nowrap; }
+.badge.coach-badge:not([style]) { background: var(--surface-muted); color: var(--neutral); }

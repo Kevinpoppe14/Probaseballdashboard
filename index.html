@@ -4230,6 +4230,34 @@ function CubsContactCells({ athlete, onChanged }) {
   );
 }
 
+// Cubs roster only: which coach has the player, shown as the badge beside the name in place of Active /
+// Inactive. Clicking steps to the next coach in the list and, after the last, back to unassigned. Kept on the
+// athlete as cubsCoach.
+const CUBS_COACHES = [
+  { name: "Poppe", color: "#0e3386" }, { name: "Weisman", color: "#c8102e" }, { name: "Garza", color: "#1a7f37" },
+  { name: "Simmons", color: "#b45309" }, { name: "Kinsley", color: "#7c3aed" }, { name: "Rooney", color: "#0e7490" },
+];
+function CubsCoachBadge({ athlete, onChanged }) {
+  const at = CUBS_COACHES.findIndex((c) => c.name === athlete.cubsCoach);
+  const coach = CUBS_COACHES[at] || null;
+  const next = CUBS_COACHES[at + 1] || null; // from unassigned (-1) this is the first coach; after the last, unassigned
+  const step = (e) => {
+    e.stopPropagation();
+    window.AthleteStore.updateAthlete(athlete.id, { cubsCoach: next ? next.name : "" });
+    if (onChanged) onChanged();
+  };
+  return (
+    <button
+      className="badge status-toggle coach-badge"
+      style={coach ? { background: coach.color, color: "#fff" } : null}
+      title={`${coach ? `Coach: ${coach.name}` : "No coach set"}. Click for ${next ? next.name : "none"}.`}
+      onClick={step}
+    >
+      {coach ? coach.name : "No coach"}
+    </button>
+  );
+}
+
 function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onToggleCheck, showFacility }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(athlete.name);
@@ -4301,7 +4329,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
         <button className="row-edit" onClick={startEdit} title={`Edit ${athlete.name}`} aria-label={`Edit ${athlete.name}`}>&#9998;</button>
         <Avatar athlete={athlete} />{displayName(athlete)}
         {/* click to switch between active and inactive */}
-        <span className="row-status"><StatusBadge athlete={athlete} onChanged={onDataChange} /></span>
+        <span className="row-status">{showFacility ? <CubsCoachBadge athlete={athlete} onChanged={onDataChange} /> : <StatusBadge athlete={athlete} onChanged={onDataChange} />}</span>
       </td>
       <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
