@@ -1883,6 +1883,8 @@ function ProgramIndividualize({ program, athlete, onDone, skipLink = false }) {
       <datalist id="individualize-exercise-names">
         {S.allExercises().map((e) => <option key={e.id} value={e.name} />)}
       </datalist>
+      {/* a way out at the top as well as the bottom: this screen can be long */}
+      <button className="btn btn-small-grey no-print" style={{ marginBottom: 10 }} onClick={() => onDone(null)}>← Back without saving</button>
       <h2>Individualize for {athlete.name} <small>saves as “{newName}”</small></h2>
 
       <h3 className="indiv-heading">1. Exercises <small>Type a replacement to swap an exercise everywhere it appears. Leave blank to keep it.</small></h3>
@@ -1949,7 +1951,7 @@ function ProgramIndividualize({ program, athlete, onDone, skipLink = false }) {
 
       <div className="facility-form-actions">
         <button className="btn" onClick={save}>Save as “{newName}”</button>
-        <button className="btn-link" onClick={() => onDone(null)}>Cancel</button>
+        <button className="btn btn-small-grey" onClick={() => onDone(null)}>← Back without saving</button>
       </div>
     </div>
   );
