@@ -1433,7 +1433,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   };
 
   // Swapping an exercise in one week: once the name box is left, offer to make the same swap in every later
-  // week, for exercises with the old name on the same day.
+  // week, for the exercise with the old name in the same spot on the same day.
   const nameAtFocus = React.useRef(null);
   const offerSwapForward = (wi, si, ei) => {
     const was = nameAtFocus.current;
@@ -1443,11 +1443,15 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
     const newName = (((draft.weeks[wi].sessions[si] || {}).exercises[ei] || {}).name || "").trim();
     if (!oldName || !newName || oldName.toLowerCase() === newName.toLowerCase()) return;
     const same = (e) => (e.name || "").trim().toLowerCase() === oldName.toLowerCase();
-    const later = draft.weeks.map((w, i) => i).filter((i) => i > wi && ((draft.weeks[i].sessions[si] || {}).exercises || []).some(same));
+    // "the same exercise" in a later week means the old name in the same spot on that day (A2, B2…), so a
+    // placeholder used twice in a day, such as "Re-Ed" at A2 and at B2, is only changed where this one sits
+    const spot = window.exerciseLabels(draft.weeks[wi].sessions[si].exercises)[ei];
+    const matches = (week) => { const xs = ((week.sessions || [])[si] || {}).exercises || []; const labels = window.exerciseLabels(xs); return xs.map((e, k) => k).filter((k) => same(xs[k]) && labels[k] === spot); };
+    const later = draft.weeks.map((w, i) => i).filter((i) => i > wi && matches(draft.weeks[i]).length);
     if (!later.length) return;
     const names = later.map((i) => draft.weeks[i].name || `Week ${i + 1}`).join(", ");
-    if (!window.confirm(`Also change "${oldName}" to "${newName}" in the following weeks (${names})?`)) return;
-    edit((d) => later.forEach((i) => d.weeks[i].sessions[si].exercises.forEach((e) => { if (same(e)) e.name = newName; })));
+    if (!window.confirm(`Also change "${oldName}" to "${newName}" at ${spot.replace(/\.$/, "")} in the following weeks (${names})?`)) return;
+    edit((d) => later.forEach((i) => matches(d.weeks[i]).forEach((k) => { d.weeks[i].sessions[si].exercises[k].name = newName; })));
   };
   const canSave = (draft.name || "").trim().length > 0;
 
