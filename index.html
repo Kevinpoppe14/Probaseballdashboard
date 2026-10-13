@@ -562,9 +562,9 @@ function TeamLogo({ team, size = AVATAR_SIZE }) {
 
 // Small athlete photo for table rows — separate from TeamLogo so both can show together
 // (team logo, then athlete photo, then name). Renders nothing if no photo is set/loadable.
-function AthletePhoto({ athlete }) {
+function AthletePhoto({ athlete, placeholder = false }) {
   const [broken, setBroken] = useState(false);
-  if (!athlete.photoUrl || broken) return null;
+  if (!athlete.photoUrl || broken) return placeholder ? <PhotoPlaceholder /> : null;
   return (
     <img
       src={athlete.photoUrl}
@@ -575,11 +575,29 @@ function AthletePhoto({ athlete }) {
   );
 }
 
+// Stand-ins for the roster rows, so every row lines up: a grey circle with "FA" where a free agent (or anyone
+// with no team set) would have a team logo, and a grey head-and-shoulders where there is no photo.
+function FreeAgentBadge({ size = AVATAR_SIZE }) {
+  return (
+    <span title="Free agent" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, borderRadius: "50%", background: "#5c6066", color: "#fff", fontSize: Math.round(size / 3), fontWeight: 700, marginRight: 8, flexShrink: 0, verticalAlign: "middle" }}>FA</span>
+  );
+}
+function PhotoPlaceholder({ size = AVATAR_SIZE }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 36 36" role="img" aria-label="No photo" style={{ marginRight: 8, verticalAlign: "middle", flexShrink: 0, borderRadius: "50%" }}>
+      <title>No photo</title>
+      <circle cx="18" cy="18" r="18" fill="#d3d5d9" />
+      <circle cx="18" cy="14" r="6.5" fill="#8b8f96" />
+      <path d="M5.5 33c1.5-7.5 6.5-11 12.5-11s11 3.500 12.500 11a18 18 0 0 1-25 0z" fill="#8b8f96" />
+    </svg>
+  );
+}
+
 function Avatar({ athlete }) {
   return (
     <React.Fragment>
-      <TeamLogo team={athlete.team} />
-      <AthletePhoto athlete={athlete} />
+      {athlete.team && !/^free agents?$/i.test(athlete.team.trim()) ? <TeamLogo team={athlete.team} /> : <FreeAgentBadge />}
+      <AthletePhoto athlete={athlete} placeholder />
     </React.Fragment>
   );
 }
