@@ -4237,6 +4237,8 @@ const CUBS_COACHES = [
   { name: "Poppe", color: "#0e3386" }, { name: "Weisman", color: "#c8102e" }, { name: "Garza", color: "#1a7f37" },
   { name: "Simmons", color: "#b45309" }, { name: "Kinsley", color: "#7c3aed" }, { name: "Rooney", color: "#0e7490" },
 ];
+// sorting the Cubs roster by coach follows the order of the list above, with unassigned players last
+const COACH_SORT = { key: "coach", label: "Coach", getValue: (r) => { const i = CUBS_COACHES.findIndex((c) => c.name === r.athlete.cubsCoach); return i === -1 ? CUBS_COACHES.length : i; } };
 function CubsCoachBadge({ athlete, onChanged }) {
   const at = CUBS_COACHES.findIndex((c) => c.name === athlete.cubsCoach);
   const coach = CUBS_COACHES[at] || null;
@@ -4466,6 +4468,8 @@ function coachNameFromEmail(email) {
 function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
   const isCubs = (a) => a.rosterGroup === CUBS_ROSTER_GROUP;
   const [sortConfig, setSortConfig] = useState({ key: null, dir: "asc" });
+  const [coachFilter, setCoachFilter] = useState("All"); // Cubs roster: one coach, "none", or "All"
+  const cubsCoachCount = (name) => getRoster().filter((a) => isCubs(a) && (a.status || "active").toLowerCase() !== "alumni" && (name ? a.cubsCoach === name : !CUBS_COACHES.some((c) => c.name === a.cubsCoach))).length;
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   const handleSort = (key) => {
@@ -4494,13 +4498,14 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       // Chicago Cubs is its own bucket, never part of "All" or any real DST location — shown
       // only when that button is the one actually selected.
       if (locationFilter === CUBS_LOCATION_LABEL) {
-        return isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch;
+        const matchesCoach = coachFilter === "All" || (coachFilter === "none" ? !CUBS_COACHES.some((c) => c.name === a.cubsCoach) : a.cubsCoach === coachFilter);
+        return isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && matchesCoach;
       }
       const matchesLocation = locationFilter === "All" || (a.dstLocation || "") === locationFilter;
       return !isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
     });
     // eslint-disable-next-line
-  }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion]);
+  }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion, coachFilter]);
 
   const rows = useMemo(() => {
     return filtered.map((a) => {
@@ -4553,14 +4558,14 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
     if (!sortConfig.key) {
       return [...rows].sort((a, b) => lastNameOnly(a.athlete.name).localeCompare(lastNameOnly(b.athlete.name)));
     }
-    const column = ROSTER_COLUMNS.find((c) => c.key === sortConfig.key);
+    const column = [...ROSTER_COLUMNS, COACH_SORT].find((c) => c.key === sortConfig.key);
     const sorted = [...rows].sort((a, b) => {
       const va = column.getValue(a);
       const vb = column.getValue(b);
       if (typeof va === "string" || typeof vb === "string") {
         return String(va).localeCompare(String(vb));
       }
-      return (va ?? 0) - (vb ?? 0);
+      return (va ?? 0) - (vb ?? 0) || lastNameOnly(a.athlete.name).localeCompare(lastNameOnly(b.athlete.name)); // ties (the same coach) stay A-Z
     });
     if (sortConfig.dir === "desc") sorted.reverse();
     return sorted;
@@ -4655,6 +4660,22 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
         <h2>
           Athlete Status <small>Sorted A-Z by default &middot; click a column header to sort &middot; click a row for detail</small>
         </h2>
+        {/* Cubs roster: narrow the list to one coach's players, or put the list in coach order */}
+        {locationFilter === CUBS_LOCATION_LABEL && (
+          <div className="cubs-coach-controls no-print">
+            <label>Coach
+              <select value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)}>
+                <option value="All">All coaches</option>
+                {CUBS_COACHES.map((c) => <option key={c.name} value={c.name}>{c.name} ({cubsCoachCount(c.name)})</option>)}
+                <option value="none">No coach ({cubsCoachCount("")})</option>
+              </select>
+            </label>
+            <button className={`btn btn-small-grey${sortConfig.key === "coach" ? " on" : ""}`} onClick={() => handleSort("coach")} title="Group the list by coach, in the order Poppe, Weisman, Garza, Simmons, Kinsley, Rooney, then no coach. Click again to reverse.">
+              Sort by coach{sortConfig.key === "coach" ? (sortConfig.dir === "asc" ? " ▲" : " ▼") : ""}
+            </button>
+            {sortConfig.key === "coach" && <button className="btn-link" onClick={() => setSortConfig({ key: null, dir: "asc" })}>Back to A-Z</button>}
+          </div>
+        )}
         {sortedRows.length ? (
           <table>
             <thead>

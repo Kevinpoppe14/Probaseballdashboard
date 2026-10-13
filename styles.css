@@ -3290,3 +3290,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .goal-badge.done { color: var(--text-dim); }
 .badge.contact-flag { white-space: nowrap; }
 .badge.coach-badge:not([style]) { background: var(--surface-muted); color: var(--neutral); }
+.cubs-coach-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 13px; }
+.cubs-coach-controls label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.cubs-coach-controls select { height: 32px; padding: 0 8px; color: var(--text); background: var(--panel); border: 1px solid var(--text-dim); border-radius: 6px; }
+.btn.btn-small-grey.on { background: var(--dst-red); border-color: var(--dst-red); }
