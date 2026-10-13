@@ -3264,3 +3264,15 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .goal-badges.small { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 5px 0 0; }
 .goal-badges.small .goal-badge { max-width: 170px; padding: 1px 7px 1px 2px; gap: 4px; font-size: 10.5px; font-weight: 500; display: block; }
 .goal-badges.small .goal-badge b { width: 13px; height: 13px; font-size: 9px; margin-right: 4px; vertical-align: 1px; }
+/* Biomechanical assessment header: the logo-and-photo block takes only the room it needs, so Name, Date and
+   Coach sit inside the header box beside it. (A later rule for the Player Plan header had made that block full
+   width, which pushed the three fields out past the box; on paper the overflow made the browser shrink the
+   whole page to fit.) */
+.assess-header-top .assess-header-pics { width: auto; flex: 0 0 auto; align-items: center; }
+.assess-header-top .assess-header-pics .ph-team { margin-top: 0; }
+/* On paper the header is one slim row: team logo and photo, then Name, Date and Coach, then the DST logo at
+   the right. That leaves more of the page's height for the two columns, so they print larger. */
+.assess-wrap.print-paginated .assess-header { display: flex; align-items: center; gap: 18px; padding-top: 8px; padding-bottom: 8px; margin-bottom: 10px; }
+.assess-wrap.print-paginated .assess-header .assess-header-top { flex: 1; min-width: 0; }
+.assess-wrap.print-paginated .assess-header .assess-print-logo { order: 2; flex: 0 0 auto; margin: 0; text-align: right; }
+.assess-wrap.print-paginated .assess-header .assess-print-logo img { height: 46px; width: auto; display: block; }
