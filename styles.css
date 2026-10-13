@@ -3299,3 +3299,4 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .text-link { font-size: 12px; font-weight: 600; color: var(--info); text-decoration: underline; white-space: nowrap; background: none; border: none; padding: 0; cursor: pointer; }
 .cubs-coach-controls .text-template { flex: 1 1 320px; }
 .cubs-coach-controls .text-template input { flex: 1; min-width: 180px; height: 32px; padding: 0 8px; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
+.badge.program-phase-badge { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }

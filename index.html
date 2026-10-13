@@ -4387,7 +4387,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
       {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
       {!showFacility && <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>}
-      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "plan")} /></td>
       <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
@@ -4891,7 +4891,7 @@ function WeekOverWeekTicker({ athleteId, onOpenTab }) {
 // Yellow: some block's last week is this week (line up what's next). Red: some block's last week
 // was last week and nothing in that lane covers this week either (the athlete's plan has a gap
 // right now). Green: an active plan, but no block boundary to flag — mid-block is the normal case.
-function ProgramStatusBadge({ athleteId }) {
+function ProgramStatusBadge({ athleteId, onOpenTab }) {
   const plan = window.AthleteStore.getPeriodization(athleteId);
   if (!plan || !window.PeriodizationLib) {
     return <span className="badge neutral" title="No periodization plan saved for this athlete">No Program</span>;
@@ -4915,7 +4915,24 @@ function ProgramStatusBadge({ athleteId }) {
     const title = `Ending this week: ${endsThisWeek.map((b) => `${laneName(b)} (${b.label || "untitled"})`).join(", ")}`;
     return <span className="badge warn" title={title}>Ending this week</span>;
   }
-  return <span className="badge good" title={`Week ${progress.week} of ${plan.weeks} — on track`}>On track</span>;
+  // Green: mid-block, nothing to flag. The flag carries the name of the phase the athlete is in right now (the
+  // block covering this week: the Strength row's if it has one, as the program builder on their plan opens
+  // on, otherwise any block with a program, otherwise any block), and clicking it goes to that program.
+  const now = plan.blocks.filter((b) => b.start <= wk && wk < b.start + b.len);
+  const current = now.find((b) => b.programId && /strength/i.test(laneName(b))) || now.find((b) => b.programId) || now.find((b) => /phase/i.test(laneName(b))) || now[0] || null;
+  const phase = current ? (current.label || "").trim() || laneName(current) : "On track";
+  const open = (e) => {
+    e.preventDefault();
+    if (!onOpenTab) return;
+    onOpenTab();
+    // the plan tab opens at its top; bring the program builder into view once it has drawn
+    setTimeout(() => { const el = document.querySelector(".ppt-title"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 450);
+  };
+  return (
+    <a href="#" onClick={open} className="badge good badge-link program-phase-badge" title={`${phase} · week ${progress.week} of ${plan.weeks}, on track. Click to open their program.`}>
+      {phase}
+    </a>
+  );
 }
 
 // Roster-row flag: whether a biomechanical assessment is on file and how current it is. All three
