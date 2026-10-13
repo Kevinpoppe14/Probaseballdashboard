@@ -126,7 +126,11 @@
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const { data, error } = await sb.from("athlete_logs").select("athlete_id").in("athlete_id", picked).like("key", "session-%").eq("value", "done").gte("updated_at", start.toISOString()).limit(2000);
     if (error || !data) return; // keep what is showing
-    doneToday = new Set(data.map((r) => String(r.athlete_id)));
+    // a group speed session logged for them today counts as well
+    const d0 = new Date();
+    const today = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, "0")}-${String(d0.getDate()).padStart(2, "0")}`;
+    const speed = await sb.from("speed_logs").select("athlete_id").in("athlete_id", picked).eq("data->>date", today).limit(2000);
+    doneToday = new Set([...data, ...((!speed.error && speed.data) || [])].map((r) => String(r.athlete_id)));
     draw();
   }
   window.addEventListener("message", (e) => { if (e.origin === window.location.origin && e.data === "coach-session-changed") loadDone(); });
@@ -360,6 +364,7 @@
     const day = ((p.program.weeks[p.week] || {}).sessions || [])[d];
     if (!day) return null;
     const Rx = window.ProgramRx;
+    const seenNames = {}; // how many times each drill name has come up so far in this day
     const group = speedGroups.find((g) => g.id === speedGroupId) || { name: "" };
     return {
       groupId: speedGroupId, group: group.name, date: speedDate, fromProgram: true,
@@ -371,9 +376,12 @@
           notes: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", e.notes || ""].filter(Boolean).join(" · "),
         };
         const key = String(e.id || base.name.toLowerCase());
-        const swap = swapFor(p, d, key, base.name);
+        const nm = base.name.toLowerCase();
+        seenNames[nm] = (seenNames[nm] || 0) + 1;
+        const spot = `${d}|${seenNames[nm]}`;
+        const swap = swapFor(p, d, key, base.name, spot);
         // _key, _orig and _swap are for this screen only; copyItems() drops them before anything is saved
-        return swap ? { ...swap.to, _key: key, _orig: base, _swap: swap } : { ...base, _key: key };
+        return swap ? { ...swap.to, _key: key, _spot: spot, _orig: base, _swap: swap } : { ...base, _key: key, _spot: spot };
       }),
       notes: (day.warmup || "").trim() ? `Warm-up: ${day.warmup.trim()}` : "",
     };
@@ -387,10 +395,12 @@
   let speedSwaps = {}; // assignment id -> its swaps, oldest first
   let speedSwapOpen = null; // index of the drill whose swap form is open
   let exerciseNames = null; // names from the exercise database, offered while typing; loaded the first time
-  function swapFor(p, d, key, name) {
+  // a swap "for the rest of the program" follows its spot: the same drill name in the same place on the same
+  // day (first "Re-Ed" of Day 1, second "Re-Ed" of Day 1…), so a name used twice in a day can be swapped apart
+  function swapFor(p, d, key, name, spot) {
     let hit = null; // the latest one that applies wins
     (speedSwaps[p.assign.id] || []).forEach((o) => {
-      const applies = o.scope === "phase" ? o.fromName === name.toLowerCase() && p.week >= o.week : o.week === p.week && o.day === d && o.key === key;
+      const applies = o.scope === "phase" ? o.fromName === name.toLowerCase() && p.week >= o.week && (!o.spot || o.spot === spot) : o.week === p.week && o.day === d && o.key === key;
       if (applies) hit = o;
     });
     return hit;
@@ -422,11 +432,11 @@
     const apply = (scope) => async () => {
       const to = { name: name.value.trim(), detail: detail.value.trim(), notes: notes.value.trim() };
       if (!to.name) { err.textContent = "Give the drill a name."; return; }
-      const mine = (o) => (o.scope === "phase" ? o.fromName === orig.name.toLowerCase() && o.week === p.week : o.week === p.week && o.day === d && o.key === it._key);
+      const mine = (o) => (o.scope === "phase" ? o.fromName === orig.name.toLowerCase() && o.week === p.week && (o.spot || it._spot) === it._spot : o.week === p.week && o.day === d && o.key === it._key);
       try {
         await saveSwaps(p.assign.id, (list) => [
           ...list.filter((o) => !(o.scope === scope && mine(o))), // changing it again replaces the earlier change
-          { scope, week: p.week, day: d, key: it._key, fromName: orig.name.toLowerCase(), to, by: user.email || "", at: new Date().toISOString() },
+          { scope, week: p.week, day: d, key: it._key, spot: it._spot, fromName: orig.name.toLowerCase(), to, by: user.email || "", at: new Date().toISOString() },
         ]);
       } catch (e) { err.textContent = "Could not save. Try again."; return; }
       speedSwapOpen = null;
@@ -576,7 +586,26 @@
       const put = await sb.from("periodization").upsert({ athlete_id: aid, data: plan });
       if (put.error) throw put.error;
     }
-    return at >= 0 ? `Updated in ${who}'s app.` : `Sent to ${who}'s app. It shows under "${SPEED_LANE}" for that week.`;
+    // A remote athlete trains with what they have: say so if this session needs equipment or room they have
+    // not listed (the same check the dashboard makes when a program is assigned). The session is sent either way.
+    let heads = "";
+    const person = byId(aid);
+    if (person && person.remote && window.EquipmentCheck) {
+      try {
+        const [eq, lib] = await Promise.all([
+          sb.from("athlete_equipment").select("access").eq("athlete_id", aid).maybeSingle(),
+          sb.from("exercises").select("data").limit(5000),
+        ]);
+        const access = eq.data && Array.isArray(eq.data.access) ? eq.data.access : null;
+        if (!access) heads = " They have not filled in their equipment list yet, so it could not be checked.";
+        else {
+          const library = new Map((lib.data || []).map((r) => [String((r.data || {}).name || "").trim().toLowerCase(), r.data]));
+          const flagged = window.EquipmentCheck.flaggedIn({ weeks: [{ sessions: [day] }] }, access, (n) => library.get(String(n).trim().toLowerCase()) || null);
+          if (flagged.length) heads = ` Check their equipment: ${flagged.map((f) => `${f.name} (${f.missing.join(", ")})`).join("; ")}.`;
+        }
+      } catch (e) { /* could not check; the session has still been sent */ }
+    }
+    return (at >= 0 ? `Updated in ${who}'s app.` : `Sent to ${who}'s app. It shows under "${SPEED_LANE}" for that week.`) + heads;
   }
   function sendPanel(s) {
     if (!picked.length) return null;
@@ -710,6 +739,7 @@
         const { error } = await sb.from("speed_logs").upsert(rowsOut, { onConflict: "id", ignoreDuplicates: true });
         if (error) { logAll.disabled = false; note.textContent = "Could not log. Check your connection and try again."; return; }
         const already = picked.length - todo.length;
+        loadDone(); // the names in the side bar pick up their "done today" mark
         reload(`Logged for ${todo.length} athlete${todo.length === 1 ? "" : "s"}.${already ? ` ${already} already logged, left as ${already === 1 ? "it was" : "they were"}.` : ""}`);
       } }, !picked.length ? "Log for all" : todo.length ? `Log for all ${todo.length} not yet logged` : "Everyone on the board is logged");
       const unlog = async (aid, name) => {
@@ -798,6 +828,7 @@
         where, // what the location picker goes by
         sub: [where === "No location" ? "" : coach ? "Coach" : where, d.position && d.position !== "Unassigned" ? d.position : ""].filter(Boolean).join(" · "),
         cubs: cubsRoster && !d.dstLocation, // Cubs-only players get the Cubs look, as on their own link
+        remote: d.dstLocation === "DST Remote Training", // their equipment list is checked when a speed session is sent to their app
       };
     }).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
     fillLocations();

@@ -175,8 +175,43 @@
   function syncDeleteByAthlete(table, athleteId) {
     sb().from(table).delete().eq("athlete_id", String(athleteId)).then(({ error }) => logSyncError(`delete ${table} for athlete ${athleteId}`, error));
   }
+  // ---- Overwrite guard for plans and programs ---------------------------------------------------------
+  // A plan or a program is saved as one whole document, so with two coaches (or one coach on two devices) in
+  // the same one, whoever saved last used to replace the other's work without either knowing. Now each save
+  // first looks at when the saved copy was last changed. If that is not what this page last saw, someone else
+  // has saved in between, and the coach is asked what to do: keep their own version (replacing the other
+  // change) or take the other one (the page reloads with it). Nothing is replaced without that question.
+  //   versions    "table/id" -> the updated_at this page last saw (from loading, or from its own last save)
+  //   saveQueues  saves to one document run one after another, so each sees the result of the one before
+  const versions = new Map();
+  const saveQueues = new Map();
+  let userEmails = new Map(); // user id -> email, for saying who made the other change
+  function guardedUpsert(table, keyCol, id, data, what) {
+    const key = String(id), k = `${table}/${key}`;
+    const run = async () => {
+      const known = versions.get(k);
+      if (known) {
+        const { data: row, error } = await sb().from(table).select("*").eq(keyCol, key).maybeSingle();
+        if (!error && row && row.updated_at && row.updated_at !== known) {
+          const who = row.updated_by && row.updated_by === currentUser.id ? "You (in another tab or on another device)" : userEmails.get(row.updated_by) || "Another coach or device";
+          const when = new Date(row.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+          const keepMine = window.confirm(`${who} changed ${what} on ${when}, after this page loaded it.\n\nOK: save your version. Their change is replaced.\nCancel: keep their version. This page reloads and your last change here is dropped.`);
+          if (!keepMine) { window.location.reload(); return; }
+        }
+      }
+      // updated_at is sent for tables with no trigger of their own to stamp it; where there is one, the server's time wins
+      const { data: saved, error } = await sb().from(table).upsert({ [keyCol]: key, data, updated_at: new Date().toISOString() }).select("updated_at").maybeSingle();
+      logSyncError(`upsert ${table}/${key}`, error);
+      if (!error && saved && saved.updated_at) versions.set(k, saved.updated_at);
+    };
+    const next = (saveQueues.get(k) || Promise.resolve()).then(run, run);
+    saveQueues.set(k, next);
+    return next;
+  }
+  const planLabel = (athleteId) => { const a = allAthletes().find((x) => String(x.id) === String(athleteId)); return a ? `${a.name}'s plan` : "this plan"; };
+
   function syncUpsertPeriodization(athleteId, data) {
-    sb().from("periodization").upsert({ athlete_id: String(athleteId), data }).then(({ error }) => logSyncError(`upsert periodization/${athleteId}`, error));
+    guardedUpsert("periodization", "athlete_id", athleteId, data, planLabel(athleteId));
   }
   function syncDeletePeriodization(athleteId) {
     sb().from("periodization").delete().eq("athlete_id", String(athleteId)).then(({ error }) => logSyncError(`delete periodization/${athleteId}`, error));
@@ -298,6 +333,7 @@
 
     accounts = profiles.filter((p) => p.email).map((p) => ({ id: p.id, email: p.email }));
     const emailById = new Map(profiles.map((p) => [p.id, p.email]));
+    userEmails = emailById;
     const next = emptyState();
     // Only athletes and assessments show a "Created by / Last updated by" signature in the UI
     // right now (see activityFromRow) — every table has the underlying columns from the migration,
@@ -309,10 +345,12 @@
     notes.forEach((r) => next.notes.push(r.data));
     playerPlans.forEach((r) => next.playerPlans.push(r.data));
     periodization.forEach((r) => { next.periodization[r.athlete_id] = r.data; });
+    periodization.forEach((r) => { if (r.updated_at) versions.set(`periodization/${r.athlete_id}`, r.updated_at); });
     periodTemplates.forEach((r) => next.periodTemplates.push(r.data));
     assessments.forEach((r) => next.assessments.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
     offseasonFacilityRows.forEach((r) => next.offseasonFacilities.push({ ...r.data, id: r.id }));
     programRows.forEach((r) => next.programs.push({ ...r.data, id: r.id }));
+    programRows.forEach((r) => { if (r.updated_at) versions.set(`programs/${r.id}`, r.updated_at); });
     exerciseRows.forEach((r) => next.exercises.push({ ...r.data, id: r.id }));
     const syncedAtRow = appMeta.find((r) => r.key === "playerPlansSyncedAt");
     next.playerPlansSyncedAt = syncedAtRow ? syncedAtRow.value : null;
@@ -748,7 +786,7 @@
     if (idx === -1) state.programs.push(full);
     else state.programs[idx] = full;
     persistLocal();
-    syncUpsert("programs", id, undefined, data);
+    guardedUpsert("programs", "id", id, data, `the program "${data.name || "Untitled"}"`);
     return full;
   }
 

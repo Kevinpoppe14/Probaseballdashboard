@@ -2261,7 +2261,13 @@ const PROGRAMS_NAV_HOME = { section: "programs", folder: "", editingId: null, as
 function ProgramsPage({ nav, setNav }) {
   const [version, setVersion] = useState(0);
   const S = window.AthleteStore;
-  const programs = S.allPrograms();
+  // The small one-week programs made when a group speed session is sent to an athlete's app (ids starting
+  // "gspeed-") are left out of this list unless asked for: there is one per athlete per week, and they are
+  // reached from the athlete's plan, so here they would only bury the real programs.
+  const everyProgram = S.allPrograms();
+  const sentCount = everyProgram.filter((p) => String(p.id).startsWith("gspeed-")).length;
+  const [showSent, setShowSent] = useState(false);
+  const programs = showSent ? everyProgram : everyProgram.filter((p) => !String(p.id).startsWith("gspeed-"));
   const folders = S.getProgramFolders();
   // folder: path of the folder being viewed ("" is the top level). A folder that no longer exists falls back to the top.
   const folder = nav.folder && folders.includes(nav.folder) ? nav.folder : "";
@@ -2298,7 +2304,7 @@ function ProgramsPage({ nav, setNav }) {
         (!coach || (coach === "__none__" ? !p.createdBy : p.createdBy === coach)) &&
         (!tag || (p.tags || []).includes(tag)) &&
         (!q || [p.name, p.createdBy, p.createdBy && coachName(p.createdBy), ...(p.tags || [])].some((v) => (v || "").toLowerCase().includes(q))))
-    : programs.filter((p) => (p.folder || "") === folder);
+    : programs.filter((p) => ((String(p.id).startsWith("gspeed-") ? "" : p.folder) || "") === folder); // sent speed sessions, when shown, sit at the top level
   const countIn = (f) => programs.filter((p) => inFolder(p.folder || "", f)).length;
   const cleanName = (raw) => (raw || "").replace(/\//g, " ").trim();
 
@@ -2433,6 +2439,7 @@ function ProgramsPage({ nav, setNav }) {
     <div className="panel" key={version}>
       {sectionTabs}
       <h2>Programs <small>{programs.length} saved</small></h2>
+      {sentCount > 0 && <button className="btn-link no-print" style={{ marginBottom: 8 }} onClick={() => setShowSent(!showSent)}>{showSent ? "Hide" : "Show"} {sentCount} group speed session{sentCount === 1 ? "" : "s"} sent to athletes</button>}
       <div className="program-crumbs">
         <button className={`program-crumb ${folder === "" ? "here" : ""} ${dropOver === "" ? "drop-over" : ""}`} onClick={() => setFolder("")} {...dropTarget("")}>All programs</button>
         {folder && folder.split("/").map((part, i, parts) => {
