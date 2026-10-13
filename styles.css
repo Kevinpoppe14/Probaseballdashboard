@@ -3276,3 +3276,15 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .assess-wrap.print-paginated .assess-header .assess-header-top { flex: 1; min-width: 0; }
 .assess-wrap.print-paginated .assess-header .assess-print-logo { order: 2; flex: 0 0 auto; margin: 0; text-align: right; }
 .assess-wrap.print-paginated .assess-header .assess-print-logo img { height: 46px; width: auto; display: block; }
+/* Goal badges by kind: red for mobility, flexibility and coordination; yellow for strength, speed, power and
+   other outputs; green for body composition and nutrition; grey when the goal names none of these. An achieved
+   goal keeps its color, with a check in place of its number and the text dimmed. */
+.goal-badge.goal-red { border-color: #c8102e; background: rgba(200, 16, 46, 0.16); }
+.goal-badge.goal-red b { background: #c8102e; color: #fff; }
+.goal-badge.goal-yellow { border-color: #e6b800; background: rgba(230, 184, 0, 0.16); }
+.goal-badge.goal-yellow b { background: #e6b800; color: #1a1a1a; }
+.goal-badge.goal-green { border-color: #2e9e4f; background: rgba(46, 158, 79, 0.16); }
+.goal-badge.goal-green b { background: #2e9e4f; color: #fff; }
+.goal-badge.goal-none { border-color: var(--text-dim); }
+.goal-badge.goal-none b { background: #6b7078; color: #fff; }
+.goal-badge.done { color: var(--text-dim); }

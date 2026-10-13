@@ -4773,6 +4773,19 @@ const ASSESSMENT_DUE_SOON_DAYS = 21;
 // A player's top three physical goals from their Player Plan (the first three in its priority order), as small
 // badges: beside the name at the top of the player's pages, and under the assessment flag on the roster. They
 // are for the screen only and never print. A goal ticked off as achieved shows with a check.
+// The color of a goal badge, from the words in the goal:
+//   red     mobility, flexibility, coordination (range of motion, rotation, stability, movement quality…)
+//   yellow  strength, speed, quickness, power and other outputs (velocity, jumps, sprints, lifts…)
+//   green   body composition, lean mass and nutrition (weight, body fat, muscle mass, diet…)
+// Checked in the order listed below, so "squat 400 lbs" is yellow and "add 8 lbs lean mass" is green. A goal with none of
+// these words stays grey.
+const GOAL_COLORS = [
+  ["yellow", /strength|strong|speed|quick|power|explosiv|velo/i], // the plain output words win, so "rotational power" is an output, not mobility
+  ["red", /mobil|flexib|coordinat|range of motion|\brom\b|rotation|\b(ir|er)\b|stabil|balance|posture|postural|movement|motor control|stiff|tight|hinge pattern|mechanic|sequenc|dissociat|thoracic|t-spine|ankle|shoulder flexion|hip (internal|external)/i],
+  ["yellow", /strength|strong|speed|quick|power|explosiv|output|velo|mph|jump|sprint|accelerat|force|rfd|impulse|rsi|squat|deadlift|bench|press|pull-?ups?|chin-?ups?|1 ?rm|max|throw|exit velo|bat speed|agility|10-yard|60-yard|\bcmj\b|peak/i],
+  ["green", /body ?comp|lean|body fat|fat mass|% ?fat|\bfat\b|muscle mass|\bmass\b|weight|\blbs?\b|pounds|\bkg\b|nutrition|diet|calorie|protein|eat|meal|hydrat|bulk|cut\b|gain|lose/i],
+];
+const goalColor = (text) => (GOAL_COLORS.find(([, pattern]) => pattern.test(text || "")) || ["none"])[0];
 function topPhysicalGoals(athleteId) {
   const plan = window.AthleteStore.getPeriodization(athleteId);
   const list = plan && plan.goals && Array.isArray(plan.goals.physical) ? plan.goals.physical : [];
@@ -4784,7 +4797,7 @@ function GoalBadges({ athleteId, small }) {
   return (
     <span className={`goal-badges no-print ${small ? "small" : ""}`}>
       {goals.map((g, i) => (
-        <span className={`goal-badge ${g.done ? "done" : ""}`} key={g.id || i} title={`Physical goal ${i + 1}: ${g.text.trim()}${g.done ? " (achieved)" : ""}`}>
+        <span className={`goal-badge goal-${goalColor(g.text)} ${g.done ? "done" : ""}`} key={g.id || i} title={`Physical goal ${i + 1}: ${g.text.trim()}${g.done ? " (achieved)" : ""}`}>
           <b>{g.done ? "✓" : i + 1}</b>{g.text.trim()}
         </span>
       ))}
