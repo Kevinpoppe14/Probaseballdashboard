@@ -664,21 +664,58 @@ function computeAge(dob) {
   return age;
 }
 
+// ---- Texting and calling a player from the dashboard -------------------------------------------------
+// "Text" opens the device's own messaging app (Messages on a phone, or on a Mac signed in to iMessage) with
+// the player's number filled in and the saved message typed out, ready to send from the coach's own number.
+// "Call" opens the phone dialer the same way. Nothing is sent by the dashboard itself. Using either one marks
+// the player as texted or called today (see ContactFlag on the Cubs roster).
+// The message is a template kept in this browser; "{first}" in it becomes the player's first name.
+const dialable = (phone) => { const d = String(phone || "").replace(/[^\d+]/g, ""); return /^\d{10}$/.test(d) ? `+1${d}` : d; };
+const prettyPhone = (phone) => { const d = String(phone || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(phone || ""); };
+const TEXT_TEMPLATE_KEY = "textTemplate";
+const getTextTemplate = () => { try { return localStorage.getItem(TEXT_TEMPLATE_KEY) || ""; } catch (e) { return ""; } };
+const setTextTemplate = (v) => { try { localStorage.setItem(TEXT_TEMPLATE_KEY, v); } catch (e) { /* private window: it just is not remembered */ } };
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// "?&body=" is the form both iPhone and Android accept
+const smsHref = (athlete) => {
+  const body = getTextTemplate().replace(/\{first\}/gi, (athlete.name || "").trim().split(/\s+/)[0] || "");
+  return `sms:${dialable(athlete.phone)}${body ? `?&body=${encodeURIComponent(body)}` : ""}`;
+};
+function TextCallLinks({ athlete, onChanged, text = true, call = true }) {
+  const mark = (field) => () => { window.AthleteStore.updateAthlete(athlete.id, { [field]: todayISO() }); if (onChanged) setTimeout(onChanged, 0); };
+  const addNumber = (e) => {
+    e.stopPropagation();
+    const typed = window.prompt(`Mobile number for ${athlete.name}:`, "");
+    if (typed == null || !typed.trim()) return;
+    window.AthleteStore.updateAthlete(athlete.id, { phone: typed.trim() });
+    if (onChanged) onChanged();
+  };
+  if (!athlete.phone) return <button className="btn-link text-link no-print" onClick={addNumber} title={`Add a mobile number for ${athlete.name}`}>+ number</button>;
+  return (
+    <span className="text-links no-print" onClick={(e) => e.stopPropagation()}>
+      {text && <a className="text-link" href={smsHref(athlete)} onClick={mark("lastTexted")} title={`Text ${prettyPhone(athlete.phone)} from this device`}>Text</a>}
+      {call && <a className="text-link" href={`tel:${dialable(athlete.phone)}`} onClick={mark("lastCalled")} title={`Call ${prettyPhone(athlete.phone)} from this device`}>Call</a>}
+    </span>
+  );
+}
+
 function ContactInfoPanel({ athlete, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [dob, setDob] = useState(athlete.dob || "");
   const [gender, setGender] = useState(athlete.gender || "");
   const [email, setEmail] = useState(athlete.email || "");
+  const [phone, setPhone] = useState(athlete.phone || "");
 
   const startEdit = () => {
     setDob(athlete.dob || "");
     setGender(athlete.gender || "");
     setEmail(athlete.email || "");
+    setPhone(athlete.phone || "");
     setEditing(true);
   };
 
   const save = () => {
-    window.AthleteStore.updateAthlete(athlete.id, { dob: dob.trim(), gender: gender.trim(), email: email.trim() });
+    window.AthleteStore.updateAthlete(athlete.id, { dob: dob.trim(), gender: gender.trim(), email: email.trim(), phone: phone.trim() });
     setEditing(false);
     onChanged();
   };
@@ -693,6 +730,7 @@ function ContactInfoPanel({ athlete, onChanged }) {
           <KpiCard label="Date of Birth" value={athlete.dob ? `${athlete.dob}${age != null ? ` (age ${age})` : ""}` : "—"} />
           <KpiCard label="Gender" value={athlete.gender || "—"} />
           <KpiCard label="Email" value={athlete.email ? <a href={`mailto:${athlete.email}`} style={{ fontSize: 15, fontWeight: 400, wordBreak: "break-all" }}>{athlete.email}</a> : "—"} />
+          <KpiCard label="Mobile" value={athlete.phone ? <span style={{ fontSize: 15, fontWeight: 400 }}>{prettyPhone(athlete.phone)} <TextCallLinks athlete={athlete} onChanged={onChanged} /></span> : "—"} />
         </div>
         <button className="btn-link no-print" style={{ marginTop: 8 }} onClick={startEdit}>Edit contact info</button>
       </div>
@@ -714,6 +752,10 @@ function ContactInfoPanel({ athlete, onChanged }) {
         <div className="field">
           <label>Email</label>
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" style={{ minWidth: 220 }} />
+        </div>
+        <div className="field">
+          <label>Mobile</label>
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" style={{ maxWidth: 170 }} />
         </div>
       </div>
       <button className="btn-link" style={{ marginRight: 10 }} onClick={save}>Save</button>
@@ -3829,6 +3871,7 @@ const IMPORT_FIELDS = {
   name: /^(name|athlete|player|full ?name|nombre)$/i, first: /^(first|first ?name|given ?name)$/i, last: /^(last|last ?name|surname|family ?name)$/i,
   position: /^(pos|position)$/i, location: /^(location|dst ?location|site|facility|gym)$/i, league: /^(league|level)$/i,
   team: /^(team|org|organization|club)$/i, jersey: /^(jersey|jersey ?#|number|#|no\.?)$/i, status: /^(status|roster)$/i,
+  phone: /^(phone|mobile|cell|cell ?phone|mobile ?phone|phone ?number|tel)$/i, email: /^(e-?mail|email ?address)$/i,
 };
 const importPosition = (v) => {
   const s = (v || "").trim().toLowerCase();
@@ -3861,7 +3904,7 @@ function parseAthleteSheet(text) {
     return {
       name: name.replace(/\s+/g, " "),
       position: importPosition(at(r, "position")), location: importLocation(at(r, "location")), locationTyped: at(r, "location"),
-      league: at(r, "league"), team: at(r, "team"), jersey: at(r, "jersey").replace(/^#/, ""),
+      league: at(r, "league"), team: at(r, "team"), jersey: at(r, "jersey").replace(/^#/, ""), phone: at(r, "phone"), email: at(r, "email"),
       status: ["active", "inactive", "alumni"].includes(status) ? status : "",
     };
   }).filter((a) => a.name);
@@ -3883,11 +3926,18 @@ function ImportAthletes({ onAdded }) {
     reader.readAsText(file);
   };
   const run = () => {
-    rows.forEach((a) => window.AthleteStore.addAthlete({
+    rows.forEach((a) => {
+      window.AthleteStore.addAthlete({
       // someone already on the roster keeps their own status unless the sheet gives one
       name: a.name, position: a.position || undefined, jersey: a.jersey || undefined, status: a.status || (existing.has(a.name.toLowerCase()) ? undefined : status),
       league: a.league || undefined, team: a.team || undefined, dstLocation: a.location || location || undefined,
-    }));
+      });
+      // mobile and email are not part of "add athlete", so they are set on the record just made (or found)
+      if (a.phone || a.email) {
+        const made = window.AthleteStore.allAthletes().find((x) => (x.name || "").trim().toLowerCase() === a.name.toLowerCase());
+        if (made) window.AthleteStore.updateAthlete(made.id, { ...(a.phone ? { phone: a.phone } : {}), ...(a.email ? { email: a.email } : {}) });
+      }
+    });
     const fresh = rows.filter((a) => !existing.has(a.name.toLowerCase())).length;
     setDone(`Added ${fresh} athlete${fresh === 1 ? "" : "s"}${rows.length - fresh ? ` and updated ${rows.length - fresh} already on the roster` : ""}.`);
     setText("");
@@ -3907,7 +3957,7 @@ function ImportAthletes({ onAdded }) {
       <h2>Import Athletes <small>several at once, from a sheet</small></h2>
       <p className="timestamp-note">
         Copy the rows from Google Sheets or Excel and paste them below, or choose a CSV file. With a header row, use any of:
-        Name (or First and Last), Position, Location, League, Team, Jersey, Status. Without one, put the columns in that order. Only the name is required.
+        Name (or First and Last), Position, Location, League, Team, Jersey, Status, Mobile, Email. Without one, put the columns in that order. Only the name is required.
       </p>
       <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={"Name\tPosition\tLocation\nJohn Smith\tRHP\tNorth\nMike Jones\tOF\tWest"} />
       <div className="form-row" style={{ marginTop: 10 }}>
@@ -3931,13 +3981,13 @@ function ImportAthletes({ onAdded }) {
       {rows.length > 0 && (
         <div className="import-athletes-preview">
           <table>
-            <thead><tr><th>Name</th><th>Position</th><th>Location</th><th>League</th><th>Team</th><th>Jersey</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Position</th><th>Location</th><th>League</th><th>Team</th><th>Jersey</th><th>Status</th><th>Mobile</th><th></th></tr></thead>
             <tbody>
               {rows.map((a, i) => (
                 <tr key={i}>
                   <td>{a.name}</td><td>{a.position || "Unassigned"}</td>
                   <td>{a.location || location || "—"}{a.locationTyped && !a.location ? <small> (“{a.locationTyped}” not recognised)</small> : null}</td>
-                  <td>{a.league || "—"}</td><td>{a.team || "—"}</td><td>{a.jersey || "—"}</td><td>{a.status || status}</td>
+                  <td>{a.league || "—"}</td><td>{a.team || "—"}</td><td>{a.jersey || "—"}</td><td>{a.status || status}</td><td>{a.phone || "—"}</td>
                   <td>{existing.has(a.name.toLowerCase()) ? <span className="badge warn">Already on roster: will update</span> : <span className="badge good">New</span>}</td>
                 </tr>
               ))}
@@ -4223,8 +4273,8 @@ function ProgramStartInline({ athlete, onChanged }) {
 function CubsContactCells({ athlete, onChanged }) {
   return (
     <React.Fragment>
-      <td onClick={(e) => e.stopPropagation()}><ContactFlag athlete={athlete} field="lastTexted" done="Texted" due="Text" onChanged={onChanged} /></td>
-      <td onClick={(e) => e.stopPropagation()}><ContactFlag athlete={athlete} field="lastCalled" done="Called" due="Call" onChanged={onChanged} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ContactFlag athlete={athlete} field="lastTexted" done="Texted" due="Text due" onChanged={onChanged} /> <TextCallLinks athlete={athlete} onChanged={onChanged} call={false} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ContactFlag athlete={athlete} field="lastCalled" done="Called" due="Call due" onChanged={onChanged} /> {athlete.phone ? <TextCallLinks athlete={athlete} onChanged={onChanged} text={false} /> : null}</td>
       <td onClick={(e) => e.stopPropagation()}><ProgramStartInline athlete={athlete} onChanged={onChanged} /></td>
     </React.Fragment>
   );
@@ -4674,6 +4724,9 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
               Sort by coach{sortConfig.key === "coach" ? (sortConfig.dir === "asc" ? " ▲" : " ▼") : ""}
             </button>
             {sortConfig.key === "coach" && <button className="btn-link" onClick={() => setSortConfig({ key: null, dir: "asc" })}>Back to A-Z</button>}
+            <label className="text-template" title="What the Text links type out for you. {first} becomes the player's first name. Kept on this device.">Text message
+              <input defaultValue={getTextTemplate()} placeholder="Hey {first}, checking in. How is training going?" onChange={(e) => setTextTemplate(e.target.value)} />
+            </label>
           </div>
         )}
         {sortedRows.length ? (
