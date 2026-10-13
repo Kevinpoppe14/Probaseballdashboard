@@ -4183,6 +4183,53 @@ function OffseasonFacilityInline({ athlete, onChanged }) {
   );
 }
 
+// Cubs roster only: whether the player has been texted and called lately, and when their program starts.
+// A flag is green when the last text (or call) was within the past month and grey once a month has gone by,
+// when it is due again. Clicking a grey flag marks it done today; clicking a green one clears it. The dates are
+// kept on the athlete (lastTexted, lastCalled, programStartDate).
+const CONTACT_DAYS = 30;
+function ContactFlag({ athlete, field, done, due, onChanged }) {
+  const last = athlete[field] || "";
+  const days = last ? Math.floor((new Date(new Date().toDateString()) - new Date(`${last}T00:00:00`)) / 864e5) : null;
+  const fresh = days != null && days >= 0 && days < CONTACT_DAYS;
+  const when = last ? new Date(`${last}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  const flip = (e) => {
+    e.stopPropagation();
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    window.AthleteStore.updateAthlete(athlete.id, { [field]: fresh ? "" : today });
+    if (onChanged) onChanged();
+  };
+  return (
+    <button
+      className={`badge status-toggle contact-flag ${fresh ? "good" : "neutral"}`}
+      title={fresh ? `${done} ${when}. Due again in ${CONTACT_DAYS - days} day${CONTACT_DAYS - days === 1 ? "" : "s"}. Click to clear.` : last ? `Last ${done.toLowerCase()} ${when}, over a month ago. Click when done.` : `Not ${done.toLowerCase()} yet. Click when done.`}
+      onClick={flip}
+    >
+      {fresh ? `${done} ${when}` : due}
+    </button>
+  );
+}
+function ProgramStartInline({ athlete, onChanged }) {
+  return (
+    <input
+      type="date" className="inline-select" value={athlete.programStartDate || ""} title="Program start date" aria-label={`Program start date for ${athlete.name}`}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => { window.AthleteStore.updateAthlete(athlete.id, { programStartDate: e.target.value }); if (onChanged) onChanged(); }}
+    />
+  );
+}
+// the three extra cells a Cubs roster row carries, after the off-season facility
+function CubsContactCells({ athlete, onChanged }) {
+  return (
+    <React.Fragment>
+      <td onClick={(e) => e.stopPropagation()}><ContactFlag athlete={athlete} field="lastTexted" done="Texted" due="Text" onChanged={onChanged} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ContactFlag athlete={athlete} field="lastCalled" done="Called" due="Call" onChanged={onChanged} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ProgramStartInline athlete={athlete} onChanged={onChanged} /></td>
+    </React.Fragment>
+  );
+}
+
 function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onToggleCheck, showFacility }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(athlete.name);
@@ -4229,6 +4276,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
         </td>
         <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
         {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
+        {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
         <td></td>
         <td></td>
         <td></td>
@@ -4257,6 +4305,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       </td>
       <td><PositionSelect athlete={athlete} onChanged={onDataChange} /></td>
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
+      {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
       <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>
       <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} /></td>
       <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
@@ -4589,6 +4638,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
                   <SortableHeader key={col.key} column={col} sortConfig={sortConfig} onSort={handleSort} />
                 ))}
                 {locationFilter === CUBS_LOCATION_LABEL && <th>Off-Season Facility / Contact</th>}
+                {locationFilter === CUBS_LOCATION_LABEL && <React.Fragment><th title="Green when texted in the past month. Click a flag to change it.">Texted</th><th title="Green when called in the past month. Click a flag to change it.">Called</th><th>Program Start</th></React.Fragment>}
                 <th title="Latest force-plate test vs. the closest one from about a week earlier. Click to jump to Performance Metrics.">This Week</th>
                 <th title="Any periodization block ending this week or that ended last week with nothing lined up">Program</th>
                 <th title="Red: no assessment on file. Yellow: latest one is 3+ weeks old. Green: current. Click to jump to it.">Assessment</th>
