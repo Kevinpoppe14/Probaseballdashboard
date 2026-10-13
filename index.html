@@ -690,11 +690,21 @@ function TextCallLinks({ athlete, onChanged, text = true, call = true }) {
     window.AthleteStore.updateAthlete(athlete.id, { phone: typed.trim() });
     if (onChanged) onChanged();
   };
+  // typing over the number changes it; clearing the box removes it
+  const editNumber = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const typed = window.prompt(`Mobile number for ${athlete.name} (clear it to remove):`, athlete.phone || "");
+    if (typed == null) return;
+    window.AthleteStore.updateAthlete(athlete.id, { phone: typed.trim() });
+    if (onChanged) onChanged();
+  };
   if (!athlete.phone) return <button className="btn-link text-link no-print" onClick={addNumber} title={`Add a mobile number for ${athlete.name}`}>+ number</button>;
   return (
     <span className="text-links no-print" onClick={(e) => e.stopPropagation()}>
       {text && <a className="text-link" href={smsHref(athlete)} onClick={mark("lastTexted")} title={`Text ${prettyPhone(athlete.phone)} from this device`}>Text</a>}
       {call && <a className="text-link" href={`tel:${dialable(athlete.phone)}`} onClick={mark("lastCalled")} title={`Call ${prettyPhone(athlete.phone)} from this device`}>Call</a>}
+      {text && <button className="text-link text-edit" onClick={editNumber} title={`Change the mobile number (${prettyPhone(athlete.phone)})`} aria-label={`Change the mobile number for ${athlete.name}`}>&#9998;</button>}
     </span>
   );
 }

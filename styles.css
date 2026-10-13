@@ -3300,3 +3300,5 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .cubs-coach-controls .text-template { flex: 1 1 320px; }
 .cubs-coach-controls .text-template input { flex: 1; min-width: 180px; height: 32px; padding: 0 8px; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
 .badge.program-phase-badge { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+.text-link.text-edit { text-decoration: none; color: var(--text-dim); font-size: 13px; }
+.text-link.text-edit:hover { color: var(--text); }
