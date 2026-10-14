@@ -183,9 +183,13 @@
     async attach(name, url, replace) {
       const sb = window.supabaseClient;
       const clean = (name || "").trim();
-      const { data: rows, error } = await sb.from("exercises").select("id,data").ilike("data->>name", clean.replace(/[\\%_]/g, "\\$&"));
+      // the whole library, so a name merged into another exercise (its `aliases`) finds that exercise
+      const { data: rows, error } = await sb.from("exercises").select("id,data").limit(10000);
       if (error) throw new Error("Could not reach the exercise library. Check your connection and try again.");
-      const row = (rows || []).find((r) => ((r.data || {}).name || "").trim().toLowerCase() === clean.toLowerCase());
+      const key = clean.toLowerCase();
+      const named = (r, n) => (n || "").trim().toLowerCase() === key;
+      const row = (rows || []).find((r) => named(r, (r.data || {}).name))
+        || (rows || []).find((r) => ((r.data || {}).aliases || []).some((a) => named(r, a)));
       if (row && row.data.videoUrl && !replace) return row.data;
       const id = row ? row.id : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const data = row

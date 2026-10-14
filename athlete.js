@@ -54,11 +54,15 @@
       const names = new Set();
       programs.forEach((x) => (x.weeks || []).forEach((w) => (w.sessions || []).forEach((ses) => (ses.exercises || []).forEach((e) => { if ((e.name || "").trim()) names.add(e.name.trim()); }))));
       (ov.data || []).forEach((r) => { if (r.data && (r.data.name || "").trim()) names.add(r.data.name.trim()); });
-      const list = [...names], exercises = [];
-      for (let i = 0; i < list.length; i += 50) {
-        const ex = await sb.from("exercises").select("data").in("data->>name", list.slice(i, i + 50));
-        (ex.data || []).forEach((r) => exercises.push({ name: r.data.name, videoUrl: r.data.videoUrl, cues: r.data.cues }));
-      }
+      // the library, read whole so an exercise also answers to the names merged into it (its `aliases`): each
+      // program name gets the entry it matches, under that name
+      const wanted = new Set([...names].map((n) => n.toLowerCase()));
+      const exercises = [];
+      const lib = await sb.from("exercises").select("data").limit(10000);
+      (lib.data || []).forEach((r) => {
+        const d = r.data || {};
+        [d.name, ...(d.aliases || [])].forEach((n) => { if (n && wanted.has(n.trim().toLowerCase())) exercises.push({ name: n.trim(), videoUrl: d.videoUrl, cues: d.cues }); });
+      });
       return {
         data: {
           athlete: { name: athlete.name || "", offseasonFacility: athlete.offseasonFacility || "", remote: false }, // the equipment survey is the athlete's own

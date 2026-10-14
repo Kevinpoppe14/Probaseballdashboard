@@ -887,7 +887,7 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
   const [draft, setDraft] = useState(() => ({ equipment: [], ...(initial || {}) }));
   const set = (key, v) => setDraft((d) => ({ ...d, [key]: v }));
   const name = (draft.name || "").trim();
-  const clash = name && window.AthleteStore.allExercises().some((e) => e.id !== draft.id && (e.name || "").trim().toLowerCase() === name.toLowerCase());
+  const clash = name && window.AthleteStore.allExercises().some((e) => e.id !== draft.id && [e.name, ...(e.aliases || [])].some((n) => (n || "").trim().toLowerCase() === name.toLowerCase()));
   const pick = (label, key, options) => (
     <label className="facility-field"><span>{label}</span>
       <select value={draft[key] || ""} onChange={(e) => set(key, e.target.value)}>
@@ -897,7 +897,7 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
     </label>
   );
   const submit = () => {
-    const rec = { name, videoUrl: (draft.videoUrl || "").trim(), tier: draft.tier || "", pattern: draft.pattern || "", region: draft.region || "", laterality: draft.laterality || "", equipment: draft.equipment || [], tags: draft.tags || [], cues: (draft.cues || "").trim() };
+    const rec = { name, videoUrl: (draft.videoUrl || "").trim(), tier: draft.tier || "", pattern: draft.pattern || "", region: draft.region || "", laterality: draft.laterality || "", equipment: draft.equipment || [], tags: draft.tags || [], cues: (draft.cues || "").trim(), aliases: draft.aliases || [] };
     if (draft.id) rec.id = draft.id;
     onSave(rec);
   };
@@ -912,6 +912,17 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
           <input value={draft.videoUrl || ""} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
         </label>
         <ExerciseVideoUpload name={name} has={!!(draft.videoUrl || "").trim()} onUploaded={(url) => set("videoUrl", url)} />
+        {(draft.aliases || []).length > 0 && (
+          <div className="facility-field wide"><span>Also called (merged in: programs using these names link here too)</span>
+            <div className="exercise-aliases">
+              {draft.aliases.map((a) => (
+                <span className="exercise-tag" key={a}>{a}
+                  <button type="button" className="exercise-alias-x" title={`Stop linking "${a}" to this exercise`} aria-label={`Remove ${a}`} onClick={() => set("aliases", draft.aliases.filter((x) => x !== a))}>×</button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {pick("Tier", "tier", EXERCISE_TIERS)}
         {pick("Movement pattern", "pattern", EXERCISE_PATTERNS)}
         {pick("Body region", "region", EXERCISE_REGIONS)}
@@ -997,6 +1008,68 @@ function RmChartPage({ sectionTabs }) {
 }
 
 // Exercise Library section of the Programs tab: search, filter by tier, add / edit, click a name to view.
+// Merges two library entries for the same exercise written two ways ("RFESS" and "Rear Foot Elevated Split
+// Squat"). The coach picks which one is kept: its name and details win, it takes anything it is missing from the
+// other (a video, cues…), and the other name keeps working everywhere as another name for it (see mergeExercises).
+function ExerciseMerge({ onDone }) {
+  const S = window.AthleteStore;
+  const all = S.allExercises();
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const [keep, setKeep] = useState("a");
+  const [done, setDone] = useState("");
+  const find = (n) => all.find((e) => (e.name || "").trim().toLowerCase() === n.trim().toLowerCase()) || null;
+  const ea = find(a), eb = find(b);
+  const same = ea && eb && ea.id === eb.id;
+  const kept = keep === "a" ? ea : eb, other = keep === "a" ? eb : ea;
+  const facts = (e) => [e.videoUrl ? "video" : "no video", e.cues ? "cues" : "", e.tier || "", (e.equipment || []).length ? `${e.equipment.length} equipment` : ""].filter(Boolean).join(" · ");
+  const merge = () => {
+    if (!kept || !other || same) return;
+    if (!window.confirm(`Merge "${other.name}" into "${kept.name}"?\n\n"${other.name}" will be removed from the library, and programs that use that name will link to "${kept.name}" (its video and cues) from now on.`)) return;
+    S.mergeExercises(kept.id, other.id);
+    setDone(`Merged. "${other.name}" now links to "${kept.name}".`);
+    setA(""); setB(""); setKeep("a");
+  };
+  const picker = (label, value, setValue, e) => (
+    <label className="facility-field wide"><span>{label}</span>
+      <input list="merge-exercise-names" value={value} onChange={(ev) => { setValue(ev.target.value); setDone(""); }} placeholder="Type to find an exercise" />
+      {value && !e && <small className="exercise-equipment-hint">Pick an exercise from the library list.</small>}
+      {e && <small className="exercise-equipment-hint">{facts(e)}</small>}
+    </label>
+  );
+  return (
+    <div className="panel">
+      <h2>Merge exercises</h2>
+      <p className="facility-note">For one exercise that is in the library twice under different wording. Pick both, then choose which one to keep. Programs written with either name will show the kept one's video and cues.</p>
+      <datalist id="merge-exercise-names">{all.map((e) => <option key={e.id} value={e.name} />)}</datalist>
+      <div className="facility-form-grid">
+        {picker("First exercise", a, setA, ea)}
+        {picker("Second exercise", b, setB, eb)}
+      </div>
+      {same && <div className="facility-note">Those are the same exercise. Pick two different ones.</div>}
+      {ea && eb && !same && (
+        <div className="exercise-merge-choice">
+          <strong>Which one wins?</strong>
+          {[["a", ea, eb], ["b", eb, ea]].map(([k, x, y]) => (
+            <label key={k}>
+              <input type="radio" name="merge-keep" checked={keep === k} onChange={() => setKeep(k)} />
+              <span>Keep <b>{x.name}</b>. "{y.name}" becomes another name for it.</span>
+            </label>
+          ))}
+          <small className="exercise-equipment-hint">
+            {`"${kept.name}" keeps its own details. ${!kept.videoUrl && other.videoUrl ? `It has no video, so it takes "${other.name}"'s. ` : ""}${!kept.cues && other.cues ? `It takes "${other.name}"'s cues. ` : ""}Equipment and tags from both are kept.`}
+          </small>
+        </div>
+      )}
+      {done && <div className="facility-note">{done}</div>}
+      <div className="facility-form-actions">
+        <button className="btn" disabled={!ea || !eb || same} onClick={merge}>Merge</button>
+        <button className="btn-link" onClick={onDone}>Back to the library</button>
+      </div>
+    </div>
+  );
+}
+
 function ExerciseLibrary({ sectionTabs }) {
   const S = window.AthleteStore;
   const [editing, setEditing] = useState(null); // null = list, {} = new, record = editing
@@ -1006,8 +1079,10 @@ function ExerciseLibrary({ sectionTabs }) {
   const all = S.allExercises();
   const q = query.trim().toLowerCase();
   const [tag, setTag] = useState("");
-  const shown = all.filter((e) => (!tier || e.tier === tier) && (!tag || (e.tags || []).includes(tag)) && (!q || [e.name, ...exerciseTags(e)].some((v) => (v || "").toLowerCase().includes(q))));
+  const shown = all.filter((e) => (!tier || e.tier === tier) && (!tag || (e.tags || []).includes(tag)) && (!q || [e.name, ...(e.aliases || []), ...exerciseTags(e)].some((v) => (v || "").toLowerCase().includes(q))));
+  const [merging, setMerging] = useState(false);
 
+  if (merging) return <ExerciseMerge onDone={() => { setMerging(false); setVersion((v) => v + 1); }} />;
   if (editing) {
     return (
       <ExerciseForm
@@ -1034,6 +1109,7 @@ function ExerciseLibrary({ sectionTabs }) {
           <option value="">All tags</option>
           {EXERCISE_EXTRA_TAGS.map((t) => <option key={t} value={t}>{t} ({all.filter((e) => (e.tags || []).includes(t)).length})</option>)}
         </select>
+        <button className="btn btn-secondary" onClick={() => setMerging(true)}>Merge exercises</button>
         <button className="btn btn-assign" onClick={() => setEditing({})}>+ Add exercise</button>
       </div>
       {shown.length === 0 && <div className="empty-state">{all.length ? "No exercises match." : "No exercises yet. Add one, and any program exercise with the same name will link to it."}</div>}
@@ -1041,6 +1117,7 @@ function ExerciseLibrary({ sectionTabs }) {
         {shown.map((e) => (
           <div className="exercise-row" key={e.id}>
             <button className="program-name-link" onClick={() => window.openExercise(e.name)}>{e.name}</button>
+            {(e.aliases || []).length > 0 && <small className="exercise-aka">also: {e.aliases.join(", ")}</small>}
             <div className="exercise-tags">
               {exerciseTags(e).map((t, i) => <span className={`exercise-tag ${i === 0 && e.tier ? "tier" : ""}`} key={t}>{t}</span>)}
               {!e.videoUrl && <span className="exercise-tag novideo">No video</span>}

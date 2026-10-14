@@ -86,9 +86,12 @@ module.exports = async (req, res) => {
     const [programs, overrideRows, exercises] = await Promise.all([
       sbGet(key, "programs", `id=in.(${ids.map((x) => `"${encodeURIComponent(x)}"`).join(",")})&select=id,data`),
       sbGet(key, "athlete_overrides", `athlete_id=eq.${id}&select=program_id,exercise_id,data`),
-      sbGetAll(key, "exercises", "select=name:data->>name,equipment:data->equipment"),
+      sbGetAll(key, "exercises", "select=name:data->>name,equipment:data->equipment,aliases:data->aliases"),
     ]);
-    const library = new Map(exercises.filter((x) => x.name).map((x) => [x.name.trim().toLowerCase(), x]));
+    // an exercise also answers to the names merged into it (aliases); its own name wins over another's alias
+    const library = new Map();
+    exercises.forEach((x) => (Array.isArray(x.aliases) ? x.aliases : []).forEach((a) => { if (a) library.set(String(a).trim().toLowerCase(), x); }));
+    exercises.forEach((x) => { if (x.name) library.set(x.name.trim().toLowerCase(), x); });
     const findExercise = (n) => library.get(String(n || "").trim().toLowerCase()) || null;
     const overrides = {};
     overrideRows.forEach((r) => { (overrides[r.program_id] = overrides[r.program_id] || {})[r.exercise_id] = r.data; });

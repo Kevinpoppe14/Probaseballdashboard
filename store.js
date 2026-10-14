@@ -796,10 +796,34 @@
   function allExercises() {
     return [...state.exercises].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }
+  // An exercise also answers to the names of any exercises merged into it (`aliases`), so programs written with
+  // either wording link to the same entry, video and cues.
   function findExerciseByName(name) {
     const key = exerciseKey(name);
     if (!key) return null;
-    return state.exercises.find((e) => exerciseKey(e.name) === key) || null;
+    return state.exercises.find((e) => exerciseKey(e.name) === key)
+      || state.exercises.find((e) => (e.aliases || []).some((a) => exerciseKey(a) === key)) || null;
+  }
+  // Merges the exercise `mergeId` into `keepId`: the kept one keeps its name and everything filled in on it, takes
+  // whatever it is missing from the other (video, cues, tier, pattern, region, laterality), gains the other's
+  // equipment and tags, and answers to the other's name (and any names already merged into it) from now on. The
+  // other entry is removed. Returns the kept exercise.
+  function mergeExercises(keepId, mergeId) {
+    const keep = state.exercises.find((e) => e.id === String(keepId));
+    const other = state.exercises.find((e) => e.id === String(mergeId));
+    if (!keep || !other || keep === other) return null;
+    const pick = (k) => (String(keep[k] || "").trim() ? keep[k] : other[k] || "");
+    const union = (k) => [...new Set([...(keep[k] || []), ...(other[k] || [])])];
+    const aliases = [...(keep.aliases || []), other.name, ...(other.aliases || [])]
+      .filter((a) => a && exerciseKey(a) !== exerciseKey(keep.name))
+      .filter((a, i, list) => list.findIndex((b) => exerciseKey(b) === exerciseKey(a)) === i);
+    const merged = saveExercise({
+      ...keep,
+      videoUrl: pick("videoUrl"), cues: pick("cues"), tier: pick("tier"), pattern: pick("pattern"), region: pick("region"), laterality: pick("laterality"),
+      equipment: union("equipment"), tags: union("tags"), aliases,
+    });
+    deleteExercise(other.id);
+    return merged;
   }
   function saveExercise(rec) {
     const id = rec.id != null ? String(rec.id) : randomId();
@@ -1140,6 +1164,7 @@
     removeAthleteOverride,
     allExercises,
     findExerciseByName,
+    mergeExercises,
     saveExercise,
     deleteExercise,
     counts,
