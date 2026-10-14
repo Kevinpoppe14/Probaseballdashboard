@@ -58,8 +58,8 @@
       // program name gets the entry it matches, under that name
       const wanted = new Set([...names].map((n) => n.toLowerCase()));
       const exercises = [];
-      const lib = await sb.from("exercises").select("data").limit(10000);
-      (lib.data || []).forEach((r) => {
+      const lib = await window.ExerciseVideo.readLibrary("data"); // every row, a page at a time
+      lib.forEach((r) => {
         const d = r.data || {};
         [d.name, ...(d.aliases || [])].forEach((n) => { if (n && wanted.has(n.trim().toLowerCase())) exercises.push({ name: n.trim(), videoUrl: d.videoUrl, cues: d.cues }); });
       });

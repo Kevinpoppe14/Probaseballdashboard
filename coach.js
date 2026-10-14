@@ -471,7 +471,7 @@
     const orig = it._orig || it;
     if (!exerciseNames) {
       exerciseNames = [];
-      sb.from("exercises").select("name:data->>name").limit(5000).then(({ data }) => {
+      window.ExerciseVideo.readLibrary("name:data->>name").catch(() => []).then((data) => { // the whole library, a page at a time
         exerciseNames = [...new Set((data || []).map((r) => (r.name || "").trim()).filter(Boolean))].sort();
         const list = document.getElementById("speed-ex-names");
         if (list) list.replaceChildren(...exerciseNames.map((n) => el("option", { value: n })));
@@ -646,12 +646,14 @@
       try {
         const [eq, lib] = await Promise.all([
           sb.from("athlete_equipment").select("access").eq("athlete_id", aid).maybeSingle(),
-          sb.from("exercises").select("data").limit(5000),
+          window.ExerciseVideo.readLibrary("data").then((data) => ({ data })), // the whole library, a page at a time
         ]);
         const access = eq.data && Array.isArray(eq.data.access) ? eq.data.access : null;
         if (!access) heads = " They have not filled in their equipment list yet, so it could not be checked.";
         else {
-          const library = new Map((lib.data || []).map((r) => [String((r.data || {}).name || "").trim().toLowerCase(), r.data]));
+          const library = new Map();
+          (lib.data || []).forEach((r) => ((r.data || {}).aliases || []).forEach((a) => library.set(String(a).trim().toLowerCase(), r.data))); // names merged into an exercise
+          (lib.data || []).forEach((r) => library.set(String((r.data || {}).name || "").trim().toLowerCase(), r.data));
           const flagged = window.EquipmentCheck.flaggedIn({ weeks: [{ sessions: [day] }] }, access, (n) => library.get(String(n).trim().toLowerCase()) || null);
           if (flagged.length) heads = ` Check their equipment: ${flagged.map((f) => `${f.name} (${f.missing.join(", ")})`).join("; ")}.`;
         }

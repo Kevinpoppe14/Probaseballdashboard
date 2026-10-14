@@ -164,6 +164,17 @@
   const ExerciseVideo = {
     BUCKET: "exercise-videos",
     MAX_MB: 50,
+    // Every row of the exercise library (signed in). The database hands back at most 1,000 rows per request and
+    // the library is bigger than that, so it is read a page at a time.
+    async readLibrary(columns) {
+      const sb = window.supabaseClient, rows = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("exercises").select(columns).order("id").range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) return rows;
+      }
+    },
     isFile: (url) => /\/storage\/v1\/object\/public\/exercise-videos\//i.test(url || "") || /\.(mp4|m4v|mov|webm)(?:[?#]|$)/i.test(url || ""),
     // stores the clip and returns its address; throws an Error whose message can be shown as it is
     async upload(file, name) {
@@ -184,8 +195,8 @@
       const sb = window.supabaseClient;
       const clean = (name || "").trim();
       // the whole library, so a name merged into another exercise (its `aliases`) finds that exercise
-      const { data: rows, error } = await sb.from("exercises").select("id,data").limit(10000);
-      if (error) throw new Error("Could not reach the exercise library. Check your connection and try again.");
+      let rows;
+      try { rows = await ExerciseVideo.readLibrary("id,data"); } catch (e) { throw new Error("Could not reach the exercise library. Check your connection and try again."); }
       const key = clean.toLowerCase();
       const named = (r, n) => (n || "").trim().toLowerCase() === key;
       const row = (rows || []).find((r) => named(r, (r.data || {}).name))
