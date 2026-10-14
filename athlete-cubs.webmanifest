@@ -1,0 +1,12 @@
+{
+  "name": "My Program",
+  "short_name": "My Program",
+  "description": "Your training program",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#06122b",
+  "theme_color": "#06122b",
+  "icons": [
+    { "src": "/assets/app-icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -508,7 +508,9 @@
     const [note, setNote] = useState("");
     useEffect(() => { setToken(S.getAthleteLink(athlete.id)); setNote(""); }, [athlete.id]);
     const cubs = !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete); // Cubs-only players get the Cubs look
-    const url = token ? `${window.location.origin}/athlete.html${cubs ? "?team=cubs" : ""}#${token}` : "";
+    const staff = athlete.rosterGroup === "coaches"; // a coach's own link also offers a way into Coach Mode
+    const params = [cubs ? "team=cubs" : "", staff ? "staff=1" : ""].filter(Boolean).join("&");
+    const url = token ? `${window.location.origin}/athlete.html${params ? `?${params}` : ""}#${token}` : "";
     const make = async () => {
       setBusy(true);
       const t = await S.createAthleteLink(athlete.id, athlete.name);

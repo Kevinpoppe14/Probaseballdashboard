@@ -13,19 +13,20 @@
   // In Coach Mode (coach.html) this page is shown inside a frame for an athlete a signed-in coach picked:
   // ?coach=1&aid=<athlete id>, with no token.
   const coachId = query.get("coach") === "1" ? query.get("aid") : null;
-  // Added to the home screen, the page opens as plain /athlete.html (the icon cannot carry the link's code), so
-  // the code and team from the last time this phone opened the athlete's link are remembered and used. Kept on
-  // the phone only, and never in Coach Mode.
-  let savedTeam = "";
+  // If the page is ever opened as plain /athlete.html (no code after the "#"), the code, team and staff flag from
+  // the last time this browser opened the athlete's link are used. Kept on the phone only, and never in Coach Mode.
+  let savedTeam = "", savedStaff = false;
   if (!coachId) {
     try {
-      if (token) localStorage.setItem("myProgramLink", JSON.stringify({ token, team: query.get("team") || "" }));
+      if (token) localStorage.setItem("myProgramLink", JSON.stringify({ token, team: query.get("team") || "", staff: query.get("staff") === "1" }));
       else {
         const saved = JSON.parse(localStorage.getItem("myProgramLink") || "null");
-        if (saved && saved.token) { token = saved.token; savedTeam = saved.team || ""; }
+        if (saved && saved.token) { token = saved.token; savedTeam = saved.team || ""; savedStaff = !!saved.staff; }
       }
     } catch (e) { /* storage blocked: the link itself still works */ }
   }
+  // A coach's own link (?staff=1) adds a Coach Mode button to the bottom bar. Coach Mode itself asks them to sign in.
+  const staff = !coachId && (query.get("staff") === "1" || savedStaff);
 
   // Where the page's data comes from and goes to. An athlete's own link goes through the token-checked
   // athlete_portal_* database functions and can reach nothing else. In Coach Mode there is no token: the
@@ -109,11 +110,14 @@
       return !res.error && Array.isArray(res.data) ? res.data : [];
     },
   };
-  // Links for Cubs-only players carry ?team=cubs, which only changes the logo and colors.
+  // Links for Cubs-only players carry ?team=cubs, which changes the logo and colors, and the name the page gets
+  // when it is added to the home screen: "My Program" rather than "My DST Program".
   const cubs = query.get("team") === "cubs" || savedTeam === "cubs";
   if (cubs) {
     document.body.classList.add("cubs");
     document.querySelector('meta[name="theme-color"]').setAttribute("content", "#06122b");
+    document.querySelector('meta[name="apple-mobile-web-app-title"]').setAttribute("content", "My Program");
+    document.querySelector('link[rel="manifest"]').setAttribute("href", "athlete-cubs.webmanifest");
   }
   // the logo, with the day's greeting under it on a holiday (see holiday.js)
   const logo = () => {
@@ -472,12 +476,15 @@
     progress: '<path d="M4 4v16h16"/><path d="M7.5 15l4-4.5 3 3L20 7"/>',
     plan: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
     equipment: '<path d="M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/>',
+    coach: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
   };
   const menu = () => el("nav", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => {
+    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach Mode"]] : []).map(([id, text]) => {
       const icon = el("span", { class: "menu-icon", "aria-hidden": "true" });
       icon.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[id]}</svg>`;
-      return el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, icon, el("span", null, text));
+      // Coach Mode is its own page; it offers a way back here
+      const go = id === "coach" ? () => { window.location.href = "coach.html?from=app"; } : () => { view = id; render(); window.scrollTo(0, 0); };
+      return el("button", { class: `menu-item${view === id ? " on" : ""}${id === "coach" ? " to-coach" : ""}`, role: id === "coach" ? null : "tab", "aria-selected": id === "coach" ? null : view === id ? "true" : "false", onclick: go }, icon, el("span", null, text));
     }));
   const blockDates = (b) => {
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);

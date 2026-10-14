@@ -960,8 +960,15 @@
     else $("password").value = "";
   });
   $("signout").addEventListener("click", () => sb.auth.signOut());
-  // the Coach Mode switch: flipping it off slides the knob back, then returns to the dashboard
+  // the Coach Mode switch: flipping it off slides the knob back, then returns to the dashboard, or, for a coach
+  // who came here from their own phone app (?from=app), back to their program
   const modeSwitch = document.querySelector(".mode-switch");
+  if (new URLSearchParams(window.location.search).get("from") === "app") {
+    modeSwitch.setAttribute("href", "athlete.html");
+    modeSwitch.setAttribute("title", "Switch back to my program");
+    modeSwitch.setAttribute("aria-label", "Coach Mode is on. Switch back to my program.");
+    $("back-to-app").hidden = false;
+  }
   modeSwitch.addEventListener("click", (e) => { e.preventDefault(); modeSwitch.classList.add("off"); setTimeout(() => { window.location.href = modeSwitch.getAttribute("href"); }, 320); });
   window.addEventListener("pageshow", () => modeSwitch.classList.remove("off"));
   $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
