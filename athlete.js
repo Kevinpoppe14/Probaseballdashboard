@@ -281,6 +281,47 @@
     input.click();
   }
 
+  // After a coach swaps in an exercise: if it isn't in the exercise library, or is there with no video, offer to
+  // film one now (or, for a new name, to add it to the library without one). An exercise that is in the library
+  // with a video just starts showing it.
+  async function offerVideo(name) {
+    const clean = (name || "").trim();
+    if (!clean) return;
+    const known = exerciseInfo(clean);
+    if (known && known.videoUrl) return;
+    let row = null;
+    try { row = await window.ExerciseVideo.find(clean); } catch (err) { return; } // can't reach the library: the camera button is still there
+    if (overlay.className.includes("show")) return; // something else opened meanwhile
+    const entry = row && row.data;
+    if (entry && entry.videoUrl) {
+      if (known) { known.videoUrl = entry.videoUrl; known.cues = known.cues || entry.cues; }
+      else data.exercises.push({ name: clean, videoUrl: entry.videoUrl, cues: entry.cues || "" });
+      render();
+      return;
+    }
+    const note = el("div", { class: "swap-note" });
+    const add = async () => {
+      note.textContent = "Adding…";
+      try {
+        await window.ExerciseVideo.attach(clean, "");
+        closeVideo();
+        showStatus("Added to the exercise library");
+      } catch (err) { note.textContent = (err && err.message) || "Could not add it. Try again."; }
+    };
+    overlay.replaceChildren(el("div", { class: "sheet coach-menu" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Add a video?"),
+      el("div", { class: "swap-coach" }, entry
+        ? `“${clean}” is in the exercise library but has no video yet. Film a short clip and it will play wherever this exercise is programmed.`
+        : `“${clean}” isn't in the exercise library yet. Film a short clip to add it with a video, so it plays wherever this exercise is programmed.`),
+      note,
+      el("div", { class: "swap-actions" },
+        el("button", { class: "primary", onclick: () => filmVideo({ name: clean }) }, "Film a video"),
+        entry ? null : el("button", { onclick: add }, "Add it without a video"),
+        el("button", { onclick: closeVideo }, "Not now"))));
+    overlay.className = "overlay show";
+  }
+
   // ---- changing an exercise, or its sets and reps ------------------------------------------------
   // Opened from the switch button beside an exercise name. The athlete can type another exercise (matches from
   // the exercise library are offered as they type) and edit the sets and reps. If the same exercise comes up
@@ -347,6 +388,8 @@
       closeVideo();
       render();
       showStatus(payload ? "Changed" : "Back to your coach's version");
+      // a coach who swapped in a different exercise: offer to film it if the library has no video for it
+      if (payload && canFilm && payload.name.trim().toLowerCase() !== (payload.from || "").trim().toLowerCase()) offerVideo(payload.name);
     };
     // asks about the rest of the phase when the same exercise comes up again, then saves
     const choose = (payload, ask) => {

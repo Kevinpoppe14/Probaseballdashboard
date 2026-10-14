@@ -189,25 +189,40 @@
       if (error) throw new Error(/row-level security|unauthorized|jwt/i.test(error.message || "") ? "Sign in with your dashboard account to add videos." : "Could not upload the video. Check your connection and try again.");
       return sb.storage.from(ExerciseVideo.BUCKET).getPublicUrl(path).data.publicUrl;
     },
+    // The library row ({ id, data }) for the exercise called `name`, or one that has that name merged into it (its
+    // `aliases`); null when there is none. Throws when the library can't be reached.
+    async find(name) {
+      const sb = window.supabaseClient;
+      const key = (name || "").trim().toLowerCase();
+      if (!key) return null;
+      const same = (n) => (n || "").trim().toLowerCase() === key;
+      const { data, error } = await sb.from("exercises").select("id,data").ilike("data->>name", key.replace(/[\\%_]/g, "\\$&"));
+      if (error) throw error;
+      const exact = (data || []).find((r) => same((r.data || {}).name));
+      if (exact) return exact;
+      // not under its own name: look through the merged-in names (just the names, a page at a time), then fetch that row
+      const names = await ExerciseVideo.readLibrary("id,aliases:data->aliases");
+      const hit = names.find((r) => (Array.isArray(r.aliases) ? r.aliases : []).some(same));
+      if (!hit) return null;
+      const { data: row, error: rowError } = await sb.from("exercises").select("id,data").eq("id", hit.id).maybeSingle();
+      if (rowError) throw rowError;
+      return row || null;
+    },
     // Makes `url` the video of the library exercise called `name`, adding the exercise to the library if it isn't
-    // there. An exercise that already has a video keeps it unless `replace`. Returns the library entry's data.
+    // there (with no video, when `url` is empty). An exercise that already has a video keeps it unless `replace`.
+    // Returns the library entry's data.
     async attach(name, url, replace) {
       const sb = window.supabaseClient;
       const clean = (name || "").trim();
-      // the whole library, so a name merged into another exercise (its `aliases`) finds that exercise
-      let rows;
-      try { rows = await ExerciseVideo.readLibrary("id,data"); } catch (e) { throw new Error("Could not reach the exercise library. Check your connection and try again."); }
-      const key = clean.toLowerCase();
-      const named = (r, n) => (n || "").trim().toLowerCase() === key;
-      const row = (rows || []).find((r) => named(r, (r.data || {}).name))
-        || (rows || []).find((r) => ((r.data || {}).aliases || []).some((a) => named(r, a)));
-      if (row && row.data.videoUrl && !replace) return row.data;
+      let row;
+      try { row = await ExerciseVideo.find(clean); } catch (e) { throw new Error("Could not reach the exercise library. Check your connection and try again."); }
+      if (row && (row.data.videoUrl || !url) && !replace) return row.data;
       const id = row ? row.id : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const data = row
         ? { ...row.data, videoUrl: url }
         : { name: clean, videoUrl: url, tier: "", pattern: "", region: "", laterality: "", equipment: [], tags: [], cues: "" };
       const { error: saveError } = await sb.from("exercises").upsert({ id, data });
-      if (saveError) throw new Error("The video uploaded, but it could not be added to the exercise library. Try again.");
+      if (saveError) throw new Error(url ? "The video uploaded, but it could not be added to the exercise library. Try again." : "Could not add it to the exercise library. Try again.");
       return data;
     },
   };
