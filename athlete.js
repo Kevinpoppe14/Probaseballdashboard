@@ -474,7 +474,7 @@
     equipment: '<path d="M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/>',
   };
   const menu = () => el("nav", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["progress", "Progress"], ["plan", "My Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => {
+    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => {
       const icon = el("span", { class: "menu-icon", "aria-hidden": "true" });
       icon.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[id]}</svg>`;
       return el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, icon, el("span", null, text));
