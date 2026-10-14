@@ -479,13 +479,25 @@
     coach: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
   };
   const menu = () => el("nav", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach Mode"]] : []).map(([id, text]) => {
+    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach"]] : []).map(([id, text]) => {
       const icon = el("span", { class: "menu-icon", "aria-hidden": "true" });
       icon.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[id]}</svg>`;
-      // Coach Mode is its own page; it offers a way back here
-      const go = id === "coach" ? () => { window.location.href = "coach.html?from=app"; } : () => { view = id; render(); window.scrollTo(0, 0); };
+      // the coach button offers Coach Mode or the dashboard, each its own page with a way back here
+      const go = id === "coach" ? openCoachMenu : () => { view = id; render(); window.scrollTo(0, 0); };
       return el("button", { class: `menu-item${view === id ? " on" : ""}${id === "coach" ? " to-coach" : ""}`, role: id === "coach" ? null : "tab", "aria-selected": id === "coach" ? null : view === id ? "true" : "false", onclick: go }, icon, el("span", null, text));
     }));
+  function openCoachMenu() {
+    const to = (href) => () => { window.location.href = href; };
+    overlay.replaceChildren(el("div", { class: "sheet coach-menu" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Coach tools"),
+      el("div", { class: "swap-coach" }, "Sign in with your dashboard account. Each has a way back to your program."),
+      el("div", { class: "swap-actions" },
+        el("button", { class: "primary", onclick: to("coach.html?from=app") }, "Coach Mode"),
+        el("button", { class: "primary", onclick: to("index.html?from=app") }, "Dashboard"),
+        el("button", { onclick: closeVideo }, "Cancel"))));
+    overlay.className = "overlay show";
+  }
   const blockDates = (b) => {
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);
     const z = new Date(a); z.setDate(z.getDate() + b.len * 7 - 1);

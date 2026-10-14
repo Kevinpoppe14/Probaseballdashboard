@@ -3609,6 +3609,7 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
             </button>
           )}
           <span className="topbar-account-email">{userEmail}</span>
+          {FROM_APP && <a className="btn-link" style={{ marginRight: 10 }} href="athlete.html">My program</a>}
           <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoHelp}>Help</button>
           <button className="btn-link" onClick={onLogout}>Log out</button>
         </div>
@@ -3616,6 +3617,15 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
     </div>
   );
 }
+
+// A coach who opened the dashboard from their own phone app (athlete.html, ?from=app) gets a "My program" link
+// back to it, for the rest of the visit: the home-screen app has no Back button.
+const FROM_APP = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get("from") === "app") sessionStorage.setItem("fromApp", "1");
+    return sessionStorage.getItem("fromApp") === "1";
+  } catch (e) { return false; }
+})();
 
 // Bottom menu bar: less-used pages live here instead of the top navigation. It sticks to the bottom
 // of the window while you scroll.
@@ -3630,7 +3640,7 @@ function CoachModeSwitch() {
     window.addEventListener("pageshow", reset);
     return () => window.removeEventListener("pageshow", reset);
   }, []);
-  const flip = () => { if (on) return; setOn(true); setTimeout(() => { window.location.href = "coach.html"; }, 320); };
+  const flip = () => { if (on) return; setOn(true); setTimeout(() => { window.location.href = FROM_APP ? "coach.html?from=app" : "coach.html"; }, 320); };
   return (
     <button className={`coach-switch${on ? " on" : ""}`} role="switch" aria-checked={on} title="Switch to Coach Mode" onClick={flip}>
       <span className="coach-switch-label">Coach Mode</span>
@@ -9080,6 +9090,7 @@ function LoginScreen() {
           {busy ? "Signing in…" : "Sign In"}
         </button>
         <p className="login-note">Don't have a login yet? Ask whoever manages this dashboard to add you in Supabase (Authentication &rarr; Users).</p>
+        {FROM_APP && <p className="login-note"><a href="athlete.html">‹ Back to my program</a></p>}
       </form>
     </div>
   );
