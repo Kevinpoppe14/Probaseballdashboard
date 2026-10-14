@@ -4550,7 +4550,10 @@ function todayItems() {
   const now = new Date(new Date().toDateString());
   const daysSince = (iso) => (iso ? Math.floor((now - new Date(new Date(iso).toDateString())) / 864e5) : null);
   const out = { gap: [], ending: [], quiet: [], text: [], assess: [] };
-  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active").forEach((a) => {
+  // Cubs players appear only for Kevin (the same account that gets them in the weekly email); for everyone else
+  // the panel covers DST athletes only
+  const forKevin = (S.currentUserEmail() || "").toLowerCase() === "kevin@dynamicsportstraining.com";
+  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP)).forEach((a) => {
     const plan = S.getPeriodization(a.id);
     if (plan && lib) {
       const progress = lib.planProgress(plan);
@@ -4569,14 +4572,15 @@ function todayItems() {
         }
       }
     }
-    if (a.rosterGroup === CUBS_ROSTER_GROUP) {
+    if (forKevin && a.rosterGroup === CUBS_ROSTER_GROUP) { // texts are Kevin's list only
       const since = daysSince(a.lastTexted ? `${a.lastTexted}T12:00:00` : null);
       if (since == null || since >= CONTACT_DAYS) out.text.push({ a, note: since == null ? "never" : `${since} days`, tab: "plan", sort: since == null ? 9999 : since });
     }
     const assessments = S.getAssessments(a.id);
     const latest = assessments[assessments.length - 1];
     const old = latest ? daysSince(`${latest.date}T12:00:00`) : null;
-    if (!latest || old >= ASSESSMENT_DUE_SOON_DAYS) out.assess.push({ a, note: latest ? `${old} days` : "none on file", tab: "assessment", sort: latest ? old : 9999 });
+    // Cubs players are not given DST's biomechanical assessment, so they are left off this list
+    if (a.rosterGroup !== CUBS_ROSTER_GROUP && (!latest || old >= ASSESSMENT_DUE_SOON_DAYS)) out.assess.push({ a, note: latest ? `${old} days` : "none on file", tab: "assessment", sort: latest ? old : 9999 });
   });
   const byName = (x, y) => lastNameOnly(x.a.name).localeCompare(lastNameOnly(y.a.name));
   const longestFirst = (x, y) => (y.sort || 0) - (x.sort || 0) || byName(x, y);
@@ -4585,7 +4589,7 @@ function todayItems() {
     { key: "ending", title: "Program ending this week", tone: "warn", hint: "Line up the next phase", list: out.ending.sort(byName) },
     { key: "quiet", title: "Not logging", tone: "warn", hint: `Has a program, nothing logged in ${LOG_QUIET_DAYS}+ days`, list: out.quiet.sort(longestFirst) },
     { key: "text", title: "Text due", tone: "neutral", hint: "Cubs players not texted in the past month", list: out.text.sort(longestFirst) },
-    { key: "assess", title: "Assessment due", tone: "neutral", hint: "None on file, or three or more weeks old", list: out.assess.sort(longestFirst) },
+    { key: "assess", title: "Assessment due", tone: "neutral", hint: "DST athletes: none on file, or three or more weeks old", list: out.assess.sort(longestFirst) },
   ];
 }
 function TodayPanel({ onOpenTab, dataVersion }) {
