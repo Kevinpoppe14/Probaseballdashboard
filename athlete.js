@@ -466,8 +466,19 @@
   }
 
   // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------
-  const menu = () => el("div", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["progress", "Progress"], ["plan", "My Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, text)));
+  // the menu is a bar along the bottom of the screen, so the top stays small and the workout starts high up
+  const MENU_ICONS = {
+    program: '<path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/>',
+    progress: '<path d="M4 4v16h16"/><path d="M7.5 15l4-4.5 3 3L20 7"/>',
+    plan: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+    equipment: '<path d="M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/>',
+  };
+  const menu = () => el("nav", { class: "menu", role: "tablist" },
+    [["program", "Program"], ["progress", "Progress"], ["plan", "My Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => {
+      const icon = el("span", { class: "menu-icon", "aria-hidden": "true" });
+      icon.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[id]}</svg>`;
+      return el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, icon, el("span", null, text));
+    }));
   const blockDates = (b) => {
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);
     const z = new Date(a); z.setDate(z.getDate() + b.len * 7 - 1);
@@ -695,42 +706,6 @@
   };
   const goToProgress = () => { view = "progress"; render(); window.scrollTo(0, 0); };
 
-  // The card at the top of this week's program: the next session not logged yet, how many are done this week,
-  // and a button that goes to it (or, when it is the day on screen, scrolls down to its first exercise).
-  // Not in Coach Mode, where the coach picks the day.
-  function todayCard(items, item) {
-    if (coachId || weekIdx !== currentWeek()) return null;
-    const days = daysAt(weekIdx);
-    if (!days.length) return null;
-    const done = days.filter(isDone).length;
-    const next = days.find((d) => !isDone(d));
-    const count = `${done} of ${days.length} session${days.length === 1 ? "" : "s"} done this week`;
-    const bar = el("div", { class: "bar" }, el("span", { style: `width:${Math.round((done / days.length) * 100)}%` }));
-    if (!next) {
-      return el("div", { class: "today all-done" },
-        el("div", { class: "today-kicker" }, "This week"),
-        el("div", { class: "today-title" }, "All done. Nice work."),
-        bar, el("div", { class: "today-count" }, count),
-        el("button", { class: "today-go ghost", onclick: goToProgress }, "See my progress"));
-    }
-    const here = item && next.item.block === item.block && next.si === dayIdx;
-    const name = next.s.name || `Day ${next.si + 1}`;
-    const exCount = (next.s.exercises || []).filter((e) => (e.name || "").trim()).length;
-    const later = new Date(new Date().toDateString()) < parseISO(plan.startDate);
-    const begin = () => {
-      const first = document.querySelector("main .group");
-      const top = document.querySelector(".top");
-      if (first) window.scrollTo({ top: first.getBoundingClientRect().top + window.scrollY - (top ? top.offsetHeight : 0) - 10, behavior: "smooth" });
-    };
-    const open = () => { itemIdx = Math.max(0, items.findIndex((it) => it.block === next.item.block)); dayIdx = next.si; render(); window.scrollTo(0, 0); };
-    return el("div", { class: "today" },
-      el("div", { class: "today-kicker" }, later ? `Starts ${parseISO(plan.startDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Today"),
-      el("div", { class: "today-title" }, items.length > 1 ? `${next.item.lane.name} · ${name}` : name),
-      el("div", { class: "today-sub" }, `${next.item.program.name} · ${exCount} exercise${exCount === 1 ? "" : "s"}`),
-      bar, el("div", { class: "today-count" }, count),
-      el("button", { class: "today-go", onclick: here ? begin : open }, here ? "Start workout" : `Go to ${name}`));
-  }
-
   // What shows at the end of a logged day: the week so far, the streak, any estimated max that went past the
   // athlete's best, and any Group Testing best from today.
   function sessionSummary(item, si, rows) {
@@ -847,15 +822,15 @@
     derived = [];
     if (view === "equipment") {
       // the first time through there is no menu: the survey comes before anything else
-      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Equipment")), equipment.surveyedAt && plan ? menu() : null), equipmentView());
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Equipment"))), equipmentView(), equipment.surveyedAt && plan ? menu() : "");
       return;
     }
     if (view === "plan") {
-      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Plan")), menu()), planView());
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Plan"))), planView(), menu());
       return;
     }
     if (view === "progress") {
-      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Progress")), menu()), progressView());
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Progress"))), progressView(), menu());
       return;
     }
     const items = itemsAt(weekIdx);
@@ -867,7 +842,6 @@
 
     const top = el("div", { class: "top" },
       el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Program")),
-      menu(),
       el("div", { class: "weekbar" },
         el("button", { class: "nav", "aria-label": "Previous week", disabled: weekIdx <= 0, onclick: go(() => { weekIdx -= 1; dayIdx = 0; }) }, "‹"),
         el("h1", null, `Week ${weekIdx + 1} of ${plan.weeks}${weekIdx === currentWeek() ? " · This week" : ""}`, el("small", null, weekDates(weekIdx))),
@@ -876,8 +850,6 @@
     const parts = [top];
     const tip = installTip();
     if (tip) parts.push(tip);
-    const today = todayCard(items, item);
-    if (today) parts.push(today);
     if (items.length > 1) {
       parts.push(el("div", { class: "chips" }, items.map((it, i) => el("button", { class: `chip${i === itemIdx ? " on" : ""}`, onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }
@@ -941,6 +913,7 @@
       }
     }
     parts.push(main);
+    parts.push(menu());
     app.replaceChildren(...parts);
   }
 

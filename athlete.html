@@ -29,15 +29,17 @@
   .holiday-greeting { font-size: 12px; font-weight: 700; padding: 2px 12px; border-radius: 999px; background: var(--hol-1); color: #fff; border: 1px solid var(--hol-3); }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
-  body { padding: 0 0 calc(24px + env(safe-area-inset-bottom)); }
+  body { padding: 0 0 calc(84px + env(safe-area-inset-bottom)); }
   button { font: inherit; color: inherit; }
-  .top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); padding: calc(10px + env(safe-area-inset-top)) 16px 10px; }
-  .brand { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .brand img { height: 38px; width: auto; max-width: 170px; object-fit: contain; }
-  body.cubs .brand img { height: 50px; }
-  .menu { display: flex; margin: 8px 0 2px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  .menu-item { flex: 1; min-height: 40px; background: var(--panel); border: none; font-size: 14px; }
-  .menu-item.on { background: var(--accent); font-weight: 600; }
+  .top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); padding: calc(6px + env(safe-area-inset-top)) 12px 6px; }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .brand img { height: 28px; width: auto; max-width: 140px; object-fit: contain; }
+  body.cubs .brand img { height: 36px; }
+  .menu { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; background: var(--panel); border-top: 1px solid var(--border); padding: 0 0 env(safe-area-inset-bottom); }
+  .menu-item { flex: 1; min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: none; border: none; border-top: 3px solid transparent; font-size: 11px; color: var(--dim); }
+  .menu-icon { display: flex; }
+  .menu-item.on { color: var(--text); font-weight: 700; border-top-color: var(--label, var(--accent)); }
+  .menu-item.on .menu-icon { color: var(--label, var(--accent)); }
   .section { font-size: 15px; margin: 18px 0 8px; display: flex; justify-content: space-between; align-items: baseline; }
   .section small { font-size: 12px; font-weight: 400; color: var(--dim); }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
@@ -56,11 +58,11 @@
   .goal.done { color: var(--dim); }
   .action { font-size: 14px; white-space: pre-wrap; line-height: 1.45; }
   .action .lead { margin: 0 0 8px; font-weight: 600; white-space: normal; }
-  .who { font-size: 13px; color: var(--dim); text-align: center; }
+  .who { font-size: 12px; color: var(--dim); text-align: center; }
   .weekbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
-  .weekbar h1 { font-size: 15px; margin: 0; text-align: center; }
-  .weekbar h1 small { display: block; font-size: 12px; font-weight: 400; color: var(--dim); }
-  .nav { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 20px; }
+  .weekbar h1 { font-size: 14px; margin: 0; text-align: center; line-height: 1.2; }
+  .weekbar h1 small { display: block; font-size: 11px; font-weight: 400; color: var(--dim); }
+  .nav { width: 36px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); font-size: 18px; line-height: 1; padding: 0; }
   .nav:disabled { opacity: 0.3; }
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 16px 0; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
@@ -146,18 +148,6 @@
   .install-tip strong { display: block; margin-bottom: 2px; }
   .install-tip .install-go { margin-top: 6px; height: 34px; padding: 0 14px; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; }
   .install-tip .install-x { flex: 0 0 auto; margin-left: auto; background: none; border: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 0 2px; }
-  /* the "Today" card above the program: the next session, the week so far, and a button to it */
-  .today { margin: 10px 16px 0; padding: 12px 14px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--label, var(--accent)); }
-  .today-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--label, var(--accent)); }
-  .today-title { font-size: 20px; font-weight: 800; margin-top: 2px; }
-  .today-sub { font-size: 13px; color: var(--dim); margin-top: 2px; }
-  .today-count { font-size: 12px; color: var(--dim); margin-top: 5px; }
-  .today .bar { margin-top: 10px; }
-  .today-go { width: 100%; min-height: 48px; margin-top: 12px; border: none; border-radius: 12px; background: var(--accent); color: #fff; font-size: 16px; font-weight: 700; }
-  .today-go.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
-  .today.all-done { border-left-color: #2e9e4f; }
-  .today.all-done .today-kicker { color: #6fd58a; }
-  .today.all-done .bar span { background: #2e9e4f; }
   /* the end of a logged day: the week so far, the streak and anything new */
   .session-summary { display: flex; flex-direction: column; gap: 10px; }
   .sum-stats { display: flex; gap: 10px; margin-top: 8px; }
@@ -186,7 +176,7 @@
   .prog-val b { display: block; font-size: 17px; }
   .prog-val small { display: block; font-size: 11px; color: var(--dim); white-space: nowrap; }
   .empty { text-align: center; color: var(--dim); padding: 48px 16px; font-size: 15px; }
-  .status { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); background: #333; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 20px; display: none; z-index: 20; }
+  .status { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(72px + env(safe-area-inset-bottom)); background: #333; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 20px; display: none; z-index: 20; }
   .status.show { display: block; }
   .status.bad { background: #8a1c1c; }
   .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 30; display: none; overflow-y: auto; padding: calc(12px + env(safe-area-inset-top)) 12px 24px; }
