@@ -146,6 +146,45 @@
   .install-tip strong { display: block; margin-bottom: 2px; }
   .install-tip .install-go { margin-top: 6px; height: 34px; padding: 0 14px; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; }
   .install-tip .install-x { flex: 0 0 auto; margin-left: auto; background: none; border: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 0 2px; }
+  /* the "Today" card above the program: the next session, the week so far, and a button to it */
+  .today { margin: 10px 16px 0; padding: 12px 14px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--label, var(--accent)); }
+  .today-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--label, var(--accent)); }
+  .today-title { font-size: 20px; font-weight: 800; margin-top: 2px; }
+  .today-sub { font-size: 13px; color: var(--dim); margin-top: 2px; }
+  .today-count { font-size: 12px; color: var(--dim); margin-top: 5px; }
+  .today .bar { margin-top: 10px; }
+  .today-go { width: 100%; min-height: 48px; margin-top: 12px; border: none; border-radius: 12px; background: var(--accent); color: #fff; font-size: 16px; font-weight: 700; }
+  .today-go.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .today.all-done { border-left-color: #2e9e4f; }
+  .today.all-done .today-kicker { color: #6fd58a; }
+  .today.all-done .bar span { background: #2e9e4f; }
+  /* the end of a logged day: the week so far, the streak and anything new */
+  .session-summary { display: flex; flex-direction: column; gap: 10px; }
+  .sum-stats { display: flex; gap: 10px; margin-top: 8px; }
+  .sum-stats > div { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; }
+  .sum-stats b { display: block; font-size: 22px; font-weight: 800; }
+  .sum-stats span { font-size: 12px; color: var(--dim); }
+  .session-summary .sum-stats { margin-top: 0; }
+  .session-summary .sum-stats > div { background: var(--panel); border: 1px solid var(--border); }
+  .sum-wins { display: flex; flex-direction: column; gap: 6px; }
+  .sum-win { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid #b8860b; }
+  .sum-win span { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #f0c040; }
+  .sum-win b { font-size: 15px; margin-top: 2px; }
+  .sum-more { align-self: center; background: none; border: none; color: var(--dim); font-size: 14px; min-height: 40px; }
+  /* My Progress */
+  .weeks { display: flex; align-items: flex-end; gap: 6px; margin-top: 12px; }
+  .wk { flex: 1; max-width: 40px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .wk-bar { width: 100%; height: 56px; border-radius: 6px; background: var(--panel-2); display: flex; align-items: flex-end; overflow: hidden; }
+  .wk-bar span { display: block; width: 100%; background: var(--dim); }
+  .wk.now .wk-bar span { background: var(--label, var(--accent)); }
+  .wk small { font-size: 10px; color: var(--dim); }
+  .prog-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+  .prog-row + .prog-row { border-top: 1px solid var(--border); }
+  .prog-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+  .spark { flex: 0 0 auto; color: var(--label, var(--accent)); display: flex; }
+  .prog-val { flex: 0 0 auto; min-width: 74px; text-align: right; }
+  .prog-val b { display: block; font-size: 17px; }
+  .prog-val small { display: block; font-size: 11px; color: var(--dim); white-space: nowrap; }
   .empty { text-align: center; color: var(--dim); padding: 48px 16px; font-size: 15px; }
   .status { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); background: #333; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 20px; display: none; z-index: 20; }
   .status.show { display: block; }

@@ -85,6 +85,10 @@
       const { data } = await sb.from("exercises").select("data").ilike("data->>name", `%${q.replace(/[%_]/g, " ")}%`).limit(20);
       return (data || []).map((r) => ({ name: r.data.name, videoUrl: r.data.videoUrl, cues: r.data.cues }));
     },
+    async tests() {
+      const { data, error } = await sb.from("kpi_entries").select("data").eq("athlete_id", String(coachId)).limit(5000);
+      return error ? [] : (data || []).map((r) => r.data || {});
+    },
   } : {
     get: () => sb.rpc("athlete_portal_get", { p_token: token }),
     async log(programId, key, value) {
@@ -98,6 +102,11 @@
     async exercises(q) {
       const res = await sb.rpc("athlete_portal_exercises", { p_token: token, p_query: q });
       return res.data || [];
+    },
+    // Group Testing results (supabase/migration_014_athlete_portal_tests.sql); none until that has been run
+    async tests() {
+      const res = await sb.rpc("athlete_portal_tests", { p_token: token });
+      return !res.error && Array.isArray(res.data) ? res.data : [];
     },
   };
   // Links for Cubs-only players carry ?team=cubs, which only changes the logo and colors.
@@ -133,7 +142,8 @@
   let data = null; // what athlete_portal_get returned
   let plan = null; // data.plan with programLog holding everything logged so far
   let weekIdx = 0, itemIdx = 0, dayIdx = 0;
-  let view = "program"; // "program" (this week's training), "plan" (the player plan) or "equipment" (remote athletes)
+  let view = "program"; // "program" (this week's training), "plan" (the player plan), "progress" or "equipment" (remote athletes)
+  let tests = null; // the athlete's Group Testing results, loaded after the program is on screen
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -457,7 +467,7 @@
 
   // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------
   const menu = () => el("div", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["plan", "My Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, text)));
+    [["program", "Program"], ["progress", "Progress"], ["plan", "My Plan"]].concat(remote ? [["equipment", "Equipment"]] : []).map(([id, text]) => el("button", { class: `menu-item${view === id ? " on" : ""}`, role: "tab", "aria-selected": view === id ? "true" : "false", onclick: () => { view = id; render(); window.scrollTo(0, 0); } }, text)));
   const blockDates = (b) => {
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);
     const z = new Date(a); z.setDate(z.getDate() + b.len * 7 - 1);
@@ -650,6 +660,188 @@
     return main;
   }
 
+  // ---- this week, streaks and progress -------------------------------------------------------------
+  // every day with exercises in the programs of plan week `wk`, as { item, si, s }
+  const daysAt = (wk) => itemsAt(wk).flatMap((it) => (it.week.sessions || []).map((s, si) => ({ item: it, si, s })))
+    .filter((d) => (d.s.exercises || []).some((e) => (e.name || "").trim()));
+  const isDone = (d) => !!logged(d.item.program.id, sessionKey(d.item, d.si));
+  const weekCount = (wk) => { const ds = daysAt(wk); return { done: ds.filter(isDone).length, total: ds.length }; };
+  // weeks in a row with at least one session logged, counting back from this week (from last week while nothing
+  // is logged yet this week, so a streak is not lost on a Monday morning)
+  const streak = () => {
+    let wk = currentWeek(), n = 0;
+    if (!weekCount(wk).done) wk -= 1;
+    while (wk >= 0 && weekCount(wk).done) { n += 1; wk -= 1; }
+    return n;
+  };
+  const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const nice = (v) => (Number.isInteger(v) ? `${v}` : `${Math.round(v * 100) / 100}`);
+  const testValue = (t) => parseFloat(t.best != null && t.best !== "" ? t.best : t.value);
+  // a test result that beats every earlier result of the same test
+  const isTestBest = (t) => {
+    const v = testValue(t);
+    const earlier = (tests || []).filter((x) => x.kpiId === t.kpiId && x.date < t.date).map(testValue).filter((x) => Number.isFinite(x));
+    return Number.isFinite(v) && earlier.length > 0 && (t.better === "lower" ? v < Math.min(...earlier) : v > Math.max(...earlier));
+  };
+  // a small trend line; `flip` for results where lower is better, so up always means better
+  const spark = (vals, flip) => {
+    if (vals.length < 2) return null;
+    const v = flip ? vals.map((x) => -x) : vals;
+    const w = 84, h = 26, lo = Math.min(...v), span = Math.max(...v) - lo || 1;
+    const pts = v.map((x, i) => [(i / (v.length - 1)) * (w - 6) + 3, h - 3 - ((x - lo) / span) * (h - 6)]);
+    const box = el("span", { class: "spark" });
+    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${pts.map((p) => p.map((n) => n.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${pts[pts.length - 1][0].toFixed(1)}" cy="${pts[pts.length - 1][1].toFixed(1)}" r="3" fill="currentColor"/></svg>`;
+    return box;
+  };
+  const goToProgress = () => { view = "progress"; render(); window.scrollTo(0, 0); };
+
+  // The card at the top of this week's program: the next session not logged yet, how many are done this week,
+  // and a button that goes to it (or, when it is the day on screen, scrolls down to its first exercise).
+  // Not in Coach Mode, where the coach picks the day.
+  function todayCard(items, item) {
+    if (coachId || weekIdx !== currentWeek()) return null;
+    const days = daysAt(weekIdx);
+    if (!days.length) return null;
+    const done = days.filter(isDone).length;
+    const next = days.find((d) => !isDone(d));
+    const count = `${done} of ${days.length} session${days.length === 1 ? "" : "s"} done this week`;
+    const bar = el("div", { class: "bar" }, el("span", { style: `width:${Math.round((done / days.length) * 100)}%` }));
+    if (!next) {
+      return el("div", { class: "today all-done" },
+        el("div", { class: "today-kicker" }, "This week"),
+        el("div", { class: "today-title" }, "All done. Nice work."),
+        bar, el("div", { class: "today-count" }, count),
+        el("button", { class: "today-go ghost", onclick: goToProgress }, "See my progress"));
+    }
+    const here = item && next.item.block === item.block && next.si === dayIdx;
+    const name = next.s.name || `Day ${next.si + 1}`;
+    const exCount = (next.s.exercises || []).filter((e) => (e.name || "").trim()).length;
+    const later = new Date(new Date().toDateString()) < parseISO(plan.startDate);
+    const begin = () => {
+      const first = document.querySelector("main .group");
+      const top = document.querySelector(".top");
+      if (first) window.scrollTo({ top: first.getBoundingClientRect().top + window.scrollY - (top ? top.offsetHeight : 0) - 10, behavior: "smooth" });
+    };
+    const open = () => { itemIdx = Math.max(0, items.findIndex((it) => it.block === next.item.block)); dayIdx = next.si; render(); window.scrollTo(0, 0); };
+    return el("div", { class: "today" },
+      el("div", { class: "today-kicker" }, later ? `Starts ${parseISO(plan.startDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Today"),
+      el("div", { class: "today-title" }, items.length > 1 ? `${next.item.lane.name} · ${name}` : name),
+      el("div", { class: "today-sub" }, `${next.item.program.name} · ${exCount} exercise${exCount === 1 ? "" : "s"}`),
+      bar, el("div", { class: "today-count" }, count),
+      el("button", { class: "today-go", onclick: here ? begin : open }, here ? "Start workout" : `Go to ${name}`));
+  }
+
+  // What shows at the end of a logged day: the week so far, the streak, any estimated max that went past the
+  // athlete's best, and any Group Testing best from today.
+  function sessionSummary(item, si, rows) {
+    const wk = weekCount(weekIdx), st = streak();
+    const pos = (item.block.start + item.weekNo - 1) * 100 + si; // where this day sits in planMaxes
+    const all = window.planMaxes(plan, programById).all;
+    const wins = [];
+    const seen = new Set();
+    rows.forEach((e) => {
+      const key = e.name.trim().toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      const mine = all.filter((m) => m.key === key && m.pos === pos).map((m) => m.value);
+      if (!mine.length) return;
+      const now = Math.max(...mine);
+      const before = all.filter((m) => m.key === key && m.pos < pos).map((m) => m.value);
+      if (!before.length) wins.push(["First estimated max", `${e.name.trim()} ${now}`]);
+      else if (now > Math.max(...before)) wins.push(["New estimated max", `${e.name.trim()} ${now} (+${now - Math.max(...before)})`]);
+    });
+    if (weekIdx === currentWeek()) {
+      (tests || []).filter((t) => t.date === localDay() && isTestBest(t)).forEach((t) => wins.push(["New testing best", `${t.kpiName} ${nice(testValue(t))}${t.unit ? ` ${t.unit}` : ""}`]));
+    }
+    return el("div", { class: "session-summary" },
+      el("div", { class: "session-done" }, "✓ Session logged", el("button", { class: "session-undo", onclick: () => { save(item.program.id, sessionKey(item, si), ""); render(); } }, "Undo")),
+      el("div", { class: "sum-stats" },
+        el("div", null, el("b", null, `${wk.done}/${wk.total}`), el("span", null, "sessions this week")),
+        st >= 2 ? el("div", null, el("b", null, `${st}`), el("span", null, "weeks in a row")) : null),
+      wins.length ? el("div", { class: "sum-wins" }, wins.map(([k, v]) => el("div", { class: "sum-win" }, el("span", null, k), el("b", null, v)))) : null,
+      el("button", { class: "sum-more", onclick: goToProgress }, "See my progress ›"));
+  }
+
+  // ---- My Progress: sessions week by week, estimated maxes, top weights and Group Testing results ----------
+  function progressView() {
+    const main = el("main");
+    const now = currentWeek();
+    const wk = weekCount(now), st = streak();
+    const weeks = Array.from({ length: now + 1 }, (_, w) => ({ w, ...weekCount(w) })).filter((x) => x.total).slice(-10);
+    main.append(el("div", { class: "card" },
+      el("div", { class: "card-title" }, "Sessions"),
+      el("div", { class: "sum-stats" },
+        el("div", null, el("b", null, `${wk.done}/${wk.total}`), el("span", null, "this week")),
+        el("div", null, el("b", null, `${st}`), el("span", null, st === 1 ? "week in a row" : "weeks in a row"))),
+      weeks.length > 1 ? el("div", { class: "weeks" }, weeks.map((x) => el("div", { class: `wk${x.w === now ? " now" : ""}`, title: `Week ${x.w + 1}: ${x.done} of ${x.total}` },
+        el("div", { class: "wk-bar" }, el("span", { style: `height:${Math.round((x.done / x.total) * 100)}%` })),
+        el("small", null, `W${x.w + 1}`)))) : null));
+
+    const row = (name, line, value, sub) => el("div", { class: "prog-row" },
+      el("span", { class: "prog-name" }, name), line, el("span", { class: "prog-val" }, el("b", null, value), sub ? el("small", null, sub) : null));
+    const weekOf = (pos) => Math.floor(pos / 100) + 1;
+
+    // estimated maxes, from sets taken to failure
+    const byLift = new Map();
+    window.planMaxes(plan, programById).all.forEach((m) => { if (!byLift.has(m.key)) byLift.set(m.key, []); byLift.get(m.key).push(m); });
+    if (byLift.size) {
+      main.append(el("h2", { class: "section" }, "Estimated maxes"));
+      main.append(el("div", { class: "card" }, [...byLift.values()].map((ms) => {
+        const vals = ms.map((m) => m.value), last = ms[ms.length - 1], best = Math.max(...vals), gain = last.value - ms[0].value;
+        return row(last.name, spark(vals), `${last.value}`, ms.length > 1 ? `${gain >= 0 ? "+" : ""}${gain} since wk ${weekOf(ms[0].pos)}${best > last.value ? ` · best ${best}` : ""}` : `wk ${weekOf(last.pos)}`);
+      })));
+    }
+
+    // the heaviest weight logged for each lift, week by week
+    const lifts = new Map(); // key -> { name, weeks: Map(plan week -> heaviest), lastPos }
+    (plan.blocks || []).filter((b) => b.programId).forEach((b) => {
+      const program = programById(b.programId);
+      const log = (plan.programLog || {})[b.programId] || {};
+      if (!program) return;
+      (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e) => {
+        const name = (e.name || "").trim();
+        if (!name || unloaded({ program }, e)) return;
+        Rx.groups(e).forEach((g, gi) => {
+          const v = parseFloat(log[Rx.logKey(e, gi)]);
+          if (!(v > 0)) return;
+          const key = name.toLowerCase(), pw = b.start + wi;
+          if (!lifts.has(key)) lifts.set(key, { name, weeks: new Map(), lastPos: 0 });
+          const one = lifts.get(key);
+          one.weeks.set(pw, Math.max(one.weeks.get(pw) || 0, v));
+          one.lastPos = Math.max(one.lastPos, pw * 100 + si);
+        });
+      })));
+    });
+    if (lifts.size) {
+      main.append(el("h2", { class: "section" }, "Top weights", el("small", null, "heaviest logged each week")));
+      main.append(el("div", { class: "card" }, [...lifts.values()].sort((a, b) => b.lastPos - a.lastPos).map((x) => {
+        const ws = [...x.weeks.entries()].sort((a, b) => a[0] - b[0]);
+        const vals = ws.map((p) => p[1]), last = vals[vals.length - 1], gain = last - vals[0];
+        return row(x.name, spark(vals), nice(last), ws.length > 1 ? `${gain >= 0 ? "+" : ""}${nice(gain)} since wk ${ws[0][0] + 1}` : `wk ${ws[0][0] + 1}`);
+      })));
+    }
+
+    // Group Testing (the coach's Coach Mode), each test with its best and latest result
+    const byTest = new Map();
+    (tests || []).forEach((t) => { if (!Number.isFinite(testValue(t))) return; if (!byTest.has(t.kpiId)) byTest.set(t.kpiId, []); byTest.get(t.kpiId).push(t); });
+    if (byTest.size) {
+      main.append(el("h2", { class: "section" }, "Testing"));
+      main.append(el("div", { class: "card" }, [...byTest.values()].map((ts) => {
+        ts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+        const t = ts[ts.length - 1], lower = t.better === "lower", vals = ts.map(testValue);
+        const best = lower ? Math.min(...vals) : Math.max(...vals), last = vals[vals.length - 1];
+        const unit = t.unit ? ` ${t.unit}` : "";
+        const when = parseISO(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return row(t.kpiName, spark(vals, lower), `${nice(last)}${unit}`, last === best ? (ts.length > 1 ? `best · ${when}` : when) : `best ${nice(best)} · ${when}`);
+      })));
+    }
+
+    if (!byLift.size && !lifts.size && !byTest.size) {
+      main.append(el("div", { class: "empty" }, "Log your weights and your progress will show up here: your top weights each week, estimated maxes from sets to failure, and your testing results."));
+    }
+    return main;
+  }
+
   // ---- the page ----------------------------------------------------------------------------------
   function render() {
     derived = [];
@@ -660,6 +852,10 @@
     }
     if (view === "plan") {
       app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Plan")), menu()), planView());
+      return;
+    }
+    if (view === "progress") {
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Progress")), menu()), progressView());
       return;
     }
     const items = itemsAt(weekIdx);
@@ -680,6 +876,8 @@
     const parts = [top];
     const tip = installTip();
     if (tip) parts.push(tip);
+    const today = todayCard(items, item);
+    if (today) parts.push(today);
     if (items.length > 1) {
       parts.push(el("div", { class: "chips" }, items.map((it, i) => el("button", { class: `chip${i === itemIdx ? " on" : ""}`, onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }
@@ -738,7 +936,7 @@
         const done = logged(item.program.id, sessionKey(item, dayIdx));
         main.append(el("div", { class: "session-end" },
           done
-            ? el("div", { class: "session-done" }, "✓ Session logged", el("button", { class: "session-undo", onclick: () => { save(item.program.id, sessionKey(item, dayIdx), ""); render(); } }, "Undo"))
+            ? sessionSummary(item, dayIdx, rows)
             : el("button", { class: "session-log", onclick: () => logSession(item, dayIdx, rows) }, "Log session")));
       }
     }
@@ -785,6 +983,8 @@
     // a remote athlete fills in their equipment before they see the program for the first time
     if (remote && !equipment.surveyedAt) view = "equipment";
     render();
+    // testing results are only needed for the Progress tab and the end-of-session summary, so they don't hold up the program
+    api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
   }
   start();
 })();

@@ -82,7 +82,8 @@
   // An athlete's estimated maxes from the failure sets logged on their plan, in the order the sets fall on the
   // plan (plan week, then day). `latest` is the newest estimate per exercise; `before(name, week, day)` is the
   // newest one from an earlier day, which is what fills in the weights for the % sets that follow it. So each
-  // new failure set re-works the weights from the next session on, and leaves the earlier ones alone.
+  // new failure set re-works the weights from the next session on, and leaves the earlier ones alone. `all` is
+  // every estimate in that order ({ key, name, value, weight, reps, pos }, pos = plan week * 100 + day).
   // `programById` looks a program up by id; `plan.programLog[programId][key]` holds what has been logged.
   function planMaxes(plan, programById) {
     const sets = [];
@@ -118,7 +119,7 @@
     const latest = {};
     all.forEach((m) => { latest[m.key] = m; });
     const before = (name, week, day) => find((name || "").trim().toLowerCase(), week * 100 + day);
-    return { latest, before };
+    return { latest, before, all };
   }
   window.planMaxes = planMaxes;
 
