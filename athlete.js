@@ -229,13 +229,53 @@
     overlay.replaceChildren(el("div", { class: "sheet" },
       el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
       el("h2", null, info.name),
-      embed
-        ? el("div", { class: `video${embed.vertical ? " vertical" : ""}` }, el("iframe", { src: embed.src, title: info.name, allow: "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture", allowfullscreen: true, referrerpolicy: "strict-origin-when-cross-origin" }))
-        : info.videoUrl ? el("a", { href: info.videoUrl, target: "_blank", rel: "noopener" }, "Open the video") : null,
+      embed && embed.file
+        // a clip a coach filmed: plays on a loop, muted to start (phones only autoplay muted video)
+        ? (() => { const v = el("video", { class: "clip", src: embed.src, controls: true, playsinline: true, autoplay: true, muted: true, loop: true, preload: "metadata" }); v.muted = true; return v; })()
+        : embed
+          ? el("div", { class: `video${embed.vertical ? " vertical" : ""}` }, el("iframe", { src: embed.src, title: info.name, allow: "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture", allowfullscreen: true, referrerpolicy: "strict-origin-when-cross-origin" }))
+          : info.videoUrl ? el("a", { href: info.videoUrl, target: "_blank", rel: "noopener" }, "Open the video") : null,
       info.cues ? el("div", { class: "cues" }, info.cues) : null));
     overlay.className = "overlay show";
   };
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeVideo(); });
+
+  // ---- filming a video for an exercise that has none (signed-in coaches only) ------------------------
+  // A camera button beside the switch button on an exercise with no video. It opens the phone's camera; the clip
+  // is stored and becomes the exercise's video in the exercise library (the exercise is added to the library if
+  // it isn't there), so it plays wherever the exercise is programmed, for every athlete.
+  let canFilm = false; // set once we know a coach is signed in (Coach Mode, or a coach's own link after signing in)
+  const CAMERA = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3z"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>';
+  function filmVideo(e) {
+    const name = (e.name || "").trim();
+    document.querySelectorAll("input.film-input").forEach((x) => x.remove()); // one left over from a cancelled camera
+    const input = el("input", { type: "file", class: "film-input", accept: "video/*", capture: "environment", hidden: true });
+    document.body.append(input);
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      const note = el("div", { class: "swap-note" }, `Uploading… (${Math.max(1, Math.round(file.size / 1048576))} MB). Keep this screen open.`);
+      const actions = el("div", { class: "swap-actions" });
+      overlay.replaceChildren(el("div", { class: "sheet" }, el("h2", null, `Video for ${name}`), note, actions));
+      overlay.className = "overlay show";
+      try {
+        const url = await window.ExerciseVideo.upload(file, name);
+        note.textContent = "Adding it to the exercise library…";
+        const entry = await window.ExerciseVideo.attach(name, url);
+        const info = exerciseInfo(name);
+        if (info) { info.videoUrl = entry.videoUrl; info.cues = info.cues || entry.cues; }
+        else data.exercises.push({ name: entry.name || name, videoUrl: entry.videoUrl, cues: entry.cues || "" });
+        closeVideo();
+        render();
+        showStatus(entry.videoUrl === url ? "Video added" : "This exercise already had a video");
+      } catch (err) {
+        note.textContent = (err && err.message) || "Could not upload the video. Check your connection and try again.";
+        actions.replaceChildren(el("button", { class: "primary", onclick: () => filmVideo(e) }, "Film again"), el("button", { onclick: closeVideo }, "Close"));
+      }
+    });
+    input.click();
+  }
 
   // ---- changing an exercise, or its sets and reps ------------------------------------------------
   // Opened from the switch button beside an exercise name. The athlete can type another exercise (matches from
@@ -916,6 +956,7 @@
           el("div", { class: "ex-head" },
             el("span", { class: "label" }, labels[ei]),
             info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name),
+            canFilm && !(info && info.videoUrl) ? (() => { const b = el("button", { class: "film", "aria-label": `Film a video for ${e.name}`, title: "Film a video for this exercise", onclick: () => filmVideo(e) }); b.innerHTML = CAMERA; return b; })() : null,
             el("button", { class: `swap${e._coach ? " on" : ""}`, "aria-label": `Change ${e.name} or its sets and reps`, title: "Change exercise or sets and reps", onclick: () => openSwap(item, dayIdx, e) }, "⇄")),
           e._coach ? el("div", { class: "notes" }, `You changed this. Coach: ${e._coach.name}${e._coach.text ? `, ${e._coach.text}` : ""}`) : null,
           (e.tempo || e.rest) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null) : null,
@@ -945,6 +986,9 @@
     if (res.error) { message("Could not load your program. Check your connection and try again."); return; }
     if (!res.data) { message("This link is no longer active. Ask your coach for a new one."); return; }
     data = res.data;
+    // the camera button is for signed-in coaches: Coach Mode always is; a coach's own link once they've signed in here
+    if (coachId) canFilm = true;
+    else if (staff) { try { const { data: s } = await sb.auth.getSession(); canFilm = !!(s && s.session); } catch (e) { canFilm = false; } }
     remote = !!(data.athlete && data.athlete.remote);
     if (data.equipment) equipment = { access: data.equipment.access || null, custom: data.equipment.custom || [], surveyedAt: data.equipment.surveyedAt || null };
     document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";

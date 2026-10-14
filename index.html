@@ -794,13 +794,9 @@ const EXERCISE_EXTRA_TAGS = ["Arm Care", "Elbow Enforcer"];
 const exerciseTags = (e) => [...new Set([e.tier, ...(e.tags || []), e.pattern, e.region, e.laterality, ...(e.equipment || [])].filter(Boolean))];
 
 // Turns a YouTube or Vimeo link (including YouTube Shorts) into its embeddable player address; null for anything else.
+// (the same as the phone page's, in program_rx.js: YouTube, Vimeo, or a clip a coach filmed or uploaded)
 function videoEmbed(url) {
-  const u = (url || "").trim();
-  let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{6,})/i);
-  if (m) return { src: `https://www.youtube.com/embed/${m[1]}`, vertical: /\/shorts\//i.test(u) };
-  m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
-  if (m) return { src: `https://player.vimeo.com/video/${m[1]}`, vertical: false };
-  return null;
+  return window.videoEmbedOf(url);
 }
 
 // Opens an exercise's library entry from anywhere (a program, the plan, the library itself).
@@ -815,7 +811,9 @@ function ExerciseDetails({ exercise }) {
       <div className="exercise-tags">
         {exerciseTags(exercise).map((t, i) => <span className={`exercise-tag ${i === 0 && exercise.tier ? "tier" : ""}`} key={t}>{t}</span>)}
       </div>
-      {embed ? (
+      {embed && embed.file ? (
+        <video className="exercise-clip" src={embed.src} controls playsInline autoPlay muted loop preload="metadata" />
+      ) : embed ? (
         <div className={`exercise-video ${embed.vertical ? "vertical" : ""}`}>
           <iframe src={embed.src} title={exercise.name} referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
         </div>
@@ -853,6 +851,38 @@ function ExerciseViewerHost() {
   );
 }
 
+// Upload (or replace) an exercise's video with a clip from this computer or phone. The clip is stored (see
+// ExerciseVideo in program_rx.js) and its address goes in the video link box; Save exercise keeps it.
+function ExerciseVideoUpload({ name, has, onUploaded }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const inputRef = React.useRef(null);
+  const pick = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setNote(`Uploading… (${Math.max(1, Math.round(file.size / 1048576))} MB)`);
+    try {
+      const url = await window.ExerciseVideo.upload(file, name);
+      onUploaded(url);
+      setNote("Uploaded. Click Save exercise to keep it.");
+    } catch (err) {
+      setNote(err.message || "Could not upload the video.");
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="facility-field wide exercise-upload">
+      <input ref={inputRef} type="file" accept="video/*" hidden onChange={pick} />
+      <button type="button" className="btn btn-secondary" disabled={busy || !name} onClick={() => inputRef.current && inputRef.current.click()}>
+        {busy ? "Uploading…" : has ? "Replace video" : "Upload a video"}
+      </button>
+      <small>{note || (name ? `A short clip, under ${window.ExerciseVideo.MAX_MB} MB (about 20 seconds).` : "Name the exercise first.")}</small>
+    </div>
+  );
+}
+
 function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
   const [draft, setDraft] = useState(() => ({ equipment: [], ...(initial || {}) }));
   const set = (key, v) => setDraft((d) => ({ ...d, [key]: v }));
@@ -878,9 +908,10 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
         <label className="facility-field wide"><span>Exercise name * (programs link to it by this name)</span>
           <input value={draft.name || ""} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Trap Bar Deadlift" />
         </label>
-        <label className="facility-field wide"><span>Video link (YouTube, YouTube Shorts, or Vimeo)</span>
+        <label className="facility-field wide"><span>Video link (YouTube, YouTube Shorts, or Vimeo), or upload a clip</span>
           <input value={draft.videoUrl || ""} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
         </label>
+        <ExerciseVideoUpload name={name} has={!!(draft.videoUrl || "").trim()} onUploaded={(url) => set("videoUrl", url)} />
         {pick("Tier", "tier", EXERCISE_TIERS)}
         {pick("Movement pattern", "pattern", EXERCISE_PATTERNS)}
         {pick("Body region", "region", EXERCISE_REGIONS)}

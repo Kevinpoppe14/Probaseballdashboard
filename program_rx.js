@@ -146,15 +146,57 @@
   }
   window.applyOverrides = applyOverrides;
 
-  // An exercise video link as something that can be embedded (YouTube incl. Shorts, Vimeo).
+  // An exercise video link as something that can be embedded (YouTube incl. Shorts, Vimeo), or a clip a coach
+  // filmed or uploaded ({ file: true }: played in a <video> rather than a frame).
   window.videoEmbedOf = function (url) {
     const u = (url || "").trim();
+    if (ExerciseVideo.isFile(u)) return { src: u, file: true, vertical: false };
     let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{6,})/i);
     if (m) return { src: `https://www.youtube.com/embed/${m[1]}`, vertical: /\/shorts\//i.test(u) };
     m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
     if (m) return { src: `https://player.vimeo.com/video/${m[1]}`, vertical: false };
     return null;
   };
+
+  // Exercise videos coaches film on their phone or upload, kept in the "exercise-videos" storage bucket
+  // (supabase/migration_015_exercise_videos.sql). Uploading needs a signed-in staff account. A clip is tied to
+  // the exercise by name through the exercise library, so it plays wherever that exercise is programmed.
+  const ExerciseVideo = {
+    BUCKET: "exercise-videos",
+    MAX_MB: 50,
+    isFile: (url) => /\/storage\/v1\/object\/public\/exercise-videos\//i.test(url || "") || /\.(mp4|m4v|mov|webm)(?:[?#]|$)/i.test(url || ""),
+    // stores the clip and returns its address; throws an Error whose message can be shown as it is
+    async upload(file, name) {
+      if (!file || !/^video\//i.test(file.type || "video/")) throw new Error("That isn't a video. Film or pick a video clip.");
+      const mb = file.size / 1048576;
+      if (mb > ExerciseVideo.MAX_MB) throw new Error(`That clip is ${Math.round(mb)} MB. Keep it under ${ExerciseVideo.MAX_MB} MB (about 20 seconds) and try again.`);
+      const sb = window.supabaseClient;
+      const ext = ((file.name || "").match(/\.(\w{2,4})$/) || [])[1] || (/quicktime/i.test(file.type) ? "mov" : /webm/i.test(file.type) ? "webm" : "mp4");
+      const slug = (name || "exercise").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "exercise";
+      const path = `${slug}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${ext.toLowerCase()}`;
+      const { error } = await sb.storage.from(ExerciseVideo.BUCKET).upload(path, file, { contentType: file.type || "video/mp4", cacheControl: "31536000", upsert: false });
+      if (error) throw new Error(/row-level security|unauthorized|jwt/i.test(error.message || "") ? "Sign in with your dashboard account to add videos." : "Could not upload the video. Check your connection and try again.");
+      return sb.storage.from(ExerciseVideo.BUCKET).getPublicUrl(path).data.publicUrl;
+    },
+    // Makes `url` the video of the library exercise called `name`, adding the exercise to the library if it isn't
+    // there. An exercise that already has a video keeps it unless `replace`. Returns the library entry's data.
+    async attach(name, url, replace) {
+      const sb = window.supabaseClient;
+      const clean = (name || "").trim();
+      const { data: rows, error } = await sb.from("exercises").select("id,data").ilike("data->>name", clean.replace(/[\\%_]/g, "\\$&"));
+      if (error) throw new Error("Could not reach the exercise library. Check your connection and try again.");
+      const row = (rows || []).find((r) => ((r.data || {}).name || "").trim().toLowerCase() === clean.toLowerCase());
+      if (row && row.data.videoUrl && !replace) return row.data;
+      const id = row ? row.id : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const data = row
+        ? { ...row.data, videoUrl: url }
+        : { name: clean, videoUrl: url, tier: "", pattern: "", region: "", laterality: "", equipment: [], tags: [], cues: "" };
+      const { error: saveError } = await sb.from("exercises").upsert({ id, data });
+      if (saveError) throw new Error("The video uploaded, but it could not be added to the exercise library. Try again.");
+      return data;
+    },
+  };
+  window.ExerciseVideo = ExerciseVideo;
 })();
 
 // ---- Equipment check (remote athletes) ---------------------------------------------------------------
