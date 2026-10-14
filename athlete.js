@@ -747,7 +747,7 @@
   }
 
   async function start() {
-    if (!token && !coachId) { message("This link is missing its code. Ask your coach to send it again."); return; }
+    if (!token && !coachId) { message(standalone() ? "This icon was saved without your code. Delete it, open the link your coach texted you, and add it to your home screen again from there." : "This link is missing its code. Ask your coach to send it again."); return; }
     let res;
     try { res = await api.get(); }
     catch (e) { res = { error: e }; }
