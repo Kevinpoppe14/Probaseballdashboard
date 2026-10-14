@@ -1,0 +1,13 @@
+{
+  "name": "My Program",
+  "short_name": "My Program",
+  "description": "Your training program from Dynamic Sports Training",
+  "start_url": "/athlete.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    { "src": "/assets/app-icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

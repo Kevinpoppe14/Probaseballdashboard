@@ -8,11 +8,24 @@
   const app = document.getElementById("app");
   const statusEl = document.getElementById("status");
   const overlay = document.getElementById("overlay");
-  const token = (window.location.hash || "").replace(/^#/, "").trim();
+  let token = (window.location.hash || "").replace(/^#/, "").trim();
   const query = new URLSearchParams(window.location.search);
   // In Coach Mode (coach.html) this page is shown inside a frame for an athlete a signed-in coach picked:
   // ?coach=1&aid=<athlete id>, with no token.
   const coachId = query.get("coach") === "1" ? query.get("aid") : null;
+  // Added to the home screen, the page opens as plain /athlete.html (the icon cannot carry the link's code), so
+  // the code and team from the last time this phone opened the athlete's link are remembered and used. Kept on
+  // the phone only, and never in Coach Mode.
+  let savedTeam = "";
+  if (!coachId) {
+    try {
+      if (token) localStorage.setItem("myProgramLink", JSON.stringify({ token, team: query.get("team") || "" }));
+      else {
+        const saved = JSON.parse(localStorage.getItem("myProgramLink") || "null");
+        if (saved && saved.token) { token = saved.token; savedTeam = saved.team || ""; }
+      }
+    } catch (e) { /* storage blocked: the link itself still works */ }
+  }
 
   // Where the page's data comes from and goes to. An athlete's own link goes through the token-checked
   // athlete_portal_* database functions and can reach nothing else. In Coach Mode there is no token: the
@@ -88,7 +101,7 @@
     },
   };
   // Links for Cubs-only players carry ?team=cubs, which only changes the logo and colors.
-  const cubs = query.get("team") === "cubs";
+  const cubs = query.get("team") === "cubs" || savedTeam === "cubs";
   if (cubs) {
     document.body.classList.add("cubs");
     document.querySelector('meta[name="theme-color"]').setAttribute("content", "#06122b");
@@ -323,10 +336,47 @@
       const prev = ((((week || {}).sessions || [])[si] || {}).exercises || []).filter(same)[Math.max(0, nth)];
       if (!prev || prev.id === e.id) continue;
       const w = logged(pid, Rx.logKey(prev, gi)), r = logged(pid, Rx.repsLogKey(prev, gi));
-      if (w || r) return { week: wk + 1, text: r ? `${w || "?"} x ${r}` : w };
+      if (w || r) return { week: wk + 1, text: r ? `${w || "?"} x ${r}` : w, w, r };
     }
     return null;
   }
+
+  // ---- "add to home screen" tip ------------------------------------------------------------------------
+  // Until the athlete has put the page on their home screen, a small tip above the program says how. On Android
+  // (and desktop Chrome) the browser offers to install it, so the tip has an Install button that brings that up;
+  // on an iPhone it can only be done from the Share menu, so the tip says where. Closing it hides it for good on
+  // this phone. Never shown in Coach Mode or once the page is running from the home screen.
+  let installEvent = null;
+  window.addEventListener("beforeinstallprompt", (ev) => { ev.preventDefault(); installEvent = ev; if (view === "program") render(); });
+  const standalone = () => window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  function installTip() {
+    let dismissed = false;
+    try { dismissed = localStorage.getItem("installTipClosed") === "1"; } catch (e) { /* storage blocked */ }
+    if (coachId || !token || standalone() || dismissed) return null;
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const close = () => { try { localStorage.setItem("installTipClosed", "1"); } catch (e) { /* storage blocked */ } render(); };
+    const install = async () => { if (!installEvent) return; installEvent.prompt(); try { await installEvent.userChoice; } catch (e) { /* closed */ } installEvent = null; render(); };
+    return el("div", { class: "install-tip" },
+      el("div", null,
+        el("strong", null, "Put this on your home screen"),
+        installEvent
+          ? el("span", null, "It opens like an app, straight to your program.")
+          : ios
+            ? el("span", null, "Tap the Share button (the square with an arrow), then “Add to Home Screen”. It opens like an app, straight to your program.")
+            : el("span", null, "Open your browser menu and choose “Add to Home screen” or “Install app”. It opens like an app, straight to your program."),
+        installEvent ? el("div", null, el("button", { class: "install-go", onclick: install }, "Install")) : null),
+      el("button", { class: "install-x", "aria-label": "Close this tip", onclick: close }, "×"));
+  }
+
+  // Drills with nothing to lift (sprints, jumps, mobility, the group speed sessions a coach sends) get no weight
+  // box: there is nothing to write in it. Anything naming an implement keeps the box.
+  const LOADED = /barbell|dumbbell|\bdb\b|\bbb\b|kettlebell|\bkb\b|trap bar|hex bar|med ball|\bmb\b|medicine ball|sled|weighted|cable|machine|safety bar|\bssb\b|landmine|\blm\b|plate|vest|keiser|belt squat|smith|ez bar|press|curl|row\b|squat|deadlift|lunge|rdl|bench|pull-?down/i;
+  const UNLOADED = /sprint|\brun\b|running|jog|shuffle|skip|carioca|bound|hop|jump|mobility|stretch|breath|plank|bird dog|dead bug|walk|march|crawl|acceleration|flying|pogo|agility|cone|start\b|warm-?up|foam roll|90\/90|cat cow|t-spine|thoracic/i;
+  const unloaded = (item, e) => {
+    const name = e.name || "";
+    if (LOADED.test(name)) return false;
+    return String(item.program.id || "").startsWith("gspeed-") || UNLOADED.test(name);
+  };
 
   // ---- one set group -----------------------------------------------------------------------------
   function setBox(item, si, e, g, gi) {
@@ -334,7 +384,16 @@
     const fail = Rx.failure(g);
     const wKey = Rx.logKey(e, gi), rKey = Rx.repsLogKey(e, gi);
     const int = Rx.intensityText(e, g);
-    const weight = el("input", { type: "text", inputmode: "decimal", placeholder: "wt", "aria-label": "Weight used", autocomplete: "off" });
+    if (unloaded(item, e)) {
+      // reps only, plus a reps box on a set taken to failure (a max-rep push-up, say)
+      const repsOnly = fail ? el("input", { type: "text", inputmode: "numeric", placeholder: "reps", "aria-label": `Reps reached${fail.each ? " each side" : ""}`, autocomplete: "off", value: logged(pid, rKey) }) : null;
+      if (repsOnly) {
+        repsOnly.addEventListener("focus", () => repsOnly.select());
+        repsOnly.addEventListener("blur", () => save(pid, rKey, repsOnly.value.trim()));
+      }
+      return el("div", { class: "set noload" }, el("span", { class: "reps" }, Rx.repsText(g)), repsOnly ? el("div", { class: "boxes" }, repsOnly) : null, int ? el("span", { class: "pct" }, int) : null);
+    }
+    const weight = el("input", { type: "text", inputmode: "decimal", enterkeyhint: "next", placeholder: "wt", "aria-label": "Weight used", autocomplete: "off" });
     const reps = fail ? el("input", { type: "text", inputmode: "numeric", placeholder: "reps", "aria-label": `Reps reached${fail.each ? " each side" : ""}`, autocomplete: "off" }) : null;
     const est = el("span", { class: "est" });
     let auto = null;
@@ -361,16 +420,39 @@
       reps.addEventListener("focus", () => reps.select());
       reps.addEventListener("blur", () => { save(pid, rKey, reps.value.trim()); refresh(); });
     }
-    [weight, reps].forEach((i) => i && i.addEventListener("keydown", (ev) => { if (ev.key === "Enter") i.blur(); }));
+    // Enter (or Next on the keyboard) moves on to the next box on the page instead of just closing the keyboard
+    [weight, reps].forEach((i) => i && i.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      const boxes = [...document.querySelectorAll("main .boxes input")];
+      const next = boxes[boxes.indexOf(i) + 1];
+      if (next) next.focus(); else i.blur();
+    }));
     derived.push(refresh);
     refresh();
     const last = lastLogged(item, si, e, gi);
+    const setWeight = (v) => { save(pid, wKey, v); refresh(); };
+    // − and + change the weight 5 at a time, starting from what is in the box (or last week's, or nothing)
+    const step = (by) => () => {
+      const now = parseFloat(weight.value) || parseFloat(last && last.w) || 0;
+      setWeight(String(Math.max(0, Math.round((now + by) * 10) / 10)));
+    };
+    // last week's numbers, tapped, are copied into this set
+    const useLast = () => {
+      if (last.w) setWeight(last.w);
+      if (reps && last.r) { save(pid, rKey, last.r); refresh(); }
+      showStatus("Same as last time");
+    };
     return el("div", { class: `set${fail ? " fail" : ""}` },
       el("span", { class: "reps" }, Rx.repsText(g)),
       el("div", { class: "boxes" }, weight, reps),
+      // under the box, so the box keeps its full width in a narrow column
+      el("div", { class: "steps" },
+        el("button", { class: "step", "aria-label": `5 less for ${e.name}`, onclick: step(-5) }, "−5"),
+        el("button", { class: "step", "aria-label": `5 more for ${e.name}`, onclick: step(5) }, "+5")),
       int ? el("span", { class: "pct" }, int) : null,
       est,
-      last ? el("span", { class: "last", title: `Logged in week ${last.week}` }, `Wk ${last.week}: ${last.text}`) : null);
+      last ? el("button", { class: "last", title: `Logged in week ${last.week}. Tap to use the same numbers.`, onclick: useLast }, `Wk ${last.week}: ${last.text}`, el("b", null, " · use")) : null);
   }
 
   // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------
@@ -453,6 +535,7 @@
     rows.forEach((e) => {
       const sets = [];
       Rx.groups(e).forEach((g, gi) => {
+        if (unloaded(item, e) && !Rx.failure(g)) return; // nothing to weigh on a sprint or a mobility drill
         const fail = Rx.failure(g);
         if (logged(pid, Rx.logKey(e, gi)) && (!fail || logged(pid, Rx.repsLogKey(e, gi)))) return;
         const max = maxes.before(e.name, weekIdx, si);
@@ -595,6 +678,8 @@
         el("button", { class: "nav", "aria-label": "Next week", disabled: weekIdx >= plan.weeks - 1, onclick: go(() => { weekIdx += 1; dayIdx = 0; }) }, "›")));
 
     const parts = [top];
+    const tip = installTip();
+    if (tip) parts.push(tip);
     if (items.length > 1) {
       parts.push(el("div", { class: "chips" }, items.map((it, i) => el("button", { class: `chip${i === itemIdx ? " on" : ""}`, onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }

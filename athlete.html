@@ -8,6 +8,11 @@
 <meta name="theme-color" content="#0a0a0a" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="My Program" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<link rel="manifest" href="athlete.webmanifest" />
+<link rel="apple-touch-icon" href="assets/app-icon-180.png" />
+<link rel="icon" type="image/png" href="assets/app-icon-180.png" />
 <title>My Program</title>
 <style>
   :root { --bg: #0a0a0a; --panel: #161616; --panel-2: #1f1f1f; --border: #2c2c2c; --text: #f2f2f2; --dim: #9a9a9a; --accent: #c8102e; --pct: #00ffff; }
@@ -127,6 +132,20 @@
   .set .pct { background: var(--pct); color: #000; font-size: 12px; font-style: italic; padding: 2px 4px; }
   .set .est { font-size: 12px; font-weight: 700; padding-top: 3px; min-height: 0; }
   .set .last { font-size: 11px; color: var(--dim); padding-top: 3px; white-space: nowrap; }
+  /* faster logging: -5 / +5 under the weight box, last week's numbers as a tap-to-copy button, no box on unloaded drills */
+  .set .steps { display: flex; }
+  .set .step { flex: 1; height: 28px; padding: 0; font-size: 12px; font-weight: 700; color: var(--dim); background: var(--panel); border: 1px solid #444; border-top: none; }
+  .set .step + .step { border-left: none; }
+  .set .step:active { background: var(--accent); color: #fff; }
+  .set button.last { background: none; border: none; font: inherit; font-size: 11px; color: var(--dim); padding: 4px 0 0; cursor: pointer; }
+  .set button.last b { color: var(--accent); font-weight: 700; }
+  body.cubs .set button.last b { color: var(--label); }
+  .set.noload .reps { padding-bottom: 2px; }
+  /* "add to home screen" tip */
+  .install-tip { display: flex; align-items: flex-start; gap: 10px; margin: 10px 16px 0; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel); font-size: 13px; line-height: 1.35; }
+  .install-tip strong { display: block; margin-bottom: 2px; }
+  .install-tip .install-go { margin-top: 6px; height: 34px; padding: 0 14px; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; }
+  .install-tip .install-x { flex: 0 0 auto; margin-left: auto; background: none; border: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 0 2px; }
   .empty { text-align: center; color: var(--dim); padding: 48px 16px; font-size: 15px; }
   .status { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); background: #333; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 20px; display: none; z-index: 20; }
   .status.show { display: block; }
