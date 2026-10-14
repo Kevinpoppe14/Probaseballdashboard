@@ -1,6 +1,6 @@
 {
-  "name": "My Program",
-  "short_name": "My Program",
+  "name": "My DST Program",
+  "short_name": "My DST Program",
   "description": "Your training program from Dynamic Sports Training",
   "scope": "/",
   "display": "standalone",
