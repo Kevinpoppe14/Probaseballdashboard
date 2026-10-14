@@ -2426,6 +2426,16 @@ tbody tr:hover {
 .exercise-alias-x { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 0 0 0 6px; font-size: 13px; line-height: 1; }
 .exercise-merge-choice { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
 .exercise-merge-choice label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+/* form checks: clips remote athletes send, the watch-and-reply window and the Training Log list (form_checks.js) */
+.form-check-meta { font-size: 12px; color: var(--text-dim); margin-top: -4px; }
+.form-check-note { margin: 12px 0 4px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--surface-hover, rgba(255,255,255,.04)); font-size: 14px; }
+.form-check-modal textarea { width: 100%; }
+.form-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.form-check-list li { display: flex; gap: 12px; align-items: flex-start; }
+.form-check-list small { color: var(--text-dim); }
+.form-check-note-small { font-size: 13px; font-style: italic; margin-top: 2px; }
+.form-check-status { font-size: 12px; color: #e0a020; margin-top: 2px; }
+.form-check-status.done { color: #4caf6a; }
 .exercise-open-link { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
 .exercise-cues { margin-top: 12px; font-size: 14px; white-space: pre-wrap; }
 .exercise-view-btn { flex: 0 0 auto; border: 1px solid var(--dst-red); background: transparent; color: var(--dst-red); border-radius: 4px; font-size: 10px; padding: 3px 5px; cursor: pointer; }

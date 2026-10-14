@@ -206,6 +206,8 @@
           </div>
         </div>
 
+        {window.FormChecksPanel && <window.FormChecksPanel athlete={athlete} />}
+
         <KpiSection athlete={athlete} />
 
         {changes.length > 0 && (

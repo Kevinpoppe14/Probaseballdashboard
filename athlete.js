@@ -281,6 +281,74 @@
     input.click();
   }
 
+  // ---- form checks (athletes who train remotely) -------------------------------------------------------
+  // A camera button on each exercise films a set and sends it to the coach who assigned the program, with an
+  // optional note (api/form-check.js, supabase/migration_017_form_checks.sql). The phone gets a one-time upload
+  // link for its own folder, uploads the clip straight to private storage, then the coach is emailed. Under the
+  // exercise it then says it was sent, and shows the coach's reply once there is one. Clips are kept for a week.
+  let formChecks = []; // this athlete's checks from the past week: { programId, exerciseId, exercise, note, reply, reviewed, at }
+  const canSendChecks = () => remote && !coachId && !!token;
+  const checksFor = (item, e) => formChecks.filter((f) => String(f.programId) === String(item.program.id) && f.exerciseId === e.id);
+  function checkLine(item, e) {
+    const mine = checksFor(item, e);
+    if (!mine.length) return null;
+    const last = mine[mine.length - 1];
+    const replied = mine.filter((f) => (f.reply || "").trim());
+    return el("div", { class: "check-line" },
+      el("div", { class: "check-sent" }, `✓ Form check sent to your coach${mine.length > 1 ? ` (${mine.length})` : ""}${last.reviewed && !replied.length ? " · seen" : ""}`),
+      replied.map((f) => el("div", { class: "check-reply" }, el("b", null, "Coach: "), f.reply)));
+  }
+  function sendCheck(item, e, dayName) {
+    document.querySelectorAll("input.film-input").forEach((x) => x.remove());
+    const input = el("input", { type: "file", class: "film-input", accept: "video/*", capture: "environment", hidden: true });
+    document.body.append(input);
+    input.addEventListener("change", () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      const preview = el("video", { class: "clip", src: URL.createObjectURL(file), controls: true, playsinline: true, muted: true, preload: "metadata" });
+      preview.muted = true;
+      const note = el("textarea", { class: "check-note", rows: "3", maxlength: "600", placeholder: "Anything your coach should know? (optional)" });
+      const msg = el("div", { class: "swap-note" });
+      const actions = el("div", { class: "swap-actions" });
+      const close = () => { URL.revokeObjectURL(preview.src); closeVideo(); };
+      const send = async () => {
+        const mb = file.size / 1048576;
+        if (mb > 50) { msg.textContent = `That clip is ${Math.round(mb)} MB. Keep it under 50 MB (about 20 seconds) and film it again.`; return; }
+        actions.replaceChildren();
+        msg.textContent = `Sending… (${Math.max(1, Math.round(mb))} MB). Keep this screen open.`;
+        const post = async (body) => {
+          const r = await fetch("/api/form-check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || "Could not send the video. Check your connection and try again.");
+          return j;
+        };
+        try {
+          const ext = ((file.name || "").match(/\.(\w{2,4})$/) || [])[1] || (/quicktime/i.test(file.type) ? "mov" : /webm/i.test(file.type) ? "webm" : "mp4");
+          const { path, uploadToken } = await post({ action: "start", ext });
+          const up = await sb.storage.from("form-checks").uploadToSignedUrl(path, uploadToken, file, { contentType: file.type || "video/mp4" });
+          if (up.error) throw new Error("The video didn't upload. Check your connection and try again.");
+          const text = note.value.trim();
+          await post({ action: "done", path, programId: item.program.id, exerciseId: e.id, exercise: e.name, program: item.program.name, week: item.week.name || `Week ${item.weekNo}`, day: dayName, note: text });
+          formChecks.push({ programId: item.program.id, exerciseId: e.id, exercise: e.name, note: text, reply: "", reviewed: false, at: new Date().toISOString() });
+          close();
+          render();
+          showStatus("Sent to your coach");
+        } catch (err) {
+          msg.textContent = (err && err.message) || "Could not send the video. Check your connection and try again.";
+          actions.replaceChildren(el("button", { class: "primary", onclick: send }, "Try again"), el("button", { onclick: close }, "Cancel"));
+        }
+      };
+      actions.replaceChildren(el("button", { class: "primary", onclick: send }, "Send to my coach"), el("button", { onclick: () => { close(); sendCheck(item, e, dayName); } }, "Film again"), el("button", { onclick: close }, "Cancel"));
+      overlay.replaceChildren(el("div", { class: "sheet" },
+        el("button", { class: "close", "aria-label": "Close", onclick: close }, "×"),
+        el("h2", null, `Form check: ${e.name}`),
+        preview, note, msg, actions));
+      overlay.className = "overlay show";
+    });
+    input.click();
+  }
+
   // After a coach swaps in an exercise: if it isn't in the exercise library, or is there with no video, offer to
   // film one now (or, for a new name, to add it to the library without one). An exercise that is in the library
   // with a video just starts showing it.
@@ -1004,10 +1072,12 @@
             el("span", { class: "label" }, labels[ei]),
             info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name),
             canFilm && !(info && info.videoUrl) ? (() => { const b = el("button", { class: "film", "aria-label": `Film a video for ${e.name}`, title: "Film a video for this exercise", onclick: () => filmVideo(e) }); b.innerHTML = CAMERA; return b; })() : null,
+            canSendChecks() ? (() => { const b = el("button", { class: "film check", "aria-label": `Film a set of ${e.name} for your coach`, title: "Film a set and send it to your coach", onclick: () => sendCheck(item, e, (s && s.name) || `Day ${dayIdx + 1}`) }); b.innerHTML = CAMERA; return b; })() : null,
             el("button", { class: `swap${e._coach ? " on" : ""}`, "aria-label": `Change ${e.name} or its sets and reps`, title: "Change exercise or sets and reps", onclick: () => openSwap(item, dayIdx, e) }, "⇄")),
           e._coach ? el("div", { class: "notes" }, `You changed this. Coach: ${e._coach.name}${e._coach.text ? `, ${e._coach.text}` : ""}`) : null,
           (e.tempo || e.rest) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null) : null,
           e.notes ? el("div", { class: "notes" }, e.notes) : null,
+          canSendChecks() ? checkLine(item, e) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));
       });
       // end of the day: mark the session as done
@@ -1068,6 +1138,15 @@
     render();
     // testing results are only needed for the Progress tab and the end-of-session summary, so they don't hold up the program
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
+    // a remote athlete's form checks from the past week and the coach's replies (shown under each exercise)
+    if (canSendChecks()) {
+      sb.rpc("athlete_portal_form_checks", { p_token: token }).then((r) => {
+        if (r.error || !Array.isArray(r.data)) return;
+        formChecks = r.data;
+        const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+        if (formChecks.length && view === "program" && !typing && !overlay.className.includes("show")) render();
+      }, () => {});
+    }
   }
   start();
 })();

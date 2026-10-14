@@ -63,6 +63,7 @@
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
+<script type="text/babel" data-presets="react" src="form_checks.js"></script>
 <script type="text/babel" data-presets="react" src="training_log.js"></script>
 <script type="text/babel" data-presets="react" src="equipment.js"></script>
 <script type="text/babel" data-presets="react">
@@ -4714,8 +4715,10 @@ function TodayPanel({ onOpenTab, dataVersion }) {
   const [open, setOpen] = useState({}); // which lists are showing every name
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("todayPanelHidden") === "1"; } catch (e) { return false; } });
   const items = useMemo(() => todayItems(), [dataVersion]); // eslint-disable-line
+  // form checks remote athletes sent to this coach and nobody has reviewed yet (form_checks.js); each opens the clip
+  const checks = window.useOpenFormChecks ? window.useOpenFormChecks() : [];
   const toggle = () => { const next = !hidden; setHidden(next); try { localStorage.setItem("todayPanelHidden", next ? "1" : "0"); } catch (e) { /* not remembered */ } };
-  const total = items.reduce((n, it) => n + it.list.length, 0);
+  const total = items.reduce((n, it) => n + it.list.length, 0) + checks.length;
   const SHOWN = 6;
   return (
     <div className="panel today-panel no-print">
@@ -4725,6 +4728,18 @@ function TodayPanel({ onOpenTab, dataVersion }) {
       </h2>
       {!hidden && total > 0 && (
         <div className="today-grid">
+          {checks.length > 0 && (
+            <div className="today-card">
+              <div className="today-head"><span className="badge danger">{checks.length}</span><strong>Form checks to review</strong></div>
+              <div className="today-hint">Clips remote athletes sent you. Watch and reply.</div>
+              <ul>
+                {checks.slice(0, open.checks ? checks.length : SHOWN).map((c) => (
+                  <li key={c.id}><button className="btn-link" onClick={() => window.openFormCheck(c.id)}>{lastFirstName(c.athleteName || "Athlete")}</button><small> {c.exercise}</small></li>
+                ))}
+              </ul>
+              {checks.length > SHOWN && <button className="btn-link today-more" onClick={() => setOpen((o) => ({ ...o, checks: !o.checks }))}>{open.checks ? "Show fewer" : `+ ${checks.length - SHOWN} more`}</button>}
+            </div>
+          )}
           {items.filter((it) => it.list.length).map((it) => (
             <div className="today-card" key={it.key}>
               <div className="today-head"><span className={`badge ${it.tone}`}>{it.list.length}</span><strong>{it.title}</strong></div>
@@ -9085,6 +9100,7 @@ function App({ userEmail, onLogout }) {
         onToggleTheme={toggleTheme}
       />
       <ExerciseViewerHost />
+      <window.FormCheckHost />
       {showWelcome && <WelcomeModal onClose={closeWelcome} onOpenGuide={() => { closeWelcome(); goHelp(); }} />}
       <div className="main">
         {canGoBack && (
