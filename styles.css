@@ -2784,7 +2784,26 @@ tbody tr:hover {
 .ppt-block.active { color: var(--text); border-color: var(--dst-red); background: rgba(165, 42, 52, 0.16); }
 .ppt-block.now small { color: var(--dst-red); }
 .ppt-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.ppt-individualize { flex: 0 0 auto; margin-left: auto; }
+.ppt-individualize { flex: 0 0 auto; }
+.ppt-weekview, .ppt-printall { flex: 0 0 auto; }
+.ppt-title > span:first-child { margin-right: auto; }
+.ppt-weekview.active { border-color: var(--accent); }
+.ppt-print-note { margin: -4px 0 8px; }
+/* the week at a glance: one column per row of the chart, lined up by day number */
+.ppt-combined { margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.ppt-combined-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.ppt-combined-bar small { color: var(--text-dim); }
+.ppt-combined-bar .btn { padding: 2px 10px; min-width: 0; }
+.ppt-combined-scroll { overflow-x: auto; }
+.ppt-combined-grid { display: grid; gap: 6px; align-items: stretch; }
+.ppt-combined-head { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 6px 8px; border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 6px; background: none; color: inherit; cursor: pointer; font: inherit; }
+.ppt-combined-head span { font-size: 13px; }
+.ppt-combined-head small { font-size: 11px; color: var(--text-dim); }
+.ppt-combined-day { font-size: 12px; font-weight: 700; color: var(--text-dim); padding-top: 6px; }
+.ppt-combined-cell { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; min-height: 28px; }
+.ppt-combined-sname { font-weight: 700; font-size: 11px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 3px; }
+.ppt-combined-ex { padding: 2px 0; }
+.ppt-combined-ex small { display: block; color: var(--text-dim); font-size: 11px; }
 .ppt-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
 .period-lane-name { cursor: pointer; }
 .ppt-suggest { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }

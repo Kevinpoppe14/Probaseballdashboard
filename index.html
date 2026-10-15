@@ -1160,9 +1160,10 @@ const programCounts = (p) => {
 // Draws a program as a landscape PDF: athlete and program name top left, logo top middle, then one row per
 // week with its days side by side. It stays on one page while the text can remain readable; a longer program
 // runs onto more pages, with whole weeks kept together. Returns { pdf, fontSize, fits, pages }.
-async function buildProgramPdf(program, athleteName, cubsLogo = false) {
+// `into`: an existing PDF to add this program to, starting on a new page (Print all on the Player Plan).
+async function buildProgramPdf(program, athleteName, cubsLogo = false, into = null) {
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+  const pdf = into || new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
   const M = 28, headH = 44, gutter = 46, pad = 4;
 
@@ -1311,6 +1312,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false) {
   const { lineH, rowH, pctH, lineW, bandH, gap, nameFs, nameLH, noteLH } = plan;
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs);
 
+  if (into) pdf.addPage(); // after the programs already in it
   drawHeader(1, pages);
   let y = top, pageNo = 1;
   plan.rows.forEach((row) => {
@@ -1430,6 +1432,28 @@ async function openProgramPdf(program, athleteName, cubsLogo) {
     throw e;
   }
 }
+// Several programs in one PDF, each starting on a new page, opened in a new tab like openProgramPdf (Print all
+// on the Player Plan). Resolves to { programs, pages }.
+async function openProgramsPdf(programs, athleteName, cubsLogo, title) {
+  const tab = window.open("", "_blank");
+  if (tab) tab.document.title = `Building ${title}…`;
+  try {
+    let pdf = null, pages = 0;
+    for (const program of programs) {
+      const built = await buildProgramPdf(program, athleteName, cubsLogo, pdf);
+      pdf = built.pdf;
+      pages += built.pages;
+    }
+    pdf.setProperties({ title });
+    if (tab) tab.location.href = pdf.output("bloburl");
+    else pdf.save(`${title.replace(/[\\/:*?"<>|]/g, "")}.pdf`);
+    return { programs: programs.length, pages };
+  } catch (e) {
+    if (tab) tab.close();
+    throw e;
+  }
+}
+window.openProgramsPdf = openProgramsPdf;
 // what to tell the coach after a PDF opens, or "" when it fitted on one page
 function programPdfNote(result) {
   if (!result) return "";

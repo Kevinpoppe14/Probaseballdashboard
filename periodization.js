@@ -415,6 +415,73 @@
     return out;
   }
 
+  // The week at a glance: every block running in one plan week side by side, one column per row of the chart
+  // (Strength, Speed, Correctives, Throwing…), lined up by day number. Day 1 is usually a Monday but programs
+  // needn't agree, so days are matched by number; a day's own name (a throwing day's weekday, say) shows in its
+  // cell. A column heading opens that block's tab in the builder.
+  function CombinedWeek({ plan, onOpen }) {
+    const p = planProgress(plan);
+    const [wk, setWk] = useState(p.state === "active" ? p.week - 1 : 0);
+    const laneAt = (b) => plan.lanes.findIndex((l) => l.id === b.lane);
+    const cols = plan.blocks.filter((b) => b.start <= wk && wk < b.start + b.len)
+      .sort((a, b) => laneAt(a) - laneAt(b) || a.start - b.start)
+      .map((b) => {
+        const lane = plan.lanes.find((l) => l.id === b.lane) || { name: "Other" };
+        const program = programById(b.programId);
+        const n = program && (program.weeks || []).length ? (wk - b.start) % program.weeks.length : null;
+        return { b, lane, program, week: n == null ? null : program.weeks[n], weekNo: n == null ? null : n + 1 };
+      });
+    const days = Math.max(0, ...cols.map((c) => (c.week ? (c.week.sessions || []).length : 0)));
+    const monday = parseISO(plan.startDate); monday.setDate(monday.getDate() + wk * 7);
+    const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
+    return (
+      <div className="ppt-combined">
+        <div className="ppt-combined-bar">
+          <button className="btn btn-secondary" disabled={wk <= 0} onClick={() => setWk(wk - 1)} aria-label="Previous week">‹</button>
+          <strong>Week {wk + 1} of {plan.weeks}</strong>
+          <small>{fmt(monday)} – {fmt(sunday)}{p.state === "active" && wk === p.week - 1 ? " · this week" : ""}</small>
+          <button className="btn btn-secondary" disabled={wk >= plan.weeks - 1} onClick={() => setWk(wk + 1)} aria-label="Next week">›</button>
+        </div>
+        {!cols.length ? <div className="facility-note">Nothing is scheduled in week {wk + 1}.</div> : (
+          <div className="ppt-combined-scroll">
+            <div className="ppt-combined-grid" style={{ gridTemplateColumns: `64px repeat(${cols.length}, minmax(190px, 1fr))` }}>
+              <div />
+              {cols.map((c) => (
+                <button key={c.b.id} className="ppt-combined-head" style={{ borderTopColor: blockColorIn(plan, c.b) }} title="Open this program in the builder" onClick={() => onOpen(c.b)}>
+                  <strong>{c.lane.name}</strong>
+                  <span>{c.b.label || "Untitled"}</span>
+                  <small>{c.program ? `program week ${c.weekNo} of ${c.program.weeks.length}` : "no program yet"}</small>
+                </button>
+              ))}
+              {Array.from({ length: days }, (_, di) => (
+                <React.Fragment key={di}>
+                  <div className="ppt-combined-day">Day {di + 1}</div>
+                  {cols.map((c) => {
+                    const s = c.week && (c.week.sessions || [])[di];
+                    const named = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
+                    const labels = exerciseLabels(named);
+                    return (
+                      <div key={c.b.id} className="ppt-combined-cell">
+                        {s && <div className="ppt-combined-sname">{s.name || `Day ${di + 1}`}</div>}
+                        {named.map((e, i) => (
+                          <div key={e.id || i} className="ppt-combined-ex">
+                            <b>{labels[i]}</b> {e.name}
+                            <small>{ProgramRx.groups(e).map((g) => ProgramRx.groupText(e, g)).filter(Boolean).join(", ")}</small>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Programs by section, inside an athlete's periodization. Each row of the chart (Phase, Running, Strength,
   // Correctives, Throwing…) is a section; its blocks, in order, are the tabs. A tab opens that block's program,
   // or the program builder to make one. Anything built or changed here is saved to the Programs list as the
@@ -428,7 +495,23 @@
     const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
     const [rev, setRev] = useState(0); // bumped to reload the builder from what's saved
     const [indivFor, setIndivFor] = useState(null); // block whose program is open in the Individualize screen
+    const [weekView, setWeekView] = useState(false); // the week at a glance, above the builder
+    const [printNote, setPrintNote] = useState("");
     if (!kit || !lanes.length) return null;
+    // Print all: every program on the plan in one PDF, row by row (in the chart's order) and phase by phase
+    const printAll = async () => {
+      const laneAt = (b) => plan.lanes.findIndex((l) => l.id === b.lane);
+      const seen = new Set();
+      const list = plan.blocks.filter((b) => programById(b.programId)).sort((a, b) => laneAt(a) - laneAt(b) || a.start - b.start)
+        .map((b) => programById(b.programId)).filter((x) => !seen.has(x.id) && seen.add(x.id));
+      if (!list.length) { setPrintNote("No programs on this plan yet."); return; }
+      setPrintNote("Building the PDF…");
+      try {
+        const cubs = !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete);
+        const r = await window.openProgramsPdf(list, athlete.name, cubs, `${athlete.name} - All phases`);
+        setPrintNote(`${r.programs} program${r.programs === 1 ? "" : "s"} on ${r.pages} page${r.pages === 1 ? "" : "s"}${dirty ? ". Unsaved changes in the builder aren't included." : "."}`);
+      } catch (e) { setPrintNote("Could not build the PDF. Try again."); }
+    };
 
     const p = planProgress(plan);
     const wk = p.state === "active" ? p.week - 1 : null;
@@ -492,7 +575,11 @@
               Individualize
             </button>
           )}
+          <button className={`btn btn-secondary ppt-weekview ${weekView ? "active" : ""}`} title="Every program running in one week, side by side" onClick={() => setWeekView((v) => !v)}>{weekView ? "Hide week view" : "Week view"}</button>
+          {window.openProgramsPdf && <button className="btn btn-secondary ppt-printall" title="Every program on this plan in one PDF" onClick={printAll}>Print all</button>}
         </h2>
+        {printNote && <div className="timestamp-note ppt-print-note">{printNote}</div>}
+        {weekView && <CombinedWeek plan={plan} onOpen={(b) => { onNav({ laneId: b.lane, blockId: b.id }); setWeekView(false); }} />}
         <div className="pill-tabs ppt-sections">
           {lanes.map((l) => (
             <button key={l.id} className={`pill-tab ${l.id === lane.id ? "active" : ""}`} onClick={() => onNav({ laneId: l.id, blockId: null })}>{l.name}</button>
