@@ -1023,6 +1023,27 @@
     sb().from("athlete_overrides").delete().eq("athlete_id", String(athleteId)).eq("program_id", String(programId)).eq("exercise_id", String(exerciseId))
       .then(({ error }) => logSyncError(`delete athlete_overrides/${athleteId}/${exerciseId}`, error));
   }
+  // When a shared program on an athlete's plan is replaced by their own copy (same weeks and exercise ids, new
+  // program id), what they logged and changed on their phone against the old one is copied to the new one, with
+  // its original time and source, so their history and swaps carry on. The old rows are left as they were.
+  function carryAthleteRecords(athleteId, fromProgramId, toProgramId, plan) {
+    const aid = String(athleteId), from = String(fromProgramId), to = String(toProgramId);
+    if (!from || !to || from === to) return;
+    const values = programLogFor(aid, plan)[from] || {};
+    const meta = (athleteLogMeta[aid] || {})[from] || {};
+    const logRows = Object.keys(values).filter((k) => values[k]).map((key) => ({
+      athlete_id: aid, program_id: to, key, value: values[key], source: (meta[key] || {}).source || "coach", updated_at: (meta[key] || {}).at || new Date().toISOString(),
+    }));
+    logRows.forEach(putLogRow);
+    if (logRows.length) sb().from("athlete_logs").upsert(logRows).then(({ error }) => logSyncError(`copy athlete_logs/${aid}/${from}->${to}`, error));
+    const ov = (athleteOverrides[aid] || {})[from] || {};
+    const ovRows = Object.keys(ov).map((exId) => {
+      const { _at, ...data } = ov[exId];
+      return { athlete_id: aid, program_id: to, exercise_id: exId, data, source: "athlete", updated_at: _at || new Date().toISOString() };
+    });
+    ovRows.forEach(putOverrideRow);
+    if (ovRows.length) sb().from("athlete_overrides").upsert(ovRows).then(({ error }) => logSyncError(`copy athlete_overrides/${aid}/${from}->${to}`, error));
+  }
   function getAthleteLink(athleteId) {
     return athleteLinks[String(athleteId)] || null;
   }
@@ -1144,6 +1165,7 @@
     removeAthleteLink,
     programLogFor,
     setAthleteLog,
+    carryAthleteRecords,
     refreshAthleteLogs,
     athleteLogEntries,
     lastLoggedAt,

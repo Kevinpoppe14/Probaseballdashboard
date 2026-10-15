@@ -352,6 +352,69 @@
     return existing ? "added" : "created";
   }
 
+  // ---- each block and its program kept in step ----------------------------------------------------------
+  // A block on the chart is one program of the athlete's workbook. Its text is the program's name (with the
+  // athlete's last name in front, "Supak - Strength Ph.1") and its length is the program's number of weeks: change
+  // either one and the other follows. Shared library programs are never changed from an athlete's plan; the first
+  // change makes the athlete's own copy and moves what they logged against the shared one across to it.
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const lastNameFor = (athlete) => (window.ProgramBuilderKit ? window.ProgramBuilderKit.athleteLastName(athlete.name || "") : "") || "";
+  const nameFor = (athlete, n) => {
+    const last = lastNameFor(athlete), clean = (n || "").trim();
+    return !last || clean.toLowerCase().startsWith(last.toLowerCase()) ? clean : `${last} - ${clean}`;
+  };
+  // the program name as the block shows it: without an athlete's last name in front
+  const blockLabelFor = (athlete, n) => {
+    const last = lastNameFor(athlete);
+    return last ? (n || "").replace(new RegExp(`^${escRe(last)}\\s*-\\s*`, "i"), "").trim() : (n || "").trim();
+  };
+  const isOwnProgram = (program, athlete) => !!program && String(program.athleteId) === String(athlete.id);
+  const freshExerciseId = () => `ex-${Math.random().toString(36).slice(2, 9)}`;
+  // a deep copy of some weeks with new exercise ids (for a new program, so nothing logged elsewhere matches it)
+  const cloneWeeks = (weeks) => JSON.parse(JSON.stringify(weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: freshExerciseId() })) })) }));
+  // `weeks` made `len` long: added weeks copy the last one (new exercise ids, "Week n" renumbered), cut weeks dropped
+  function weeksToLength(weeks, len) {
+    const out = (weeks || []).slice(0, len);
+    if (!out.length) out.push(window.ProgramBuilderKit.newWeek(1));
+    while (out.length < len) {
+      const copy = cloneWeeks([out[out.length - 1]])[0];
+      copy.name = /^week\s*\d+/i.test(copy.name || "") ? copy.name.replace(/^week\s*\d+/i, `Week ${out.length + 1}`) : `Week ${out.length + 1}`;
+      out.push(copy);
+    }
+    return out;
+  }
+  // whether anything is logged in program weeks `from` (0-based) onward, for this athlete
+  function loggedFrom(athleteId, plan, program, from) {
+    const log = window.AthleteStore.programLogFor(athleteId, plan)[program.id] || {};
+    const keys = Object.keys(log).filter((k) => log[k]);
+    if (!keys.length) return false;
+    const ids = new Set();
+    (program.weeks || []).slice(from).forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => ids.add(String(e.id)))));
+    return keys.some((k) => ids.has(k.split("|")[0]) || Number((/^session-(\d+)-/.exec(k) || [])[1]) >= from);
+  }
+  // Saves `changes` to a block's program: in place when it is the athlete's own and used by no other block,
+  // otherwise as the athlete's own copy (their log and phone changes carried across). Returns the saved program.
+  function saveForBlock(athlete, plan, block, program, changes) {
+    const store = window.AthleteStore;
+    const sharedHere = plan.blocks.some((b) => b.id !== block.id && b.programId === program.id);
+    if (isOwnProgram(program, athlete) && !sharedHere) return store.saveProgram({ ...program, ...changes });
+    const { id, ...rest } = program;
+    const saved = store.saveProgram({ ...rest, name: nameFor(athlete, program.name), ...changes, athleteId: athlete.id, basedOn: program.id, folder: program.folder || "" });
+    store.carryAthleteRecords(athlete.id, program.id, saved.id, plan);
+    return saved;
+  }
+  // Later blocks in the same row that a block now runs into (and didn't before) slide right to the next open
+  // week, each pushing the next in turn. `before` is the block as it was. Returns the new list of blocks.
+  function pushLaterBlocks(blocks, block, before) {
+    const out = blocks.map((b) => ({ ...b }));
+    const later = out.filter((b) => b.lane === block.lane && b.id !== block.id && b.start >= block.start)
+      .filter((b) => !before || b.start >= before.start + before.len) // already overlapping on purpose: left alone
+      .sort((a, b) => a.start - b.start);
+    let end = block.start + block.len;
+    later.forEach((b) => { if (b.start < end) b.start = end; end = Math.max(end, b.start + b.len); });
+    return out;
+  }
+
   // Programs by section, inside an athlete's periodization. Each row of the chart (Phase, Running, Strength,
   // Correctives, Throwing…) is a section; its blocks, in order, are the tabs. A tab opens that block's program,
   // or the program builder to make one. Anything built or changed here is saved to the Programs list as the
@@ -385,7 +448,24 @@
       // a shared program is never changed from here: the athlete gets their own copy instead
       if (!own) { delete next.id; if (program) next.basedOn = program.id; }
       const saved = store.saveProgram(next);
-      if (!program || saved.id !== program.id) onLinkProgram(block.id, saved.id);
+      if (program && saved.id !== program.id) store.carryAthleteRecords(athlete.id, program.id, saved.id, plan); // what they logged moves to their copy
+      // the block follows the program: its name, and a week on the chart for each program week
+      onLinkProgram(block.id, saved.id);
+      setDirty(false);
+      setRev((r) => r + 1);
+    };
+    // A new program for this block that starts as a copy of the one on the block before it in this row, made as
+    // long as this block, ready to edit ("Copy previous phase").
+    const prevBlock = block ? blocks[blocks.indexOf(block) - 1] : null;
+    const prevProgram = prevBlock ? programById(prevBlock.programId) : null;
+    const copyPrevious = () => {
+      if (!prevProgram || (dirty && !window.confirm("Copy the previous phase and lose your unsaved changes in the builder?"))) return;
+      const label = (block.label || "").trim() || `${blockLabelFor(athlete, prevProgram.name)} (copy)`;
+      const saved = store.saveProgram({
+        name: nameFor(athlete, label), description: prevProgram.description || "", folder: prevProgram.folder || "", tags: prevProgram.tags || [],
+        weeks: weeksToLength(cloneWeeks(prevProgram.weeks), block.len), athleteId: athlete.id, basedOn: prevProgram.id,
+      });
+      onLinkProgram(block.id, saved.id);
       setDirty(false);
       setRev((r) => r + 1);
     };
@@ -434,7 +514,7 @@
             athlete={athlete}
             skipLink
             onDone={(saved) => {
-              if (saved && saved.id !== program.id) onLinkProgram(block.id, saved.id);
+              if (saved && saved.id !== program.id) { store.carryAthleteRecords(athlete.id, program.id, saved.id, plan); onLinkProgram(block.id, saved.id); }
               setIndivFor(null);
               setRev((r) => r + 1);
             }}
@@ -445,9 +525,10 @@
           <div className="ppt-note">
             {!program && (
               <React.Fragment>
-                <span>No program for <strong>{block.label || "this block"}</strong> yet. Build it below, or</span>
+                <span>No program for <strong>{block.label || "this block"}</strong> yet. Build it below ({block.len} week{block.len === 1 ? "" : "s"}, to match the block), or</span>
+                {prevProgram && <button className="btn btn-secondary" title={`Start from a copy of ${prevProgram.name}, then edit it`} onClick={copyPrevious}>Copy previous phase</button>}
                 <select value="" onChange={(e) => e.target.value && onLinkProgram(block.id, e.target.value)}>
-                  <option value="">link an existing program…</option>
+                  <option value="">insert an existing program…</option>
                   {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
                 {/* a suggestion only: what the program on the block before this one lists as its next phase */}
@@ -475,10 +556,11 @@
           <window.EquipmentFlags key={`eq-${program.id}-${rev}`} athlete={athlete} program={program} onChangeExercise={changeExercise} />
         )}
 
+        {/* reloads when the block's name or length changes the program (or, with no program yet, the starting point) */}
         {block && indivFor !== block.id && (
           <kit.ProgramEditor
-            key={`${block.id}-${program ? program.id : "new"}-${rev}`}
-            initial={program || { name: withLast(block.label || lane.name), description: "", weeks: [kit.newWeek(1)] }}
+            key={`${block.id}-${program ? `${program.id}-${program.name}-${(program.weeks || []).length}` : `new-${block.label}-${block.len}`}-${rev}`}
+            initial={program || { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) }}
             onSave={save}
             onCancel={reload}
             cancelLabel="Discard changes"
@@ -1078,17 +1160,50 @@
     // functions below run later, by which point planRef.current already holds the new plan.
     const commit = (next) => {
       const current = planRef.current;
+      const synced = syncPrograms(current, next);
+      if (!synced) return; // backed out of shortening a program with something logged
       setPast((p) => [...p.slice(-99), current]);
       setFuture([]);
-      apply(next);
+      apply(synced);
     };
+    // Keeps every block and its program in step after a change to the chart (see saveForBlock): a block made
+    // longer or shorter gives its program as many weeks (asking first when weeks with something logged would go)
+    // and slides later blocks in its row out of the way; renaming a block renames its program when the program is
+    // the athlete's own. Returns the plan to save, or null when the coach backs out.
+    function syncPrograms(prev, next) {
+      let blocks = next.blocks;
+      for (const changed of next.blocks) {
+        const before = prev.blocks.find((x) => x.id === changed.id);
+        if (!before) continue;
+        const b = blocks.find((x) => x.id === changed.id);
+        if (b.len > before.len) blocks = pushLaterBlocks(blocks, b, before);
+        const program = b.programId ? programById(b.programId) : null;
+        if (!program) continue;
+        const changes = {};
+        const weeks = (program.weeks || []).length;
+        if (b.len !== before.len && weeks !== b.len) {
+          if (b.len < weeks && loggedFrom(athlete.id, next, program, b.len)
+            && !window.confirm(`Shorten "${program.name}" to ${b.len} week${b.len === 1 ? "" : "s"}? Something is already logged in the week${weeks - b.len === 1 ? "" : "s"} that would be removed.`)) return null;
+          changes.weeks = weeksToLength(program.weeks, b.len);
+        }
+        const label = (b.label || "").trim();
+        if (label && label !== (before.label || "").trim() && isOwnProgram(program, athlete) && nameFor(athlete, label) !== program.name) changes.name = nameFor(athlete, label);
+        if (Object.keys(changes).length) {
+          const saved = saveForBlock(athlete, { ...next, blocks }, b, program, changes);
+          if (saved.id !== program.id) blocks = blocks.map((x) => (x.id === b.id ? { ...x, programId: saved.id } : x));
+        }
+      }
+      blocks = blocks.filter((b) => b.start < MAX_WEEKS).map((b) => ({ ...b, len: Math.min(b.len, MAX_WEEKS - b.start) }));
+      return { ...next, blocks, weeks: clamp(Math.max(next.weeks, maxEnd(blocks)), 1, MAX_WEEKS) };
+    }
     // Undo/redo only rewind the timeline — goals and the action plan are typed text with their own
     // editing, so they always carry over from the current plan instead of being rolled back.
     const keepText = (snapshot, current) => ({ ...snapshot, goals: current.goals, actionPlan: current.actionPlan, programLog: current.programLog });
     const undo = () => {
       if (!past.length) return;
       const current = planRef.current;
-      const prev = keepText(past[past.length - 1], current);
+      const prev = syncPrograms(current, keepText(past[past.length - 1], current)); // the programs follow the blocks back
+      if (!prev) return;
       setPast(past.slice(0, -1));
       setFuture((f) => [current, ...f]);
       apply(prev);
@@ -1097,7 +1212,8 @@
     const redo = () => {
       if (!future.length) return;
       const current = planRef.current;
-      const next = keepText(future[0], current);
+      const next = syncPrograms(current, keepText(future[0], current));
+      if (!next) return;
       setFuture(future.slice(1));
       setPast((p) => [...p, current]);
       apply(next);
@@ -1131,6 +1247,18 @@
       commit({ ...planRef.current, blocks: planRef.current.blocks.map((b) => (ids.includes(b.id) ? { ...b, ...patchFn(b) } : b)) });
     };
     const updateBlock = (id, patch) => updateBlocks([id], () => patch);
+    // Links a program to a block (or unlinks it, with null). The block takes the program's name (without the
+    // athlete's last name) and its number of weeks, sliding later blocks in its row along if it grows.
+    const linkProgram = (blockId, programId) => {
+      const program = programId ? programById(programId) : null;
+      const patch = { programId: programId || null };
+      if (program) {
+        patch.assignedBy = window.AthleteStore.currentUserEmail();
+        patch.label = blockLabelFor(athlete, program.name);
+        if ((program.weeks || []).length) patch.len = program.weeks.length;
+      }
+      updateBlock(blockId, patch);
+    };
 
     // ---- editing actions ----
     const copySel = () => {
@@ -1218,7 +1346,20 @@
       if (plan.blocks.length && !window.confirm("Replace this athlete's current plan with the selected one? (You can undo with Ctrl+Z.)")) return;
       const laneMap = {};
       const lanes = source.lanes.map((l) => { const id = uid(); laneMap[l.id] = id; return { ...l, id }; });
-      const blocks = source.blocks.map((b) => ({ ...b, id: uid(), lane: laneMap[b.lane] }));
+      // Programs that belonged to another athlete come along as this athlete's own copies (renamed with their last
+      // name, ready to edit); shared library programs stay linked as they are. Each is copied once.
+      const copies = {};
+      const programFor = (pid) => {
+        const src = pid ? programById(pid) : null;
+        if (!src || !src.athleteId || String(src.athleteId) === String(athlete.id)) return pid || null;
+        if (!copies[pid]) {
+          const owner = getRoster().find((a) => String(a.id) === String(src.athleteId)) || { name: "" };
+          const { id, ...rest } = src;
+          copies[pid] = store.saveProgram({ ...rest, name: nameFor(athlete, blockLabelFor(owner, src.name)), weeks: cloneWeeks(src.weeks), athleteId: athlete.id, basedOn: src.id }).id;
+        }
+        return copies[pid];
+      };
+      const blocks = source.blocks.map((b) => ({ ...b, id: uid(), lane: laneMap[b.lane], programId: programFor(b.programId) }));
       commit({ ...plan, weeks: source.weeks, lanes, blocks });
       setSel([]);
     };
@@ -1745,7 +1886,7 @@
           </div>
         )}
 
-        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={(blockId, programId) => updateBlock(blockId, { programId, assignedBy: window.AthleteStore.currentUserEmail() })} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
+        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
 
         <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>
