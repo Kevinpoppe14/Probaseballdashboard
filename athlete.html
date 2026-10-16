@@ -152,6 +152,14 @@
   .set .step:active { background: var(--accent); color: #fff; }
   .set button.last { background: none; border: none; font: inherit; font-size: 11px; color: var(--dim); padding: 4px 0 0; cursor: pointer; }
   .set button.last b { color: var(--accent); font-weight: 700; }
+  /* timed sets: a timer button under the set, and the countdown sheet */
+  .set .timer-btn { margin-top: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--label, var(--accent)); background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 700; }
+  .timer-sheet { text-align: center; }
+  .timer-round { font-size: 13px; color: var(--dim); min-height: 18px; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .timer-face { font-size: 72px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 6px 0 14px; line-height: 1; }
+  .timer-face.ending { color: #f0c040; }
+  .timer-face.done { color: #6fd58a; }
+  .timer-sheet .swap-actions button { font-size: 17px; min-height: 52px; }
   body.cubs .set button.last b { color: var(--label); }
   .set.noload .reps { padding-bottom: 2px; }
   /* "add to home screen" tip */

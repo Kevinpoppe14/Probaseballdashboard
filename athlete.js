@@ -547,6 +547,82 @@
     return String(item.program.id || "").startsWith("gspeed-") || UNLOADED.test(name);
   };
 
+  // ---- timer for timed sets ---------------------------------------------------------------------------
+  // A set prescribed as a time (a 30s plank, a 1:00 carry, a "Time 0:45" box) gets a timer button, so the athlete
+  // can time it without leaving the page: a big countdown with start / pause / reset, a beep and a buzz at zero, and
+  // a second round for sets done each side.
+  const secondsIn = (text) => {
+    const t = `${text || ""}`;
+    let m = /(\d+):(\d{2})/.exec(t);
+    if (m) return Number(m[1]) * 60 + Number(m[2]);
+    m = /(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i.exec(t);
+    if (m) return Math.round(Number(m[1]));
+    m = /(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b/i.exec(t);
+    if (m) return Math.round(Number(m[1]) * 60);
+    return null;
+  };
+  const eachSide = (text) => /(?:-\s*E\b|\beach\b|\/side\b|\bper side\b)/i.test(`${text || ""}`);
+  const clock = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+  const beep = () => {
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.35, 0.7].forEach((at) => {
+        const o = ac.createOscillator(), gn = ac.createGain();
+        o.frequency.value = 880; gn.gain.value = 0.25;
+        o.connect(gn); gn.connect(ac.destination);
+        o.start(ac.currentTime + at); o.stop(ac.currentTime + at + 0.2);
+      });
+      setTimeout(() => ac.close(), 1500);
+    } catch (err) { /* no sound */ }
+    try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch (err) { /* no buzz */ }
+  };
+  function openTimer(name, seconds, sides) {
+    let left = seconds, running = false, tick = null, round = 1, last = 0;
+    const rounds = sides ? 2 : 1;
+    const face = el("div", { class: "timer-face" }, clock(left));
+    const label = el("div", { class: "timer-round" }, sides ? "First side" : "");
+    const go = el("button", { class: "primary" }, "Start");
+    const reset = el("button", null, "Reset");
+    const stop = () => { running = false; clearInterval(tick); tick = null; };
+    const draw = () => {
+      face.textContent = clock(left);
+      face.className = `timer-face${left <= 3 && running ? " ending" : ""}${left <= 0 ? " done" : ""}`;
+      go.textContent = running ? "Pause" : left <= 0 ? (round < rounds ? "Other side" : "Again") : left < seconds ? "Resume" : "Start";
+    };
+    const run = () => {
+      if (running) { stop(); draw(); return; }
+      if (left <= 0) {
+        if (round < rounds) { round += 1; label.textContent = "Second side"; } else { round = 1; label.textContent = sides ? "First side" : ""; }
+        left = seconds;
+      }
+      running = true; last = Date.now();
+      tick = setInterval(() => {
+        if (Date.now() - last < 1000) return;
+        last += 1000; left -= 1;
+        if (left <= 0) { left = 0; stop(); beep(); }
+        draw();
+      }, 100);
+      draw();
+    };
+    go.addEventListener("click", run);
+    reset.addEventListener("click", () => { stop(); left = seconds; round = 1; label.textContent = sides ? "First side" : ""; draw(); });
+    const close = () => { stop(); closeVideo(); };
+    overlay.replaceChildren(el("div", { class: "sheet timer-sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: close }, "×"),
+      el("h2", null, name),
+      label, face,
+      el("div", { class: "swap-actions" }, go, reset, el("button", { onclick: close }, "Done"))));
+    overlay.className = "overlay show";
+  }
+  // the timer button for a set group, when its reps (or the exercise's Time box) are a time
+  const timerFor = (e, g) => {
+    const timeBox = (Rx.extras(e).find((x) => /^time$/i.test((x.label || "").trim())) || {}).value;
+    const secs = secondsIn(g.reps) || secondsIn(timeBox);
+    if (!secs || secs > 3600) return null;
+    const sides = eachSide(g.reps);
+    return el("button", { class: "timer-btn", title: `Time this set: ${clock(secs)}${sides ? " each side" : ""}`, onclick: () => openTimer(e.name, secs, sides) }, `⏱ ${clock(secs)}`);
+  };
+
   // ---- one set group -----------------------------------------------------------------------------
   function setBox(item, si, e, g, gi) {
     const pid = item.program.id;
@@ -560,7 +636,7 @@
         repsOnly.addEventListener("focus", () => repsOnly.select());
         repsOnly.addEventListener("blur", () => save(pid, rKey, repsOnly.value.trim()));
       }
-      return el("div", { class: "set noload" }, el("span", { class: "reps" }, Rx.repsText(g)), repsOnly ? el("div", { class: "boxes" }, repsOnly) : null, int ? el("span", { class: "pct" }, int) : null);
+      return el("div", { class: "set noload" }, el("span", { class: "reps" }, Rx.repsText(g)), repsOnly ? el("div", { class: "boxes" }, repsOnly) : null, int ? el("span", { class: "pct" }, int) : null, timerFor(e, g));
     }
     const weight = el("input", { type: "text", inputmode: "decimal", enterkeyhint: "next", placeholder: "wt", "aria-label": "Weight used", autocomplete: "off" });
     const reps = fail ? el("input", { type: "text", inputmode: "numeric", placeholder: "reps", "aria-label": `Reps reached${fail.each ? " each side" : ""}`, autocomplete: "off" }) : null;
@@ -621,7 +697,8 @@
         el("button", { class: "step", "aria-label": `5 more for ${e.name}`, onclick: step(5) }, "+5")),
       int ? el("span", { class: "pct" }, int) : null,
       est,
-      last ? el("button", { class: "last", title: `Logged in week ${last.week}. Tap to use the same numbers.`, onclick: useLast }, `Wk ${last.week}: ${last.text}`, el("b", null, " · use")) : null);
+      last ? el("button", { class: "last", title: `Logged in week ${last.week}. Tap to use the same numbers.`, onclick: useLast }, `Wk ${last.week}: ${last.text}`, el("b", null, " · use")) : null,
+      timerFor(e, g));
   }
 
   // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------

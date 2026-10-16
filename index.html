@@ -1663,8 +1663,8 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
 
   // ---- size ------------------------------------------------------------------------------------------
   // The days can be drawn smaller (85%, 70%) to see more at once, or "fit": each week shrunk just enough for all
-  // its days to fit across (up to 7), never below 45%. Remembered in this browser.
-  const [zoomMode, setZoomMode] = useState(() => { try { return localStorage.getItem("programZoom") || "1"; } catch (e) { return "1"; } });
+  // its days to fit across (up to 7), never below 45%. Fit week is the standard; another choice is remembered.
+  const [zoomMode, setZoomMode] = useState(() => { try { return localStorage.getItem("programZoom") || "fit"; } catch (e) { return "fit"; } }); // Fit week unless another size was picked
   const setZoom = (v) => { setZoomMode(v); try { localStorage.setItem("programZoom", v); } catch (e) { /* not remembered */ } };
   React.useLayoutEffect(() => {
     const root = rootRef.current;

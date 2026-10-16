@@ -482,6 +482,39 @@
     );
   }
 
+  // Changes made in the app (an exercise swapped, or its sets and reps changed, by the athlete on their phone or by a
+  // coach in Coach Mode) are kept apart from the program (athlete_overrides). When the block's program is opened in
+  // the builder they are folded into it, as the athlete's own copy when the program is a shared one, and cleared from
+  // the app's list, so the builder shows what the athlete actually does and stays the one place it is written.
+  function AppChangesSync({ athlete, plan, block, program, isBusy, onLinkProgram, onMerged }) {
+    useEffect(() => {
+      let live = true;
+      const store = window.AthleteStore;
+      const fold = () => {
+        if (!live || (isBusy && isBusy())) return; // not while the builder has unsaved typing (it would save over the change)
+        const current = programById(program.id);
+        if (!current) return;
+        const ov = store.overridesFor(athlete.id)[current.id] || {};
+        const ids = Object.keys(ov).filter((id) => ov[id] && `${ov[id].name || ""}`.trim());
+        if (!ids.length) return;
+        const weeks = (window.applyOverrides(current, ov).weeks || []).map((w) => ({
+          ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map(({ _coach, ...e }) => e) })),
+        }));
+        const saved = saveForBlock(athlete, plan, block, current, { weeks });
+        ids.forEach((id) => {
+          store.removeAthleteOverride(athlete.id, current.id, id);
+          if (saved.id !== current.id) store.removeAthleteOverride(athlete.id, saved.id, id); // copied across with the log
+        });
+        if (saved.id !== current.id) onLinkProgram(block.id, saved.id);
+        onMerged(ids.length);
+      };
+      // pick up anything changed on a phone since the dashboard loaded, then fold it in
+      Promise.resolve(store.refreshAthleteLogs ? store.refreshAthleteLogs(athlete.id) : null).catch(() => {}).then(fold);
+      return () => { live = false; };
+    }, [block.id, program.id]); // eslint-disable-line
+    return null;
+  }
+
   // Programs by section, inside an athlete's periodization. Each row of the chart (Phase, Running, Strength,
   // Correctives, Throwing…) is a section; its blocks, in order, are the tabs. A tab opens that block's program,
   // or the program builder to make one. Anything built or changed here is saved to the Programs list as the
@@ -496,6 +529,9 @@
     const [rev, setRev] = useState(0); // bumped to reload the builder from what's saved
     const [indivFor, setIndivFor] = useState(null); // block whose program is open in the Individualize screen
     const [weekView, setWeekView] = useState(false); // the week at a glance, above the builder
+    const [appNote, setAppNote] = useState(""); // says so when changes made in the app were folded into the program
+    const dirtyRef = useRef(dirty);
+    dirtyRef.current = dirty;
     const [printNote, setPrintNote] = useState("");
     if (!kit || !lanes.length) return null;
     // Print all: every program on the plan in one PDF, row by row (in the chart's order) and phase by phase
@@ -658,6 +694,9 @@
           </div>
         )}
 
+        {/* changes made in the app (by the athlete or in Coach Mode) are folded into this program when it opens */}
+        {block && program && <AppChangesSync key={`${block.id}-${program.id}`} athlete={athlete} plan={plan} block={block} program={program} isBusy={() => dirtyRef.current} onLinkProgram={onLinkProgram} onMerged={(n) => { setAppNote(`${n} change${n === 1 ? "" : "s"} made in the app (by ${athlete.name.split(" ")[0] || "the athlete"} or in Coach Mode) ${n === 1 ? "is" : "are"} now part of this program.`); setRev((r) => r + 1); }} />}
+        {appNote && <div className="ppt-app-note">{appNote}</div>}
         {/* remote athletes only: exercises in this program that need equipment they don't have */}
         {block && program && indivFor !== block.id && window.EquipmentFlags && (
           <window.EquipmentFlags key={`eq-${program.id}-${rev}`} athlete={athlete} program={program} onChangeExercise={changeExercise} />
