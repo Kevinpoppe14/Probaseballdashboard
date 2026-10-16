@@ -929,9 +929,8 @@
   }
 
   // ---- the tour ----------------------------------------------------------------------------------------
-  // The first time a coach opens Coach Mode, a short tour lights up each part of the screen in turn with a line
-  // on what it does. It is remembered on their login (so it doesn't play again on another device) and on this
-  // device; the ? beside the switch plays it again.
+  // When a coach opens Coach Mode, a short tour lights up each part of the screen in turn with a line on what it
+  // does. The ? beside the switch plays it again.
   const TOUR = [
     { title: "Welcome to Coach Mode", text: "Run a session for a whole group from a tablet, a phone or a computer: everyone's program in one place, logged as you go. Here's a quick look around." },
     { sel: ".add", title: "Add your athletes", text: "Search for anyone active (athletes and coaches), or pick a location to list everyone there. Groups loads a saved group in one tap, and saves whoever is on the board as a group." },
@@ -942,19 +941,24 @@
     { sel: "#log-btn", title: "Log lifts", text: "Everyone on the board in one list: log today's session for the whole group in one tap, without opening each program." },
     { sel: ".mode-switch", title: "Back to the dashboard", text: "Flip the switch to go back. The ? beside it plays this tour again." },
   ];
-  const tourKey = () => `coachTourSeen:${user.id}`;
-  function tourSeen() {
-    if (user.user_metadata && user.user_metadata.coachTourSeen) return true;
-    try { return !!localStorage.getItem(tourKey()); } catch (e) { return false; }
+  // It plays by itself on a coach's first TOUR_TIMES visits to Coach Mode, counted on their login and on this
+  // device (whichever is higher). The count started over in October 2026, so coaches who had already seen it once
+  // get it again. Playing it from the ? doesn't count.
+  const TOUR_TIMES = 3;
+  const tourKey = () => `coachTourViews:${user.id}`;
+  function tourViews() {
+    let here = 0;
+    try { here = Number(localStorage.getItem(tourKey())) || 0; } catch (e) { /* private window */ }
+    return Math.max(here, Number((user.user_metadata || {}).coachTourViews) || 0);
   }
-  function markTourSeen() {
-    try { localStorage.setItem(tourKey(), "1"); } catch (e) { /* private window: the login still remembers it */ }
-    if (!(user.user_metadata && user.user_metadata.coachTourSeen)) sb.auth.updateUser({ data: { coachTourSeen: true } }).catch(() => {});
+  function countTourView() {
+    const n = tourViews() + 1;
+    try { localStorage.setItem(tourKey(), String(n)); } catch (e) { /* private window: the login still counts it */ }
+    sb.auth.updateUser({ data: { coachTourViews: n } }).catch(() => {});
   }
   let tourEl = null;
   function startTour() {
     endTour();
-    markTourSeen();
     $("results").hidden = true;
     let step = 0;
     const spot = el("div", { class: "tour-spot" });
@@ -1034,7 +1038,7 @@
     picked = (saved.picked || []).filter((id) => byId(id)); // anyone removed from the roster since drops off
     show(picked.includes(saved.active) ? saved.active : picked[0] || null);
     loadDone();
-    if (!tourSeen()) setTimeout(startTour, 300); // the first time this coach opens Coach Mode
+    if (tourViews() < TOUR_TIMES) { countTourView(); setTimeout(startTour, 300); } // this coach's first few visits
   }
   function close() {
     endTour();
