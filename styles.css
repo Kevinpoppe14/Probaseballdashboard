@@ -2832,6 +2832,7 @@ tbody tr:hover {
 .period-program-tabs > .ppt-title { font-size: 20px; letter-spacing: 0.02em; }
 .period-program-tabs > .ppt-title > span:first-child { text-transform: uppercase; }
 .period-program-tabs > .ppt-title small { text-transform: none; letter-spacing: 0; }
+.ppt-intro { margin: -4px 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-dim); max-width: 860px; }
 .ppt-sections { margin-bottom: 12px; }
 .ppt-section { display: inline-flex; align-items: center; gap: 7px; }
 .ppt-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--tab-color); flex: 0 0 auto; }

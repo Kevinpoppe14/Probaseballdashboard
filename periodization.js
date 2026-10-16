@@ -653,7 +653,7 @@
     return (
       <div className="panel period-program-tabs no-print" ref={panelRef}>
         <h2 className="ppt-title">
-          <span>Program builder <small>Pick a section, then a tab, to edit that block's program</small></span>
+          <span>Programming Workbook</span>
           {/* the quick swap-exercises / sets-and-reps screen, available any time after a program is assigned */}
           {block && program && kit.ProgramIndividualize && indivFor !== block.id && (
             <button
@@ -667,6 +667,7 @@
           <button className={`btn btn-secondary ppt-weekview ${weekView ? "active" : ""}`} title="Every program running in one week, side by side" onClick={() => setWeekView((v) => !v)}>{weekView ? "Hide week view" : "Week view"}</button>
           {window.openProgramsPdf && <button className="btn btn-secondary ppt-printall" title="Every program on this plan in one PDF" onClick={printAll}>Print all</button>}
         </h2>
+        <p className="ppt-intro">Every phase on the periodization timeline has its program here, one tab per phase: pick a row, then a phase. Build each one or start from a saved program, and changes save as you go. Week view shows everything running in a week side by side, and Print all exports every phase to one PDF.</p>
         {printNote && <div className="timestamp-note ppt-print-note">{printNote}</div>}
         {weekView && <CombinedWeek plan={plan} onOpen={(b) => { onNav({ laneId: b.lane, blockId: b.id }); setWeekView(false); }} />}
         <div className="pill-tabs ppt-sections">
