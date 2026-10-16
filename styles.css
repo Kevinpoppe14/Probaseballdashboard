@@ -2517,7 +2517,8 @@ tbody tr:hover {
 .program-week.focused { border: 2px solid var(--dst-red); box-shadow: 0 0 12px rgba(165, 42, 52, 0.25); }
 .program-week.dimmed { opacity: 0.45; }
 .program-week.dimmed:hover { opacity: 0.7; }
-.program-show-all { display: inline-block; margin-top: 10px; }
+.program-show-all { display: inline-block; }
+.program-editor-top .program-show-all { padding: 4px 9px; font-size: 11.5px; }
 /* inside a day, the superset being worked on stays bright and the day's other supersets dim */
 .program-ex { transition: opacity 0.15s; }
 .program-editor .program-ex.set-focused { background: rgba(165, 42, 52, 0.16); border-color: var(--dst-red); }
@@ -2530,6 +2531,9 @@ tbody tr:hover {
 
 /* suggested next phase */
 .program-next { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* the suggested-next-program picker filled like the builder's other boxes */
+.program-next select { background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; padding: 4px 6px; font-size: 13px; }
+:root[data-theme="light"] .program-next select { background: #fff; color: #111; }
 .program-next-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--dst-red); border-radius: 12px; font-size: 12px; }
 .program-next-chip button { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 0; font-size: 11px; }
 .program-chain { margin-top: 6px; font-size: 12px; color: var(--text-dim); }
@@ -3315,6 +3319,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tag button { padding: 0 4px; border: none; background: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
 .program-tag button:hover { color: var(--text); }
 .program-add-tags { font-size: 12px; }
+.program-tags .btn-link.program-add-tags { color: var(--text); } /* not link blue */
 .program-tags .program-tag-input { height: 28px; min-width: 190px; padding: 0 8px; font-size: 13px; font-weight: 400; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
 /* Vitruve: the import preview on the Training Log, and a day of imported data */
 .vit-preview { flex: 1 1 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 10px; padding: 14px; border: 1px solid var(--dst-red); border-radius: 8px; background: var(--panel-2); font-size: 13px; }

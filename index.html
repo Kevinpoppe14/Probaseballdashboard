@@ -1877,6 +1877,10 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
             <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
           ))}
         </span>
+        {/* clicking into a week or a superset dims the rest; this brings everything back */}
+        {(focusSet || (focusWeek != null && draft.weeks.length > 1)) && (
+          <button className="btn btn-small-grey program-show-all" onClick={() => { setFocusWeek(null); setFocusSet(null); }}>Show everything at full brightness</button>
+        )}
         {onSaveAndAssign && (
           <button className="btn btn-assign" disabled={!canSave} title={canSave ? "Saves this program, then lets you assign it to athletes or to a group" : "Give the program a name first"} onClick={saveAndAssign}>
             Save &amp; assign to athletes or a group
@@ -1892,9 +1896,6 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
           <textarea rows={2} value={draft.description || ""} onChange={(e) => edit((d) => { d.description = e.target.value; })} placeholder="Goal, who it's for, how it fits in the plan" />
         </label>
         {/* suggested next phase(s): only ever offered as a suggestion when assigning or building, never applied automatically */}
-        <div className="facility-field wide"><span>Tags</span>
-          <ProgramTags tags={draft.tags} all={[...new Set(window.AthleteStore.allPrograms().flatMap((p) => p.tags || []))].sort((a, b) => a.localeCompare(b))} onChange={(t) => edit((d) => { d.tags = t; })} />
-        </div>
         <div className="facility-field wide"><span>Suggested next phase (optional, a suggestion only)</span>
           <div className="program-next">
             {(draft.nextProgramIds || []).map((id) => {
@@ -1912,11 +1913,11 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
             </select>
           </div>
         </div>
+        <div className="facility-field wide"><span>Tags</span>
+          <ProgramTags tags={draft.tags} all={[...new Set(window.AthleteStore.allPrograms().flatMap((p) => p.tags || []))].sort((a, b) => a.localeCompare(b))} onChange={(t) => edit((d) => { d.tags = t; })} />
+        </div>
       </div>
 
-      {(focusSet || (focusWeek != null && draft.weeks.length > 1)) && (
-        <button className="btn-link program-show-all" onClick={() => { setFocusWeek(null); setFocusSet(null); }}>Show everything at full brightness</button>
-      )}
       {(ticks.size > 0 || clipNote) && (
         <div className="program-clipbar no-print">
           <strong>{ticks.size > 0 ? `${ticks.size} ticked` : "Copy and paste"}</strong>
