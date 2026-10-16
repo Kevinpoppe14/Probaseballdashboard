@@ -1684,6 +1684,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   const [ticks, setTicks] = useState(() => new Set()); // "d|week|day" for a whole day, "e|week|day|exerciseId" for one exercise
   const [clipNote, setClipNote] = useState("");
   const [notesOpen, setNotesOpen] = useState(null); // id of the exercise whose empty notes box was just opened
+  const [opened, setOpened] = useState({}); // "exerciseId:field" for an optional box (intensity, tempo, rest) opened with its + link
   const readClip = () => {
     if (window.__programClip) return window.__programClip;
     try { window.__programClip = JSON.parse(localStorage.getItem("programClip") || "null"); } catch (e) { window.__programClip = null; }
@@ -1970,33 +1971,52 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                         onFocus={() => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }}
                         onBlur={() => offerSwapForward(wi, si, ei)}
                       />
-                      {/* set groups: each line is sets x reps at an intensity, so the intensity can change set to set */}
-                      {ex.groups.map((g, gi) => {
-                        const setG = (key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups[gi][key] = v; });
+                      {/* Set lines: each is sets x reps, and an intensity when the exercise has one, so it can change set to
+                          set. Intensity, tempo, rest and notes are optional: each shows once it has something in it, or after
+                          its "+" link under the lines, so most exercises are a single short row. */}
+                      {(() => {
+                        const k = ex.id || `${wi}-${si}-${ei}`;
+                        const isOpen = (f) => !!opened[`${k}:${f}`];
+                        const open = (f) => setOpened((o) => ({ ...o, [`${k}:${f}`]: true }));
+                        const showInt = ex.intensityUnit !== "" && (ex.groups.some((g) => `${g.intensity || ""}`.trim()) || isOpen("int"));
+                        const showTempo = !!`${ex.tempo || ""}`.trim() || isOpen("tempo");
+                        const showRest = !!`${ex.rest || ""}`.trim() || isOpen("rest");
+                        const showNotes = !!`${ex.notes || ""}`.trim() || notesOpen === ex.id;
+                        const intLabel = ex.intensityUnit === "RIR" || ex.intensityUnit === "RPE" ? ex.intensityUnit : "Percentage";
                         return (
-                          <div className="program-ex-group" key={gi}>
-                            {input(g.sets, (v) => setG("sets", v), { placeholder: "Sets", title: "Sets (leave blank for one set)" })}
-                            <span>×</span>
-                            {input(g.reps, (v) => setG("reps", v), { placeholder: "Reps", title: "Reps" })}
-                            {ex.intensityUnit !== "" && <span>@</span>}
-                            {ex.intensityUnit !== "" && input(g.intensity, (v) => setG("intensity", v), { placeholder: ex.intensityUnit === "%" ? "%" : ex.intensityUnit, title: `Intensity (${ex.intensityUnit})` })}
-                            <button className="btn-link" title="Remove this line" disabled={ex.groups.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>
-                          </div>
+                          <React.Fragment>
+                            {ex.groups.map((g, gi) => {
+                              const setG = (key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups[gi][key] = v; });
+                              return (
+                                <div className="program-ex-group" key={gi}>
+                                  {input(g.sets, (v) => setG("sets", v), { placeholder: "Sets", className: "pe-num pe-sets", title: "Sets (leave blank for one set)" })}
+                                  <span>×</span>
+                                  {input(g.reps, (v) => setG("reps", v), { placeholder: "Reps", className: "pe-num pe-reps", title: "Reps" })}
+                                  {showInt && <span>@</span>}
+                                  {showInt && input(g.intensity, (v) => setG("intensity", v), { placeholder: ex.intensityUnit === "%" ? "%" : ex.intensityUnit, className: "pe-num", autoFocus: gi === 0 && isOpen("int") && !`${g.intensity || ""}`.trim(), title: `Intensity (${ex.intensityUnit})` })}
+                                  {showInt && gi === 0 && (
+                                    <select className="pe-unit" value={ex.intensityUnit} title="How intensity is prescribed: % of max, RIR, RPE, or none (removes it)" onChange={(e) => setEx(ei, "intensityUnit", e.target.value)}>
+                                      {INTENSITY_UNITS.map(([v, label]) => <option key={v} value={v} title={label}>{v || "None"}</option>)}
+                                    </select>
+                                  )}
+                                  {gi === 0 && showTempo && input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "pe-num pe-wide pe-gap", maxLength: 6, autoFocus: isOpen("tempo") && !ex.tempo, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
+                                  {gi === 0 && showRest && input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", className: `pe-num pe-wide ${showTempo ? "" : "pe-gap"}`, autoFocus: isOpen("rest") && !ex.rest, title: "Rest" })}
+                                  {ex.groups.length > 1 && <button className="btn-link pe-x" title="Remove this line" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>}
+                                </div>
+                              );
+                            })}
+                            {window.ProgramRx.text(ex) && <div className="program-ex-preview">{window.ProgramRx.text(ex)}</div>}
+                            {showNotes && input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes", autoFocus: notesOpen === ex.id, onFocus: () => setNotesOpen(ex.id), onBlur: () => setNotesOpen((id) => (id === ex.id ? null : id)) })}
+                            <div className="program-ex-adds">
+                              <button className="btn-link" title="Add another line of sets (at a different intensity)" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); })}>+ Sets</button>
+                              {!showInt && <button className="btn-link" title="Prescribe an intensity: % of max, RIR or RPE (change it with the box beside it)" onClick={() => { if (ex.intensityUnit === "") setEx(ei, "intensityUnit", "%"); open("int"); }}>+ {intLabel}</button>}
+                              {!showTempo && <button className="btn-link" onClick={() => open("tempo")}>+ Tempo</button>}
+                              {!showRest && <button className="btn-link" onClick={() => open("rest")}>+ Rest</button>}
+                              {!showNotes && <button className="btn-link" onClick={() => setNotesOpen(ex.id)}>+ Notes/cues</button>}
+                            </div>
+                          </React.Fragment>
                         );
-                      })}
-                      <div className="program-ex-nums">
-                        <button className="btn-link" title="Add another line of sets at a different intensity" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); })}>+ Sets</button>
-                        <select value={ex.intensityUnit} title="How intensity is prescribed for this exercise" onChange={(e) => setEx(ei, "intensityUnit", e.target.value)}>
-                          {INTENSITY_UNITS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                        </select>
-                        {input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", maxLength: 6, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
-                        {input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", title: "Rest" })}
-                      </div>
-                      {window.ProgramRx.text(ex) && <div className="program-ex-preview">{window.ProgramRx.text(ex)}</div>}
-                      {/* notes and cues are optional: the box only shows once there is something in it, or after "+ Add notes/cues" */}
-                      {(ex.notes || "").trim() || notesOpen === ex.id
-                        ? input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes", autoFocus: notesOpen === ex.id, onFocus: () => setNotesOpen(ex.id), onBlur: () => setNotesOpen((id) => (id === ex.id ? null : id)) })
-                        : <button className="btn-link program-add-notes" onClick={() => setNotesOpen(ex.id)}>+ Add notes/cues</button>}
+                      })()}
                     </div>
                     {/* under the last exercise of each block: add another exercise to that block (a superset: A2, A3…) */}
                     {!(session.exercises[ei + 1] && session.exercises[ei + 1].linked) && (
