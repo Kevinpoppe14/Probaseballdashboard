@@ -935,7 +935,10 @@
     { title: "Welcome to Coach Mode", text: "Run a session for a whole group from a tablet, a phone or a computer: everyone's program in one place, logged as you go. Here's a quick look around." },
     { sel: ".add", title: "Add your athletes", text: "Search for anyone active (athletes and coaches), or pick a location to list everyone there. Groups loads a saved group in one tap, and saves whoever is on the board as a group." },
     { sel: "#list", title: "Your board", text: "Tap a name to open their program. A name turns green once they finish a workout today, and × takes them off. The board is remembered on this device." },
-    { sel: "#stage", title: "Their program", text: "The same program the athlete sees on their phone. Log weights and reps as they go, swap an exercise, or tap its name for the video. No video yet? Film one with the red camera. On a wide screen the whole day shows as text beside it." },
+    { sel: "#stage", title: "Their program", text: "The same program the athlete sees on their phone. Log weights and reps as they go, and tap an exercise's name for its video. On a wide screen the whole day shows as text beside it." },
+    // these two point at a button on the program that's open, or at the program area when there isn't one
+    { sel: "#stage", inFrame: "button.swap", title: "Switch an exercise", text: "Tap ⇄ beside an exercise to swap it for another or change its sets and reps; the exercise library fills in names as you type. If it comes up on that day in later weeks, you're asked whether to change those too. The change is folded into their program on the dashboard." },
+    { sel: "#stage", inFrame: "button.film:not(.check)", title: "Add a video to the library", text: "A red camera means the exercise has no video yet. Tap it to film a short clip, and it becomes that exercise's video everywhere it's programmed, for every athlete. Swapping in an exercise the library doesn't have offers to film it, or to add it without a video." },
     { sel: "#speed-btn", title: "Speed", text: "Run a group speed program assigned from the Programs page: tick drills off, swap a drill, and log the session for the group or send it to athletes' apps." },
     { sel: "#kpi-btn", title: "Group Testing", text: "A sheet with athletes down the side and trials across. The best and average are saved for each athlete, with new PRs flagged." },
     { sel: "#log-btn", title: "Log lifts", text: "Everyone on the board in one list: log today's session for the whole group in one tap, without opening each program." },
@@ -965,10 +968,21 @@
     const card = el("div", { class: "tour-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "tour-title" });
     tourEl = el("div", { class: "tour" }, spot, card);
     document.body.append(tourEl);
+    // a button on the athlete's page that's showing (the first on the day), or null when there isn't one yet
+    const frame = () => document.querySelector("#stage iframe:not([hidden])");
+    const inFrame = (sel) => { const f = frame(); try { return (f && f.contentDocument && f.contentDocument.querySelector(sel)) || null; } catch (e) { return null; } };
+    const rectOf = (s) => {
+      const inner = s.inFrame && inFrame(s.inFrame);
+      if (inner) {
+        const f = frame().getBoundingClientRect(), r = inner.getBoundingClientRect();
+        return { top: f.top + r.top, left: f.left + r.left, bottom: f.top + r.bottom, right: f.left + r.right, width: r.width, height: r.height };
+      }
+      const target = s.sel && document.querySelector(s.sel);
+      return target && target.getBoundingClientRect();
+    };
     const place = () => {
       const s = TOUR[step];
-      const target = s.sel && document.querySelector(s.sel);
-      const r = target && target.getBoundingClientRect();
+      const r = rectOf(s);
       const vw = window.innerWidth, vh = window.innerHeight, gap = 12;
       card.style.maxWidth = `${Math.min(360, vw - 32)}px`;
       const cw = card.offsetWidth, ch = card.offsetHeight;
@@ -1003,6 +1017,8 @@
           last ? null : el("button", { class: "tour-skip", type: "button", onclick: endTour }, "Skip tour"),
           step ? el("button", { class: "tour-back", type: "button", onclick: () => go(step - 1) }, "Back") : null,
           el("button", { class: "tour-next", type: "button", onclick: () => go(step + 1) }, last ? "Done" : step ? "Next" : "Show me")));
+      const inner = s.inFrame && inFrame(s.inFrame);
+      if (inner) inner.scrollIntoView({ block: "center" }); // scrolled into view on their page first
       place();
       card.querySelector(".tour-next").focus();
     };
