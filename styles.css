@@ -2565,7 +2565,7 @@ tbody tr:hover {
 .program-warmup { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: 12px; padding: 5px 6px; resize: vertical; }
 .program-view-warmup { font-size: 13px; margin: 2px 0 6px; white-space: pre-wrap; }
 .program-ex-tempo { flex: 0 0 52px; width: 52px; min-width: 0; text-align: center; font-size: 12px; padding: 4px 3px; box-sizing: border-box; }
-.program-ex-group { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
+.program-ex-group { display: flex; flex-wrap: wrap; row-gap: 4px; gap: 4px; align-items: center; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
 /* one row per line of sets: small boxes for sets, reps and intensity; tempo, rest and the kind of intensity on the first line */
 .program-ex-group .pe-num { flex: 0 0 40px; width: 40px; padding: 4px 2px; }
 .program-ex-group .pe-sets { flex-basis: 36px; width: 36px; }
@@ -2573,8 +2573,11 @@ tbody tr:hover {
 .program-ex-group .pe-wide { flex-basis: 46px; width: 46px; }
 .program-ex-group .pe-gap { margin-left: 6px; }
 .program-ex-group .pe-unit { flex: 0 0 auto; width: 52px; font-size: 12px; padding: 3px 2px; }
-.program-ex-adds { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; }
-.program-ex-adds .btn-link { font-size: 12px; padding: 0; }
+/* extra boxes (Time, Distance, or one the coach named): a small label before each */
+.program-ex-group .pe-xlabel { margin-left: 6px; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+/* the "+" at the end of a first line: a menu of what can be added */
+.program-ex-group .pe-more { flex: 0 0 26px; width: 26px; height: 24px; padding: 0; margin-left: 4px; appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; font-size: 17px; font-weight: 700; line-height: 1; color: #3b82f6; background: transparent; border: 1px dashed var(--input-border, var(--border)); border-radius: 50%; cursor: pointer; }
+.program-ex-group .pe-more option { font-size: 13px; font-weight: 400; color: initial; }
 .program-ex-group .pe-x { padding: 0 2px; }
 .program-ex-group input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; text-align: center; }
 .program-ex-preview { margin-top: 4px; font-size: 12px; color: var(--text-dim); }

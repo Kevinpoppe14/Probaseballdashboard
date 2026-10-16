@@ -1269,7 +1269,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false, into = nu
           const noteLines = (e.notes || "").trim() ? pdf.splitTextToSize(e.notes.trim(), nameW) : [];
           pdf.setFontSize(fs);
           // rest goes at the bottom right, under the exercise's sets and reps
-          const rest = (e.rest || "").trim() ? `Rest ${e.rest.trim()}` : "";
+          const rest = [(e.rest || "").trim() ? `Rest ${e.rest.trim()}` : "", window.ProgramRx.extrasText(e)].filter(Boolean).join(" · "); // with any extra boxes (Time, Distance…)
           const restH = rest ? fs * 1.05 + 2 : 0;
           const bodyH = Math.max(lines.length * nameLH + noteLines.length * noteLH, rxLines.length * rxH + restH) + 1;
           return { label: labels[i], lines, noteLines, rxLines, rxH, bodyH, hasInt, rest, newGroup: i > 0 && !e.linked };
@@ -1973,7 +1973,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                       />
                       {/* Set lines: each is sets x reps, and an intensity when the exercise has one, so it can change set to
                           set. Intensity, tempo, rest and notes are optional: each shows once it has something in it, or after
-                          its "+" link under the lines, so most exercises are a single short row. */}
+                          the "+" at the end of the first line, so most exercises are a single short row. */}
                       {(() => {
                         const k = ex.id || `${wi}-${si}-${ei}`;
                         const isOpen = (f) => !!opened[`${k}:${f}`];
@@ -1982,7 +1982,23 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                         const showTempo = !!`${ex.tempo || ""}`.trim() || isOpen("tempo");
                         const showRest = !!`${ex.rest || ""}`.trim() || isOpen("rest");
                         const showNotes = !!`${ex.notes || ""}`.trim() || notesOpen === ex.id;
-                        const intLabel = ex.intensityUnit === "RIR" || ex.intensityUnit === "RPE" ? ex.intensityUnit : "Percentage";
+                        const extras = Array.isArray(ex.extras) ? ex.extras : [];
+                        const hasExtra = (label) => extras.some((x) => (x.label || "").toLowerCase() === label.toLowerCase());
+                        const addExtra = (label) => edit((d) => { const e = d.weeks[wi].sessions[si].exercises[ei]; e.extras = [...(Array.isArray(e.extras) ? e.extras : []), { label, value: "" }]; });
+                        const setExtra = (xi, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].extras[xi].value = v; });
+                        // an extra box left empty goes away again, like the notes box
+                        const dropIfEmpty = (xi) => { if (!`${(extras[xi] || {}).value || ""}`.trim()) edit((d) => { d.weeks[wi].sessions[si].exercises[ei].extras.splice(xi, 1); }); };
+                        // what the "+" adds: another line of sets, an intensity, tempo, rest, notes, or an extra box
+                        const addField = (what) => {
+                          if (what === "sets") edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); });
+                          else if (what === "%" || what === "RIR" || what === "RPE") { setEx(ei, "intensityUnit", what); open("int"); }
+                          else if (what === "notes") setNotesOpen(ex.id);
+                          else if (what === "tempo" || what === "rest") open(what);
+                          else if (what === "custom") {
+                            const label = (window.prompt("Name the new box (for example Height, Load, Distance, Holds):") || "").trim().slice(0, 20);
+                            if (label) addExtra(label);
+                          } else if (what.startsWith("x:")) addExtra(what.slice(2));
+                        };
                         return (
                           <React.Fragment>
                             {ex.groups.map((g, gi) => {
@@ -2001,19 +2017,34 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                                   )}
                                   {gi === 0 && showTempo && input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "pe-num pe-wide pe-gap", maxLength: 6, autoFocus: isOpen("tempo") && !ex.tempo, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
                                   {gi === 0 && showRest && input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", className: `pe-num pe-wide ${showTempo ? "" : "pe-gap"}`, autoFocus: isOpen("rest") && !ex.rest, title: "Rest" })}
+                                  {gi === 0 && extras.map((x, xi) => (
+                                    <React.Fragment key={xi}>
+                                      <span className="pe-xlabel" title={x.label}>{x.label}</span>
+                                      {input(x.value, (v) => setExtra(xi, v), { placeholder: x.label, className: "pe-num pe-wide", autoFocus: !`${x.value || ""}`.trim(), title: x.label, onBlur: () => dropIfEmpty(xi) })}
+                                    </React.Fragment>
+                                  ))}
+                                  {/* "+" at the end of the first line: a menu of what can be added (only what isn't showing yet) */}
+                                  {gi === 0 && (
+                                    <select className="pe-more" value="" title="Add another line of sets, an intensity, tempo, rest, time, distance, a box you name, or notes" onChange={(e) => addField(e.target.value)}>
+                                      <option value="" disabled hidden>+</option>
+                                      <option value="sets">Another line of sets</option>
+                                      {!showInt && <option value="%">Percentage</option>}
+                                      {!showInt && <option value="RIR">RIR</option>}
+                                      {!showInt && <option value="RPE">RPE</option>}
+                                      {!showTempo && <option value="tempo">Tempo</option>}
+                                      {!showRest && <option value="rest">Rest</option>}
+                                      {!hasExtra("Time") && <option value="x:Time">Time</option>}
+                                      {!hasExtra("Distance") && <option value="x:Distance">Distance</option>}
+                                      <option value="custom">Custom…</option>
+                                      {!showNotes && <option value="notes">Notes/cues</option>}
+                                    </select>
+                                  )}
                                   {ex.groups.length > 1 && <button className="btn-link pe-x" title="Remove this line" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>}
                                 </div>
                               );
                             })}
-                            {window.ProgramRx.text(ex) && <div className="program-ex-preview">{window.ProgramRx.text(ex)}</div>}
+                            {(window.ProgramRx.text(ex) || window.ProgramRx.extrasText(ex)) && <div className="program-ex-preview">{[window.ProgramRx.text(ex), window.ProgramRx.extrasText(ex)].filter(Boolean).join(" · ")}</div>}
                             {showNotes && input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes", autoFocus: notesOpen === ex.id, onFocus: () => setNotesOpen(ex.id), onBlur: () => setNotesOpen((id) => (id === ex.id ? null : id)) })}
-                            <div className="program-ex-adds">
-                              <button className="btn-link" title="Add another line of sets (at a different intensity)" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); })}>+ Sets</button>
-                              {!showInt && <button className="btn-link" title="Prescribe an intensity: % of max, RIR or RPE (change it with the box beside it)" onClick={() => { if (ex.intensityUnit === "") setEx(ei, "intensityUnit", "%"); open("int"); }}>+ {intLabel}</button>}
-                              {!showTempo && <button className="btn-link" onClick={() => open("tempo")}>+ Tempo</button>}
-                              {!showRest && <button className="btn-link" onClick={() => open("rest")}>+ Rest</button>}
-                              {!showNotes && <button className="btn-link" onClick={() => setNotesOpen(ex.id)}>+ Notes/cues</button>}
-                            </div>
                           </React.Fragment>
                         );
                       })()}

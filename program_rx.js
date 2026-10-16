@@ -52,6 +52,10 @@
     text(e) {
       return ProgramRx.groups(e).map((g) => ProgramRx.groupText(e, g)).join("  ");
     },
+    // Extra boxes a coach added to an exercise with the builder's "+" (Time, Distance, or one they named):
+    // `e.extras` is [{ label, value }]. The ones filled in, as "Time 0:30 · Distance 40 yd".
+    extras: (e) => (Array.isArray((e || {}).extras) ? e.extras : []).filter((x) => x && `${x.value || ""}`.trim()),
+    extrasText: (e) => ProgramRx.extras(e).map((x) => `${(x.label || "").trim()} ${`${x.value}`.trim()}`.trim()).join(" · "),
     // where an athlete's written-in weight for one set group is kept
     logKey: (e, gi) => `${e.id}|${gi}`,
     // "BM" (Beast Mode) or "TF" (Technical Failure) in the reps box means the set goes to failure; "-E" is each

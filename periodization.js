@@ -264,7 +264,7 @@
                             {ProgramRx.groups(e).length === 0 && "—"}
                           </div>
                         </td>
-                        <td>{e.rest || "—"}</td>
+                        <td>{[e.rest, ProgramRx.extrasText(e)].filter(Boolean).join(" · ") || "—"}</td>
                         <td>{e.notes || ""}</td>
                       </tr>
                     ))}
@@ -467,7 +467,7 @@
                         {named.map((e, i) => (
                           <div key={e.id || i} className="ppt-combined-ex">
                             <b>{labels[i]}</b> {e.name}
-                            <small>{ProgramRx.groups(e).map((g) => ProgramRx.groupText(e, g)).filter(Boolean).join(", ")}</small>
+                            <small>{[ProgramRx.groups(e).map((g) => ProgramRx.groupText(e, g)).filter(Boolean).join(", "), e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", ProgramRx.extrasText(e)].filter(Boolean).join(" · ")}</small>
                           </div>
                         ))}
                       </div>

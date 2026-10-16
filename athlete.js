@@ -1057,7 +1057,7 @@
           rows: rows.map((e, ei) => ({
             label: labels[ei] || "", name: e.name.trim(), first: !(ei > 0 && e.linked),
             rx: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
-            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : ""].filter(Boolean).join(" · "),
+            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", Rx.extrasText(e)].filter(Boolean).join(" · "),
             notes: e.notes || "",
           })),
         }, window.location.origin);
@@ -1075,7 +1075,7 @@
             canSendChecks() ? (() => { const b = el("button", { class: "film check", "aria-label": `Film a set of ${e.name} for your coach`, title: "Film a set and send it to your coach", onclick: () => sendCheck(item, e, (s && s.name) || `Day ${dayIdx + 1}`) }); b.innerHTML = CAMERA; return b; })() : null,
             el("button", { class: `swap${e._coach ? " on" : ""}`, "aria-label": `Change ${e.name} or its sets and reps`, title: "Change exercise or sets and reps", onclick: () => openSwap(item, dayIdx, e) }, "⇄")),
           e._coach ? el("div", { class: "notes" }, `You changed this. Coach: ${e._coach.name}${e._coach.text ? `, ${e._coach.text}` : ""}`) : null,
-          (e.tempo || e.rest) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null) : null,
+          (e.tempo || e.rest || Rx.extras(e).length) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null, Rx.extras(e).map((x) => el("span", null, `${x.label} ${x.value}`))) : null,
           e.notes ? el("div", { class: "notes" }, e.notes) : null,
           canSendChecks() ? checkLine(item, e) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));

@@ -425,7 +425,7 @@
         const base = {
           name: e.name.trim(),
           detail: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
-          notes: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", e.notes || ""].filter(Boolean).join(" · "),
+          notes: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", window.ProgramRx.extrasText(e), e.notes || ""].filter(Boolean).join(" · "),
         };
         const key = String(e.id || base.name.toLowerCase());
         const nm = base.name.toLowerCase();
