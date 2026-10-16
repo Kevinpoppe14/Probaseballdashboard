@@ -1661,6 +1661,25 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   };
   const canSave = (draft.name || "").trim().length > 0;
 
+  // ---- size ------------------------------------------------------------------------------------------
+  // The days can be drawn smaller (85%, 70%) to see more at once, or "fit": each week shrunk just enough for all
+  // its days to fit across (up to 7), never below 45%. Remembered in this browser.
+  const [zoomMode, setZoomMode] = useState(() => { try { return localStorage.getItem("programZoom") || "1"; } catch (e) { return "1"; } });
+  const setZoom = (v) => { setZoomMode(v); try { localStorage.setItem("programZoom", v); } catch (e) { /* not remembered */ } };
+  React.useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    const size = () => root.querySelectorAll(".program-days").forEach((el) => {
+      if (zoomMode !== "fit") { el.style.zoom = zoomMode === "1" ? "" : zoomMode; return; }
+      el.style.zoom = "";
+      const need = el.scrollWidth, have = el.clientWidth;
+      el.style.zoom = need > have ? String(Math.max(0.45, Math.floor((have / need) * 100) / 100)) : "";
+    });
+    size();
+    window.addEventListener("resize", size);
+    return () => window.removeEventListener("resize", size);
+  });
+
   // ---- autosave ----------------------------------------------------------------------------------------
   // With `autoSave` (rec -> the saved program), the program saves itself a moment after each change, and again
   // whenever the builder closes or the page is left, so nothing typed is lost by navigating away. A new program
@@ -1843,7 +1862,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   );
 
   return (
-    <div className="panel program-editor" ref={rootRef} onKeyDown={(e) => { if (handleKey(e)) e.stopPropagation(); }}>
+    <div className={`panel program-editor ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} onKeyDown={(e) => { if (handleKey(e)) e.stopPropagation(); }}>
       {/* exercise names suggest from the library; a name that matches links to its library entry */}
       <datalist id="exercise-library-names">
         {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
@@ -1852,6 +1871,12 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
         <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
         <button className="btn btn-small-grey" disabled={!history.current.past.length} title="Undo the last change (Ctrl+Z)" onClick={undo}>↶ Undo</button>
         <button className="btn btn-small-grey" disabled={!history.current.future.length} title="Redo (Ctrl+Y)" onClick={redo}>↷ Redo</button>
+        {/* how big the days are drawn: smaller fits more across; Fit week shrinks each week just enough to show all its days */}
+        <span className="program-zoom" role="group" aria-label="Size">
+          {[["1", "100%"], ["0.85", "85%"], ["0.7", "70%"], ["fit", "Fit week"]].map(([v, label]) => (
+            <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
+          ))}
+        </span>
         {onSaveAndAssign && (
           <button className="btn btn-assign" disabled={!canSave} title={canSave ? "Saves this program, then lets you assign it to athletes or to a group" : "Give the program a name first"} onClick={saveAndAssign}>
             Save &amp; assign to athletes or a group

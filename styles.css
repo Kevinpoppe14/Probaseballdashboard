@@ -2536,6 +2536,10 @@ tbody tr:hover {
 
 .program-editor-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .program-editor-top h2 { margin: 0; }
+.program-zoom { display: inline-flex; gap: 0; }
+.program-zoom .btn { border-radius: 0; margin: 0; padding: 4px 9px; font-size: 11.5px; }
+.program-zoom .btn:first-child { border-radius: 6px 0 0 6px; }
+.program-zoom .btn:last-child { border-radius: 0 6px 6px 0; }
 .program-editor-top .program-pdf select { font-size: 13px; padding: 5px 8px; max-width: 220px; }
 .program-pdf { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .program-pdf select { font-size: 12px; padding: 3px 5px; max-width: 170px; }
@@ -2560,6 +2564,8 @@ tbody tr:hover {
 .program-ex-top > .program-ex-name { flex: 1 1 auto; min-width: 0; box-sizing: border-box; font-size: 13px; font-weight: 600; padding: 2px 6px; }
 /* wide enough for a name and a whole line of sets, intensity, tempo and rest without wrapping; more days scroll sideways */
 .program-editor .program-day { flex: 1 0 400px; max-width: 460px; }
+/* Fit week: narrower days (lines may wrap) so seven need less shrinking to fit across */
+.program-editor.program-fit .program-day { flex: 1 0 320px; max-width: 420px; }
 /* the name as wrapping text while it isn't being edited */
 .program-ex-top > .program-ex-name-view { border: 1px solid var(--input-border, var(--border)); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text); cursor: text; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; min-height: 1.3em; }
 .program-ex-top > .program-ex-name-view.empty { color: var(--text-dim); font-weight: 400; }
