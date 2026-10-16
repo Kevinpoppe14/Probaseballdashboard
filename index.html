@@ -2104,7 +2104,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                                   ))}
                                   {/* "+" at the end of the first line: a menu of what can be added (only what isn't showing yet) */}
                                   {gi === 0 && (
-                                    <select className="pe-more" value="" title="Add another line of sets, an intensity, tempo, rest, time, distance, a box you name, or notes" onChange={(e) => addField(e.target.value)}>
+                                    <select className="pe-more" value="" title="Add another line of sets, an intensity, tempo, rest, time, distance, speed, a box you name, or notes" onChange={(e) => addField(e.target.value)}>
                                       <option value="" disabled hidden>+</option>
                                       <option value="sets">Another line of sets</option>
                                       {!showInt && <option value="%">Percentage</option>}
@@ -2114,6 +2114,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                                       {!showRest && <option value="rest">Rest</option>}
                                       {!hasExtra("Time") && <option value="x:Time">Time</option>}
                                       {!hasExtra("Distance") && <option value="x:Distance">Distance</option>}
+                                      {!hasExtra("Speed") && <option value="x:Speed">Speed</option>}
                                       <option value="custom">Custom…</option>
                                       {!showNotes && <option value="notes">Notes/cues</option>}
                                     </select>
