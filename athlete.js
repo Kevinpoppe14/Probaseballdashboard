@@ -994,8 +994,10 @@
     window.scrollTo(0, y);
   };
   const bcDay = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
-  // the graph: each series a line with a dot per measurement, spaced by date
-  function bcGraph(series, unit) {
+  // the graph: each series a line with a dot per measurement, spaced by date. `joinAll` (Together) draws one line
+  // through every point of every series in date order instead, with the dots still in their series' color, and
+  // a dashed straight-line trend through all of them.
+  function bcGraph(series, unit, joinAll) {
     const pts = series.flatMap((s) => s.points);
     const w = 320, h = 170, l = 38, r = 10, t = 10, b = 24;
     let t0 = Math.min(...pts.map((p) => p.t)), t1 = Math.max(...pts.map((p) => p.t));
@@ -1006,12 +1008,21 @@
     const x = (v) => l + ((v - t0) / (t1 - t0)) * (w - l - r), y = (v) => t + (1 - (v - lo) / (hi - lo)) * (h - t - b);
     const fmt = (v) => `${Math.round(v * 10) / 10}${unit === "%" ? "%" : ""}`;
     const grid = [0, 0.5, 1].map((f) => { const v = lo + (hi - lo) * f; return `<line x1="${l}" x2="${w - r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="bc-grid"/><text x="${l - 5}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end" class="bc-axis">${fmt(v)}</text>`; }).join("");
-    const lines = series.map((s) => {
-      const p = s.points.map((q) => `${x(q.t).toFixed(1)},${y(q.v).toFixed(1)}`);
-      return `<g style="color:${s.color}">${p.length > 1 ? `<polyline points="${p.join(" ")}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : ""}${s.points.map((q) => `<circle cx="${x(q.t).toFixed(1)}" cy="${y(q.v).toFixed(1)}" r="3.5" fill="currentColor"><title>${bcDay(q.t)}: ${fmt(q.v)}${unit === "lb" ? " lb" : ""}</title></circle>`).join("")}</g>`;
-    }).join("");
+    const poly = (ps) => (ps.length > 1 ? `<polyline points="${ps.map((q) => `${x(q.t).toFixed(1)},${y(q.v).toFixed(1)}`).join(" ")}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : "");
+    let joined = "";
+    if (joinAll) {
+      const all = [...pts].sort((a, c) => a.t - c.t);
+      joined = `<g class="bc-joined">${poly(all)}</g>`;
+      if (all.length > 1) { // least-squares line through every point
+        const mx = all.reduce((n, q) => n + q.t, 0) / all.length, my = all.reduce((n, q) => n + q.v, 0) / all.length;
+        const den = all.reduce((n, q) => n + (q.t - mx) ** 2, 0), k = den ? all.reduce((n, q) => n + (q.t - mx) * (q.v - my), 0) / den : 0;
+        const at = (tt) => my + k * (tt - mx);
+        joined += `<line x1="${x(all[0].t).toFixed(1)}" y1="${y(at(all[0].t)).toFixed(1)}" x2="${x(all[all.length - 1].t).toFixed(1)}" y2="${y(at(all[all.length - 1].t)).toFixed(1)}" class="bc-trend"/>`;
+      }
+    }
+    const lines = series.map((s) => `<g style="color:${s.color}">${joinAll ? "" : poly(s.points)}${s.points.map((q) => `<circle cx="${x(q.t).toFixed(1)}" cy="${y(q.v).toFixed(1)}" r="${joinAll ? 4 : 3.5}" fill="currentColor"><title>${bcDay(q.t)}: ${fmt(q.v)}${unit === "lb" ? " lb" : ""}</title></circle>`).join("")}</g>`).join("");
     const box = el("div", { class: "bc-graph" });
-    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Body composition graph">${grid}${lines}<text x="${l}" y="${h - 6}" class="bc-axis">${bcDay(t0)}</text><text x="${w - r}" y="${h - 6}" text-anchor="end" class="bc-axis">${bcDay(t1)}</text></svg>`;
+    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Body composition graph">${grid}${joined}${lines}<text x="${l}" y="${h - 6}" class="bc-axis">${bcDay(t0)}</text><text x="${w - r}" y="${h - 6}" text-anchor="end" class="bc-axis">${bcDay(t1)}</text></svg>`;
     return box;
   }
   function bodyCompSection() {
@@ -1037,13 +1048,13 @@
       has.evolt && has.sheet ? chips(Object.entries(BC_SOURCES), source, (k) => setBcView({ source: k })) : null,
       chips(BC_METRICS.map((m) => [m.key, m.label]), metric.key, (k) => setBcView({ metric: k })),
       chips(BC_RANGES.map((x) => [x.key, x.label]), range.key, (k) => setBcView({ range: k })),
-      shown.length ? bcGraph(shown, metric.unit) : el("div", { class: "card-sub" }, `No ${metric.label.toLowerCase()} in the last ${range.label.toLowerCase()}. All time shows everything.`),
+      shown.length ? bcGraph(shown, metric.unit, source === "both") : el("div", { class: "card-sub" }, `No ${metric.label.toLowerCase()} in the last ${range.label.toLowerCase()}. All time shows everything.`),
       // the latest of each, and the change across the window
       shown.map((s) => {
         const a = s.points[0], z = s.points[s.points.length - 1], d = Math.round((z.v - a.v) * 10) / 10;
         return el("div", { class: "bc-latest" }, el("span", { class: "bc-key", style: `background:${s.color}` }), el("span", null, `${s.name}: `, el("b", null, unitText(z.v)), s.points.length > 1 ? el("small", null, ` ${d > 0 ? "+" : ""}${unitText(d)} since ${bcDay(a.t)}`) : el("small", null, ` ${bcDay(z.t)}`)));
       }),
-      source === "both" ? el("div", { class: "card-sub" }, "Drawn together for comparison. A scan and a skinfold sheet measure differently, so compare the direction of each line rather than the gap between them.") : null);
+      source === "both" ? el("div", { class: "card-sub" }, "One line through every measurement in date order, scans and sheets alike, with the dashed trend through all of them. A scan and a skinfold sheet measure a little differently, so the line can step where it changes from one to the other.") : null);
     return [el("h2", { class: "section" }, "Body composition", el("small", null, [has.evolt && `${scans.length} scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "))), card];
   }
 

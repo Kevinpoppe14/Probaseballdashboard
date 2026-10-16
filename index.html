@@ -6100,12 +6100,15 @@ function BodyCompTrends({ athleteId }) {
     const from = Date.now() - range.days * 86400000;
     while (rows.length && rows[0].t < from) rows.shift();
   }
-  // one source: a straight-line trend through its points, spaced by date
-  const single = source === "both" ? null : source;
-  if (single && rows.length >= 2) {
-    const mx = rows.reduce((n, r) => n + r.t, 0) / rows.length, my = rows.reduce((n, r) => n + r[single], 0) / rows.length;
+  // Together: every measurement, Evolt or sheet, as one series in date order (just for the graph)
+  const both = source === "both";
+  if (both) rows.forEach((r) => { r.all = r.evolt != null ? r.evolt : r.sheet; });
+  // a straight-line trend, spaced by date: through the one source, or through every point together
+  const along = both ? "all" : source;
+  if (rows.length >= 2) {
+    const mx = rows.reduce((n, r) => n + r.t, 0) / rows.length, my = rows.reduce((n, r) => n + r[along], 0) / rows.length;
     const den = rows.reduce((n, r) => n + (r.t - mx) ** 2, 0);
-    const slope = den ? rows.reduce((n, r) => n + (r.t - mx) * (r[single] - my), 0) / den : 0;
+    const slope = den ? rows.reduce((n, r) => n + (r.t - mx) * (r[along] - my), 0) / den : 0;
     rows.forEach((r) => { r.trend = Math.round((my + slope * (r.t - mx)) * 10) / 10; });
   }
   const day = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
@@ -6131,20 +6134,22 @@ function BodyCompTrends({ athleteId }) {
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={rows}>
             <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-            <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} stroke={axis} fontSize={12} />
+            <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} stroke={axis} fontSize={12} minTickGap={36} />
             <YAxis stroke={axis} fontSize={12} domain={paddedDomain(rows, ["evolt", "sheet", "trend"])} unit={metric.unit === "%" ? "%" : ""} />
             <Tooltip contentStyle={tooltipStyle} labelFormatter={day} formatter={(v, name) => [`${v}${metric.unit === "%" ? "%" : ` ${metric.unit}`}`, name]} />
             <Legend />
-            {source !== "sheet" && <Line type="monotone" dataKey="evolt" name={`Evolt ${metric.label.toLowerCase()} (${metric.unit})`} stroke={evoltColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />}
-            {source !== "evolt" && <Line type="monotone" dataKey="sheet" name={`Manual sheet ${metric.label.toLowerCase()} (${metric.unit})`} stroke={BODYCOMP_SHEET_COLOR} strokeWidth={2} dot={{ r: 4 }} connectNulls />}
-            {single && rows.length >= 2 && <Line type="linear" dataKey="trend" name="Trend" stroke="#6b7280" strokeWidth={2} strokeDasharray="6 3" dot={false} />}
+            {/* Together: one line through every point, with each point in its source's color */}
+            {both && <Line type="monotone" dataKey="all" name="All measurements" stroke={axis} strokeWidth={2} dot={false} activeDot={false} connectNulls legendType="line" tooltipType="none" />}
+            {source !== "sheet" && <Line type="monotone" dataKey="evolt" name={`Evolt ${metric.label.toLowerCase()} (${metric.unit})`} stroke={both ? "none" : evoltColor} strokeWidth={2} dot={{ r: both ? 4 : 3, fill: evoltColor, stroke: evoltColor }} connectNulls legendType="circle" />}
+            {source !== "evolt" && <Line type="monotone" dataKey="sheet" name={`Manual sheet ${metric.label.toLowerCase()} (${metric.unit})`} stroke={both ? "none" : BODYCOMP_SHEET_COLOR} strokeWidth={2} dot={{ r: 4, fill: BODYCOMP_SHEET_COLOR, stroke: BODYCOMP_SHEET_COLOR }} connectNulls legendType="circle" />}
+            {rows.length >= 2 && <Line type="linear" dataKey="trend" name={both ? "Trend (all)" : "Trend"} stroke="#6b7280" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={false} />}
           </LineChart>
         </ResponsiveContainer>
       ) : (
         <div className="empty-state">No {metric.label.toLowerCase()} recorded on the {source === "sheet" ? "manual sheets" : source === "evolt" ? "Evolt scans" : "scans or sheets"}{range.days ? ` in the last ${range.label.toLowerCase()}. All time shows everything on file` : ""}.</div>
       )}
       {source === "both" && (
-        <p className="bc-note">Shown on one chart only: the Evolt scans and the manual sheets stay separate records. They measure differently (a scan against skinfolds, and Evolt's skeletal muscle against the sheet's girth-based muscle estimate), so expect a gap between the lines; the trend of each is what to compare.</p>
+        <p className="bc-note">The line runs through every measurement in date order, Evolt and manual sheet alike, with the dashed trend through all of them. This is only how they're drawn: the Evolt scans and the manual sheets stay separate records. The two measure differently (a scan against skinfolds, and Evolt's skeletal muscle against the sheet's girth-based muscle estimate), so the line can step up or down where it changes from one to the other.</p>
       )}
     </div>
   );
