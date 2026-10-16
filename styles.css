@@ -2547,9 +2547,9 @@ tbody tr:hover {
 .program-day .program-session-name { width: 100%; min-width: 0; }
 /* Every exercise is its own bordered card, so it's clear where A1 ends and A2 begins. Cards in the same
    superset sit close together; a wider gap with a rule above it marks the start of the next superset. */
-.program-ex { position: relative; margin-top: 22px; padding: 8px; border: 1px solid rgba(148, 163, 184, 0.55); border-left: 4px solid var(--dst-red); border-radius: 6px; background: rgba(148, 163, 184, 0.08); }
-.program-ex::before { content: ""; position: absolute; left: -4px; right: 0; top: -12px; border-top: 2px solid rgba(148, 163, 184, 0.45); }
-.program-ex.superset-linked { margin-top: 6px; }
+.program-ex { position: relative; margin-top: 10px; padding: 3px 6px; border: 1px solid rgba(148, 163, 184, 0.55); border-left: 4px solid var(--dst-red); border-radius: 6px; background: rgba(148, 163, 184, 0.08); }
+.program-ex::before { content: ""; position: absolute; left: -4px; right: 0; top: -6px; border-top: 2px solid rgba(148, 163, 184, 0.45); }
+.program-ex.superset-linked { margin-top: 3px; }
 .program-ex.superset-linked::before { display: none; }
 .program-warmup + .program-ex { margin-top: 12px; }
 .program-warmup + .program-ex::before { display: none; }
@@ -2557,22 +2557,24 @@ tbody tr:hover {
 .program-ex-name { flex: 1; min-width: 0; }
 .program-ex-nums { display: grid; grid-template-columns: auto auto 56px 56px; justify-content: start; gap: 6px; margin-top: 4px; align-items: center; }
 .program-ex-spacer { flex: 1; }
-.program-ex > .program-ex-name { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 13px; font-weight: 600; padding: 6px 6px; }
-.program-editor .program-day { max-width: 420px; }
+.program-ex-top > .program-ex-name { flex: 1 1 auto; min-width: 0; box-sizing: border-box; font-size: 13px; font-weight: 600; padding: 2px 6px; }
+/* wide enough for a name and a whole line of sets, intensity, tempo and rest without wrapping; more days scroll sideways */
+.program-editor .program-day { flex: 1 0 400px; max-width: 460px; }
 /* the name as wrapping text while it isn't being edited */
-.program-ex > .program-ex-name-view { border: 1px solid var(--input-border, var(--border)); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text); cursor: text; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; min-height: 1.3em; }
-.program-ex > .program-ex-name-view.empty { color: var(--text-dim); font-weight: 400; }
-.program-warmup { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: 12px; padding: 5px 6px; resize: vertical; }
+.program-ex-top > .program-ex-name-view { border: 1px solid var(--input-border, var(--border)); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text); cursor: text; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; min-height: 1.3em; }
+.program-ex-top > .program-ex-name-view.empty { color: var(--text-dim); font-weight: 400; }
+.program-warmup { width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 12px; padding: 4px 6px; resize: vertical; }
+.program-warmup:placeholder-shown { height: 26px; min-height: 26px; } /* one line until there is a warm-up to write */
 .program-view-warmup { font-size: 13px; margin: 2px 0 6px; white-space: pre-wrap; }
 .program-ex-tempo { flex: 0 0 52px; width: 52px; min-width: 0; text-align: center; font-size: 12px; padding: 4px 3px; box-sizing: border-box; }
-.program-ex-group { display: flex; flex-wrap: wrap; row-gap: 4px; gap: 4px; align-items: center; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
+.program-ex-group { display: flex; flex-wrap: wrap; gap: 4px 3px; align-items: center; margin-top: 3px; font-size: 12px; color: var(--text-dim); }
 /* one row per line of sets: small boxes for sets, reps and intensity; tempo, rest and the kind of intensity on the first line */
-.program-ex-group .pe-num { flex: 0 0 40px; width: 40px; padding: 4px 2px; }
+.program-ex-group .pe-num { flex: 0 0 40px; width: 40px; padding: 3px 2px; }
 .program-ex-group .pe-sets { flex-basis: 36px; width: 36px; }
-.program-ex-group .pe-reps { flex-basis: 52px; width: 52px; }
+.program-ex-group .pe-reps { flex-basis: 48px; width: 48px; }
 .program-ex-group .pe-wide { flex-basis: 46px; width: 46px; }
 .program-ex-group .pe-gap { margin-left: 6px; }
-.program-ex-group .pe-unit { flex: 0 0 auto; width: 52px; font-size: 12px; padding: 3px 2px; }
+.program-ex-group .pe-unit { flex: 0 0 auto; width: 48px; font-size: 12px; padding: 3px 1px; }
 /* extra boxes (Time, Distance, or one the coach named): a small label before each */
 .program-ex-group .pe-xlabel { margin-left: 6px; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 /* the "+" at the end of a first line: a menu of what can be added */
@@ -2581,6 +2583,8 @@ tbody tr:hover {
 .program-ex-group .pe-x { padding: 0 2px; }
 .program-ex-group input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; text-align: center; }
 .program-ex-preview { margin-top: 4px; font-size: 12px; color: var(--text-dim); }
+/* in the builder the boxes already say it all, so the one-line summary is left out to keep a day short */
+.program-editor .program-ex-preview { display: none; }
 /* tempo and prescription where a program is read */
 .program-tempo { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 .program-rx { display: flex; flex-wrap: wrap; gap: 6px 14px; }
@@ -3248,7 +3252,8 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tick-block input { width: 15px; height: 15px; margin: 0; accent-color: var(--dst-red); }
 /* the two add buttons under a day are stacked: add to the last block on top, start a new block under it */
 .program-editor .program-day-actions { flex-direction: column; align-items: flex-start; gap: 6px; }
-.program-add-to-block { display: block; margin: 6px 0 12px; }
+/* small, tucked under the right of the block it adds to */
+.program-editor .program-add-to-block { display: block; width: max-content; margin: 2px 0 -9px auto; position: relative; z-index: 1; padding: 1px 8px; font-size: 10.5px; line-height: 1.4; min-height: 0; } /* sits over the line between blocks, so it adds almost no height */
 .program-add-notes { display: inline-block; margin-top: 6px; font-size: 12px; }
 /* Program builder: dragging a day by its grip to reorder */
 .program-day-grip { flex: 0 0 auto; margin-right: 6px; padding: 0 2px; font-size: 16px; line-height: 1; color: rgba(255, 255, 255, 0.8); cursor: grab; user-select: none; }

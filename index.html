@@ -1949,7 +1949,13 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                             </span>
                           );
                         })()}
-                        <span className="program-ex-spacer" />
+                        {/* the name sits on the same line as the label and buttons, taking the room between them */}
+                        <ExerciseNameField
+                          value={ex.name}
+                          onChange={(v) => setEx(ei, "name", v)}
+                          onFocus={() => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }}
+                          onBlur={() => offerSwapForward(wi, si, ei)}
+                        />
                         {window.AthleteStore.findExerciseByName(ex.name) && (
                           <button className="exercise-view-btn" title="View this exercise from the library" onClick={() => window.openExercise(ex.name)}>▶</button>
                         )}
@@ -1964,13 +1970,6 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                         )}
                         <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
                       </div>
-                      {/* the name gets the full width of the card */}
-                      <ExerciseNameField
-                        value={ex.name}
-                        onChange={(v) => setEx(ei, "name", v)}
-                        onFocus={() => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }}
-                        onBlur={() => offerSwapForward(wi, si, ei)}
-                      />
                       {/* Set lines: each is sets x reps, and an intensity when the exercise has one, so it can change set to
                           set. Intensity, tempo, rest and notes are optional: each shows once it has something in it, or after
                           the "+" at the end of the first line, so most exercises are a single short row. */}
