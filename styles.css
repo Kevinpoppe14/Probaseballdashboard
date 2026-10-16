@@ -2546,6 +2546,9 @@ tbody tr:hover {
 .program-zoom .btn:last-child { border-radius: 0 6px 6px 0; }
 .program-editor-top .program-pdf select { font-size: 13px; padding: 5px 8px; max-width: 220px; }
 .program-pdf { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+/* the builder's Print / Save PDF: a red button */
+.program-pdf .btn.program-pdf-btn, :root[data-theme="light"] .program-pdf .btn.program-pdf-btn { background: var(--dst-red); border-color: var(--dst-red); color: #fff; padding: 5px 12px; font-size: 12.5px; font-weight: 600; }
+.program-pdf .btn.program-pdf-btn:hover { background: #c0313f; border-color: #c0313f; }
 .program-pdf select { font-size: 12px; padding: 3px 5px; max-width: 170px; }
 .facility-card-actions { align-items: center; flex-wrap: wrap; }
 

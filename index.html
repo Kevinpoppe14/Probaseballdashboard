@@ -1463,8 +1463,9 @@ function programPdfNote(result) {
 window.programPdfNote = programPdfNote;
 window.openProgramPdf = openProgramPdf;
 
-// "Print / Save PDF" with an optional athlete name for the page's top-left corner.
-function ProgramPdfButton({ program, disabled }) {
+// "Print / Save PDF" with an optional athlete name for the page's top-left corner. Given `athlete` (a program on an
+// athlete's own plan), their name is used and there is nothing to pick; `primary` makes it the red button the builder uses.
+function ProgramPdfButton({ program, disabled, athlete: fixedAthlete, primary }) {
   const [athleteId, setAthleteId] = useState("");
   const [note, setNote] = useState(""); // said beside the button after the PDF opens (page count, or a failure)
   const athletes = window.AthleteStore.allAthletes()
@@ -1472,7 +1473,7 @@ function ProgramPdfButton({ program, disabled }) {
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   const run = async () => {
-    const athlete = athletes.find((a) => String(a.id) === athleteId);
+    const athlete = fixedAthlete || athletes.find((a) => String(a.id) === athleteId);
     const name = athlete ? athlete.name : "";
     setNote("");
     try { setNote(programPdfNote(await openProgramPdf(program, name, !!athlete && isCubsOnlyAthlete(athlete)))); }
@@ -1481,11 +1482,11 @@ function ProgramPdfButton({ program, disabled }) {
 
   return (
     <span className="program-pdf">
-      <select value={athleteId} onChange={(e) => setAthleteId(e.target.value)} title="Athlete name to print on the PDF">
+      {!fixedAthlete && (<select value={athleteId} onChange={(e) => setAthleteId(e.target.value)} title="Athlete name to print on the PDF">
         <option value="">No athlete name</option>
         {athletes.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-      </select>
-      <button className="btn-link" disabled={disabled} onClick={run} title="Opens the PDF in a new tab, where you can print it or save it">Print / Save PDF</button>
+      </select>)}
+      <button className={primary ? "btn program-pdf-btn" : "btn-link"} disabled={disabled} onClick={run} title={`Opens the PDF${fixedAthlete ? ` for ${fixedAthlete.name}` : ""} in a new tab, where you can print it or save it`}>Print / Save PDF</button>
       {note && <small className="program-pdf-note">{note}</small>}
     </span>
   );
@@ -1595,7 +1596,7 @@ function ProgramTags({ tags, all, onChange }) {
   );
 }
 
-function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave }) {
+function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, pdfAthlete }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   // ---- undo and redo ---------------------------------------------------------------------------------
   // Every change to the program can be stepped back with Ctrl+Z (or the Undo button) and forward again with
@@ -1886,7 +1887,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
             Save &amp; assign to athletes or a group
           </button>
         )}
-        <ProgramPdfButton program={{ name: (draft.name || "").trim() || "Program", weeks: draft.weeks }} />
+        <ProgramPdfButton primary athlete={pdfAthlete} program={{ name: (draft.name || "").trim() || "Program", weeks: draft.weeks }} />
       </div>
       <div className="facility-form-grid">
         <label className="facility-field wide"><span>Program name *</span>

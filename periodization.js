@@ -747,6 +747,7 @@
             initial={program || { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) }}
             onSave={save}
             autoSave={autoSave}
+            pdfAthlete={athlete}
             onCancel={null}
             onDelete={null}
             onDirty={() => { if (!dirty) setDirty(true); }}
