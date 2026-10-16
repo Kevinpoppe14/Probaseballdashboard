@@ -2505,8 +2505,10 @@ tbody tr:hover {
 .program-editor .program-day .program-session-head .btn-link { color: #fff; }
 
 /* superset label that doubles as a picker for moving the exercise to another superset */
-.superset-pick { flex: 0 0 auto; width: 46px; padding: 3px 2px; font-size: 13px; font-weight: 700; color: var(--dst-red); background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
-.superset-pick option { color: initial; font-weight: 400; }
+/* the exercise label (A1., B2.…): a red box with white text; it opens the menu to move the exercise to another block */
+.superset-pick { flex: 0 0 auto; width: 46px; padding: 3px 2px; font-size: 13px; font-weight: 700; color: #fff; background: var(--dst-red); border: 1px solid var(--dst-red); border-radius: 4px; cursor: pointer; text-align: center; text-align-last: center; }
+.superset-pick option { color: #fff; background: #1f1f1f; font-weight: 400; }
+:root[data-theme="light"] .superset-pick option { color: #111; background: #fff; }
 .superset-order { display: inline-flex; flex-direction: column; flex: 0 0 auto; gap: 1px; }
 .superset-order button { font-size: 8px; line-height: 1; padding: 2px 4px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); border-radius: 3px; cursor: pointer; }
 .superset-order button:hover:not(:disabled) { color: var(--text); border-color: var(--dst-red); }
@@ -3437,3 +3439,19 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .today-card li { padding: 2px 0; }
 .today-card li small { color: var(--text-dim); }
 .today-more { margin-top: 4px; font-size: 12px; }
+
+/* ---- one font and one text colour across the program builder ----
+   Form boxes otherwise fall back to the browser's own fonts (Arial for most, a typewriter font for the warm-up), so
+   every box, picker and button in the builder uses the dashboard's font, and typed text is the same white (near-black
+   in light mode) everywhere, with the same grey for the hints in empty boxes. The red A1/B1 labels and the white day
+   names on the red day bars keep their colours. */
+.program-editor input, .program-editor textarea, .program-editor select, .program-editor button,
+.period-program-tabs input, .period-program-tabs select, .period-program-tabs button { font-family: inherit; }
+.program-editor input:not([type="checkbox"]), .program-editor textarea, .program-editor select:not(.superset-pick) { color: #fff; }
+:root[data-theme="light"] .program-editor input:not([type="checkbox"]), :root[data-theme="light"] .program-editor textarea, :root[data-theme="light"] .program-editor select:not(.superset-pick) { color: #111; }
+.program-editor .program-day .program-session-head input, :root[data-theme="light"] .program-editor .program-day .program-session-head input:not([type="checkbox"]) { color: #fff; } /* on the red day bar, in either mode */
+.program-editor .facility-field input:not([type="checkbox"]), .program-editor .facility-field textarea { color: #fff; }
+:root[data-theme="light"] .program-editor .facility-field input:not([type="checkbox"]), :root[data-theme="light"] .program-editor .facility-field textarea { color: #111; }
+.program-editor .program-ex-name-view:not(.empty) { color: #fff; }
+:root[data-theme="light"] .program-editor .program-ex-name-view:not(.empty) { color: #111; }
+.program-editor input::placeholder, .program-editor textarea::placeholder, .program-editor .program-ex-name-view.empty { color: var(--text-dim); opacity: 1; }
