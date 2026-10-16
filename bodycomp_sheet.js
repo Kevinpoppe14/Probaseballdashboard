@@ -13,7 +13,7 @@
 //   activity       minutes x body kg x a factor (0.075 for training; by sport for the sport)
 // Saved in the assessments table with kind "bodycomp" (see store.getBodyCompSheets).
 (function () {
-  const { useState } = React;
+  const { useState, useRef, useEffect } = React;
 
   const SPORT_FACTORS = { TENNIS: 0.1, HOCKEY: 0.105, FOOTBALL: 0.105, BASKETBALL: 0.105, SOCCER: 0.11, BASEBALL: 0.075, GOLF: 0.05 };
   const SITES = [["chest", "Chest"], ["abdomen", "Abdomen"], ["iliac", "Iliac"], ["subscap", "Subscap"], ["tricep", "Tricep"], ["axillary", "Axillary"], ["thigh", "Thigh"]];
@@ -184,7 +184,19 @@
   // ---- the form ---------------------------------------------------------------------------------------
   function SheetForm({ athlete, initial, onSaved, onCancel }) {
     const store = window.AthleteStore;
-    const [f, setF] = useState(() => ({ ...blank(), ...(initial ? initial.inputs : {}) }));
+    // An unfinished new sheet (not enough in it to save yet) is kept as a draft in this browser and brought back the
+    // next time a new sheet is opened for this athlete, so leaving the page doesn't lose it.
+    const draftKey = `bodyCompDraft:${athlete.id}`;
+    const restored = useRef(false);
+    const [f, setF] = useState(() => {
+      if (!initial) {
+        try {
+          const d = JSON.parse(localStorage.getItem(draftKey) || "null");
+          if (d && typeof d === "object") { restored.current = true; return { ...blank(), ...d }; }
+        } catch (e) { /* no draft */ }
+      }
+      return { ...blank(), ...(initial ? initial.inputs : {}) };
+    });
     const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
     const setMeal = (i, k, v) => setF((p) => ({ ...p, meals: p.meals.map((m, j) => (j === i ? { ...m, [k]: v } : m)) }));
     const r = calc(f);
@@ -215,17 +227,60 @@
       </React.Fragment>
     );
     const muscleOk = r.girthsIn && has(f.heightCm);
-    const save = () => {
+    // ---- autosave -----------------------------------------------------------------------------------
+    // Once the weight, all seven skinfolds and the date are in, the sheet saves itself a moment after each change,
+    // and again when it is closed or the page is left. Before that, a new sheet is kept as a draft (above).
+    const recordId = useRef(initial ? initial.id : `bcs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+    const recordOf = (inputs) => {
+      const c = calc(inputs);
+      const mOk = c.girthsIn && has(inputs.heightCm);
       const record = {
-        id: initial ? initial.id : `bcs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        athleteId: athlete.id, kind: "bodycomp", date: f.date, inputs: f,
+        id: recordId.current, athleteId: athlete.id, kind: "bodycomp", date: inputs.date, inputs,
         // the headline figures, kept with the sheet so the list can show them without redoing the sums
-        summary: { weightLb: r.cur.weight, pctFat: r.cur.pctFat, leanLb: r.cur.leanLb, fatLb: r.cur.fatLb, muscleLb: muscleOk ? r.cur.muscleLb : null, sum7: r.sum7, tester: f.tester },
+        summary: { weightLb: c.cur.weight, pctFat: c.cur.pctFat, leanLb: c.cur.leanLb, fatLb: c.cur.fatLb, muscleLb: mOk ? c.cur.muscleLb : null, sum7: c.sum7, tester: inputs.tester },
       };
       if (initial && initial._activity) record._activity = initial._activity;
-      store.saveAssessment(record);
-      onSaved();
+      return record;
     };
+    const canStore = (inputs) => has(inputs.weightLb) && SITES.every(([k]) => has(inputs[k])) && !!inputs.date;
+    const fRef = useRef(f);
+    fRef.current = f;
+    const lastSaved = useRef(JSON.stringify(f));
+    const [saveState, setSaveState] = useState(initial ? "saved" : "draft");
+    const flush = () => {
+      const inputs = fRef.current, json = JSON.stringify(inputs);
+      if (json === lastSaved.current) return;
+      if (canStore(inputs)) {
+        store.saveAssessment(recordOf(inputs));
+        try { localStorage.removeItem(draftKey); } catch (e) { /* fine */ }
+        setSaveState("saved");
+      } else if (!initial) {
+        try { localStorage.setItem(draftKey, json); } catch (e) { /* not kept */ }
+        setSaveState("draft");
+      }
+      lastSaved.current = json;
+    };
+    const flushRef = useRef(flush);
+    flushRef.current = flush;
+    useEffect(() => {
+      if (JSON.stringify(f) === lastSaved.current) return undefined;
+      setSaveState("pending");
+      const t = setTimeout(() => flushRef.current(), 800);
+      return () => clearTimeout(t);
+    }, [f]); // eslint-disable-line
+    useEffect(() => {
+      const leave = () => flushRef.current();
+      window.addEventListener("beforeunload", leave);
+      window.addEventListener("pagehide", leave);
+      return () => { window.removeEventListener("beforeunload", leave); window.removeEventListener("pagehide", leave); flushRef.current(); };
+    }, []); // eslint-disable-line
+    const discardDraft = () => {
+      if (!window.confirm("Throw away this unfinished sheet?")) return;
+      lastSaved.current = JSON.stringify(fRef.current); // nothing left to save on the way out
+      try { localStorage.removeItem(draftKey); } catch (e) { /* fine */ }
+      onCancel();
+    };
+    const save = () => { flush(); onSaved(); };
     return (
       <div className="bcs-form" onKeyDown={nextOnEnter}>
         <div className="bcs-top">
@@ -394,9 +449,13 @@
         </div>
 
         <div className="tl-actions">
-          <button className="btn btn-assign" disabled={!ready || !f.date} title={ready ? "" : "Enter the weight and all seven skinfolds first"} onClick={save}>Save sheet</button>
-          <button className="btn-link" onClick={onCancel}>Cancel</button>
-          {!ready && <span className="timestamp-note">Weight and all seven skinfolds are needed before it can be saved.</span>}
+          <button className="btn btn-assign" onClick={save}>Done</button>
+          {!initial && !canStore(f) && <button className="btn-link" onClick={discardDraft}>Discard</button>}
+          <span className="timestamp-note">
+            {canStore(f)
+              ? (saveState === "pending" ? "Saving…" : "✓ Saved automatically")
+              : `${restored.current && !initial ? "Your unfinished sheet was brought back. " : ""}${initial ? "Weight, all seven skinfolds and the date are needed to save changes." : "Kept as a draft on this computer until the weight, all seven skinfolds and the date are in; then it saves automatically."}`}
+          </span>
         </div>
       </div>
     );

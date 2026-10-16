@@ -572,12 +572,24 @@
     const showPhoto = !!athlete.photoUrl && !photoBroken;
     const Logo = typeof TeamLogo === "function" ? TeamLogo : null;
 
+    // Saves a moment after each change, and straight away if the form closes or the page is left before then,
+    // so the last thing typed is never lost.
+    const pending = useRef(false);
+    const latest = useRef({ rec, onSave });
+    latest.current = { rec, onSave };
     useEffect(() => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => onSave(rec), 400);
+      pending.current = true;
+      saveTimer.current = setTimeout(() => { pending.current = false; onSave(rec); }, 400);
       return () => clearTimeout(saveTimer.current);
       // eslint-disable-next-line
     }, [rec]);
+    useEffect(() => {
+      const flush = () => { if (pending.current) { pending.current = false; latest.current.onSave(latest.current.rec); } };
+      window.addEventListener("beforeunload", flush);
+      window.addEventListener("pagehide", flush);
+      return () => { window.removeEventListener("beforeunload", flush); window.removeEventListener("pagehide", flush); flush(); };
+    }, []);
 
     const set = (path, value) => {
       setRec((prev) => {

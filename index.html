@@ -1595,7 +1595,7 @@ function ProgramTags({ tags, all, onChange }) {
   );
 }
 
-function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign }) {
+function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   // ---- undo and redo ---------------------------------------------------------------------------------
   // Every change to the program can be stepped back with Ctrl+Z (or the Undo button) and forward again with
@@ -1661,18 +1661,59 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
   };
   const canSave = (draft.name || "").trim().length > 0;
 
+  // ---- autosave ----------------------------------------------------------------------------------------
+  // With `autoSave` (rec -> the saved program), the program saves itself a moment after each change, and again
+  // whenever the builder closes or the page is left, so nothing typed is lost by navigating away. A new program
+  // saves once it has a name; after the first save its id is kept, so later saves update the same program.
+  const recOf = (d) => ({ name: (d.name || "").trim(), description: (d.description || "").trim(), weeks: d.weeks, nextProgramIds: d.nextProgramIds || [], tags: d.tags || [] });
+  const savedId = React.useRef(initial && initial.id ? initial.id : null);
+  const lastSaved = React.useRef(JSON.stringify(recOf(draft)));
+  const [saveState, setSaveState] = useState("saved"); // "saved" | "pending" | "needs-name"
+  const flush = () => {
+    if (!autoSave) return;
+    const rec = recOf(draftRef.current);
+    const json = JSON.stringify(rec);
+    if (json === lastSaved.current) return;
+    if (!rec.name) { setSaveState("needs-name"); return; }
+    if (savedId.current) rec.id = savedId.current;
+    const saved = autoSave(rec);
+    if (saved && saved.id) savedId.current = saved.id;
+    lastSaved.current = json;
+    setSaveState("saved");
+  };
+  const flushRef = React.useRef(flush);
+  flushRef.current = flush;
+  React.useEffect(() => {
+    if (!autoSave || JSON.stringify(recOf(draft)) === lastSaved.current) return undefined;
+    setSaveState((draft.name || "").trim() ? "pending" : "needs-name");
+    const t = setTimeout(() => flushRef.current(), 900);
+    return () => clearTimeout(t);
+  }, [draft]); // eslint-disable-line
+  React.useEffect(() => {
+    if (!autoSave) return undefined;
+    const leave = () => flushRef.current();
+    window.addEventListener("beforeunload", leave);
+    window.addEventListener("pagehide", leave);
+    return () => { window.removeEventListener("beforeunload", leave); window.removeEventListener("pagehide", leave); flushRef.current(); }; // closing the builder saves too
+  }, []); // eslint-disable-line
+
+  // Save program / Save & assign: the same record the autosave keeps (its id once it has one), so a program
+  // already saved by itself is updated rather than saved a second time
+  const manualRec = () => {
+    const rec = recOf(draft);
+    if (savedId.current) rec.id = savedId.current;
+    else if (initial && initial.id) rec.id = initial.id;
+    lastSaved.current = JSON.stringify(recOf(draft)); // nothing left for the autosave to do
+    return rec;
+  };
   const save = () => {
     if (!canSave) return;
-    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [], tags: draft.tags || [] };
-    if (initial && initial.id) rec.id = initial.id;
-    onSave(rec);
+    onSave(manualRec());
   };
   // saves what is on screen, then goes straight to the assign screen (athletes or a group)
   const saveAndAssign = () => {
     if (!canSave) return;
-    const rec = { name: draft.name.trim(), description: (draft.description || "").trim(), weeks: draft.weeks, nextProgramIds: draft.nextProgramIds || [], tags: draft.tags || [] };
-    if (initial && initial.id) rec.id = initial.id;
-    onSaveAndAssign(rec);
+    onSaveAndAssign(manualRec());
   };
 
   // ---- copy and paste by ticking ---------------------------------------------------------------------
@@ -1869,6 +1910,20 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
         >
           <div className="program-week-head">
             {input(week.name, (v) => edit((d) => { d.weeks[wi].name = v; }), { className: "program-week-name", "aria-label": "Week name" })}
+            {/* week 2 on: make this week a copy of the one before it (days, exercises, sets), keeping its own name */}
+            {wi > 0 && (
+              <button
+                className="btn btn-small-grey program-copy-prev-week"
+                title={`Replace ${week.name || `week ${wi + 1}`} with a copy of ${draft.weeks[wi - 1].name || `week ${wi}`}`}
+                onClick={() => {
+                  const filled = (week.sessions || []).some((s) => (s.exercises || []).some((e) => (e.name || "").trim()));
+                  if (filled && !window.confirm(`Replace everything in ${week.name || `week ${wi + 1}`} with a copy of ${draft.weeks[wi - 1].name || `week ${wi}`}? (You can undo with Ctrl+Z.)`)) return;
+                  edit((d) => { const c = copyWeek(d.weeks[wi - 1], wi + 1); c.name = d.weeks[wi].name; d.weeks[wi] = c; });
+                }}
+              >
+                Copy previous week
+              </button>
+            )}
             <button className="btn-link" disabled={draft.weeks.length === 1} onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>Remove week</button>
           </div>
 
@@ -2074,8 +2129,9 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
       <div className="facility-form-actions">
-        <button className="btn" disabled={!canSave} onClick={save}>Save program</button>
-        <button className="btn-link" onClick={onCancel}>{cancelLabel || "Cancel"}</button>
+        {!autoSave && <button className="btn" disabled={!canSave} onClick={save}>Save program</button>}
+        {onCancel && <button className={autoSave ? "btn" : "btn-link"} onClick={onCancel}>{cancelLabel || (autoSave ? "Done" : "Cancel")}</button>}
+        {autoSave && <span className={`program-autosave ${saveState}`}>{saveState === "saved" ? "✓ Saved automatically" : saveState === "pending" ? "Saving…" : "Give the program a name and it saves automatically"}</span>}
         {initial && initial.id && onDelete && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={onDelete}>Delete program</button>}
       </div>
     </div>
@@ -2589,7 +2645,11 @@ function ProgramsPage({ nav, setNav }) {
           // fromEditor: closing the assign screen then goes to the Programs list, not back into the builder
           setNav((n) => ({ ...n, editingId: null, assigningId: saved.id, assignStart: null, fromEditor: true }));
         }}
-        onCancel={() => setEditing(null)}
+        autoSave={(rec) => {
+          const prev = rec.id ? window.AthleteStore.allPrograms().find((p) => p.id === rec.id) : null;
+          return window.AthleteStore.saveProgram({ ...(prev || {}), ...rec, folder: prev ? prev.folder || "" : editing && editing.id ? editing.folder || "" : folder });
+        }}
+        onCancel={() => { setEditing(null); setVersion((v) => v + 1); }}
         onDelete={editing.id ? () => remove(editing) : null}
       />
     );

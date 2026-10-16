@@ -2579,7 +2579,12 @@ tbody tr:hover {
 .program-ex-group .pe-xlabel { margin-left: 6px; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 /* the "+" at the end of a first line: a menu of what can be added */
 .program-ex-group .pe-more { flex: 0 0 26px; width: 26px; height: 24px; padding: 0; margin-left: 4px; appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; font-size: 17px; font-weight: 700; line-height: 1; color: #3b82f6; background: transparent; border: 1px dashed var(--input-border, var(--border)); border-radius: 50%; cursor: pointer; }
-.program-ex-group .pe-more option { font-size: 13px; font-weight: 400; color: initial; }
+.program-ex-group .pe-more option, .program-ex-group .pe-unit option { font-size: 13px; font-weight: 400; color: #fff; background: #1f1f1f; }
+:root[data-theme="light"] .program-ex-group .pe-more option, :root[data-theme="light"] .program-ex-group .pe-unit option { color: #111; background: #fff; }
+/* the remove buttons in an exercise box: white (dark text in light mode) rather than link blue */
+.program-ex .btn-link[title="Remove exercise"], .program-ex .pe-x { color: #fff; text-decoration: none; }
+:root[data-theme="light"] .program-ex .btn-link[title="Remove exercise"], :root[data-theme="light"] .program-ex .pe-x { color: #333; }
+.program-copy-prev-week { margin-left: auto; padding: 2px 8px; font-size: 11px; }
 .program-ex-group .pe-x { padding: 0 2px; }
 .program-ex-group input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; text-align: center; }
 .program-ex-preview { margin-top: 4px; font-size: 12px; color: var(--text-dim); }
@@ -3252,8 +3257,9 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tick-block input { width: 15px; height: 15px; margin: 0; accent-color: var(--dst-red); }
 /* the two add buttons under a day are stacked: add to the last block on top, start a new block under it */
 .program-editor .program-day-actions { flex-direction: column; align-items: flex-start; gap: 6px; }
-/* small, tucked under the right of the block it adds to */
-.program-editor .program-add-to-block { display: block; width: max-content; margin: 2px 0 -9px auto; position: relative; z-index: 1; padding: 1px 8px; font-size: 10.5px; line-height: 1.4; min-height: 0; } /* sits over the line between blocks, so it adds almost no height */
+/* red, small, tucked under the right of its block over the line between blocks, so it adds almost no height */
+.program-editor .btn.program-add-to-block, :root[data-theme="light"] .program-editor .btn.program-add-to-block { display: block; width: max-content; margin: 2px 0 -9px auto; position: relative; z-index: 1; padding: 1px 8px; font-size: 10.5px; line-height: 1.4; min-height: 0; background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
+.program-editor .btn.program-add-to-block:hover, :root[data-theme="light"] .program-editor .btn.program-add-to-block:hover { background: #c0313f; border-color: #c0313f; }
 .program-add-notes { display: inline-block; margin-top: 6px; font-size: 12px; }
 /* Program builder: dragging a day by its grip to reorder */
 .program-day-grip { flex: 0 0 auto; margin-right: 6px; padding: 0 2px; font-size: 16px; line-height: 1; color: rgba(255, 255, 255, 0.8); cursor: grab; user-select: none; }

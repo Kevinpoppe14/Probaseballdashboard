@@ -489,7 +489,7 @@
   // The panel is the program builder itself: the open tab's program is always editable, like a sheet with one
   // tab per block. `nav` ({ laneId, blockId }) and `dirty` are held by the board, so clicking a row name or a
   // block's Program button on the chart can jump straight to that program.
-  function PlanProgramTabs({ plan, athlete, onLinkProgram, nav, onNav, dirty, setDirty, panelRef }) {
+  function PlanProgramTabs({ plan, athlete, onLinkProgram, nav, onNav, dirty, setDirty, panelRef, extRev = 0 }) {
     const kit = window.ProgramBuilderKit;
     const store = window.AthleteStore;
     const lanes = plan.lanes.filter((l) => plan.blocks.some((b) => b.lane === l.id));
@@ -536,6 +536,19 @@
       onLinkProgram(block.id, saved.id);
       setDirty(false);
       setRev((r) => r + 1);
+    };
+    // The builder saving itself as it is edited (see autoSave in ProgramEditor): like save, but the builder stays as
+    // it is, so typing carries on. `rec.id` is the program the builder last saved to (the block's own, or the shared
+    // one it opened with, which gets copied for the athlete the first time).
+    const autoSave = (rec) => {
+      const current = rec.id ? programById(rec.id) : null;
+      const next = { ...(current || {}), ...rec, name: withLast(rec.name), athleteId: athlete.id, folder: ((current || program || {}).folder) || "" };
+      if (!isOwnProgram(current, athlete)) { delete next.id; if (current) next.basedOn = current.id; }
+      const saved = store.saveProgram(next);
+      if (current && saved.id !== current.id) store.carryAthleteRecords(athlete.id, current.id, saved.id, plan);
+      onLinkProgram(block.id, saved.id);
+      setDirty(false);
+      return saved;
     };
     // A new program for this block that starts as a copy of the one on the block before it in this row, made as
     // long as this block, ready to edit ("Copy previous phase").
@@ -621,7 +634,7 @@
               <React.Fragment>
                 <span>No program for <strong>{block.label || "this block"}</strong> yet. Build it below ({block.len} week{block.len === 1 ? "" : "s"}, to match the block), or</span>
                 {prevProgram && <button className="btn btn-secondary" title={`Start from a copy of ${prevProgram.name}, then edit it`} onClick={copyPrevious}>Copy previous phase</button>}
-                <select value="" onChange={(e) => e.target.value && onLinkProgram(block.id, e.target.value)}>
+                <select value="" onChange={(e) => { if (e.target.value) { onLinkProgram(block.id, e.target.value); setRev((r) => r + 1); } }}>
                   <option value="">insert an existing program…</option>
                   {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
@@ -634,7 +647,7 @@
                   return (
                     <span className="ppt-suggest">
                       Suggested after {prevProgram.name}:
-                      {next.map((x) => <button className="btn btn-secondary" key={x.id} onClick={() => onLinkProgram(block.id, x.id)}>Use “{x.name}”</button>)}
+                      {next.map((x) => <button className="btn btn-secondary" key={x.id} onClick={() => { onLinkProgram(block.id, x.id); setRev((r) => r + 1); }}>Use “{x.name}”</button>)}
                     </span>
                   );
                 })()}
@@ -650,14 +663,14 @@
           <window.EquipmentFlags key={`eq-${program.id}-${rev}`} athlete={athlete} program={program} onChangeExercise={changeExercise} />
         )}
 
-        {/* reloads when the block's name or length changes the program (or, with no program yet, the starting point) */}
+        {/* reloaded (rev) after a save from here or a program swapped in, and (extRev) when the timeline changes the program or an empty block; it saves itself as it is edited */}
         {block && indivFor !== block.id && (
           <kit.ProgramEditor
-            key={`${block.id}-${program ? `${program.id}-${program.name}-${(program.weeks || []).length}` : `new-${block.label}-${block.len}`}-${rev}`}
+            key={`${block.id}-${rev}-${extRev}`}
             initial={program || { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) }}
             onSave={save}
-            onCancel={reload}
-            cancelLabel="Discard changes"
+            autoSave={autoSave}
+            onCancel={null}
             onDelete={null}
             onDirty={() => { if (!dirty) setDirty(true); }}
           />
@@ -1266,13 +1279,14 @@
     // the athlete's own. Returns the plan to save, or null when the coach backs out.
     function syncPrograms(prev, next) {
       let blocks = next.blocks;
+      let touched = false; // a program (or an empty block) changed here, so the builder below reloads it
       for (const changed of next.blocks) {
         const before = prev.blocks.find((x) => x.id === changed.id);
         if (!before) continue;
         const b = blocks.find((x) => x.id === changed.id);
         if (b.len > before.len) blocks = pushLaterBlocks(blocks, b, before);
         const program = b.programId ? programById(b.programId) : null;
-        if (!program) continue;
+        if (!program) { if (b.len !== before.len || (b.label || "") !== (before.label || "")) touched = true; continue; } // an empty tab's builder starts from the block
         const changes = {};
         const weeks = (program.weeks || []).length;
         if (b.len !== before.len && weeks !== b.len) {
@@ -1284,9 +1298,11 @@
         if (label && label !== (before.label || "").trim() && isOwnProgram(program, athlete) && nameFor(athlete, label) !== program.name) changes.name = nameFor(athlete, label);
         if (Object.keys(changes).length) {
           const saved = saveForBlock(athlete, { ...next, blocks }, b, program, changes);
+          touched = true;
           if (saved.id !== program.id) blocks = blocks.map((x) => (x.id === b.id ? { ...x, programId: saved.id } : x));
         }
       }
+      if (touched) setProgRev((r) => r + 1);
       blocks = blocks.filter((b) => b.start < MAX_WEEKS).map((b) => ({ ...b, len: Math.min(b.len, MAX_WEEKS - b.start) }));
       return { ...next, blocks, weeks: clamp(Math.max(next.weeks, maxEnd(blocks)), 1, MAX_WEEKS) };
     }
@@ -1321,12 +1337,13 @@
     // tab at the row or block instead (`onOpenProgram`), and `openNav` is where the Programming tab starts.
     const [progNav, setProgNav] = useState(() => openNav || { laneId: null, blockId: null });
     const [progDirty, setProgDirty] = useState(false);
+    const [progRev, setProgRev] = useState(0); // bumped when the timeline changes a program, so the builder reloads it
     const progPanelRef = useRef(null);
     const laneClickTimer = useRef(null);
     const goProgram = (next, scroll) => {
       if (mode !== "programming") { if (onOpenProgram) onOpenProgram(next); return; }
       const same = next.laneId === progNav.laneId && next.blockId === progNav.blockId;
-      if (!same && progDirty && !window.confirm("Leave this program without saving your changes?")) return;
+      // no need to ask about unsaved changes: the builder saves itself as it closes
       if (!same) { setProgDirty(false); setProgNav(next); }
       if (scroll && progPanelRef.current) progPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     };
@@ -1355,6 +1372,8 @@
         patch.label = blockLabelFor(athlete, program.name);
         if ((program.weeks || []).length) patch.len = program.weeks.length;
       }
+      const b = planRef.current.blocks.find((x) => x.id === blockId);
+      if (b && Object.keys(patch).every((k) => k === "assignedBy" ? !!b.assignedBy || !patch.assignedBy : b[k] === patch[k])) return; // nothing changes (an autosave of the same program)
       updateBlock(blockId, patch);
     };
 
@@ -1990,7 +2009,7 @@
           </div>
         )}
 
-        {mode === "programming" && <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />}
+        {mode === "programming" && <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} extRev={progRev} />}
       </div>
     );
   }
