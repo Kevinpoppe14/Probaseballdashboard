@@ -6010,6 +6010,8 @@ function ActivitySignature({ activity, className }) {
   return <div className={`activity-signature no-print ${className || ""}`}>{parts.join(" · ")}</div>;
 }
 
+// the tabs grouped under Assessments on a player profile
+const ASSESSMENT_TABS = ["assessment", "bodycomp", "pitching"];
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
   // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
@@ -6020,6 +6022,9 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [programOpen, setProgramOpen] = useState(null); // { laneId, blockId } to open the Programming tab at, from the plan
+  // which assessment tab was open last, so the Assessments tab goes back to it
+  const [lastAssessTab, setLastAssessTab] = useState("assessment");
+  React.useEffect(() => { if (ASSESSMENT_TABS.includes(activeTab)) setLastAssessTab(activeTab); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
   const athlete = getPeople().find((a) => a.id === athleteId);
@@ -6085,14 +6090,21 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <button className={`pill-tab ${activeTab === "programming" ? "active" : ""}`} data-tab="programming" onClick={() => { setProgramOpen(null); setActiveTab("programming"); }}>Programming</button>
         <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
         <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} data-tab="performance" onClick={() => setActiveTab("performance")}>Performance Metrics</button>
-        <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical Assessment</button>
-        <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
-        {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
+        {/* Assessments: the biomechanical assessment, body composition and (for pitchers) the pitching assessment,
+            each a tab of its own in the row underneath; it opens on whichever of them was open last */}
+        <button className={`pill-tab ${ASSESSMENT_TABS.includes(activeTab) ? "active" : ""}`} data-tab="assessments" onClick={() => setActiveTab(ASSESSMENT_TABS.includes(lastAssessTab) && (lastAssessTab !== "pitching" || isPitcher) ? lastAssessTab : "assessment")}>Assessments</button>
         <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
         {/* remote athletes only: what they have to train with, which their programs are checked against */}
         {isRemote && <button className={`pill-tab ${activeTab === "equipment" ? "active" : ""}`} data-tab="equipment" onClick={() => setActiveTab("equipment")}>Remote Equipment Access</button>}
       </div>
+      {ASSESSMENT_TABS.includes(activeTab) && (
+        <div className="pill-tabs profile-subtabs no-print">
+          <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical</button>
+          <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
+          {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching</button>}
+        </div>
+      )}
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />

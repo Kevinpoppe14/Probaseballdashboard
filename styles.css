@@ -3054,6 +3054,9 @@ tbody tr:hover {
   border-radius: 8px 8px 0 0; border: 1px solid var(--dst-red); border-bottom: none;
   background: var(--dst-red); color: #fff;
 }
+/* the tabs inside Assessments (Biomechanical, Body Composition, Pitching): a smaller row under the profile tabs */
+.profile-subtabs { display: flex; gap: 6px; margin: -10px 0 16px; padding: 0 2px; }
+.profile-subtabs .pill-tab { padding: 6px 14px; font-size: 12.5px; }
 .profile-tabs .pill-tab:hover { filter: brightness(1.15); }
 .profile-tabs .pill-tab.active { background: #fff; color: var(--dst-red); font-weight: 700; filter: none; }
 
