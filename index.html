@@ -3742,70 +3742,178 @@ function EmailTeamReportButton({ team, defaultRecipients }) {
   );
 }
 
+// The Help page: what each part of the dashboard does, section by section, with a contents list and a search box.
 const HELP_SECTIONS = [
+  {
+    title: "Getting around",
+    items: [
+      "Top bar: Team Overview (home), Player Profiles, Team Reports, Programs, Facilities and In the News. Help, Log out and the light/dark mode switch are at the top right.",
+      "Bottom bar: the COACH MODE switch and Import & Manual Entry.",
+      "Everything saves as you go. If someone else saved the same plan or program while you had it open, you're warned before your changes replace theirs.",
+    ],
+  },
   {
     title: "Team Overview (home page)",
     items: [
-      "Your full roster. Filter by position, roster status, league, DST location, or search by name; the date range menu controls how much history the roster's numbers use.",
-      "Click any column header to sort. Click a row to open that athlete's profile.",
-      "This Week: change in body weight (BW), jump height (JH) and relative peak power (RPP) versus the previous week's force plate test. It stays blank unless the athlete tested this week and the week before. Click it to open their Performance Metrics.",
-      "Program: reads the periodization plan. Yellow = a program block ends this week, red = one ended last week with nothing after it, green = on track, grey = No Program.",
-      "Assessment: red = no assessment on file, yellow = the last one was 3+ weeks ago (due next week), green = current. Click it to jump to the most recent assessment.",
+      "Today panel at the top: what needs a coach right now. Program gap (a block ended with nothing after it), Program ending this week, Not logging (5+ days), Re-assessment due, Assessment due (no full assessment in 8 months), and Form checks to review. Kevin also sees Cubs players and Text due. Click a name to open that athlete where it gets dealt with; Hide/Show folds the panel.",
+      "Roster: filter by position, status, league, DST location or name; click a column header to sort, and a row to open the athlete.",
+      "Status badge beside the name: click Active to make a player Inactive, and Inactive to make them Active again. Inactive players are on their own tab.",
+      "Goal badges: an athlete's top three physical goals from their Player Plan, colored by kind. Red = mobility, flexibility or coordination; yellow = strength, speed, power and other outputs; green = body comp, lean mass and nutrition.",
+      "Program flag: green shows the current phase's name and opens the athlete's Programming tab. Yellow = a block ends this week, red = one ended last week with nothing after it.",
+      "Assessment flag: Due for Assessment (no full assessment in the last 8 months), Re-Assessment Thu Oct 22 (due in the coming week), Needs Re-Assessment (due now; opens the Re-Assessment tab), or View Most Recent Assessment.",
+      "Free agents get an FA circle in place of a team logo, and players with no photo get a placeholder.",
+      "Cubs roster: a coach badge beside each name (Poppe, Weisman, Garza, Simmons, Kinsley, Rooney; click to cycle) that can be filtered and sorted, Texted and Called flags on a monthly cadence (click to mark), and a program start date.",
+      "Text and Call links open your phone's messaging app or dialer. The text starts from your saved template ({first} becomes the player's first name). Use the pencil to change a number.",
+      "Import Athletes (Import & Manual Entry) adds many players at once from a pasted sheet or a CSV, including mobile numbers and emails.",
     ],
   },
   {
-    title: "Player Profiles and athlete pages",
+    title: "Player profile tabs",
     items: [
-      "The Player Profiles page lists athletes as cards; either it or the roster gets you to an individual profile.",
-      "Each profile has tabs: Player Plan, Statcast Metrics, Performance Metrics, Biomechanical Assessment, and Body Composition. The Player Plan is the profile's home page.",
-      "Performance Metrics shows force plate trends (jump height, peak power, body weight and more) with a summary of what's moving.",
-      "Biomechanical Assessment: start a New Assessment, fill it in, and it saves automatically. It prints to a single landscape page.",
-      "Player Plan holds the periodization planner and weekly plan. Use Print / Save PDF for a copy.",
-      "Contact Info (date of birth, gender, email) is at the top of the Player Plan. Athlete emails are clickable.",
+      "Player Plan, Programming, Statcast Metrics, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition, and Pitching for pitchers), Throwing Progression, Training Log, and Remote Equipment Access for remote athletes.",
+      "Player Plan: contact info (with mobile, Text and Call), goals and the action plan, then the periodization timeline. Print / Save PDF and Email to Athlete for the plan are here.",
+      "Programming: the same timeline with the program builder right under it. See \"Programs on an athlete's plan\" below.",
+      "Performance Metrics: force plate trends with a summary of what's moving, plus graphs of the performance tests from assessments once a test has two results.",
+      "Training Log: what was actually done, newest first. Lifts logged on the phone or in Coach Mode, group speed sessions, Vitruve days, Group Testing results (with PR and average), and form checks from remote athletes.",
+      "The athlete's phone link (to text them) is on the Player Plan. See \"The athlete app\" below.",
     ],
   },
   {
-    title: "Emailing athletes and teams",
+    title: "The periodization timeline",
     items: [
-      "On the Assessment, Player Plan, Statcast and Performance tabs, click Email to Athlete. Review the To, CC, subject and message, then send.",
-      "A PDF of that tab is attached automatically, and the email is sent from your own address, so replies come back to you.",
-      "On a team report, Email Team Report sends the report to that team's contacts the same way.",
+      "Each row is a kind of training (Strength, Speed, Correctives, Throwing…); rows stacked above each other run at the same time. Add rows with + Add row.",
+      "Drag in a row to make a bubble (a phase), drag its edges to change its length, and drag it to move it. Click a bubble to name it, color it or set its weeks.",
+      "Select bubbles (click, Shift-click) to copy, cut, paste or duplicate them (Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+D), and undo with Ctrl+Z.",
+      "Start a plan from a saved template, or copy another athlete's plan: their programs come along as this athlete's own copies, ready to edit.",
+      "Each bubble is one program of the athlete's workbook (see below): its name is the program's name and its length is the program's number of weeks.",
     ],
   },
   {
-    title: "Team Reports",
+    title: "Programs on an athlete's plan (Programming tab)",
     items: [
-      "Pick a league and team to see a one-page report for each player on that team, plus the team's contacts.",
-      "Use Print / Save PDF to keep a copy. Contact emails are clickable.",
+      "Pick a row (section), then a phase tab. Tabs take their bubble's color; the open one is filled, the current phase says NOW, and a phase with no program yet is outlined (\"to build\").",
+      "A new bubble's tab starts as long as the bubble, named from its text. Build it there, use Copy previous phase (a copy of the program before it in the row), or Insert existing program (search box) to make a copy of a saved program.",
+      "Bubbles and programs stay in step: rename a bubble and its program follows; add or remove weeks in the builder and the bubble resizes. Make a bubble longer and the program gains weeks (copies of its last); shorter and it loses its last weeks (it asks first if anything was logged there). Later bubbles in the row slide along when one grows.",
+      "Programs saved here are the athlete's own (\"Lastname - Program\") and are filed under Programs › Athletes › Lastname, Firstname. A shared library program is never changed from a plan: the first change makes the athlete's copy, and their logged weights and phone swaps move across to it.",
+      "Changes made in the app (an exercise swapped by the athlete, or in Coach Mode) are folded into the program when you open it here, with a note saying how many.",
+      "Week view shows every program running in one week side by side, lined up by day. Print all puts every program on the plan in one PDF. Individualize swaps exercises and sets for this athlete.",
     ],
   },
   {
-    title: "In the News",
+    title: "The program builder",
     items: [
-      "Recent news on the athletes and teams we follow, plus an \"Also Tracking\" list of extra topics at the bottom of the page.",
+      "It saves itself as you type (\"✓ Saved automatically\"), and again whenever you leave it.",
+      "Size: 100%, 85%, 70% or Fit week (the standard), which shrinks each week just enough that all its days fit across the screen.",
+      "Each exercise is one row: label (A1., a red box; click it to move the exercise to another block), name, then sets × reps. The + at the end adds another line of sets, Percentage / RIR / RPE, Tempo, Rest, Time, Distance, Speed, a Custom box you name, or Notes. Only what you add shows.",
+      "Add A2. under a block adds the next exercise to it; the red + Add B Block under the day starts a new block. Add a day with + Add day (up to seven), and a week with + Add week (a copy of the last). Weeks 2 on have Copy previous week.",
+      "Drag a day by its grip to reorder. Tick days or blocks and press Ctrl+C, then tick where they go and Ctrl+V. Undo / Redo with Ctrl+Z / Ctrl+Y.",
+      "Change an exercise that's in the same spot in other weeks and it asks: Every week, This week and the ones after, or Just this week.",
+      "Clicking into a week or a block dims the rest; Show everything at full brightness (at the top) brings it back.",
+      "Optional: a warm-up for each day, + Description, a Suggested next phase, and tags. Print / Save PDF (red) prints the program; on an athlete's plan it uses their name.",
     ],
   },
   {
-    title: "Import & Manual Entry",
+    title: "Programs page (library)",
     items: [
-      "Found in the menu at the bottom of the screen. Use it to import data or add athletes and entries by hand.",
+      "Programs live in folders (including Athletes › each athlete's own programs). Search with the box, filter by tag, and move programs with the check boxes.",
+      "New program asks whether to start from scratch or from a copy of an existing one.",
+      "Assign (red) puts a program on athletes' plans or on a group (for group speed in Coach Mode). Save & assign does both from the builder.",
+      "Speed sessions sent to athletes' apps are hidden here unless you show them.",
+      "1RM chart: the % of max assumed for each number of reps to failure (BM/TF sets), used for estimated maxes.",
     ],
   },
   {
-    title: "Weekly email",
+    title: "Exercise library and videos",
     items: [
-      "Every Sunday at 11:00 AM CT from September through March, everyone with a login gets the Weekly Pro Baseball Snapshot: the roster by DST location with photos, flags and week-over-week tickers.",
+      "Add or edit exercises with their video, tier, pattern, region, equipment and cues. A video can be a YouTube or Vimeo link, or uploaded (Upload a video / Replace video).",
+      "Merge exercises: for one exercise in the library twice under different wording. Pick which one is kept; the other name keeps working everywhere and shows the kept one's video.",
+      "Signed-in coaches see a red camera on any exercise without a video, on their own phone app or in Coach Mode: film a short clip and it becomes that exercise's video everywhere. Swapping in an exercise the library doesn't have offers to film it, or add it without a video.",
+    ],
+  },
+  {
+    title: "Assessments",
+    items: [
+      "Biomechanical: start a New Assessment and fill it in; it saves automatically and prints to one landscape page.",
+      "Re-Assessment: a monthly follow-up, due 4 weeks after the last assessment or re-assessment, while the full assessment is under 8 months old. A new one starts with everything the full assessment found (any check, Fail, Fair/Poor score, flagged posture region or note), or whatever the last one didn't clear.",
+      "For each item, enter today's result beside the last one and mark Cleared, Improved, No change or Worse (one is suggested). Cleared items drop off next month. + Add a test adds anything else (new symptoms). All performance tests are retested every time; a blank means not tested, never zero.",
+      "Silence this flag skips a re-assessment you don't need (it comes back for the next one). The tab also shows the month's body comp, an item-by-item history, and graphs of every number.",
+      "Off-season report: the full picture to print or save at the end of the off-season. Findings and outcomes, start vs latest for every measurement, graphs, body comp change, and a coach's summary.",
+      "Body Composition: Evolt imports, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves once the weight, seven skinfolds and date are in; until then it's kept as a draft on that computer.",
+      "Pitching: the pitching assessment, for pitchers.",
+    ],
+  },
+  {
+    title: "Coach Mode",
+    items: [
+      "Flip the COACH MODE switch (bottom bar) and sign in with your dashboard login. Add the athletes you're coaching (active athletes and coaches; filter by location), or load a saved group.",
+      "Each athlete's program is open side by side to log as you go; finishing a lift highlights their name. Log session for everyone finishes the day for the whole group. On a wide screen, a plain-text preview of the workout sits beside it.",
+      "Group Testing: a sheet with athletes down the side, multiple trials, and the best and average saved per session with their PR.",
+      "Speed: run a group speed program (assigned from the Programs page), swap drills by spot, and send a session to athletes' apps (remote athletes' equipment is checked).",
+      "Log lifts: log a set of athletes' lifts from one list. Each coach's Coach Mode is their own.",
+    ],
+  },
+  {
+    title: "The athlete app (phone)",
+    items: [
+      "Create and copy an athlete's private phone link on their Player Plan and text it to them. They can add it to their home screen as \"My DST Program\" (\"My Program\" for Cubs-only players): open the link in Safari, then Share › Add to Home Screen.",
+      "Program: opens on the first day not logged yet. −5 / +5 buttons, one tap to use last week's numbers, Enter jumps to the next box, and no weight box for drills with nothing to lift. Log session shows the week so far, the streak, and new bests.",
+      "Timed sets (30s, 1:00, or a Time box) get a ⏱ timer with a beep at zero, and a second round for each-side sets.",
+      "Progress: sessions by week, estimated maxes, top weights and Group Testing results. Plan: their timeline, goals and action plan.",
+      "They can swap an exercise or change sets and reps (⇄), and tap an exercise name for its video.",
+      "Remote athletes: an equipment survey (programs are checked against it, and the coach is emailed if something's missing), and a camera on each exercise to film a set as a form check. Their coach gets an email to watch and reply, and the reply shows under the exercise. Clips are private and deleted after 7 days.",
+      "Coaches on the Coaches roster: their own app has a Coach button to open Coach Mode or the dashboard (each with a way back).",
+    ],
+  },
+  {
+    title: "Imports, Vitruve and data entry",
+    items: [
+      "Import & Manual Entry (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), and the other imports and manual entries.",
+    ],
+  },
+  {
+    title: "Emails",
+    items: [
+      "Email to Athlete (Player Plan, Statcast, Performance, Assessment tabs): review the To, CC, subject and message; a PDF of that tab is attached and it's sent from your address.",
+      "Email Team Report sends a team report to that team's contacts.",
+      "Weekly Pro Baseball Snapshot: every Sunday at 11:00 AM CT from September through March, active DST athletes by location with their flags and week-over-week tickers (Kevin's copy adds the Cubs). It says who's due for a re-assessment in the coming week, and on which day.",
+      "Automatic emails to coaches: form checks from remote athletes, and equipment a remote athlete is missing for a program you assigned.",
+    ],
+  },
+  {
+    title: "Team Reports, Facilities and In the News",
+    items: [
+      "Team Reports: pick a league and team for a one-page report per player plus the team's contacts; Print / Save PDF or email it.",
+      "Facilities: the off-season facility directory.",
+      "In the News: recent news on the athletes and teams we follow, plus an \"Also Tracking\" list.",
     ],
   },
 ];
 
 function HelpContent() {
+  const [q, setQ] = useState("");
+  const term = q.trim().toLowerCase();
+  const sections = HELP_SECTIONS
+    .map((s) => ({ ...s, items: term ? s.items.filter((t) => t.toLowerCase().includes(term) || s.title.toLowerCase().includes(term)) : s.items }))
+    .filter((s) => s.items.length);
+  const idOf = (title) => `help-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <div>
-      {HELP_SECTIONS.map((s) => (
-        <div key={s.title} style={{ marginBottom: 18 }}>
-          <h3 style={{ margin: "0 0 6px" }}>{s.title}</h3>
-          <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.55 }}>
+    <div className="help-guide">
+      <div className="help-tools">
+        <span className="program-search help-search">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+          <input value={q} placeholder="Search the guide (e.g. re-assessment, video, timer)" aria-label="Search the guide" onChange={(e) => setQ(e.target.value)} />
+        </span>
+        {!term && (
+          <nav className="help-contents" aria-label="Contents">
+            {HELP_SECTIONS.map((s) => <a key={s.title} href={`#${idOf(s.title)}`} onClick={(e) => { e.preventDefault(); const el = document.getElementById(idOf(s.title)); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>{s.title}</a>)}
+          </nav>
+        )}
+      </div>
+      {term && !sections.length && <div className="empty-state">Nothing in the guide matches “{q}”.</div>}
+      {sections.map((s) => (
+        <div key={s.title} id={idOf(s.title)} className="help-section">
+          <h3>{s.title}</h3>
+          <ul>
             {s.items.map((t, i) => <li key={i}>{t}</li>)}
           </ul>
         </div>
