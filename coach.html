@@ -41,10 +41,25 @@
   .side-head strong, .login h1 { font-family: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; line-height: 1; white-space: nowrap; }
   .side-head strong { font-size: 19px; }
   /* the same switch as on the dashboard, shown on: flipping it off goes back there */
-  .mode-switch { position: relative; flex: 0 0 46px; width: 46px; height: 24px; margin-left: auto; border-radius: 12px; background: var(--accent); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5); transition: background 0.25s; }
+  .mode-switch { position: relative; flex: 0 0 46px; width: 46px; height: 24px; border-radius: 12px; background: var(--accent); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5); transition: background 0.25s; }
   .mode-switch span { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); transform: translateX(22px); transition: transform 0.25s; }
   .mode-switch.off { background: #555; }
   .mode-switch.off span { transform: none; }
+  /* the ? that plays the tour again, and the tour: the part being shown is lit, everything else dimmed */
+  .tour-btn { flex: 0 0 24px; width: 24px; height: 24px; margin-left: auto; padding: 0; border: 1px solid #555; border-radius: 50%; background: none; color: var(--dim); font-size: 13px; font-weight: 700; line-height: 1; }
+  .tour { position: fixed; inset: 0; z-index: 1000; }
+  .tour.dim { background: rgba(0, 0, 0, 0.74); }
+  .tour-spot { position: fixed; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.74), 0 0 0 2px var(--accent); transition: top 0.3s, left 0.3s, width 0.3s, height 0.3s; pointer-events: none; }
+  .tour-card { position: fixed; width: 360px; padding: 18px 18px 14px; background: var(--panel); border: 1px solid #3a3a3a; border-top: 3px solid var(--accent); border-radius: 12px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7); transition: top 0.3s, left 0.3s; }
+  .tour-count { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+  .tour-card h2 { margin: 4px 0 6px; font-family: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; font-weight: 800; font-size: 24px; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.05; }
+  .tour-card p { margin: 0 0 14px; font-size: 14px; line-height: 1.45; color: #d0d0d0; }
+  .tour-foot { display: flex; align-items: center; gap: 8px; }
+  .tour-foot button { height: 40px; padding: 0 16px; border-radius: 8px; font-size: 14px; font-weight: 700; }
+  .tour-skip { margin-right: auto; padding: 0 !important; border: none; background: none; color: var(--dim); font-weight: 400 !important; text-decoration: underline; }
+  .tour-back { border: 1px solid #555; background: none; }
+  .tour-next { margin-left: auto; border: none; background: var(--accent); }
+  .tour-back + .tour-next { margin-left: 0; }
   .add { position: relative; padding: 0 14px 10px; }
   .add input { width: 100%; height: 44px; font-size: 16px; background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; }
   .add select { width: 100%; height: 40px; margin-bottom: 8px; font-size: 15px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 10px; color-scheme: dark; }
@@ -216,7 +231,7 @@
 
 <div class="board" id="board" hidden>
   <aside class="side">
-    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
+    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
     <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button></div>
     <div class="add">
       <select id="grp" aria-label="Groups"><option value="">Groups</option></select>

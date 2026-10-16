@@ -928,6 +928,97 @@
     fillLocations();
   }
 
+  // ---- the tour ----------------------------------------------------------------------------------------
+  // The first time a coach opens Coach Mode, a short tour lights up each part of the screen in turn with a line
+  // on what it does. It is remembered on their login (so it doesn't play again on another device) and on this
+  // device; the ? beside the switch plays it again.
+  const TOUR = [
+    { title: "Welcome to Coach Mode", text: "Run a session for a whole group from a tablet, a phone or a computer: everyone's program in one place, logged as you go. Here's a quick look around." },
+    { sel: ".add", title: "Add your athletes", text: "Search for anyone active (athletes and coaches), or pick a location to list everyone there. Groups loads a saved group in one tap, and saves whoever is on the board as a group." },
+    { sel: "#list", title: "Your board", text: "Tap a name to open their program. A name turns green once they finish a workout today, and × takes them off. The board is remembered on this device." },
+    { sel: "#stage", title: "Their program", text: "The same program the athlete sees on their phone. Log weights and reps as they go, swap an exercise, or tap its name for the video. No video yet? Film one with the red camera. On a wide screen the whole day shows as text beside it." },
+    { sel: "#speed-btn", title: "Speed", text: "Run a group speed program assigned from the Programs page: tick drills off, swap a drill, and log the session for the group or send it to athletes' apps." },
+    { sel: "#kpi-btn", title: "Group Testing", text: "A sheet with athletes down the side and trials across. The best and average are saved for each athlete, with new PRs flagged." },
+    { sel: "#log-btn", title: "Log lifts", text: "Everyone on the board in one list: log today's session for the whole group in one tap, without opening each program." },
+    { sel: ".mode-switch", title: "Back to the dashboard", text: "Flip the switch to go back. The ? beside it plays this tour again." },
+  ];
+  const tourKey = () => `coachTourSeen:${user.id}`;
+  function tourSeen() {
+    if (user.user_metadata && user.user_metadata.coachTourSeen) return true;
+    try { return !!localStorage.getItem(tourKey()); } catch (e) { return false; }
+  }
+  function markTourSeen() {
+    try { localStorage.setItem(tourKey(), "1"); } catch (e) { /* private window: the login still remembers it */ }
+    if (!(user.user_metadata && user.user_metadata.coachTourSeen)) sb.auth.updateUser({ data: { coachTourSeen: true } }).catch(() => {});
+  }
+  let tourEl = null;
+  function startTour() {
+    endTour();
+    markTourSeen();
+    $("results").hidden = true;
+    let step = 0;
+    const spot = el("div", { class: "tour-spot" });
+    const card = el("div", { class: "tour-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "tour-title" });
+    tourEl = el("div", { class: "tour" }, spot, card);
+    document.body.append(tourEl);
+    const place = () => {
+      const s = TOUR[step];
+      const target = s.sel && document.querySelector(s.sel);
+      const r = target && target.getBoundingClientRect();
+      const vw = window.innerWidth, vh = window.innerHeight, gap = 12;
+      card.style.maxWidth = `${Math.min(360, vw - 32)}px`;
+      const cw = card.offsetWidth, ch = card.offsetHeight;
+      let top, left;
+      if (!r || !r.width || !r.height) { // nothing to point at (or it is hidden on this screen): the card in the middle
+        spot.hidden = true;
+        top = (vh - ch) / 2; left = (vw - cw) / 2;
+      } else {
+        const pad = 6;
+        spot.hidden = false;
+        const t = Math.max(2, r.top - pad), l = Math.max(2, r.left - pad); // kept on screen, so the outline shows all round
+        Object.assign(spot.style, { top: `${t}px`, left: `${l}px`, width: `${Math.min(vw - 2, r.right + pad) - l}px`, height: `${Math.min(vh - 2, r.bottom + pad) - t}px` });
+        if (r.bottom + gap + ch <= vh - 8) { top = r.bottom + gap; left = r.left; } // below
+        else if (r.top - gap - ch >= 8) { top = r.top - gap - ch; left = r.left; } // above
+        else if (r.right + gap + cw <= vw - 8) { top = r.top; left = r.right + gap; } // to the right
+        else { top = r.top + (r.height - ch) / 2; left = r.left + (r.width - cw) / 2; } // a big area: inside it
+      }
+      tourEl.classList.toggle("dim", spot.hidden); // with nothing lit, the whole screen is dimmed
+      card.style.top = `${Math.max(8, Math.min(top, vh - ch - 8))}px`;
+      card.style.left = `${Math.max(8, Math.min(left, vw - cw - 8))}px`;
+    };
+    const go = (n) => {
+      if (n < 0) return;
+      if (n >= TOUR.length) { endTour(); return; }
+      step = n;
+      const s = TOUR[step], last = step === TOUR.length - 1;
+      card.replaceChildren(
+        el("div", { class: "tour-count" }, `${step + 1} of ${TOUR.length}`),
+        el("h2", { id: "tour-title" }, s.title),
+        el("p", null, s.text),
+        el("div", { class: "tour-foot" },
+          last ? null : el("button", { class: "tour-skip", type: "button", onclick: endTour }, "Skip tour"),
+          step ? el("button", { class: "tour-back", type: "button", onclick: () => go(step - 1) }, "Back") : null,
+          el("button", { class: "tour-next", type: "button", onclick: () => go(step + 1) }, last ? "Done" : step ? "Next" : "Show me")));
+      place();
+      card.querySelector(".tour-next").focus();
+    };
+    const keys = (e) => {
+      if (e.key === "Escape") endTour();
+      else if (e.key === "ArrowRight") go(step + 1);
+      else if (e.key === "ArrowLeft") go(step - 1);
+    };
+    tourEl._off = () => { window.removeEventListener("resize", place); document.removeEventListener("keydown", keys); };
+    window.addEventListener("resize", place);
+    document.addEventListener("keydown", keys);
+    go(0);
+  }
+  function endTour() {
+    if (!tourEl) return;
+    tourEl._off();
+    tourEl.remove();
+    tourEl = null;
+  }
+
   // ---- signing in ------------------------------------------------------------------------------------
   async function open(session) {
     user = session.user;
@@ -943,8 +1034,10 @@
     picked = (saved.picked || []).filter((id) => byId(id)); // anyone removed from the roster since drops off
     show(picked.includes(saved.active) ? saved.active : picked[0] || null);
     loadDone();
+    if (!tourSeen()) setTimeout(startTour, 300); // the first time this coach opens Coach Mode
   }
   function close() {
+    endTour();
     user = null; picked = []; active = null;
     closeKpi(); closeSpeed(); closeLog(); kpiSheet = {}; kpiHistory = [];
     frames.forEach((f) => f.remove()); frames.clear();
@@ -973,6 +1066,7 @@
   }
   modeSwitch.addEventListener("click", (e) => { e.preventDefault(); modeSwitch.classList.add("off"); setTimeout(() => { window.location.href = modeSwitch.getAttribute("href"); }, 320); });
   window.addEventListener("pageshow", () => modeSwitch.classList.remove("off"));
+  $("tour-btn").addEventListener("click", startTour);
   $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
   $("speed-btn").addEventListener("click", () => { if (speedOpen) show(active); else openSpeed(); });
   $("log-btn").addEventListener("click", () => { if (logOpen) show(active); else openLog(); });
