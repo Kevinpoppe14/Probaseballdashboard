@@ -383,15 +383,16 @@
   // ---- graphs: every number across the off-season -------------------------------------------------------------
   // The isolated tests' degrees and every performance test, from full assessments and re-assessments, one small
   // graph each, for those with at least two results. A blank is left out, never drawn as zero.
-  function seriesFor(athleteId, only) {
+  function seriesFor(athleteId, only, from, to) {
+    const inRange = (r) => (!from || (r.date || "") >= from) && (!to || (r.date || "") <= to);
     const { fulls, reassess } = recordsFor(athleteId);
     const A = L();
     const n = (x) => (has(x) && !isNaN(parseFloat(x)) ? parseFloat(x) : null);
     const charts = [];
     const add = (title, unitNote, pick, single) => {
       const points = [];
-      fulls.forEach((r) => { const v = pick(r, "full"); if (v) points.push({ date: r.date, ...v }); });
-      reassess.forEach((r) => { const v = pick(r, "re"); if (v) points.push({ date: r.date, ...v }); });
+      fulls.filter(inRange).forEach((r) => { const v = pick(r, "full"); if (v) points.push({ date: r.date, ...v }); });
+      reassess.filter(inRange).forEach((r) => { const v = pick(r, "re"); if (v) points.push({ date: r.date, ...v }); });
       points.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
       const usable = points.filter((p) => p.L != null || p.R != null);
       const enough = (k) => usable.filter((p) => p[k] != null).length >= 2;
@@ -409,32 +410,212 @@
     }, t.single));
     return charts;
   }
-  function AssessmentTrends({ athleteId, only, title, hint }) {
+  // the small graphs themselves; `paper` draws them for the printed report (dark text on white)
+  function TrendGrid({ charts, paper }) {
     const R = window.Recharts;
-    const charts = seriesFor(athleteId, only);
     if (!R || !charts.length) return null;
     const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } = R;
+    const ink = paper ? "#444" : "#9aa3ad";
     return (
-      <div className="panel ra-trends">
-        <h2>{title || "Changes over the off-season"} <small>{hint || "from full assessments and re-assessments; blanks are left out"}</small></h2>
+      <React.Fragment>
         <div className="ra-trend-grid">
           {charts.map((c) => (
             <div className="ra-trend" key={c.title + (c.unitNote || "")}>
               <div className="ra-trend-title">{c.title}{c.unitNote ? <small> {c.unitNote}</small> : null}</div>
-              <ResponsiveContainer width="100%" height={150}>
+              <ResponsiveContainer width="100%" height={paper ? 130 : 150}>
                 <LineChart data={c.data} margin={{ top: 6, right: 10, bottom: 0, left: -18 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9aa3ad" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#9aa3ad" }} domain={["auto", "auto"]} />
-                  <Tooltip contentStyle={{ background: "#1b1d21", border: "1px solid #333", fontSize: 12 }} />
-                  <Line type="monotone" dataKey="L" name={c.single ? c.title : "Left"} stroke="#e0565f" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                  {!c.single && <Line type="monotone" dataKey="R" name="Right" stroke="#5aa9e6" strokeWidth={2} dot={{ r: 3 }} connectNulls />}
+                  <CartesianGrid strokeDasharray="3 3" stroke={paper ? "#ddd" : "rgba(148,163,184,0.2)"} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: ink }} />
+                  <YAxis tick={{ fontSize: 10, fill: ink }} domain={["auto", "auto"]} />
+                  {!paper && <Tooltip contentStyle={{ background: "#1b1d21", border: "1px solid #333", fontSize: 12 }} />}
+                  <Line type="monotone" dataKey="L" name={c.single ? c.title : "Left"} stroke="#c8102e" strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={!paper} />
+                  {!c.single && <Line type="monotone" dataKey="R" name="Right" stroke="#2f7fc1" strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={!paper} />}
                 </LineChart>
               </ResponsiveContainer>
             </div>
           ))}
         </div>
         {charts.some((c) => !c.single) && <div className="ra-legend"><span className="ra-l">Left</span><span className="ra-r">Right</span></div>}
+      </React.Fragment>
+    );
+  }
+  function AssessmentTrends({ athleteId, only, title, hint }) {
+    const charts = seriesFor(athleteId, only);
+    if (!window.Recharts || !charts.length) return null;
+    return (
+      <div className="panel ra-trends">
+        <h2>{title || "Changes over the off-season"} <small>{hint || "from full assessments and re-assessments; blanks are left out"}</small></h2>
+        <TrendGrid charts={charts} />
+      </div>
+    );
+  }
+
+  // ---- the off-season report ------------------------------------------------------------------------------------
+  // One page (or a few) to print or save at the end of the off-season: where the athlete started (the full
+  // assessment), each finding's starting and latest result and how it came out, the numbers from start to latest,
+  // the graphs, body composition from the first sheet to the latest, and a coach's summary kept with the athlete.
+  function seasonOf(athlete, base) {
+    const { reassess } = recordsFor(athlete.id);
+    const chain = reassess.filter((r) => r.date >= base.date).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const end = chain.length ? chain[chain.length - 1].date : base.date;
+    const paths = catalog().filter((it) => flagged(it, fromFull(it, base))).map((it) => it.path);
+    chain.forEach((r) => (r.items || []).forEach((x) => { if (!paths.includes(x.path) && itemOf(x.path)) paths.push(x.path); }));
+    const findings = paths.map((p) => {
+      const it = itemOf(p);
+      const atStart = flagged(it, fromFull(it, base));
+      let start = atStart ? { date: base.date, v: fromFull(it, base) } : null;
+      let latest = start, outcome = "", outcomeDate = "", addedOn = atStart ? "" : null;
+      for (const r of chain) {
+        const x = (r.items || []).find((y) => y.path === p);
+        if (!x) continue;
+        if (addedOn === null) addedOn = r.date;
+        const v = (r.values || {})[p];
+        if (entered(it, v)) { if (!start) start = { date: r.date, v }; latest = { date: r.date, v }; }
+        if (x.result) { outcome = x.result; outcomeDate = r.date; }
+        if (x.result === "cleared") break;
+      }
+      return { it, start, latest, outcome, outcomeDate, addedOn };
+    });
+    // numbers: the first and the latest result of each measurement in the season, side by side
+    const A = L();
+    const n = (x) => (has(x) && !isNaN(parseFloat(x)) ? parseFloat(x) : null);
+    const recs = [{ date: base.date, get: (path) => getAt(base, path) }, ...chain.map((r) => ({ date: r.date, get: (path) => (r.values || {})[path] }))];
+    const numberRow = (label, note, path, single) => {
+      const sides = single ? ["left"] : ["left", "right"];
+      const out = { label, note, single, sides: {} };
+      sides.forEach((s) => {
+        const pts = recs.map((r) => ({ date: r.date, v: n((r.get(path) || {})[s]) })).filter((p) => p.v != null);
+        if (pts.length) out.sides[s] = { first: pts[0], last: pts[pts.length - 1] };
+      });
+      return Object.keys(out.sides).length ? out : null;
+    };
+    const iso = A.ISOLATED_SPECIFIC.filter((t) => !t.checkboxOnly).map((t) => numberRow(t.label, t.note, `isolatedSpecific.${t.key}`)).filter(Boolean);
+    const perf = A.PERFORMANCE_TESTING.map((t) => numberRow(t.label, t.note, `performanceTesting.${t.key}`, t.single)).filter(Boolean);
+    // body composition: the sheets from a couple of weeks before the full assessment to a couple after the last re-assessment
+    const RR = window.ReassessRules;
+    const sheets = [...window.AthleteStore.getBodyCompSheets(athlete.id)].filter((s) => s.date && RR.dayNo(s.date) >= RR.dayNo(base.date) - 14 && RR.dayNo(s.date) <= RR.dayNo(end) + 14).sort((a, b) => a.date.localeCompare(b.date));
+    return { chain, end, findings, iso, perf, sheets };
+  }
+
+  function OffseasonReport({ athlete, base, onBack }) {
+    const S = window.AthleteStore;
+    const season = seasonOf(athlete, base);
+    const [note, setNote] = useState(athlete.offseasonReportNote || "");
+    const saveNote = () => { if (note !== (athlete.offseasonReportNote || "")) S.updateAthlete(athlete.id, { offseasonReportNote: note }); };
+    const counts = { cleared: 0, improved: 0, same: 0, worse: 0, open: 0 };
+    season.findings.forEach((f) => { counts[f.outcome || "open"] += 1; });
+    const outcomeText = { cleared: "Cleared", improved: "Improved", same: "No change", worse: "Worse" };
+    const cubs = !!window.isCubsOnlyAthlete && window.isCubsOnlyAthlete(athlete);
+    const charts = seriesFor(athlete.id, null, base.date, season.end);
+    const fmtN = (x) => (Number.isInteger(x) ? `${x}` : `${Math.round(x * 100) / 100}`); // two decimals, for sprint times
+    const change = (a, b) => { const d = b - a; return `${d > 0 ? "+" : ""}${fmtN(d)}`; };
+    const bcFirst = season.sheets[0], bcLast = season.sheets[season.sheets.length - 1];
+    const bc = [["Body weight", "weightLb", "lb"], ["Body fat", "pctFat", "%"], ["Lean mass", "leanLb", "lb"], ["Fat mass", "fatLb", "lb"], ["Muscle", "muscleLb", "lb"]];
+    const num = (x) => (x == null || isNaN(Number(x)) ? null : Number(x));
+    // prints just the report, on portrait Letter pages (the page size is set only while it prints, so other printouts
+    // keep their own)
+    const print = () => {
+      saveNote();
+      const page = document.createElement("style");
+      page.textContent = "@page { size: letter portrait; margin: 0.5in; }";
+      document.head.appendChild(page);
+      document.body.classList.add("print-osr");
+      const done = () => { document.body.classList.remove("print-osr"); page.remove(); window.removeEventListener("afterprint", done); };
+      window.addEventListener("afterprint", done);
+      setTimeout(() => window.print(), 50);
+    };
+    const sideCell = (row, s) => {
+      const x = row.sides[s];
+      if (!x) return <React.Fragment><td>—</td><td>—</td><td>—</td></React.Fragment>;
+      const same = x.first.date === x.last.date;
+      return <React.Fragment><td>{fmtN(x.first.v)}</td><td>{same ? "—" : fmtN(x.last.v)}</td><td className="osr-change">{same ? "" : change(x.first.v, x.last.v)}</td></React.Fragment>;
+    };
+    return (
+      <div className="osr-wrap">
+        <div className="osr-bar no-print">
+          <button className="btn-link" onClick={onBack}>‹ Back to re-assessments</button>
+          <button className="btn osr-print" onClick={print}>Print / Save PDF</button>
+        </div>
+        <div className="osr-report">
+          <div className="osr-head">
+            <div>
+              <h1>{athlete.name}</h1>
+              <div className="osr-sub">Off-season assessment report · {fmt(base.date)} – {fmt(season.end)}</div>
+            </div>
+            <img src={cubs ? "https://www.mlbstatic.com/team-logos/112.svg" : "assets/dst-logo.png"} alt="" className="osr-logo" />
+          </div>
+
+          <div className="osr-stats">
+            <div><b>{season.findings.length}</b><span>findings tracked</span></div>
+            <div className="c-cleared"><b>{counts.cleared}</b><span>cleared</span></div>
+            <div className="c-improved"><b>{counts.improved}</b><span>improved</span></div>
+            <div className="c-same"><b>{counts.same}</b><span>no change</span></div>
+            <div className="c-worse"><b>{counts.worse}</b><span>worse</span></div>
+            <div><b>{season.chain.length}</b><span>re-assessment{season.chain.length === 1 ? "" : "s"}</span></div>
+          </div>
+
+          <h2>Coach's summary</h2>
+          <textarea className="osr-note no-print" rows={3} value={note} onChange={(e) => setNote(e.target.value)} onBlur={saveNote} placeholder="The season in a few lines: what improved, what to keep working on, what's next." />
+          <div className="osr-note-print">{note || "—"}</div>
+
+          <h2>Findings</h2>
+          <table className="osr-table">
+            <thead><tr><th>Area</th><th>Start</th><th>Latest</th><th>Outcome</th></tr></thead>
+            <tbody>
+              {season.findings.map((f) => (
+                <tr key={f.it.path}>
+                  <td>{f.it.label}{f.it.note ? <small> {f.it.note}</small> : null}{f.addedOn ? <small className="osr-added"> added {fmt(f.addedOn)}</small> : null}</td>
+                  <td>{f.start ? describe(f.it, f.start.v) || "—" : "—"}</td>
+                  <td>{f.latest && f.start && f.latest.date !== f.start.date ? <React.Fragment>{describe(f.it, f.latest.v) || "—"}<small> {fmt(f.latest.date)}</small></React.Fragment> : "—"}</td>
+                  <td className={f.outcome ? `osr-o-${f.outcome}` : ""}>{f.outcome ? `${outcomeText[f.outcome]}${f.outcome === "cleared" ? ` ${fmt(f.outcomeDate)}` : ""}` : "Not retested"}</td>
+                </tr>
+              ))}
+              {!season.findings.length && <tr><td colSpan={4}>Nothing was flagged on the full assessment.</td></tr>}
+            </tbody>
+          </table>
+
+          {(season.iso.length > 0 || season.perf.length > 0) && <h2>Measurements <small>first and latest result this off-season</small></h2>}
+          {[["Range of motion and isolated tests", season.iso], ["Performance tests", season.perf]].filter(([, rows]) => rows.length).map(([title, rows]) => (
+            <table className="osr-table osr-nums" key={title}>
+              <thead>
+                <tr><th rowSpan={2}>{title}</th><th colSpan={3}>Left / single</th><th colSpan={3}>Right</th></tr>
+                <tr><th>Start</th><th>Latest</th><th>Change</th><th>Start</th><th>Latest</th><th>Change</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.label + (row.note || "")}>
+                    <td>{row.label}{row.note ? <small> {row.note}</small> : null}</td>
+                    {sideCell(row, "left")}
+                    {row.single ? <td colSpan={3}></td> : sideCell(row, "right")}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+
+          {charts.length > 0 && <React.Fragment><h2>Changes over the off-season</h2><TrendGrid charts={charts} paper /></React.Fragment>}
+
+          <h2>Body composition</h2>
+          {bcFirst ? (
+            <table className="osr-table">
+              <thead><tr><th></th><th>{fmt(bcFirst.date)}</th>{bcLast !== bcFirst && <th>{fmt(bcLast.date)}</th>}{bcLast !== bcFirst && <th>Change</th>}</tr></thead>
+              <tbody>
+                {bc.map(([label, k, u]) => {
+                  const a = num((bcFirst.summary || {})[k]), b = num((bcLast.summary || {})[k]);
+                  return (
+                    <tr key={k}>
+                      <td>{label}</td>
+                      <td>{a != null ? `${fmtN(a)} ${u}` : "—"}</td>
+                      {bcLast !== bcFirst && <td>{b != null ? `${fmtN(b)} ${u}` : "—"}</td>}
+                      {bcLast !== bcFirst && <td className="osr-change">{a != null && b != null ? `${change(a, b)} ${u}` : ""}</td>}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : <div className="osr-empty">No manual body comp sheets in this off-season.</div>}
+          {season.sheets.length > 2 && <div className="osr-foot">{season.sheets.length} body comp sheets this off-season.</div>}
+        </div>
       </div>
     );
   }
@@ -445,6 +626,7 @@
     const S = window.AthleteStore;
     const [, bump] = useState(0);
     const [openId, setOpenId] = useState(null);
+    const [report, setReport] = useState(false); // the off-season report, in place of the list
     const { fulls, reassess } = recordsFor(athlete.id);
     const st = statusFor(athlete);
     const base = st && st.full ? st.full : null;
@@ -466,6 +648,7 @@
     const silence = () => { S.updateAthlete(athlete.id, { reassessSilencedUntil: window.ReassessRules.silenceUntil(st, localDay()) }); bump((x) => x + 1); };
     const unsilence = () => { S.updateAthlete(athlete.id, { reassessSilencedUntil: "" }); bump((x) => x + 1); };
 
+    if (report && base) return <OffseasonReport athlete={athlete} base={base} onBack={() => setReport(false)} />;
     let statusLine = null;
     if (!st || st.state === "assess") {
       statusLine = <span>{st && st.reason === "old" ? `The last full assessment was ${fmt(st.full.date)}, more than 8 months ago, so a full assessment is due. ` : "Re-assessments follow a full biomechanical assessment, and there isn't one on file yet. "}<button className="btn-link" onClick={() => onOpenTab && onOpenTab("assessment")}>Go to Biomechanical</button></span>;
@@ -486,7 +669,12 @@
         <div className="panel ra-panel">
           <h2>Re-Assessment <small>monthly: retest what was found, plus all performance tests and a full body comp</small></h2>
           <div className="ra-status">{statusLine}</div>
-          {base && !open && <button className="btn btn-assign" onClick={startNew}>+ New re-assessment</button>}
+          {base && !open && (
+            <div className="ra-actions">
+              <button className="btn btn-assign" onClick={startNew}>+ New re-assessment</button>
+              <button className="btn btn-secondary" title="Where the athlete started, what changed, and body composition, to print or save at the end of the off-season" onClick={() => setReport(true)}>Off-season report</button>
+            </div>
+          )}
           {open && (
             <React.Fragment>
               <div className="ra-open-bar"><button className="btn-link" onClick={() => setOpenId(null)}>‹ All re-assessments</button></div>

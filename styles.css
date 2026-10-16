@@ -3534,3 +3534,49 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .ra-legend .ra-l::before, .ra-legend .ra-r::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 5px; vertical-align: middle; }
 .ra-legend .ra-l::before { background: #e0565f; }
 .ra-legend .ra-r::before { background: #5aa9e6; }
+
+/* ---- Off-season report (reassessment.js): drawn like the printed page, dark on white ---- */
+.ra-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.osr-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.osr-bar .btn.osr-print { background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
+.osr-report { background: #fff; color: #111; border-radius: 8px; padding: 28px 32px; max-width: 900px; margin: 0 auto 20px; font-size: 13px; line-height: 1.45; }
+.osr-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; border-bottom: 3px solid #c8102e; padding-bottom: 12px; margin-bottom: 14px; }
+.osr-head h1 { margin: 0; font-size: 26px; color: #111; }
+.osr-sub { color: #555; font-size: 13px; margin-top: 2px; }
+.osr-logo { height: 48px; width: auto; }
+.osr-report h2 { font-size: 15px; margin: 18px 0 8px; color: #c8102e; text-transform: uppercase; letter-spacing: 0.04em; }
+.osr-report h2 small { text-transform: none; letter-spacing: 0; color: #666; font-weight: 400; font-size: 12px; }
+.osr-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.osr-stats > div { border: 1px solid #ddd; border-radius: 6px; padding: 8px; text-align: center; }
+.osr-stats b { display: block; font-size: 22px; }
+.osr-stats span { font-size: 11px; color: #555; }
+.osr-stats .c-cleared b { color: #15803d; }
+.osr-stats .c-improved b { color: #0f766e; }
+.osr-stats .c-same b { color: #b45309; }
+.osr-stats .c-worse b { color: #c8102e; }
+.osr-note { width: 100%; font: inherit; color: #111; background: #fafafa; border: 1px solid #ccc; border-radius: 6px; padding: 8px 10px; }
+.osr-note-print { display: none; white-space: pre-wrap; }
+.osr-report table.osr-table { display: table; width: 100%; border-collapse: collapse; margin-bottom: 10px; overflow: visible; } /* full width (a general rule makes tables scrolling blocks) */
+.osr-table th, .osr-table td { border-bottom: 1px solid #e3e3e3; padding: 5px 7px; text-align: left; vertical-align: top; color: #111; }
+.osr-table th { background: #f3f3f3; font-size: 11.5px; }
+.osr-table td small { color: #666; }
+.osr-nums td:not(:first-child), .osr-nums th:not(:first-child) { text-align: center; }
+.osr-change { font-weight: 700; }
+.osr-added { color: #2f7fc1 !important; }
+.osr-o-cleared { color: #15803d; font-weight: 700; }
+.osr-o-improved { color: #0f766e; font-weight: 700; }
+.osr-o-same { color: #b45309; font-weight: 700; }
+.osr-o-worse { color: #c8102e; font-weight: 700; }
+.osr-empty, .osr-foot { color: #666; font-size: 12px; }
+.osr-report .ra-trend { border-color: #e3e3e3; break-inside: avoid; }
+.osr-report .ra-trend-title { color: #111; }
+.osr-report .ra-trend-title small, .osr-report .ra-legend { color: #555; }
+@media print {
+  body.print-osr *:not(:has(.osr-report)):not(.osr-report):not(.osr-report *) { display: none !important; }
+  body.print-osr, body.print-osr .app, body.print-osr .main { background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: none !important; min-height: 0 !important; }
+  body.print-osr .osr-wrap, body.print-osr .osr-report { display: block !important; }
+  body.print-osr .osr-report { max-width: none; padding: 0; border-radius: 0; }
+  body.print-osr .osr-report, body.print-osr .osr-report * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body.print-osr .osr-note-print { display: block !important; }
+  body.print-osr .osr-table tr, body.print-osr .osr-stats { break-inside: avoid; }
+}
