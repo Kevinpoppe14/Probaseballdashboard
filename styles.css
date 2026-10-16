@@ -2868,6 +2868,11 @@ tbody tr:hover {
 .ppt-combined-ex small { display: block; color: var(--text-dim); font-size: 11px; }
 .ppt-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
 .ppt-app-note { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid #4caf6a; background: rgba(76, 175, 106, 0.1); border-radius: 0 6px 6px 0; font-size: 13px; }
+/* Insert existing program: a black search box (white in light mode) with a magnifying glass */
+.program-search { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; height: 32px; min-width: 240px; background: #000; color: var(--text-dim); border: 1px solid var(--input-border, var(--border)); border-radius: 6px; }
+.program-search input { flex: 1; min-width: 0; height: 100%; border: none; outline: none; background: transparent; color: #fff; font: inherit; font-size: 13px; padding: 0; }
+:root[data-theme="light"] .program-search { background: #fff; }
+:root[data-theme="light"] .program-search input { color: #111; }
 .period-lane-name { cursor: pointer; }
 .ppt-suggest { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
 .ppt-empty { padding: 14px 0; display: flex; flex-direction: column; gap: 10px; }

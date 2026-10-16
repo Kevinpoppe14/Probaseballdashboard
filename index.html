@@ -2527,6 +2527,8 @@ const PROGRAMS_NAV_HOME = { section: "programs", folder: "", editingId: null, as
 function ProgramsPage({ nav, setNav }) {
   const [version, setVersion] = useState(0);
   const S = window.AthleteStore;
+  // athletes' own programs saved before athlete folders existed are filed into theirs, once per visit
+  React.useEffect(() => { if (S.fileAthletePrograms) { S.fileAthletePrograms(); setVersion((v) => v + 1); } }, []); // eslint-disable-line
   // The small one-week programs made when a group speed session is sent to an athlete's app (ids starting
   // "gspeed-") are left out of this list unless asked for: there is one per athlete per week, and they are
   // reached from the athlete's plan, so here they would only bury the real programs.
@@ -6022,13 +6024,16 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <span className="no-print"><StatusSelect athlete={athlete} onChanged={onDataChange} /></span>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button
-            className="btn btn-secondary no-print"
-            title="Prints the tab that is open"
-            onClick={() => (activeTab === "plan" ? window.dispatchEvent(new Event("dst-print-plan")) : window.print())}
-          >
-            Print / Save PDF
-          </button>
+          {/* the Programming tab prints its programs from the builder (Print all), not the page */}
+          {activeTab !== "programming" && (
+            <button
+              className="btn btn-secondary no-print"
+              title="Prints the tab that is open"
+              onClick={() => (activeTab === "plan" ? window.dispatchEvent(new Event("dst-print-plan")) : window.print())}
+            >
+              Print / Save PDF
+            </button>
+          )}
           <button
             className="btn btn-secondary no-print"
             style={{ color: "var(--danger)", borderColor: "#5a1f1f" }}

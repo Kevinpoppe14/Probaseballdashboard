@@ -482,6 +482,32 @@
     );
   }
 
+  // A search box for picking a saved program: type to narrow the list of program names, pick one, and `onPick` gets
+  // the program. Black (white in light mode) with a magnifying glass, like the builder's other boxes.
+  function ProgramSearch({ onPick, placeholder = "Insert existing program" }) {
+    const [text, setText] = useState("");
+    const listId = useMemo(() => `program-search-${Math.random().toString(36).slice(2, 8)}`, []);
+    const programs = allPrograms().filter((p) => !String(p.id).startsWith("gspeed-")); // not the speed sessions sent to athletes
+    const pick = (value) => {
+      const p = programs.find((x) => (x.name || "").trim().toLowerCase() === value.trim().toLowerCase());
+      if (!p) return false;
+      setText("");
+      onPick(p);
+      return true;
+    };
+    return (
+      <span className="program-search">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+        <input
+          list={listId} value={text} placeholder={placeholder} aria-label={placeholder}
+          onChange={(e) => { const v = e.target.value; if (!pick(v)) setText(v); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!pick(text)) { const first = programs.find((x) => (x.name || "").toLowerCase().includes(text.trim().toLowerCase())); if (first && text.trim()) { setText(""); onPick(first); } } } }}
+        />
+        <datalist id={listId}>{programs.map((p) => <option key={p.id} value={p.name} />)}</datalist>
+      </span>
+    );
+  }
+
   // Changes made in the app (an exercise swapped, or its sets and reps changed, by the athlete on their phone or by a
   // coach in Coach Mode) are kept apart from the program (athlete_overrides). When the block's program is opened in
   // the builder they are folded into it, as the athlete's own copy when the program is a shared one, and cleared from
@@ -601,6 +627,20 @@
       setDirty(false);
       setRev((r) => r + 1);
     };
+    // Insert existing program: a copy of a saved program becomes this phase's program, as the athlete's own, named
+    // "Lastname - Program name" (another athlete's last name in front is dropped first). The block takes its name
+    // and length. On a phase that already has a program, it replaces it after asking.
+    const insertProgram = (src) => {
+      if (!src) return;
+      if (program && !window.confirm(`Replace “${program.name}” on ${block.label || "this phase"} with a copy of “${src.name}”?`)) return;
+      const people = typeof getPeople === "function" ? getPeople() : getRoster();
+      const owner = src.athleteId ? people.find((a) => String(a.id) === String(src.athleteId)) : null;
+      const { id, ...rest } = src;
+      const saved = store.saveProgram({ ...rest, name: nameFor(athlete, owner ? blockLabelFor(owner, src.name) : src.name), weeks: cloneWeeks(src.weeks), athleteId: athlete.id, basedOn: src.id, folder: src.folder || "" });
+      onLinkProgram(block.id, saved.id);
+      setDirty(false);
+      setRev((r) => r + 1);
+    };
     const reload = () => { setDirty(false); setRev((r) => r + 1); };
     // Equipment check (remote athletes): swaps one exercise for another everywhere in this block's program,
     // which is the whole phase, and saves it (as the athlete's own copy when the program is a shared one).
@@ -670,10 +710,7 @@
               <React.Fragment>
                 <span>No program for <strong>{block.label || "this block"}</strong> yet. Build it below ({block.len} week{block.len === 1 ? "" : "s"}, to match the block), or</span>
                 {prevProgram && <button className="btn btn-secondary" title={`Start from a copy of ${prevProgram.name}, then edit it`} onClick={copyPrevious}>Copy previous phase</button>}
-                <select value="" onChange={(e) => { if (e.target.value) { onLinkProgram(block.id, e.target.value); setRev((r) => r + 1); } }}>
-                  <option value="">insert an existing program…</option>
-                  {allPrograms().map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-                </select>
+                <ProgramSearch onPick={insertProgram} />
                 {/* a suggestion only: what the program on the block before this one lists as its next phase */}
                 {(() => {
                   const prev = blocks[blocks.indexOf(block) - 1];
@@ -683,13 +720,14 @@
                   return (
                     <span className="ppt-suggest">
                       Suggested after {prevProgram.name}:
-                      {next.map((x) => <button className="btn btn-secondary" key={x.id} onClick={() => { onLinkProgram(block.id, x.id); setRev((r) => r + 1); }}>Use “{x.name}”</button>)}
+                      {next.map((x) => <button className="btn btn-secondary" key={x.id} onClick={() => insertProgram(x)}>Use “{x.name}”</button>)}
                     </span>
                   );
                 })()}
               </React.Fragment>
             )}
             {program && !own && <span>Shared program. Saving here makes {athlete.name}'s own copy, “{withLast(program.name)}”, and leaves the shared one unchanged.</span>}
+            {program && <ProgramSearch onPick={insertProgram} />}
             {program && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={() => { if (!dirty || window.confirm("Unlink this program and lose your unsaved changes?")) { onLinkProgram(block.id, null); reload(); } }}>Unlink from this block</button>}
           </div>
         )}
@@ -1682,6 +1720,7 @@
     const printPlanRef = useRef(printPlan);
     printPlanRef.current = printPlan;
     useEffect(() => {
+      if (mode !== "plan") return undefined; // the Programming tab doesn't print the plan
       const onBefore = () => preparePrint();       // also covers Ctrl+P while the plan is open
       const onPrintRequest = () => printPlanRef.current(); // the profile's own Print button asks for this
       window.addEventListener("beforeprint", onBefore);
@@ -1810,8 +1849,9 @@
             </div>
             <div className="period-btn-group">
               <button className="btn btn-secondary" onClick={addLane}>+ Add row</button>
-              <button className="btn btn-secondary" onClick={printPlan} title="Prints just this plan, scaled to fit one portrait sheet">Print / Save PDF</button>
-              {typeof EmailToAthleteButton === "function" && (
+              {/* printing and emailing the plan belong to the Player Plan, not the Programming tab */}
+              {mode === "plan" && <button className="btn btn-secondary" onClick={printPlan} title="Prints just this plan, scaled to fit one portrait sheet">Print / Save PDF</button>}
+              {mode === "plan" && typeof EmailToAthleteButton === "function" && (
                 <EmailToAthleteButton athlete={athlete} tab="plan" tabLabel="Player Plan" />
               )}
             </div>

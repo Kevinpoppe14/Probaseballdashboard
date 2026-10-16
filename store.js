@@ -770,9 +770,35 @@
   }
 
   // Adds a new program (no id yet) or replaces the one with the same id. The whole document is stored each time.
+  // An athlete's own program (one saved from their plan, with their last name in front) is filed in a folder of its
+  // own on the Programs tab: "Athletes/Lastname, Firstname". The folder is created the first time.
+  const ATHLETE_FOLDER = "Athletes";
+  function athleteFolderFor(athleteId) {
+    const a = state.customAthletes.find((x) => String(x.id) === String(athleteId));
+    if (!a || !(a.name || "").trim()) return null;
+    const parts = a.name.trim().split(/\s+/);
+    const label = parts.length > 1 ? `${parts.slice(1).join(" ")}, ${parts[0]}` : parts[0];
+    return `${ATHLETE_FOLDER}/${label.replace(/\//g, "-")}`;
+  }
+  function ensureProgramFolder(path) {
+    const list = getProgramFolders();
+    const needed = [ATHLETE_FOLDER, path].filter((p) => !list.includes(p));
+    if (needed.length) setProgramFolders([...list, ...needed]);
+  }
+  // files any athlete-owned programs not yet in their athlete's folder (the ones saved before folders existed)
+  function fileAthletePrograms() {
+    state.programs.filter((p) => p.athleteId && !String(p.id).startsWith("gspeed-")).forEach((p) => {
+      const folder = athleteFolderFor(p.athleteId);
+      if (folder && p.folder !== folder) saveProgram({ ...p });
+    });
+  }
   function saveProgram(rec) {
     const id = rec.id != null ? String(rec.id) : randomId();
     const { id: _ignored, ...data } = rec;
+    if (data.athleteId && !id.startsWith("gspeed-")) { // (not the one-week speed sessions sent to athletes' apps)
+      const folder = athleteFolderFor(data.athleteId);
+      if (folder) { data.folder = folder; ensureProgramFolder(folder); }
+    }
     const idx = state.programs.findIndex((p) => p.id === id);
     // who built it is stamped once, when the program is first saved, and carried along on every later edit
     if (idx === -1) {
@@ -1153,6 +1179,7 @@
     deleteOffseasonFacility,
     allPrograms,
     saveProgram,
+    fileAthletePrograms,
     deleteProgram,
     getProgramFolders,
     setProgramFolders,
