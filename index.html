@@ -4600,7 +4600,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       {showFacility && <td onClick={(e) => e.stopPropagation()}><OffseasonFacilityInline athlete={athlete} onChanged={onDataChange} /></td>}
       {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
       {!showFacility && <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>}
-      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "plan")} /></td>
+      <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "programming")} /></td>
       <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
@@ -4756,8 +4756,8 @@ function todayItems() {
         const lane = (b) => (plan.lanes.find((l) => l.id === b.lane) || {}).name || "Program";
         const ended = plan.blocks.filter((b) => b.start + b.len - 1 === wk - 1 && !plan.blocks.some((o) => o.lane === b.lane && covers(o)));
         const ending = plan.blocks.filter((b) => b.start + b.len - 1 === wk);
-        if (ended.length) out.gap.push({ a, note: ended.map(lane).join(", "), tab: "plan" });
-        else if (ending.length) out.ending.push({ a, note: ending.map((b) => (b.label || "").trim() || lane(b)).join(", "), tab: "plan" });
+        if (ended.length) out.gap.push({ a, note: ended.map(lane).join(", "), tab: "programming" });
+        else if (ending.length) out.ending.push({ a, note: ending.map((b) => (b.label || "").trim() || lane(b)).join(", "), tab: "programming" });
         // a program this week (and the plan at least that many days old), but nothing typed in lately
         if (plan.blocks.some((b) => b.programId && covers(b)) && progress.days >= LOG_QUIET_DAYS) {
           const quiet = daysSince(S.lastLoggedAt(a.id));
@@ -5900,6 +5900,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   const activeTab = (tab === "pitching" && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
+  const [programOpen, setProgramOpen] = useState(null); // { laneId, blockId } to open the Programming tab at, from the plan
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
   const athlete = getPeople().find((a) => a.id === athleteId);
@@ -5959,11 +5960,12 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
 
       <div className="pill-tabs profile-tabs no-print">
         <button className={`pill-tab ${activeTab === "plan" ? "active" : ""}`} data-tab="plan" onClick={() => setActiveTab("plan")}>Player Plan</button>
+        <button className={`pill-tab ${activeTab === "programming" ? "active" : ""}`} data-tab="programming" onClick={() => { setProgramOpen(null); setActiveTab("programming"); }}>Programming</button>
         <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
         <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} data-tab="performance" onClick={() => setActiveTab("performance")}>Performance Metrics</button>
         <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical Assessment</button>
-        {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
         <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
+        {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>}
         <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
         {/* remote athletes only: what they have to train with, which their programs are checked against */}
@@ -5978,9 +5980,14 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <OffseasonProgrammingPanel athlete={athlete} onChanged={onDataChange} />
         </div>
       )}
-      {window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} headerExtra={<PositionalProfilePanel athlete={athlete} planView compact />} />}
+      {/* The plan and the Programming tab each show the timeline, so only the open one is built: two copies at once
+          would each hold their own plan and could save over each other. A block's Program button here opens the
+          Programming tab at that block. */}
+      {activeTab === "plan" && window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} headerExtra={<PositionalProfilePanel athlete={athlete} planView compact />} onOpenProgram={(nav) => { setProgramOpen(nav); setActiveTab("programming"); }} />}
       <NotesPanel athleteId={athlete.id} />
       </div>
+
+      {activeTab === "programming" && window.PeriodizationBoard && <window.PeriodizationBoard key={`prog-${programOpen ? programOpen.blockId || programOpen.laneId : "top"}`} athlete={athlete} mode="programming" openNav={programOpen} />}
 
       <div className={activeTab === "statcast" ? "" : "tab-hidden"} data-tab-content="statcast">
         <div className="no-print" style={{ marginBottom: 10 }}>

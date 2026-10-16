@@ -1220,7 +1220,7 @@
   }
 
   // ---- the board for one athlete -------------------------------------------------------------
-  function PlannerBoard({ athlete, headerExtra }) {
+  function PlannerBoard({ athlete, headerExtra, mode = "plan", openNav = null, onOpenProgram = null }) {
     const store = window.AthleteStore;
     const [plan, setPlanState] = useState(() => store.getPeriodization(athlete.id) || newPlan());
     const [past, setPast] = useState([]);
@@ -1315,19 +1315,23 @@
     };
     // Goal / action-plan edits save straight away without going into the undo history.
     const saveText = (patch) => apply({ ...planRef.current, ...patch });
-
     // Program builder panel under the chart: which section (row) and tab (block) is open, and whether it has
-    // unsaved edits. Clicking a row name or a block's Program button on the chart jumps to it.
-    const [progNav, setProgNav] = useState({ laneId: null, blockId: null });
+    // unsaved edits. Clicking a row name or a block's Program button on the chart jumps to it. The builder lives on
+    // the profile's Programming tab (mode "programming"); on the Player Plan (mode "plan") those clicks open that
+    // tab at the row or block instead (`onOpenProgram`), and `openNav` is where the Programming tab starts.
+    const [progNav, setProgNav] = useState(() => openNav || { laneId: null, blockId: null });
     const [progDirty, setProgDirty] = useState(false);
     const progPanelRef = useRef(null);
     const laneClickTimer = useRef(null);
     const goProgram = (next, scroll) => {
+      if (mode !== "programming") { if (onOpenProgram) onOpenProgram(next); return; }
       const same = next.laneId === progNav.laneId && next.blockId === progNav.blockId;
       if (!same && progDirty && !window.confirm("Leave this program without saving your changes?")) return;
       if (!same) { setProgDirty(false); setProgNav(next); }
       if (scroll && progPanelRef.current) progPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     };
+    // opened from the Player Plan at a block: bring the builder into view
+    useEffect(() => { if (mode === "programming" && openNav && openNav.blockId && progPanelRef.current) progPanelRef.current.scrollIntoView({ block: "start" }); }, []); // eslint-disable-line
     const setOpenProgramBlock = (blockId) => {
       const b = planRef.current.blocks.find((x) => x.id === blockId);
       if (b) goProgram({ laneId: b.lane, blockId: b.id }, true);
@@ -1708,14 +1712,15 @@
 
     return (
       <div className="period-wrap" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
-        <PlanHeader athlete={athlete} plan={plan} extra={headerExtra} />
+        {/* the Programming tab shows just the timeline and the program builder; the rest is on the Player Plan */}
+        {mode === "plan" && <PlanHeader athlete={athlete} plan={plan} extra={headerExtra} />}
 
-        <AthletePhoneLink athlete={athlete} />
+        {mode === "plan" && <AthletePhoneLink athlete={athlete} />}
 
         {/* goals and the action plan come first on screen; printed, they stay after the timeline (see .period-goals-slot) */}
-        <div className="period-goals-slot">
+        {mode === "plan" && (<div className="period-goals-slot">
           <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
-        </div>
+        </div>)}
 
         <div className="panel period-toolbar no-print">
           <div className="period-toolbar-row">
@@ -1960,7 +1965,7 @@
                 {allPrograms().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {single.programId && programById(single.programId) && (
-                <button className="btn-link" style={{ marginTop: 6 }} onClick={() => setOpenProgramBlock(single.id)}>Edit program in the builder below</button>
+                <button className="btn-link" style={{ marginTop: 6 }} onClick={() => setOpenProgramBlock(single.id)}>{mode === "programming" ? "Edit program in the builder below" : "Open its program on the Programming tab"}</button>
               )}
             </div>
             <div className="period-swatches">
@@ -1985,7 +1990,7 @@
           </div>
         )}
 
-        <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
+        {mode === "programming" && <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />}
       </div>
     );
   }
