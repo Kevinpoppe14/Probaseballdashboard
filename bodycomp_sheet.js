@@ -252,6 +252,7 @@
       if (json === lastSaved.current) return;
       if (canStore(inputs)) {
         store.saveAssessment(recordOf(inputs));
+        window.dispatchEvent(new Event("dst-bodycomp-changed")); // the Body Composition chart redraws
         try { localStorage.removeItem(draftKey); } catch (e) { /* fine */ }
         setSaveState("saved");
       } else if (!initial) {
@@ -470,6 +471,7 @@
     const remove = (s) => {
       if (!window.confirm(`Delete the body comp sheet from ${s.date}?`)) return;
       store.deleteAssessment(s.id);
+      window.dispatchEvent(new Event("dst-bodycomp-changed"));
       bump((x) => x + 1);
     };
     return (

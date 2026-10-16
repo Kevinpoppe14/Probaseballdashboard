@@ -94,6 +94,14 @@
       const { data, error } = await sb.from("kpi_entries").select("data").eq("athlete_id", String(coachId)).limit(5000);
       return error ? [] : (data || []).map((r) => r.data || {});
     },
+    async bodyComp() {
+      const id = String(coachId);
+      const [bc, as] = await Promise.all([
+        sb.from("body_comp").select("data").eq("athlete_id", id).limit(5000),
+        sb.from("assessments").select("data").eq("athlete_id", id).eq("data->>kind", "bodycomp").limit(1000),
+      ]);
+      return { scans: (bc.data || []).map((r) => r.data || {}), sheets: (as.data || []).map((r) => ({ date: (r.data || {}).date, summary: (r.data || {}).summary })) };
+    },
   } : {
     get: () => sb.rpc("athlete_portal_get", { p_token: token }),
     async log(programId, key, value) {
@@ -112,6 +120,11 @@
     async tests() {
       const res = await sb.rpc("athlete_portal_tests", { p_token: token });
       return !res.error && Array.isArray(res.data) ? res.data : [];
+    },
+    // Evolt scans and manual body comp sheets (supabase/migration_018_athlete_portal_body_comp.sql); none until that has been run
+    async bodyComp() {
+      const res = await sb.rpc("athlete_portal_body_comp", { p_token: token });
+      return !res.error && res.data ? res.data : null;
     },
   };
   // Links for Cubs-only players carry ?team=cubs, which changes the logo and colors, and the name the page gets
@@ -152,6 +165,7 @@
   let weekIdx = 0, itemIdx = 0, dayIdx = 0;
   let view = "program"; // "program" (this week's training), "plan" (the player plan), "progress" or "equipment" (remote athletes)
   let tests = null; // the athlete's Group Testing results, loaded after the program is on screen
+  let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -957,6 +971,82 @@
   };
   const goToProgress = () => { view = "progress"; render(); window.scrollTo(0, 0); };
 
+  // ---- body composition on the Progress tab ------------------------------------------------------------
+  // The athlete's Evolt scans and manual body comp sheets, the same graph as on the dashboard's Body Composition
+  // tab: one source, or both drawn together on one graph (they stay separate records), for a figure and a time
+  // window. Which ones were last picked is remembered on this phone.
+  const BC_SOURCES = { evolt: "Evolt", sheet: "Manual sheet", both: "Together" };
+  const BC_METRICS = [
+    { key: "pctFat", label: "Body fat", unit: "%", evolt: (s) => s.bodyFatPct, sheet: (m) => m.pctFat },
+    { key: "weight", label: "Weight", unit: "lb", evolt: (s) => s.weightLb, sheet: (m) => m.weightLb },
+    { key: "lean", label: "Lean mass", unit: "lb", evolt: (s) => s.lbmLb, sheet: (m) => m.leanLb },
+    { key: "fat", label: "Fat mass", unit: "lb", evolt: (s) => s.bodyFatLb, sheet: (m) => m.fatLb },
+    { key: "muscle", label: "Muscle", unit: "lb", evolt: (s) => s.smmLb, sheet: (m) => m.muscleLb },
+  ];
+  const BC_RANGES = [{ key: "90d", label: "90 days", days: 90 }, { key: "6m", label: "6 months", days: 183 }, { key: "1y", label: "1 year", days: 365 }, { key: "all", label: "All time", days: 0 }];
+  const BC_SHEET_COLOR = "#f59e0b";
+  let bcView = (() => { try { return JSON.parse(localStorage.getItem("bodyCompView") || "{}") || {}; } catch (e) { return {}; } })();
+  const setBcView = (patch) => {
+    bcView = { ...bcView, ...patch };
+    try { localStorage.setItem("bodyCompView", JSON.stringify(bcView)); } catch (e) { /* private window: not remembered */ }
+    const y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
+  };
+  const bcDay = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
+  // the graph: each series a line with a dot per measurement, spaced by date
+  function bcGraph(series, unit) {
+    const pts = series.flatMap((s) => s.points);
+    const w = 320, h = 170, l = 38, r = 10, t = 10, b = 24;
+    let t0 = Math.min(...pts.map((p) => p.t)), t1 = Math.max(...pts.map((p) => p.t));
+    if (t0 === t1) { t0 -= 86400000; t1 += 86400000; }
+    let lo = Math.min(...pts.map((p) => p.v)), hi = Math.max(...pts.map((p) => p.v));
+    const pad = (hi - lo) * 0.15 || Math.max(1, Math.abs(hi) * 0.05);
+    lo -= pad; hi += pad;
+    const x = (v) => l + ((v - t0) / (t1 - t0)) * (w - l - r), y = (v) => t + (1 - (v - lo) / (hi - lo)) * (h - t - b);
+    const fmt = (v) => `${Math.round(v * 10) / 10}${unit === "%" ? "%" : ""}`;
+    const grid = [0, 0.5, 1].map((f) => { const v = lo + (hi - lo) * f; return `<line x1="${l}" x2="${w - r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="bc-grid"/><text x="${l - 5}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end" class="bc-axis">${fmt(v)}</text>`; }).join("");
+    const lines = series.map((s) => {
+      const p = s.points.map((q) => `${x(q.t).toFixed(1)},${y(q.v).toFixed(1)}`);
+      return `<g style="color:${s.color}">${p.length > 1 ? `<polyline points="${p.join(" ")}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : ""}${s.points.map((q) => `<circle cx="${x(q.t).toFixed(1)}" cy="${y(q.v).toFixed(1)}" r="3.5" fill="currentColor"><title>${bcDay(q.t)}: ${fmt(q.v)}${unit === "lb" ? " lb" : ""}</title></circle>`).join("")}</g>`;
+    }).join("");
+    const box = el("div", { class: "bc-graph" });
+    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Body composition graph">${grid}${lines}<text x="${l}" y="${h - 6}" class="bc-axis">${bcDay(t0)}</text><text x="${w - r}" y="${h - 6}" text-anchor="end" class="bc-axis">${bcDay(t1)}</text></svg>`;
+    return box;
+  }
+  function bodyCompSection() {
+    const scans = (bodyComp && bodyComp.scans) || [], sheets = ((bodyComp && bodyComp.sheets) || []).filter((s) => s.date && s.summary);
+    if (!scans.length && !sheets.length) return null;
+    const has = { evolt: scans.length > 0, sheet: sheets.length > 0 };
+    const source = has.evolt && has.sheet ? (BC_SOURCES[bcView.source] ? bcView.source : "evolt") : has.evolt ? "evolt" : "sheet";
+    const metric = BC_METRICS.find((m) => m.key === bcView.metric) || BC_METRICS[0];
+    const range = BC_RANGES.find((x) => x.key === bcView.range) || BC_RANGES[BC_RANGES.length - 1];
+    const from = range.days ? Date.now() - range.days * 86400000 : -Infinity;
+    const at = (d, time) => new Date(`${d}T${time || "12:00"}:00`).getTime();
+    const num = (v) => (typeof v === "number" && isFinite(v) ? Math.round(v * 10) / 10 : null);
+    // anything entered in kilograms before Evolt came in pounds is shown in pounds
+    const lb = (s, lbKey, kgKey) => (s[lbKey] != null ? s[lbKey] : s[kgKey] != null ? s[kgKey] * 2.20462 : null);
+    const series = [];
+    if (source !== "sheet") series.push({ name: "Evolt", color: "var(--label, var(--accent))", points: scans.map((s) => ({ t: at(s.date, s.time), v: num(metric.evolt({ ...s, weightLb: lb(s, "weightLb", "weightKg"), smmLb: lb(s, "smmLb", "skeletalMuscleKg") })) })) });
+    if (source !== "evolt") series.push({ name: "Manual sheet", color: BC_SHEET_COLOR, points: sheets.map((s) => ({ t: at(s.date), v: num(metric.sheet(s.summary)) })) });
+    series.forEach((s) => { s.points = s.points.filter((p) => p.v != null && p.t >= from).sort((a, b) => a.t - b.t); });
+    const shown = series.filter((s) => s.points.length);
+    const chips = (items, on, pick) => el("div", { class: "chips bc-chips" }, items.map(([k, label]) => el("button", { class: `chip${on === k ? " on" : ""}`, onclick: () => pick(k) }, label)));
+    const unitText = (v) => `${nice(v)}${metric.unit === "%" ? "%" : " lb"}`;
+    const card = el("div", { class: "card" },
+      has.evolt && has.sheet ? chips(Object.entries(BC_SOURCES), source, (k) => setBcView({ source: k })) : null,
+      chips(BC_METRICS.map((m) => [m.key, m.label]), metric.key, (k) => setBcView({ metric: k })),
+      chips(BC_RANGES.map((x) => [x.key, x.label]), range.key, (k) => setBcView({ range: k })),
+      shown.length ? bcGraph(shown, metric.unit) : el("div", { class: "card-sub" }, `No ${metric.label.toLowerCase()} in the last ${range.label.toLowerCase()}. All time shows everything.`),
+      // the latest of each, and the change across the window
+      shown.map((s) => {
+        const a = s.points[0], z = s.points[s.points.length - 1], d = Math.round((z.v - a.v) * 10) / 10;
+        return el("div", { class: "bc-latest" }, el("span", { class: "bc-key", style: `background:${s.color}` }), el("span", null, `${s.name}: `, el("b", null, unitText(z.v)), s.points.length > 1 ? el("small", null, ` ${d > 0 ? "+" : ""}${unitText(d)} since ${bcDay(a.t)}`) : el("small", null, ` ${bcDay(z.t)}`)));
+      }),
+      source === "both" ? el("div", { class: "card-sub" }, "Drawn together for comparison. A scan and a skinfold sheet measure differently, so compare the direction of each line rather than the gap between them.") : null);
+    return [el("h2", { class: "section" }, "Body composition", el("small", null, [has.evolt && `${scans.length} scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "))), card];
+  }
+
   // What shows at the end of a logged day: the week so far, the streak, any estimated max that went past the
   // athlete's best, and any Group Testing best from today.
   function sessionSummary(item, si, rows) {
@@ -1062,7 +1152,11 @@
       })));
     }
 
-    if (!byLift.size && !lifts.size && !byTest.size) {
+    // Evolt scans and manual body comp sheets
+    const bc = bodyCompSection();
+    if (bc) main.append(...bc);
+
+    if (!byLift.size && !lifts.size && !byTest.size && !bc) {
       main.append(el("div", { class: "empty" }, "Log your weights and your progress will show up here: your top weights each week, estimated maxes from sets to failure, and your testing results."));
     }
     return main;
@@ -1215,6 +1309,7 @@
     render();
     // testing results are only needed for the Progress tab and the end-of-session summary, so they don't hold up the program
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
+    api.bodyComp().catch(() => null).then((b) => { bodyComp = b; if (view === "progress" && b) render(); });
     // a remote athlete's form checks from the past week and the coach's replies (shown under each exercise)
     if (canSendChecks()) {
       sb.rpc("athlete_portal_form_checks", { p_token: token }).then((r) => {

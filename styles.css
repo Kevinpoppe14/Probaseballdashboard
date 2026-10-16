@@ -3607,3 +3607,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* a figure's change since the first scan, under it */
 .kpi-sub { margin-top: 2px; font-size: 11px; color: var(--text-dim); }
 .bodycomp-scroll { overflow-x: auto; }
+/* Body Composition Trends: which measurements, and which figure */
+.bc-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: -4px 0 10px; }
+.bc-pills { margin: 0; }
+.bc-note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); max-width: 860px; }

@@ -3840,7 +3840,7 @@ const HELP_SECTIONS = [
       "For each item, enter today's result beside the last one and mark Cleared, Improved, No change or Worse (one is suggested). Cleared items drop off next month. + Add a test adds anything else (new symptoms). All performance tests are retested every time; a blank means not tested, never zero.",
       "Silence this flag skips a re-assessment you don't need (it comes back for the next one). The tab also shows the month's body comp, an item-by-item history, and graphs of every number.",
       "Off-season report: the full picture to print or save at the end of the off-season. Findings and outcomes, start vs latest for every measurement, graphs, body comp change, and a coach's summary.",
-      "Body Composition: Evolt scans in pounds (weight, body fat, fat mass, skeletal muscle, lean mass, visceral fat, BWI, bio age), with the change since the first scan, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves once the weight, seven skinfolds and date are in; until then it's kept as a draft on that computer.",
+      "Body Composition: a trends graph of the Evolt scans, the manual sheets, or both drawn together on one graph (still separate records), for body fat, weight, lean mass, fat mass or muscle over 90 days, 6 months, 1 year or all time. Below it, the Evolt scans in pounds (weight, body fat, fat mass, skeletal muscle, lean mass, visceral fat, BWI, bio age), with the change since the first scan, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves once the weight, seven skinfolds and date are in; until then it's kept as a draft on that computer.",
       "Pitching: the pitching assessment, for pitchers.",
     ],
   },
@@ -3860,7 +3860,7 @@ const HELP_SECTIONS = [
       "Create and copy an athlete's private phone link on their Player Plan and text it to them. They can add it to their home screen as \"My DST Program\" (\"My Program\" for Cubs-only players): open the link in Safari, then Share › Add to Home Screen.",
       "Program: opens on the first day not logged yet. −5 / +5 buttons, one tap to use last week's numbers, Enter jumps to the next box, and no weight box for drills with nothing to lift. Log session shows the week so far, the streak, and new bests.",
       "Timed sets (30s, 1:00, or a Time box) get a ⏱ timer with a beep at zero, and a second round for each-side sets.",
-      "Progress: sessions by week, estimated maxes, top weights and Group Testing results. Plan: their timeline, goals and action plan.",
+      "Progress: sessions by week, estimated maxes, top weights, Group Testing results, and the same body composition graph (Evolt, manual sheet or together). Plan: their timeline, goals and action plan.",
       "They can swap an exercise or change sets and reps (⇄), and tap an exercise name for its video.",
       "Remote athletes: an equipment survey (programs are checked against it, and the coach is emailed if something's missing), and a camera on each exercise to film a set as a form check. Their coach gets an email to watch and reply, and the reply shows under the exercise. Clips are private and deleted after 7 days.",
       "Coaches on the Coaches roster: their own app has a Coach button to open Coach Mode or the dashboard (each with a way back).",
@@ -6039,17 +6039,121 @@ function ForcePlatePanel({ athleteId, range }) {
   );
 }
 
-function BodyCompPanel({ athleteId }) {
+// An athlete's Evolt scans, oldest first. Evolt scans are in pounds (evolt_import.js); anything entered in
+// kilograms before that is shown in pounds too.
+function bodyCompScansLb(athleteId) {
+  const lb = (s, lbKey, kgKey) => (s[lbKey] != null ? s[lbKey] : s[kgKey] != null ? Math.round(s[kgKey] * 2.20462 * 10) / 10 : null);
+  return window.AthleteStore.getBodyComp(athleteId).map((s) => ({ ...s, weightLb: lb(s, "weightLb", "weightKg"), smmLb: lb(s, "smmLb", "skeletalMuscleKg") }));
+}
+
+// The Body Composition tab's chart: the Evolt scans, the manual body comp sheets (bodycomp_sheet.js), or both on
+// one chart. Together only draws the two on the same axes; each stays its own record, Evolt scans in body_comp
+// and sheets in assessments. Which source and figure were last shown is remembered on this device.
+const BODYCOMP_METRICS = [
+  { key: "pctFat", label: "Body fat", unit: "%", evolt: (s) => s.bodyFatPct, sheet: (m) => m.pctFat },
+  { key: "weight", label: "Weight", unit: "lb", evolt: (s) => s.weightLb, sheet: (m) => m.weightLb },
+  { key: "lean", label: "Lean mass", unit: "lb", evolt: (s) => s.lbmLb, sheet: (m) => m.leanLb },
+  { key: "fat", label: "Fat mass", unit: "lb", evolt: (s) => s.bodyFatLb, sheet: (m) => m.fatLb },
+  { key: "muscle", label: "Muscle", unit: "lb", evolt: (s) => s.smmLb, sheet: (m) => m.muscleLb },
+];
+const BODYCOMP_SOURCES = { evolt: "Evolt", sheet: "Manual sheet", both: "Together" };
+const BODYCOMP_RANGES = [
+  { key: "90d", label: "90 days", days: 90 },
+  { key: "6m", label: "6 months", days: 183 },
+  { key: "1y", label: "1 year", days: 365 },
+  { key: "all", label: "All time", days: 0 },
+];
+const BODYCOMP_SHEET_COLOR = "#f59e0b";
+function BodyCompTrends({ athleteId }) {
   const { grid, axis } = useChartColors();
   const theme = useTheme();
   const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
-  const chartLineColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
-  // Evolt scans are in pounds (evolt_import.js); anything entered in kilograms before that is shown in pounds too
-  const KG_LB = 2.20462;
+  const evoltColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
+  const [, redraw] = useState(0);
+  React.useEffect(() => { // a sheet saved or deleted below
+    const f = () => redraw((x) => x + 1);
+    window.addEventListener("dst-bodycomp-changed", f);
+    return () => window.removeEventListener("dst-bodycomp-changed", f);
+  }, []);
+  const [view, setViewState] = useState(() => { try { return JSON.parse(localStorage.getItem("bodyCompView") || "{}") || {}; } catch (e) { return {}; } });
+  const setView = (patch) => {
+    const next = { ...view, ...patch };
+    setViewState(next);
+    try { localStorage.setItem("bodyCompView", JSON.stringify(next)); } catch (e) { /* private window: not remembered */ }
+  };
+
+  const scans = bodyCompScansLb(athleteId);
+  const sheets = window.AthleteStore.getBodyCompSheets(athleteId).filter((s) => s.date && s.summary);
+  if (!scans.length && !sheets.length) return null;
+  const has = { evolt: scans.length > 0, sheet: sheets.length > 0 };
+  const source = has.evolt && has.sheet ? (BODYCOMP_SOURCES[view.source] ? view.source : "evolt") : has.evolt ? "evolt" : "sheet";
+  const metric = BODYCOMP_METRICS.find((m) => m.key === view.metric) || BODYCOMP_METRICS[0];
+  const num = (v) => (typeof v === "number" && isFinite(v) ? Math.round(v * 10) / 10 : null);
+  const at = (date, time) => new Date(`${date}T${time || "12:00"}:00`).getTime();
+  const rows = [];
+  if (source !== "sheet") scans.forEach((s) => { const v = num(metric.evolt(s)); if (v != null) rows.push({ t: at(s.date, s.time), evolt: v }); });
+  if (source !== "evolt") sheets.forEach((s) => { const v = num(metric.sheet(s.summary)); if (v != null) rows.push({ t: at(s.date), sheet: v }); });
+  rows.sort((a, b) => a.t - b.t);
+  // the time window, counted back from today
+  const range = BODYCOMP_RANGES.find((r) => r.key === view.range) || BODYCOMP_RANGES[BODYCOMP_RANGES.length - 1];
+  if (range.days) {
+    const from = Date.now() - range.days * 86400000;
+    while (rows.length && rows[0].t < from) rows.shift();
+  }
+  // one source: a straight-line trend through its points, spaced by date
+  const single = source === "both" ? null : source;
+  if (single && rows.length >= 2) {
+    const mx = rows.reduce((n, r) => n + r.t, 0) / rows.length, my = rows.reduce((n, r) => n + r[single], 0) / rows.length;
+    const den = rows.reduce((n, r) => n + (r.t - mx) ** 2, 0);
+    const slope = den ? rows.reduce((n, r) => n + (r.t - mx) * (r[single] - my), 0) / den : 0;
+    rows.forEach((r) => { r.trend = Math.round((my + slope * (r.t - mx)) * 10) / 10; });
+  }
+  const day = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
+  const counts = [has.evolt && `${scans.length} Evolt scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} manual sheet${sheets.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+
+  return (
+    <div className="panel">
+      <h2>Body Composition Trends <small>{counts}</small></h2>
+      <div className="bc-controls no-print">
+        {has.evolt && has.sheet && (
+          <div className="pill-tabs bc-pills" role="group" aria-label="Which measurements">
+            {Object.entries(BODYCOMP_SOURCES).map(([k, label]) => <button key={k} className={`pill-tab ${source === k ? "active" : ""}`} onClick={() => setView({ source: k })}>{label}</button>)}
+          </div>
+        )}
+        <div className="pill-tabs bc-pills" role="group" aria-label="Which figure">
+          {BODYCOMP_METRICS.map((m) => <button key={m.key} className={`pill-tab ${metric.key === m.key ? "active" : ""}`} onClick={() => setView({ metric: m.key })}>{m.label}</button>)}
+        </div>
+        <div className="pill-tabs bc-pills" role="group" aria-label="Time window">
+          {BODYCOMP_RANGES.map((r) => <button key={r.key} className={`pill-tab ${range.key === r.key ? "active" : ""}`} onClick={() => setView({ range: r.key })}>{r.label}</button>)}
+        </div>
+      </div>
+      {rows.length ? (
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={rows}>
+            <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+            <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} stroke={axis} fontSize={12} />
+            <YAxis stroke={axis} fontSize={12} domain={paddedDomain(rows, ["evolt", "sheet", "trend"])} unit={metric.unit === "%" ? "%" : ""} />
+            <Tooltip contentStyle={tooltipStyle} labelFormatter={day} formatter={(v, name) => [`${v}${metric.unit === "%" ? "%" : ` ${metric.unit}`}`, name]} />
+            <Legend />
+            {source !== "sheet" && <Line type="monotone" dataKey="evolt" name={`Evolt ${metric.label.toLowerCase()} (${metric.unit})`} stroke={evoltColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />}
+            {source !== "evolt" && <Line type="monotone" dataKey="sheet" name={`Manual sheet ${metric.label.toLowerCase()} (${metric.unit})`} stroke={BODYCOMP_SHEET_COLOR} strokeWidth={2} dot={{ r: 4 }} connectNulls />}
+            {single && rows.length >= 2 && <Line type="linear" dataKey="trend" name="Trend" stroke="#6b7280" strokeWidth={2} strokeDasharray="6 3" dot={false} />}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="empty-state">No {metric.label.toLowerCase()} recorded on the {source === "sheet" ? "manual sheets" : source === "evolt" ? "Evolt scans" : "scans or sheets"}{range.days ? ` in the last ${range.label.toLowerCase()}. All time shows everything on file` : ""}.</div>
+      )}
+      {source === "both" && (
+        <p className="bc-note">Shown on one chart only: the Evolt scans and the manual sheets stay separate records. They measure differently (a scan against skinfolds, and Evolt's skeletal muscle against the sheet's girth-based muscle estimate), so expect a gap between the lines; the trend of each is what to compare.</p>
+      )}
+    </div>
+  );
+}
+
+function BodyCompPanel({ athleteId }) {
   // with the year, since a history can run over several years: 9/22/26
   const scanDate = (k) => { const [y, m, d] = (k || "").split("-"); return y ? `${Number(m)}/${Number(d)}/${y.slice(2)}` : ""; };
-  const lb = (s, lbKey, kgKey) => (s[lbKey] != null ? s[lbKey] : s[kgKey] != null ? Math.round(s[kgKey] * KG_LB * 10) / 10 : null);
-  const scans = window.AthleteStore.getBodyComp(athleteId).map((s) => ({ ...s, weightLb: lb(s, "weightLb", "weightKg"), smmLb: lb(s, "smmLb", "skeletalMuscleKg") }));
+  const scans = bodyCompScansLb(athleteId);
   if (!scans.length) {
     return (
       <div className="panel">
@@ -6062,15 +6166,6 @@ function BodyCompPanel({ athleteId }) {
     );
   }
 
-  const chartDataBase = scans.map((s) => ({
-    date: scanDate(s.date),
-    bodyFatPct: s.bodyFatPct ?? null,
-    smmLb: s.smmLb ?? null,
-  }));
-  const bodyFatTrend = computeLinearTrend(chartDataBase, "bodyFatPct");
-  const chartData = chartDataBase.map((d, i) => ({ ...d, bodyFatTrend: bodyFatTrend[i] }));
-  const fatDomain = paddedDomain(chartData, ["bodyFatPct", "bodyFatTrend"]);
-  const muscleDomain = paddedDomain(chartData, ["smmLb"]);
   const latest = scans[scans.length - 1];
   const first = scans[0];
   // the change since the first scan on file, beside each latest figure
@@ -6091,19 +6186,7 @@ function BodyCompPanel({ athleteId }) {
         <KpiCard label="Skeletal Muscle Mass" value={latest.smmLb != null ? `${fmt2(latest.smmLb)} lb` : "—"} sub={since("smmLb", " lb")} />
         {latest.bwi != null && <KpiCard label="BWI" value={`${fmt2(latest.bwi)} / 10`} />}
       </div>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-          <XAxis dataKey="date" stroke={axis} fontSize={12} />
-          <YAxis yAxisId="fat" stroke={axis} fontSize={12} domain={fatDomain} />
-          <YAxis yAxisId="muscle" orientation="right" stroke={axis} fontSize={12} domain={muscleDomain} />
-          <Tooltip contentStyle={tooltipStyle} />
-          <Legend />
-          <Line yAxisId="fat" type="monotone" dataKey="bodyFatPct" name="Body Fat (%)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-          <Line yAxisId="fat" type="monotone" dataKey="bodyFatTrend" name="Body Fat Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
-          <Line yAxisId="muscle" type="monotone" dataKey="smmLb" name="Skeletal Muscle (lb)" stroke="#6b7280" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-        </LineChart>
-      </ResponsiveContainer>
+      {/* the graph of these is Body Composition Trends, above */}
       <div className="bodycomp-scroll">
         <table style={{ marginTop: 14 }}>
           <thead>
@@ -6297,6 +6380,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       </div>
 
       <div className={activeTab === "bodycomp" ? "" : "tab-hidden"}>
+        {/* one graph of the Evolt scans, the manual sheets, or both together (just drawn together: they stay separate records) */}
+        <BodyCompTrends athleteId={athlete.id} />
         <BodyCompPanel athleteId={athlete.id} />
         {/* the manual skinfold and girth sheet, beside the Evolt scans */}
         {window.BodyCompSheet && <window.BodyCompSheet athlete={athlete} />}
