@@ -62,6 +62,7 @@
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
+<script type="text/babel" data-presets="react" src="evolt_import.js"></script>
 <script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="form_checks.js"></script>
@@ -3346,11 +3347,12 @@ function Badge({ tone, children }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
-function KpiCard({ label, value, tone, onClick, active }) {
+function KpiCard({ label, value, tone, onClick, active, sub }) {
   const content = (
     <React.Fragment>
       <div className="label">{label}</div>
       <div className={`value ${tone || ""}`}>{value}</div>
+      {sub && <div className="kpi-sub">{sub}</div>}
     </React.Fragment>
   );
   if (onClick) {
@@ -3838,7 +3840,7 @@ const HELP_SECTIONS = [
       "For each item, enter today's result beside the last one and mark Cleared, Improved, No change or Worse (one is suggested). Cleared items drop off next month. + Add a test adds anything else (new symptoms). All performance tests are retested every time; a blank means not tested, never zero.",
       "Silence this flag skips a re-assessment you don't need (it comes back for the next one). The tab also shows the month's body comp, an item-by-item history, and graphs of every number.",
       "Off-season report: the full picture to print or save at the end of the off-season. Findings and outcomes, start vs latest for every measurement, graphs, body comp change, and a coach's summary.",
-      "Body Composition: Evolt imports, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves once the weight, seven skinfolds and date are in; until then it's kept as a draft on that computer.",
+      "Body Composition: Evolt scans in pounds (weight, body fat, fat mass, skeletal muscle, lean mass, visceral fat, BWI, bio age), with the change since the first scan, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves once the weight, seven skinfolds and date are in; until then it's kept as a draft on that computer.",
       "Pitching: the pitching assessment, for pitchers.",
     ],
   },
@@ -3867,7 +3869,7 @@ const HELP_SECTIONS = [
   {
     title: "Imports, Vitruve and data entry",
     items: [
-      "Import & Manual Entry (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), and the other imports and manual entries.",
+      "Import & Manual Entry (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), the Evolt360 import (Evolt Insights › Reports › Result Activity Report › Download Report, then choose the file: members are matched to non-alumni athletes by email, mobile, then first name and last initial, you check the matches before anything is saved, and scans already on file are skipped), and the other imports and manual entries.",
     ],
   },
   {
@@ -6042,13 +6044,18 @@ function BodyCompPanel({ athleteId }) {
   const theme = useTheme();
   const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
   const chartLineColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
-  const scans = window.AthleteStore.getBodyComp(athleteId);
+  // Evolt scans are in pounds (evolt_import.js); anything entered in kilograms before that is shown in pounds too
+  const KG_LB = 2.20462;
+  // with the year, since a history can run over several years: 9/22/26
+  const scanDate = (k) => { const [y, m, d] = (k || "").split("-"); return y ? `${Number(m)}/${Number(d)}/${y.slice(2)}` : ""; };
+  const lb = (s, lbKey, kgKey) => (s[lbKey] != null ? s[lbKey] : s[kgKey] != null ? Math.round(s[kgKey] * KG_LB * 10) / 10 : null);
+  const scans = window.AthleteStore.getBodyComp(athleteId).map((s) => ({ ...s, weightLb: lb(s, "weightLb", "weightKg"), smmLb: lb(s, "smmLb", "skeletalMuscleKg") }));
   if (!scans.length) {
     return (
       <div className="panel">
         <h2>Body Composition <small>Evolt360</small></h2>
         <div className="empty-state">
-          No body composition scans on file for this athlete yet. Import an Evolt360 CSV or add one manually via
+          No body composition scans on file for this athlete yet. Import Evolt's Result Activity Report or add one manually via
           "Import &amp; Manual Entry".
         </div>
       </div>
@@ -6056,15 +6063,22 @@ function BodyCompPanel({ athleteId }) {
   }
 
   const chartDataBase = scans.map((s) => ({
-    date: shortDate(s.date),
+    date: scanDate(s.date),
     bodyFatPct: s.bodyFatPct ?? null,
-    skeletalMuscleKg: s.skeletalMuscleKg ?? null,
+    smmLb: s.smmLb ?? null,
   }));
   const bodyFatTrend = computeLinearTrend(chartDataBase, "bodyFatPct");
   const chartData = chartDataBase.map((d, i) => ({ ...d, bodyFatTrend: bodyFatTrend[i] }));
   const fatDomain = paddedDomain(chartData, ["bodyFatPct", "bodyFatTrend"]);
-  const muscleDomain = paddedDomain(chartData, ["skeletalMuscleKg"]);
+  const muscleDomain = paddedDomain(chartData, ["smmLb"]);
   const latest = scans[scans.length - 1];
+  const first = scans[0];
+  // the change since the first scan on file, beside each latest figure
+  const since = (key, unit) => {
+    if (scans.length < 2 || latest[key] == null || first[key] == null) return null;
+    const d = Math.round((latest[key] - first[key]) * 10) / 10;
+    return `${d > 0 ? "+" : ""}${d}${unit} since ${scanDate(first.date)}`;
+  };
 
   return (
     <div className="panel">
@@ -6072,9 +6086,10 @@ function BodyCompPanel({ athleteId }) {
         Body Composition <small>Evolt360 &middot; {scans.length} scan{scans.length === 1 ? "" : "s"} on file</small>
       </h2>
       <div className="metric-strip">
-        <KpiCard label="Latest Weight" value={latest.weightKg != null ? `${fmt2(latest.weightKg)} kg` : "—"} />
-        <KpiCard label="Latest Body Fat" value={latest.bodyFatPct != null ? `${fmt2(latest.bodyFatPct)}%` : "—"} />
-        <KpiCard label="Skeletal Muscle Mass" value={latest.skeletalMuscleKg != null ? `${fmt2(latest.skeletalMuscleKg)} kg` : "—"} />
+        <KpiCard label="Latest Weight" value={latest.weightLb != null ? `${fmt2(latest.weightLb)} lb` : "—"} sub={since("weightLb", " lb")} />
+        <KpiCard label="Latest Body Fat" value={latest.bodyFatPct != null ? `${fmt2(latest.bodyFatPct)}%` : "—"} sub={since("bodyFatPct", "%")} />
+        <KpiCard label="Skeletal Muscle Mass" value={latest.smmLb != null ? `${fmt2(latest.smmLb)} lb` : "—"} sub={since("smmLb", " lb")} />
+        {latest.bwi != null && <KpiCard label="BWI" value={`${fmt2(latest.bwi)} / 10`} />}
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData}>
@@ -6086,35 +6101,43 @@ function BodyCompPanel({ athleteId }) {
           <Legend />
           <Line yAxisId="fat" type="monotone" dataKey="bodyFatPct" name="Body Fat (%)" stroke={chartLineColor} strokeWidth={2} dot={{ r: 3 }} connectNulls />
           <Line yAxisId="fat" type="monotone" dataKey="bodyFatTrend" name="Body Fat Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
-          <Line yAxisId="muscle" type="monotone" dataKey="skeletalMuscleKg" name="Skeletal Muscle (kg)" stroke="#6b7280" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+          <Line yAxisId="muscle" type="monotone" dataKey="smmLb" name="Skeletal Muscle (lb)" stroke="#6b7280" strokeWidth={2} dot={{ r: 3 }} connectNulls />
         </LineChart>
       </ResponsiveContainer>
-      <table style={{ marginTop: 14 }}>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Weight</th>
-            <th>Body Fat</th>
-            <th>Skeletal Muscle</th>
-            <th>Visceral Fat</th>
-            <th>Body Water</th>
-            <th>BMR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...scans].reverse().map((s, i) => (
-            <tr key={i} style={{ cursor: "default" }}>
-              <td>{shortDate(s.date)}</td>
-              <td>{fmt2(s.weightKg) ?? "—"}</td>
-              <td>{fmt2(s.bodyFatPct) ?? "—"}</td>
-              <td>{fmt2(s.skeletalMuscleKg) ?? "—"}</td>
-              <td>{fmt2(s.visceralFat) ?? "—"}</td>
-              <td>{fmt2(s.bodyWaterPct) ?? "—"}</td>
-              <td>{fmt2(s.bmr) ?? "—"}</td>
+      <div className="bodycomp-scroll">
+        <table style={{ marginTop: 14 }}>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Weight (lb)</th>
+              <th>Body Fat %</th>
+              <th>Fat Mass (lb)</th>
+              <th>Skeletal Muscle (lb)</th>
+              <th>Lean Mass (lb)</th>
+              <th>Visceral Fat</th>
+              <th>BWI</th>
+              <th>Bio Age</th>
+              <th>BMI</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {[...scans].reverse().map((s, i) => (
+              <tr key={s.evoltId || i} style={{ cursor: "default" }}>
+                <td>{scanDate(s.date)}</td>
+                <td>{fmt2(s.weightLb) ?? "—"}</td>
+                <td>{fmt2(s.bodyFatPct) ?? "—"}</td>
+                <td>{fmt2(s.bodyFatLb) ?? "—"}</td>
+                <td>{fmt2(s.smmLb) ?? "—"}</td>
+                <td>{fmt2(s.lbmLb) ?? "—"}</td>
+                <td>{fmt2(s.visceralFat) ?? "—"}</td>
+                <td>{fmt2(s.bwi) ?? "—"}</td>
+                <td>{fmt2(s.bioAge) ?? "—"}</td>
+                <td>{fmt2(s.bmi) ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -6326,18 +6349,6 @@ const HAWKIN_NUMERIC_KEYS = [
 // so "System Weight in Newtons -> lbs" comes out the same either way you derive it).
 const N_TO_LBF = 4.4482216152605;
 
-const EVOLT_FIELD_DEFS = [
-  { key: "athleteName", label: "Athlete Name", required: true, guesses: ["name", "athlete", "client"] },
-  { key: "date", label: "Scan Date", required: true, guesses: ["date", "timestamp"] },
-  { key: "weightKg", label: "Weight (kg)", required: false, guesses: ["weight"] },
-  { key: "bodyFatPct", label: "Body Fat (%)", required: false, guesses: ["body fat", "fat %", "fat percent", "bodyfat"] },
-  { key: "skeletalMuscleKg", label: "Skeletal Muscle Mass (kg)", required: false, guesses: ["skeletal muscle", "muscle mass"] },
-  { key: "visceralFat", label: "Visceral Fat Rating", required: false, guesses: ["visceral"] },
-  { key: "bodyWaterPct", label: "Total Body Water (%)", required: false, guesses: ["water"] },
-  { key: "bmr", label: "BMR (kcal)", required: false, guesses: ["bmr", "basal"] },
-];
-const EVOLT_NUMERIC_KEYS = ["weightKg", "bodyFatPct", "skeletalMuscleKg", "visceralFat", "bodyWaterPct", "bmr"];
-
 // ---- VALD ForceDecks CSV import (Cubs Roster force plate tests) --------------------------
 // VALD's export shares no field names or units with Hawkin's, and several values the rest of the
 // app expects aren't exported directly - they're derived here from what VALD does give (e.g. jump
@@ -6429,35 +6440,6 @@ function guessMapping(headers, fieldDefs) {
     mapping[f.key] = found || "";
   });
   return mapping;
-}
-
-// Evolt360's kiosk export only gives a first name + last initial (e.g. "Shane B"), so rows
-// can't be matched by exact name like other imports. Instead, match against the EXISTING
-// roster only — first name must match exactly, and the last-initial must match the start of
-// the roster athlete's last name. Never creates a new athlete: if nobody on the roster fits,
-// or more than one athlete shares that first name + last initial (ambiguous), the row is
-// skipped rather than guessed.
-function resolveEvoltAthlete(rawName) {
-  const parts = (rawName || "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length < 2) return { status: "no-match" };
-  const firstLower = parts[0].toLowerCase();
-  const lastLower = parts[parts.length - 1].replace(/\.$/, "").toLowerCase();
-  if (!lastLower) return { status: "no-match" };
-
-  const matches = window.AthleteStore.allAthletes().filter((a) => {
-    const nameParts = a.name.trim().split(/\s+/).filter(Boolean);
-    if (nameParts.length < 2) return false;
-    const rFirst = nameParts[0].toLowerCase();
-    const rLast = nameParts[nameParts.length - 1].toLowerCase();
-    if (rFirst !== firstLower) return false;
-    // Single-letter initial from Evolt -> match by prefix. A fully-spelled last name in the
-    // export (some accounts show it) still has to match exactly.
-    return lastLower.length <= 1 ? rLast.startsWith(lastLower) : rLast === lastLower;
-  });
-
-  if (matches.length === 1) return { status: "matched", athlete: matches[0] };
-  if (matches.length > 1) return { status: "ambiguous" };
-  return { status: "no-match" };
 }
 
 function CsvImporter({ title, description, fieldDefs, numericKeys, saveEntry, onImported, dedupe, resolveAthlete, transformEntry }) {
@@ -6682,13 +6664,14 @@ const FORCE_FORM_FIELDS = [
   { key: "concentricImpulse", label: "Concentric Impulse (Ns)", step: 1 },
 ];
 
+// the same figures, in the same pounds, as an imported Evolt scan
 const BODYCOMP_FORM_FIELDS = [
-  { key: "weightKg", label: "Weight (kg)", step: 0.1 },
+  { key: "weightLb", label: "Weight (lb)", step: 0.1 },
   { key: "bodyFatPct", label: "Body Fat (%)", step: 0.1 },
-  { key: "skeletalMuscleKg", label: "Skeletal Muscle Mass (kg)", step: 0.1 },
+  { key: "bodyFatLb", label: "Fat Mass (lb)", step: 0.1 },
+  { key: "smmLb", label: "Skeletal Muscle Mass (lb)", step: 0.1 },
+  { key: "lbmLb", label: "Lean Body Mass (lb)", step: 0.1 },
   { key: "visceralFat", label: "Visceral Fat Rating", step: 1 },
-  { key: "bodyWaterPct", label: "Total Body Water (%)", step: 0.1 },
-  { key: "bmr", label: "BMR (kcal)", step: 1 },
 ];
 
 function todayKey() {
@@ -7311,17 +7294,8 @@ function ImportPage({ onImported, onSelect }) {
           }}
         />
       )}
-      {source === "evolt" && (
-        <CsvImporter
-          title="Evolt360 — Body Composition Scans"
-          description="Upload a CSV exported from the Evolt360 portal. Since Evolt only exports a first name + last initial (e.g. 'Shane B'), rows are matched against the existing roster only — nobody new gets created. A row is skipped if no roster athlete matches, or if more than one athlete shares that first name + last initial."
-          fieldDefs={EVOLT_FIELD_DEFS}
-          numericKeys={EVOLT_NUMERIC_KEYS}
-          saveEntry={(entry) => window.AthleteStore.addBodyComp(entry)}
-          onImported={onImported}
-          resolveAthlete={resolveEvoltAthlete}
-        />
-      )}
+      {/* the Result Activity Report from Evolt Insights (evolt_import.js) */}
+      {source === "evolt" && window.EvoltImporter && <window.EvoltImporter onImported={onImported} />}
       {source === "vald" && (
         <CsvImporter
           title="VALD ForceDecks — Cubs Roster Force Plate Tests"

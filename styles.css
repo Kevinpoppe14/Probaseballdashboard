@@ -3592,3 +3592,18 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .help-section h3 { margin: 0 0 6px; padding-bottom: 4px; border-bottom: 2px solid var(--dst-red); }
 .help-section ul { margin: 0; padding-left: 20px; line-height: 1.55; }
 .help-section li { margin-bottom: 4px; }
+
+/* Evolt360 import (evolt_import.js) */
+.evolt-steps { margin: 0 0 8px; padding-left: 20px; font-size: 13px; line-height: 1.6; }
+.evolt-steps a { color: var(--accent); }
+.evolt-note, .evolt-summary { font-size: 13px; line-height: 1.5; color: var(--text-dim); max-width: 860px; }
+.evolt-summary strong { color: var(--text); }
+.evolt-actions { display: flex; gap: 8px; margin: 10px 0 12px; flex-wrap: wrap; }
+.evolt-table td { vertical-align: middle; }
+.evolt-sub { font-size: 11px; color: var(--text-dim); word-break: break-all; }
+.evolt-sub.inline { display: inline; }
+.evolt-sub.warn { color: var(--warn); }
+.evolt-pick { max-width: 240px; }
+/* a figure's change since the first scan, under it */
+.kpi-sub { margin-top: 2px; font-size: 11px; color: var(--text-dim); }
+.bodycomp-scroll { overflow-x: auto; }
