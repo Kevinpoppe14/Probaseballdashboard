@@ -1110,4 +1110,6 @@
   }
 
   window.AssessmentTab = AssessmentTab;
+  // the form's field layout and record helpers, for the monthly re-assessments (reassessment.js)
+  window.AssessmentLayouts = { MOVEMENT_TESTS, ISOLATED_SPECIFIC, BODY_REGIONS, SQUAT_ANKLE_ROWS, SQUAT_KNEE_ROWS, SQUAT_PELVIS_ROWS, PERFORMANCE_TESTING, SCORE_OPTIONS, withDefaults, newAssessment, fmtDate };
 })();

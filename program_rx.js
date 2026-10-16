@@ -388,3 +388,40 @@
   }
   window.EquipmentCheck = { GROUPS, LIST, label, required, missing, fromName, flaggedIn, spaceMissing, SPACE_YARDS, turfYards, withTurfYards, isSetting, REMOTE_LOCATION: "DST Remote Training" };
 })();
+
+// ---- Re-assessments (shared by the dashboard and the weekly email) -----------------------------------
+// After a full biomechanical assessment, an athlete is re-assessed every four weeks: only what the full assessment
+// flagged is retested (see reassessment.js). A full assessment counts for about eight months; after that, or with
+// none on file, the athlete is due a full assessment again. A coach can silence a re-assessment flag, which skips
+// that one (the flag comes back for the next).
+//   status({ fulls, reassessments, silencedUntil, today })  -> { state, due, daysUntil, full, last, ... }
+//     state: "assess" (no full assessment in the last 8 months; reason "none" or "old"), "reassess-due" (due date
+//     reached), "reassess-soon" (due within 7 days), "ok", or "silenced". Dates are "YYYY-MM-DD".
+(function () {
+  const FULL_VALID_DAYS = 243;
+  const INTERVAL_DAYS = 28;
+  const dayNo = (iso) => Math.floor(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) / 864e5);
+  const isoOf = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
+  const byDate = (a, b) => (a.date || "").localeCompare(b.date || "");
+  function status({ fulls, reassessments, silencedUntil, today }) {
+    const t = dayNo(today);
+    const list = (fulls || []).filter((a) => a && a.date).sort(byDate);
+    const full = list[list.length - 1];
+    if (!full) return { state: "assess", reason: "none" };
+    const age = t - dayNo(full.date);
+    if (age > FULL_VALID_DAYS) return { state: "assess", reason: "old", full, age };
+    const after = (reassessments || []).filter((r) => r && r.date && r.date >= full.date).sort(byDate);
+    const lastReassess = after[after.length - 1] || null;
+    const last = lastReassess ? lastReassess.date : full.date;
+    const due = dayNo(last) + INTERVAL_DAYS;
+    const out = { full, lastReassess, last, due: isoOf(due), daysUntil: due - t };
+    if (silencedUntil && silencedUntil >= today) return { ...out, state: "silenced", silencedUntil };
+    if (out.daysUntil <= 0) return { ...out, state: "reassess-due" };
+    if (out.daysUntil <= 7) return { ...out, state: "reassess-soon" };
+    return { ...out, state: "ok" };
+  }
+  // silencing skips the re-assessment that is due: the flag returns four weeks after that due date (or after today,
+  // when it was already overdue)
+  const silenceUntil = (st, today) => isoOf(Math.max(dayNo(st.due), today ? dayNo(today) : 0) + INTERVAL_DAYS - 1);
+  window.ReassessRules = { FULL_VALID_DAYS, INTERVAL_DAYS, status, silenceUntil, dayNo, isoOf };
+})();

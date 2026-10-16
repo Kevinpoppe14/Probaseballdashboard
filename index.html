@@ -62,6 +62,7 @@
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
+<script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="form_checks.js"></script>
 <script type="text/babel" data-presets="react" src="training_log.js"></script>
@@ -4720,7 +4721,7 @@ function AthleteRow({ athlete, onSelect, onOpenTab, onDataChange, checked, onTog
       {showFacility && <CubsContactCells athlete={athlete} onChanged={onDataChange} />}
       {!showFacility && <td onClick={(e) => e.stopPropagation()}><WeekOverWeekTicker athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "performance")} /></td>}
       <td onClick={(e) => e.stopPropagation()}><ProgramStatusBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "programming")} /></td>
-      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={() => onOpenTab(athlete.id, "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
+      <td onClick={(e) => e.stopPropagation()}><AssessmentDueBadge athleteId={athlete.id} onOpenTab={(tab) => onOpenTab(athlete.id, tab || "assessment")} /><GoalBadges athleteId={athlete.id} small /></td>
       <td><LeagueSelect athlete={athlete} onChanged={onDataChange} /></td>
       <td><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></td>
       <td><LocationSelect athlete={athlete} onChanged={onDataChange} /></td>
@@ -4853,7 +4854,8 @@ function coachNameFromEmail(email) {
 //   Ending this week   a block's last week is this one (line up what comes next)
 //   Not logging        they have a program this week and nothing has been logged for LOG_QUIET_DAYS days
 //   Text due           Cubs players not texted in the past month (the Texted flag on the Cubs roster)
-//   Assessment due     no biomechanical assessment on file, or the latest is three or more weeks old
+//   Re-assessment due  a monthly re-assessment is due, or due within the week (after a full assessment)
+//   Assessment due     no full biomechanical assessment in the last eight months
 // Only active players are listed. Each name opens that player on the tab where it gets dealt with.
 const LOG_QUIET_DAYS = 5;
 function todayItems() {
@@ -4861,7 +4863,7 @@ function todayItems() {
   const lib = window.PeriodizationLib;
   const now = new Date(new Date().toDateString());
   const daysSince = (iso) => (iso ? Math.floor((now - new Date(new Date(iso).toDateString())) / 864e5) : null);
-  const out = { gap: [], ending: [], quiet: [], text: [], assess: [] };
+  const out = { gap: [], ending: [], quiet: [], text: [], assess: [], reassess: [] };
   // Cubs players appear only for Kevin (the same account that gets them in the weekly email); for everyone else
   // the panel covers DST athletes only
   const forKevin = (S.currentUserEmail() || "").toLowerCase() === "kevin@dynamicsportstraining.com";
@@ -4891,8 +4893,16 @@ function todayItems() {
     const assessments = S.getAssessments(a.id);
     const latest = assessments[assessments.length - 1];
     const old = latest ? daysSince(`${latest.date}T12:00:00`) : null;
-    // Cubs players are not given DST's biomechanical assessment, so they are left off this list
-    if (a.rosterGroup !== CUBS_ROSTER_GROUP && (!latest || old >= ASSESSMENT_DUE_SOON_DAYS)) out.assess.push({ a, note: latest ? `${old} days` : "none on file", tab: "assessment", sort: latest ? old : 9999 });
+    // Cubs players are not given DST's biomechanical assessment, so they are left off these lists. With a full
+    // assessment in the last eight months, a monthly re-assessment is due instead (see window.ReassessRules)
+    if (a.rosterGroup !== CUBS_ROSTER_GROUP) {
+      const st = window.reassessStatusFor ? window.reassessStatusFor(a) : null;
+      if (!latest || !st || st.state === "assess") out.assess.push({ a, note: latest ? `last ${old} days ago` : "none on file", tab: "assessment", sort: latest ? old : 9999 });
+      else if (st.state === "reassess-due" || st.state === "reassess-soon") {
+        const when = new Date(`${st.due}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+        out.reassess.push({ a, note: st.daysUntil < 0 ? `${-st.daysUntil} days overdue` : st.daysUntil === 0 ? "today" : when, tab: "reassess", sort: -st.daysUntil });
+      }
+    }
   });
   const byName = (x, y) => lastNameOnly(x.a.name).localeCompare(lastNameOnly(y.a.name));
   const longestFirst = (x, y) => (y.sort || 0) - (x.sort || 0) || byName(x, y);
@@ -4901,7 +4911,8 @@ function todayItems() {
     { key: "ending", title: "Program ending this week", tone: "warn", hint: "Line up the next phase", list: out.ending.sort(byName) },
     { key: "quiet", title: "Not logging", tone: "warn", hint: `Has a program, nothing logged in ${LOG_QUIET_DAYS}+ days`, list: out.quiet.sort(longestFirst) },
     { key: "text", title: "Text due", tone: "neutral", hint: "Cubs players not texted in the past month", list: out.text.sort(longestFirst) },
-    { key: "assess", title: "Assessment due", tone: "neutral", hint: "DST athletes: none on file, or three or more weeks old", list: out.assess.sort(longestFirst) },
+    { key: "reassess", title: "Re-assessment due", tone: "warn", hint: "Monthly re-assessment due, or due within a week", list: out.reassess.sort(longestFirst) },
+    { key: "assess", title: "Assessment due", tone: "neutral", hint: "DST athletes: no full assessment in the last 8 months", list: out.assess.sort(longestFirst) },
   ];
 }
 function TodayPanel({ onOpenTab, dataVersion }) {
@@ -5412,19 +5423,23 @@ function GoalBadges({ athleteId, small }) {
   );
 }
 
+// After a full assessment, athletes are re-assessed every four weeks (reassessment.js; the rules are
+// window.ReassessRules in program_rx.js). The flag says "Due for Assessment" when there is no full assessment in the last
+// eight months, "Needs Re-Assessment" once a re-assessment is due (opening that tab), the day it is due in the week before,
+// and otherwise links to the latest assessment. A silenced flag shows as up to date. `onOpenTab(tab)` opens the profile.
 function AssessmentDueBadge({ athleteId, onOpenTab }) {
+  const athlete = getPeople().find((a) => a.id === athleteId);
+  const st = window.reassessStatusFor ? window.reassessStatusFor(athlete) : null;
   const assessments = window.AthleteStore.getAssessments(athleteId);
-  const href = `?athlete=${athleteId}&tab=assessment`;
-  const onClick = (e) => handleAppLinkClick(e, onOpenTab);
-  if (!assessments.length) {
-    return <a href={href} onClick={onClick} className="badge danger badge-link" title="No biomechanical assessment on file yet">Due for Assessment</a>;
-  }
-  const latest = assessments[assessments.length - 1];
-  const daysSince = Math.floor((Date.now() - new Date(`${latest.date}T00:00:00`).getTime()) / 864e5);
-  if (daysSince >= ASSESSMENT_DUE_SOON_DAYS) {
-    return <a href={href} onClick={onClick} className="badge warn badge-link" title={`Last assessed ${shortDate(latest.date)} (${daysSince} days ago)`}>Due for Assessment Next Week</a>;
-  }
-  return <a href={href} onClick={onClick} className="badge good badge-link" title={`Last assessed ${shortDate(latest.date)} (${daysSince} days ago)`}>View Most Recent Assessment</a>;
+  const link = (tab, tone, title, text) => (
+    <a href={`?athlete=${athleteId}&tab=${tab}`} onClick={(e) => handleAppLinkClick(e, () => onOpenTab(tab))} className={`badge ${tone} badge-link`} title={title}>{text}</a>
+  );
+  if (!assessments.length) return link("assessment", "danger", "No biomechanical assessment on file yet", "Due for Assessment");
+  if (!st || st.state === "assess") return link("assessment", "warn", `Last full assessment ${shortDate(assessments[assessments.length - 1].date)}, more than 8 months ago`, "Due for Assessment");
+  const lastText = `Last ${st.lastReassess ? "re-assessment" : "full assessment"} ${shortDate(st.last)}`;
+  if (st.state === "reassess-due") return link("reassess", "warn", `${lastText}; re-assessment was due ${shortDate(st.due)}`, "Needs Re-Assessment");
+  if (st.state === "reassess-soon") return link("reassess", "neutral", `${lastText}; re-assessment due ${shortDate(st.due)}`, `Re-Assessment ${new Date(`${st.due}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`);
+  return link(st.lastReassess ? "reassess" : "assessment", "good", `${lastText}${st.state === "silenced" ? " · re-assessment flag silenced" : `; next re-assessment ${shortDate(st.due)}`}`, "View Most Recent Assessment");
 }
 
 // ---- Automated CMJ summary ----
@@ -6011,7 +6026,7 @@ function ActivitySignature({ activity, className }) {
 }
 
 // the tabs grouped under Assessments on a player profile
-const ASSESSMENT_TABS = ["assessment", "bodycomp", "pitching"];
+const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "pitching"];
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
   // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
@@ -6101,6 +6116,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       {ASSESSMENT_TABS.includes(activeTab) && (
         <div className="pill-tabs profile-subtabs no-print">
           <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical</button>
+          <button className={`pill-tab ${activeTab === "reassess" ? "active" : ""}`} data-tab="reassess" onClick={() => setActiveTab("reassess")}>Re-Assessment</button>
           <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
           {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching</button>}
         </div>
@@ -6145,6 +6161,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <PositionalProfilePanel athlete={athlete} />
         <RangeSelector range={perfRange} onChange={setPerfRange} />
         <ForcePlatePanel athleteId={athlete.id} range={perfRange} />
+        {/* performance tests from the biomechanical assessments and re-assessments, once there are two results */}
+        {window.AssessmentTrends && <window.AssessmentTrends athleteId={athlete.id} only="performance" title="Assessment performance tests" hint="from biomechanical assessments and re-assessments; blanks are left out" />}
       </div>
 
       <div className={activeTab === "bodycomp" ? "" : "tab-hidden"}>
@@ -6153,6 +6171,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         {window.BodyCompSheet && <window.BodyCompSheet athlete={athlete} />}
       </div>
 
+      {/* the monthly re-assessment: only built while open, so it reads the latest assessments each time */}
+      {activeTab === "reassess" && window.ReassessmentTab && <window.ReassessmentTab athlete={athlete} onOpenTab={setActiveTab} />}
       <div className={activeTab === "assessment" ? "" : "tab-hidden"}>
         {window.AssessmentTab
           ? <window.AssessmentTab athlete={athlete} />

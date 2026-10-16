@@ -11,6 +11,11 @@
 // planProgress) since this runs with no browser involved — there's nothing to call into.
 
 const SUPABASE_URL = "https://avgfxwhxglftftmlydiz.supabase.co";
+
+// the re-assessment rules shared with the dashboard (program_rx.js), loaded with a stand-in for the browser's window
+global.window = global.window || {};
+require("../program_rx.js");
+const ReassessRules = global.window.ReassessRules;
 const APP_BASE_URL = "https://probaseballdashboard.vercel.app";
 const SEND_AS_EMAIL = "kevin@dynamicsportstraining.com"; // Kevin's own choice, not a shared/dedicated mailbox
 const EXCLUDED_RECIPIENTS = ["test@test.com"]; // the dev/test login, not a real coach
@@ -152,11 +157,18 @@ function programStatus(plan, today) {
   if (endsThisWeek) return { tone: "warn", label: "Ending this week" };
   return { tone: "good", label: "On track" };
 }
-function assessmentStatus(assessments, today) {
-  if (!assessments.length) return { tone: "danger", label: "Due for Assessment" };
-  const latest = [...assessments].sort((a, b) => (a.date || "").localeCompare(b.date || ""))[assessments.length - 1];
-  const daysSince = Math.floor((today.getTime() - new Date(`${latest.date}T00:00:00`).getTime()) / 864e5);
-  if (daysSince >= 30) return { tone: "warn", label: `Due (${daysSince}d)` };
+// The assessment column, with the dashboard's own rules (window.ReassessRules in program_rx.js): no full assessment in
+// the last eight months -> "Due for Assessment"; a monthly re-assessment due -> "Needs Re-Assessment"; due in the
+// coming week -> "Re-Assessment due Thu, Oct 22" (so this Sunday's email warns of it); a silenced flag shows nothing.
+function assessmentStatus(fulls, reassessments, silencedUntil, today) {
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const st = ReassessRules.status({ fulls, reassessments, silencedUntil: silencedUntil || "", today: iso });
+  if (st.state === "assess") return { tone: st.reason === "none" ? "danger" : "warn", label: "Due for Assessment" };
+  if (st.state === "reassess-due") return { tone: "warn", label: st.daysUntil < 0 ? `Needs Re-Assessment (${-st.daysUntil}d overdue)` : "Needs Re-Assessment today" };
+  if (st.state === "reassess-soon") {
+    const due = new Date(`${st.due}T00:00:00Z`);
+    return { tone: "neutral", label: `Re-Assessment due ${due.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}` };
+  }
   return null;
 }
 
@@ -342,8 +354,10 @@ module.exports = async (req, res) => {
     });
     const planByAthlete = new Map(periodRows.map((r) => [r.athlete_id, r.data]));
     const assessByAthlete = new Map();
+    const reassessByAthlete = new Map();
     assessRows.forEach((r) => {
-      if (r.data && r.data.kind) return; // pitching assessments and body comp sheets share the table; only the biomechanical one (no kind) is tracked here
+      if (r.data && r.data.kind === "reassess") { const l = reassessByAthlete.get(r.athlete_id) || []; l.push(r.data); reassessByAthlete.set(r.athlete_id, l); return; } // monthly re-assessments
+      if (r.data && r.data.kind) return; // pitching assessments and body comp sheets share the table; only the biomechanical one (no kind) is a full assessment
       const list = assessByAthlete.get(r.athlete_id) || [];
       list.push(r.data);
       assessByAthlete.set(r.athlete_id, list);
@@ -360,7 +374,7 @@ module.exports = async (req, res) => {
         dstLocation: cubsOnly ? CUBS_HEADING : a.dstLocation || "No Location Set",
         ticker: WEEK_METRICS.map((m) => weekOverWeekDelta(tests, m)).filter(Boolean),
         program: programStatus(planByAthlete.get(key) || null, chicagoToday),
-        assessment: assessmentStatus(assessByAthlete.get(key) || [], chicagoToday),
+        assessment: assessmentStatus(assessByAthlete.get(key) || [], reassessByAthlete.get(key) || [], a.reassessSilencedUntil, chicagoToday),
       };
     });
 

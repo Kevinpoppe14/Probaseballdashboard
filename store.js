@@ -634,6 +634,10 @@
   function getPitchingAssessments(athleteId) {
     return assessmentsOf(athleteId, "pitching");
   }
+  // monthly re-assessments (reassessment.js), kind "reassess"
+  function getReassessments(athleteId) {
+    return assessmentsOf(athleteId, "reassess");
+  }
   function getBodyCompSheets(athleteId) {
     return assessmentsOf(athleteId, "bodycomp");
   }
@@ -1172,6 +1176,7 @@
     getAssessments,
     getPitchingAssessments,
     getBodyCompSheets,
+    getReassessments,
     saveAssessment,
     deleteAssessment,
     allOffseasonFacilities,
