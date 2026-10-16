@@ -2590,7 +2590,15 @@ tbody tr:hover {
 /* the remove buttons in an exercise box: white (dark text in light mode) rather than link blue */
 .program-ex .btn-link[title="Remove exercise"], .program-ex .pe-x { color: #fff; text-decoration: none; }
 :root[data-theme="light"] .program-ex .btn-link[title="Remove exercise"], :root[data-theme="light"] .program-ex .pe-x { color: #333; }
-.program-copy-prev-week { margin-left: auto; padding: 2px 8px; font-size: 11px; }
+.program-editor .btn.program-copy-prev-week, :root[data-theme="light"] .program-editor .btn.program-copy-prev-week { margin-left: auto; padding: 2px 8px; font-size: 11px; background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
+.program-editor .btn.program-copy-prev-week:hover, :root[data-theme="light"] .program-editor .btn.program-copy-prev-week:hover { background: #c0313f; border-color: #c0313f; }
+/* remove week: a white cross (dark in light mode) */
+.program-editor .program-week-head .btn-link.program-remove-week { color: #fff; text-decoration: none; font-size: 15px; padding: 0 4px; }
+:root[data-theme="light"] .program-editor .program-week-head .btn-link.program-remove-week { color: #333; }
+.program-remove-week:disabled { opacity: 0.3; }
+/* the warm-up box filled like the sets, reps and other boxes */
+.program-editor .program-warmup { background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; }
+:root[data-theme="light"] .program-editor .program-warmup { background: #fff; color: #111; }
 .program-ex-group .pe-x { padding: 0 2px; }
 .program-ex-group input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; padding: 4px 5px; text-align: center; }
 .program-ex-preview { margin-top: 4px; font-size: 12px; color: var(--text-dim); }
@@ -3262,9 +3270,15 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tick-block { display: inline-flex; align-items: center; gap: 5px; margin: 0 6px 0 0; padding: 2px 8px; border: 1px solid var(--border); border-radius: 10px; font-size: 11px; font-weight: 600; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
 .program-tick-block input { width: 15px; height: 15px; margin: 0; accent-color: var(--dst-red); }
 /* the two add buttons under a day are stacked: add to the last block on top, start a new block under it */
-.program-editor .program-day-actions { flex-direction: column; align-items: flex-start; gap: 6px; }
-/* red, small, tucked under the right of its block over the line between blocks, so it adds almost no height */
-.program-editor .btn.program-add-to-block, :root[data-theme="light"] .program-editor .btn.program-add-to-block { display: block; width: max-content; margin: 2px 0 -9px auto; position: relative; z-index: 1; padding: 1px 8px; font-size: 10.5px; line-height: 1.4; min-height: 0; background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
+/* Add B Block: a red + sitting on the bottom edge of the day, with its words beside it */
+.program-editor .program-day { position: relative; padding-bottom: 22px; }
+.program-editor .program-days { padding-bottom: 18px; }
+.program-editor .program-day-actions { position: absolute; left: 10px; bottom: -12px; margin: 0; z-index: 2; }
+.program-add-block { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 0; border: none; border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.program-add-block-plus { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--dst-red); color: #fff; font-size: 16px; font-weight: 700; line-height: 1; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+.program-add-block:hover .program-add-block-plus { background: #c0313f; }
+/* "Add A2.": red, small, under the left of its block over the line between blocks, so it adds almost no height */
+.program-editor .btn.program-add-to-block, :root[data-theme="light"] .program-editor .btn.program-add-to-block { display: block; width: max-content; margin: 2px auto -9px 4px; position: relative; z-index: 1; padding: 1px 8px; font-size: 10.5px; line-height: 1.4; min-height: 0; background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
 .program-editor .btn.program-add-to-block:hover, :root[data-theme="light"] .program-editor .btn.program-add-to-block:hover { background: #c0313f; border-color: #c0313f; }
 .program-add-notes { display: inline-block; margin-top: 6px; font-size: 12px; }
 /* Program builder: dragging a day by its grip to reorder */

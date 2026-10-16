@@ -1949,7 +1949,7 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                 Copy previous week
               </button>
             )}
-            <button className="btn-link" disabled={draft.weeks.length === 1} onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>Remove week</button>
+            <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>✕</button>
           </div>
 
           <div className="program-days">
@@ -2132,16 +2132,16 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
                     {!(session.exercises[ei + 1] && session.exercises[ei + 1].linked) && (
                       <button
                         className="btn btn-small-grey program-add-to-block"
-                        title="Adds an exercise to this block, as a superset (A1, A2…)"
+                        title="Adds the next exercise to this block, as a superset (A1, A2…)"
                         onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei + 1, 0, { ...newExercise(), linked: true }); })}
                       >
-                        Add Exercise to {labels[ei].replace(/[^A-Za-z]/g, "")} Block
+                        Add {(() => { const m = /^([A-Za-z]+)([0-9]+)/.exec(labels[ei] || ""); return m ? `${m[1]}${Number(m[2]) + 1}.` : "exercise"; })()}
                       </button>
                     )}
                     </React.Fragment>
                   ))}
                   <div className="program-day-actions">
-                    <button className="btn btn-small-grey" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}>Add {blockLetters.next} Block</button>
+                    <button className="program-add-block" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}><span className="program-add-block-plus" aria-hidden="true">+</span>Add {blockLetters.next} Block</button>
                   </div>
                 </div>
               );
