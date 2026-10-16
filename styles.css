@@ -1333,6 +1333,9 @@ tbody tr:hover {
   /* ---- "Print / Save PDF" on the plan: show only the plan ---- */
   body.print-plan-only *:not(:has(.period-wrap)):not(.period-wrap):not(.period-wrap *) { display: none !important; }
   body.print-plan-only .main { padding: 0 !important; max-width: none !important; }
+  /* goals sit above the timeline on screen; on paper they stay after it */
+  .period-wrap { display: flex; flex-direction: column; }
+  .period-wrap > .period-goals-slot { order: 1; }
   body.print-plan-only, body.print-plan-only .app, body.print-plan-only .main { background: #fff !important; min-height: 0 !important; }
 
   /* ---- white-paper colours for the plan; keep every colour that carries meaning ---- */
@@ -2775,14 +2778,30 @@ tbody tr:hover {
 .program-assign-result { margin-top: 12px; font-size: 13px; }
 
 /* Programs by section on an athlete's periodization: section pills, then one tab per block */
-.period-program-tabs { user-select: text; }
-.ppt-sections { margin-bottom: 10px; }
-.ppt-blocks { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
-.ppt-block { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px 8px 0 0; background: transparent; color: var(--text-dim); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
-.ppt-block small { font-size: 11px; }
-.ppt-block:hover { color: var(--text); }
-.ppt-block.active { color: var(--text); border-color: var(--dst-red); background: rgba(165, 42, 52, 0.16); }
-.ppt-block.now small { color: var(--dst-red); }
+/* The program builder under the timeline: set apart from the other sections with a red frame and a tinted top,
+   so it reads as the workbook to fill in */
+.period-program-tabs { user-select: text; border: 2px solid var(--dst-red); border-top-width: 6px; background: linear-gradient(to bottom, rgba(165, 42, 52, 0.12), rgba(165, 42, 52, 0) 140px), var(--panel); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.25); }
+.period-program-tabs > .ppt-title { font-size: 20px; letter-spacing: 0.02em; }
+.period-program-tabs > .ppt-title > span:first-child { text-transform: uppercase; }
+.period-program-tabs > .ppt-title small { text-transform: none; letter-spacing: 0; }
+.ppt-sections { margin-bottom: 12px; }
+.ppt-section { display: inline-flex; align-items: center; gap: 7px; }
+.ppt-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--tab-color); flex: 0 0 auto; }
+.ppt-section.active .ppt-dot { background: #fff; }
+/* phase tabs: each in its block's color; the open one filled in that color, a phase with no program outlined */
+.ppt-blocks { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 0; border-bottom: 3px solid var(--tab-line, var(--dst-red)); margin-bottom: 14px; }
+.ppt-block { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 120px; padding: 7px 14px 8px; border: 1px solid color-mix(in srgb, var(--tab-color) 55%, transparent); border-top: 5px solid var(--tab-color); border-bottom: none; border-radius: 9px 9px 0 0; background: color-mix(in srgb, var(--tab-color) 14%, transparent); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; text-align: left; transition: background 0.12s, transform 0.12s; }
+.ppt-block strong { font-size: 14px; }
+.ppt-block small { font-size: 11px; color: var(--text-dim); }
+.ppt-block:hover { background: color-mix(in srgb, var(--tab-color) 26%, transparent); }
+.ppt-block.active { background: var(--tab-color); border-color: var(--tab-color); color: #fff; transform: translateY(-3px); box-shadow: 0 4px 12px color-mix(in srgb, var(--tab-color) 45%, transparent); }
+.ppt-block.active small { color: rgba(255, 255, 255, 0.85); }
+.ppt-block.empty { background: transparent; border-style: dashed; border-top-style: solid; }
+.ppt-block.empty.active { background: color-mix(in srgb, var(--tab-color) 70%, transparent); border-style: solid; }
+.ppt-block-top { display: flex; align-items: center; gap: 6px; width: 100%; }
+.ppt-block-no { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--tab-color); color: #fff; font-size: 11px; font-weight: 700; }
+.ppt-block.active .ppt-block-no { background: #fff; color: var(--tab-color); }
+.ppt-now { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: #fff; color: var(--dst-red); font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; box-shadow: 0 0 0 1px var(--dst-red); }
 .ppt-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ppt-individualize { flex: 0 0 auto; }
 .ppt-weekview, .ppt-printall { flex: 0 0 auto; }

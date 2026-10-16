@@ -582,16 +582,23 @@
         {weekView && <CombinedWeek plan={plan} onOpen={(b) => { onNav({ laneId: b.lane, blockId: b.id }); setWeekView(false); }} />}
         <div className="pill-tabs ppt-sections">
           {lanes.map((l) => (
-            <button key={l.id} className={`pill-tab ${l.id === lane.id ? "active" : ""}`} onClick={() => onNav({ laneId: l.id, blockId: null })}>{l.name}</button>
-          ))}
-        </div>
-        <div className="ppt-blocks">
-          {blocks.map((b) => (
-            <button key={b.id} className={`ppt-block ${block && b.id === block.id ? "active" : ""} ${isNow(b) ? "now" : ""}`} onClick={() => onNav({ laneId: lane.id, blockId: b.id })}>
-              <strong>{b.label || "Untitled"}</strong>
-              <small>{weeksText(b)}{programById(b.programId) ? " · program" : " · no program yet"}{isNow(b) ? " · now" : ""}</small>
+            <button key={l.id} className={`pill-tab ppt-section ${l.id === lane.id ? "active" : ""}`} style={{ "--tab-color": l.color || PALETTE[7] }} onClick={() => onNav({ laneId: l.id, blockId: null })}>
+              <span className="ppt-dot" />{l.name}
             </button>
           ))}
+        </div>
+        {/* one tab per phase, in the block's own color; a phase with no program yet is outlined, still to build */}
+        <div className="ppt-blocks" style={{ "--tab-line": lane.color || PALETTE[7] }}>
+          {blocks.map((b, i) => {
+            const has = !!programById(b.programId);
+            return (
+              <button key={b.id} className={`ppt-block ${block && b.id === block.id ? "active" : ""} ${isNow(b) ? "now" : ""} ${has ? "" : "empty"}`} style={{ "--tab-color": blockColorIn(plan, b) }} onClick={() => onNav({ laneId: lane.id, blockId: b.id })}>
+                <span className="ppt-block-top"><span className="ppt-block-no">{i + 1}</span>{isNow(b) && <span className="ppt-now">Now</span>}</span>
+                <strong>{b.label || "Untitled"}</strong>
+                <small>{weeksText(b)} · {has ? "program" : "to build"}</small>
+              </button>
+            );
+          })}
         </div>
 
         {block && program && indivFor === block.id && (
@@ -1705,6 +1712,11 @@
 
         <AthletePhoneLink athlete={athlete} />
 
+        {/* goals and the action plan come first on screen; printed, they stay after the timeline (see .period-goals-slot) */}
+        <div className="period-goals-slot">
+          <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
+        </div>
+
         <div className="panel period-toolbar no-print">
           <div className="period-toolbar-row">
             <div className="field">
@@ -1974,8 +1986,6 @@
         )}
 
         <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} />
-
-        <GoalsSection plan={plan} onSave={saveText} lead={offseasonLead(athlete)} />
       </div>
     );
   }
