@@ -3328,6 +3328,11 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tag button:hover { color: var(--text); }
 .program-add-tags { font-size: 12px; }
 .program-tags .btn-link.program-add-tags { color: var(--text); } /* not link blue */
+.program-add-desc { font-size: 12px; color: var(--text); padding: 0; }
+/* asked after changing an exercise that sits in the same spot in other weeks */
+.program-swap-ask { max-width: 460px; }
+.program-swap-ask p { font-size: 14px; line-height: 1.45; }
+.program-swap-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .program-tags .program-tag-input { height: 28px; min-width: 190px; padding: 0 8px; font-size: 13px; font-weight: 400; color: var(--text); background: transparent; border: 1px solid var(--text-dim); border-radius: 6px; }
 /* Vitruve: the import preview on the Training Log, and a day of imported data */
 .vit-preview { flex: 1 1 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 10px; padding: 14px; border: 1px solid var(--dst-red); border-radius: 8px; background: var(--panel-2); font-size: 13px; }

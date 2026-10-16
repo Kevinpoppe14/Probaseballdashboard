@@ -1639,9 +1639,18 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
     setFocusSet((f) => (f && f.wi === wi && f.si === si && f.letter === letter ? f : { wi, si, letter }));
   };
 
-  // Swapping an exercise in one week: once the name box is left, offer to make the same swap in every later
-  // week, for the exercise with the old name in the same spot on the same day.
+  // Swapping an exercise in one week: once the name box is left, if the old exercise is in the same spot on the same
+  // day in other weeks, a pop-up asks whether to change it there too: every week, this week and the ones after, or
+  // just this one. "The same spot" is the old name at the same label (A2, B2…), so a placeholder used twice in a
+  // day, such as "Re-Ed" at A2 and at B2, is only changed where this one sits.
   const nameAtFocus = React.useRef(null);
+  const [swapAsk, setSwapAsk] = useState(null); // { si, oldName, newName, spot, earlier: [week indexes], later: [...] }
+  const [descOpen, setDescOpen] = useState(false); // the empty description box opened with "+ Description"
+  const swapMatches = (week, si, oldName, spot) => {
+    const xs = ((week.sessions || [])[si] || {}).exercises || [];
+    const labels = window.exerciseLabels(xs);
+    return xs.map((e, k) => k).filter((k) => (xs[k].name || "").trim().toLowerCase() === oldName.toLowerCase() && labels[k] === spot);
+  };
   const offerSwapForward = (wi, si, ei) => {
     const was = nameAtFocus.current;
     nameAtFocus.current = null;
@@ -1649,16 +1658,16 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
     const oldName = (was.name || "").trim();
     const newName = (((draft.weeks[wi].sessions[si] || {}).exercises[ei] || {}).name || "").trim();
     if (!oldName || !newName || oldName.toLowerCase() === newName.toLowerCase()) return;
-    const same = (e) => (e.name || "").trim().toLowerCase() === oldName.toLowerCase();
-    // "the same exercise" in a later week means the old name in the same spot on that day (A2, B2…), so a
-    // placeholder used twice in a day, such as "Re-Ed" at A2 and at B2, is only changed where this one sits
     const spot = window.exerciseLabels(draft.weeks[wi].sessions[si].exercises)[ei];
-    const matches = (week) => { const xs = ((week.sessions || [])[si] || {}).exercises || []; const labels = window.exerciseLabels(xs); return xs.map((e, k) => k).filter((k) => same(xs[k]) && labels[k] === spot); };
-    const later = draft.weeks.map((w, i) => i).filter((i) => i > wi && matches(draft.weeks[i]).length);
-    if (!later.length) return;
-    const names = later.map((i) => draft.weeks[i].name || `Week ${i + 1}`).join(", ");
-    if (!window.confirm(`Also change "${oldName}" to "${newName}" at ${spot.replace(/\.$/, "")} in the following weeks (${names})?`)) return;
-    edit((d) => later.forEach((i) => matches(d.weeks[i]).forEach((k) => { d.weeks[i].sessions[si].exercises[k].name = newName; })));
+    const others = draft.weeks.map((w, i) => i).filter((i) => i !== wi && swapMatches(draft.weeks[i], si, oldName, spot).length);
+    if (!others.length) return;
+    setSwapAsk({ si, oldName, newName, spot, earlier: others.filter((i) => i < wi), later: others.filter((i) => i > wi) });
+  };
+  const applySwap = (weeks) => {
+    const a = swapAsk;
+    setSwapAsk(null);
+    if (!a || !weeks.length) return;
+    edit((d) => weeks.forEach((i) => swapMatches(d.weeks[i], a.si, a.oldName, a.spot).forEach((k) => { d.weeks[i].sessions[a.si].exercises[k].name = a.newName; })));
   };
   const canSave = (draft.name || "").trim().length > 0;
 
@@ -1893,9 +1902,14 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
         <label className="facility-field wide"><span>Program name *</span>
           {input(draft.name, (v) => edit((d) => { d.name = v; }), { placeholder: "e.g. Off-season strength, Phase 1" })}
         </label>
-        <label className="facility-field wide"><span>Description</span>
-          <textarea rows={2} value={draft.description || ""} onChange={(e) => edit((d) => { d.description = e.target.value; })} placeholder="Goal, who it's for, how it fits in the plan" />
-        </label>
+        {/* the description is optional: a box only once there is one, or after "+ Description" */}
+        {(draft.description || "").trim() || descOpen ? (
+          <label className="facility-field wide"><span>Description</span>
+            <textarea rows={2} autoFocus={descOpen && !(draft.description || "").trim()} value={draft.description || ""} onChange={(e) => edit((d) => { d.description = e.target.value; })} onBlur={() => setDescOpen(false)} placeholder="Goal, who it's for, how it fits in the plan" />
+          </label>
+        ) : (
+          <div className="facility-field wide"><button className="btn-link program-add-desc" onClick={() => setDescOpen(true)}>+ Description</button></div>
+        )}
         {/* suggested next phase(s): only ever offered as a suggestion when assigning or building, never applied automatically */}
         <div className="facility-field wide"><span>Suggested next phase (optional, a suggestion only)</span>
           <div className="program-next">
@@ -2156,6 +2170,21 @@ function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLab
       ))}
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
+      {/* changed an exercise that also sits in the same spot in other weeks: change it there too? */}
+      {swapAsk && ReactDOM.createPortal(
+        <div className="zoom-overlay" onClick={() => setSwapAsk(null)}>
+          <div className="zoom-modal program-swap-ask" onClick={(e) => e.stopPropagation()}>
+            <h2>Change it in other weeks too?</h2>
+            <p>You changed <strong>{swapAsk.oldName}</strong> to <strong>{swapAsk.newName}</strong> at {swapAsk.spot.replace(/\.$/, "")}. It's in the same spot in {[...swapAsk.earlier, ...swapAsk.later].map((i) => draft.weeks[i].name || `Week ${i + 1}`).join(", ")}.</p>
+            <div className="program-swap-actions">
+              {swapAsk.earlier.length > 0 && <button className="btn" onClick={() => applySwap([...swapAsk.earlier, ...swapAsk.later])}>Every week</button>}
+              {swapAsk.later.length > 0 && <button className={swapAsk.earlier.length ? "btn btn-secondary" : "btn"} onClick={() => applySwap(swapAsk.later)}>{swapAsk.earlier.length ? "This week and the ones after" : "This week and every week after"}</button>}
+              <button className="btn btn-secondary" onClick={() => setSwapAsk(null)}>Just this week</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       <div className="facility-form-actions">
         {!autoSave && <button className="btn" disabled={!canSave} onClick={save}>Save program</button>}
         {onCancel && <button className={autoSave ? "btn" : "btn-link"} onClick={onCancel}>{cancelLabel || (autoSave ? "Done" : "Cancel")}</button>}
