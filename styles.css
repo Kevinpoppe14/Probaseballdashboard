@@ -2778,7 +2778,13 @@ tbody tr:hover {
 .tl-changes { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .tl-changes li { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .tl-changes small { display: block; color: var(--text-dim); }
-/* the athlete's private phone link on their plan */
+/* the athlete's private phone link on their plan, picked out in gold so it's easy to find */
+.panel.athlete-link { background: rgba(240, 192, 64, 0.1); border: 1px solid #d4a72c; border-left: 4px solid #f0c040; }
+.panel.athlete-link h2 { color: #f0c040; }
+.panel.athlete-link .athlete-link-note { color: #e8c766; }
+:root[data-theme="light"] .panel.athlete-link { background: #fff6d6; border-color: #e0b43a; border-left-color: #d49b00; }
+:root[data-theme="light"] .panel.athlete-link h2 { color: #8a5f00; }
+:root[data-theme="light"] .panel.athlete-link .athlete-link-note { color: #7a5600; }
 .athlete-link-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .athlete-link-row input { flex: 1 1 320px; min-width: 0; font-size: 12px; padding: 6px 8px; }
 .athlete-link-row a.btn { text-decoration: none; }
