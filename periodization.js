@@ -487,7 +487,7 @@
   function ProgramSearch({ onPick, placeholder = "Insert existing program" }) {
     const [text, setText] = useState("");
     const listId = useMemo(() => `program-search-${Math.random().toString(36).slice(2, 8)}`, []);
-    const programs = allPrograms().filter((p) => !String(p.id).startsWith("gspeed-")); // not the speed sessions sent to athletes
+    const programs = allPrograms().filter((p) => !window.isSentProgram(p.id)); // not the sessions sent to single athletes
     const pick = (value) => {
       const p = programs.find((x) => (x.name || "").trim().toLowerCase() === value.trim().toLowerCase());
       if (!p) return false;

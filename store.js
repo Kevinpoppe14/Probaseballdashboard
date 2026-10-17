@@ -791,7 +791,7 @@
   }
   // files any athlete-owned programs not yet in their athlete's folder (the ones saved before folders existed)
   function fileAthletePrograms() {
-    state.programs.filter((p) => p.athleteId && !String(p.id).startsWith("gspeed-")).forEach((p) => {
+    state.programs.filter((p) => p.athleteId && !window.isSentProgram(p.id)).forEach((p) => {
       const folder = athleteFolderFor(p.athleteId);
       if (folder && p.folder !== folder) saveProgram({ ...p });
     });
@@ -799,7 +799,7 @@
   function saveProgram(rec) {
     const id = rec.id != null ? String(rec.id) : randomId();
     const { id: _ignored, ...data } = rec;
-    if (data.athleteId && !id.startsWith("gspeed-")) { // (not the one-week speed sessions sent to athletes' apps)
+    if (data.athleteId && !window.isSentProgram(id)) { // (not the one-week sessions sent to athletes' apps)
       const folder = athleteFolderFor(data.athleteId);
       if (folder) { data.folder = folder; ensureProgramFolder(folder); }
     }

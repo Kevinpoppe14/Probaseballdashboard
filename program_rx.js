@@ -150,6 +150,11 @@
   }
   window.applyOverrides = applyOverrides;
 
+  // A small one-week program made when a session is sent to one athlete's app: a group speed session from Coach
+  // Mode ("gspeed-...") or a one-off strength session from a coach's app ("gstrength-...", quick_assign.js). There
+  // is one per athlete per week; they are reached from the athlete's plan and kept out of the program library.
+  window.isSentProgram = (id) => /^g(speed|strength)-/.test(String(id || ""));
+
   // An exercise video link as something that can be embedded (YouTube incl. Shorts, Vimeo), or a clip a coach
   // filmed or uploaded ({ file: true }: played in a <video> rather than a frame).
   window.videoEmbedOf = function (url) {

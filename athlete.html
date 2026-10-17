@@ -244,6 +244,35 @@
   .finish-close { margin: 0 0 18px; font-size: 15px; }
   .sheet.finish .swap-actions { justify-content: center; }
   .sheet.finish .swap-actions button { flex: 1 1 140px; }
+  /* Coach tab › Assign a program (quick_assign.js) */
+  .sheet.qa input[type="search"], .qa-signin input, .qa-date input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; margin: 4px 0 8px; color-scheme: dark; }
+  .qa-label { margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); }
+  .qa-list { display: flex; flex-direction: column; gap: 6px; }
+  .qa-row { display: flex; flex-direction: column; align-items: flex-start; width: 100%; min-height: 44px; padding: 10px 12px; text-align: left; font-size: 15px; font-weight: 600; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
+  .qa-row small { font-size: 12px; font-weight: 400; color: var(--dim); margin-top: 2px; }
+  .qa-me { border-color: var(--label, var(--accent)); margin-bottom: 8px; }
+  .qa-empty { font-size: 13px; color: var(--dim); padding: 6px 2px; }
+  .qa-back { background: none; border: none; padding: 0 0 8px; font-size: 14px; color: var(--dim); }
+  .qa-sub { font-size: 13px; color: var(--dim); margin: 2px 0 8px; }
+  .qa-desc { font-size: 14px; margin: 0 0 10px; }
+  .qa-weeknav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 10px; }
+  .qa-weeknav b small { font-weight: 400; color: var(--dim); }
+  .qa-day { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel-2); }
+  .qa-day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  .qa-day-name { font-weight: 700; font-size: 14px; text-transform: uppercase; }
+  .qa-oneoff { flex: 0 0 auto; min-height: 32px; padding: 4px 10px; border-radius: 16px; border: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--text); }
+  .qa-warm { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  .qa-ex { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 3px 0; font-size: 14px; }
+  .qa-ex-label { min-width: 26px; font-weight: 700; color: var(--label, var(--accent)); }
+  .qa-ex-name { font-weight: 600; }
+  .qa-ex-rx { flex: 1 0 100%; padding-left: 34px; font-size: 12px; color: var(--dim); }
+  .qa-starts { padding: 0 0 6px; flex-wrap: wrap; }
+  .qa-drop { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
+  .qa-drop-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 14px; }
+  .qa-drop-text small { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .qa-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: var(--accent); color: #fff; vertical-align: 2px; }
+  .qa-remove { flex: 0 0 auto; min-height: 34px; padding: 4px 12px; border-radius: 8px; border: 1px solid #6b2a2a; background: none; color: #ff8a8a; font-size: 13px; }
+  .qa-date { display: block; font-size: 13px; color: var(--dim); margin-top: 6px; }
   .sheet .close { position: absolute; right: 22px; top: calc(22px + env(safe-area-inset-top)); width: 40px; height: 40px; border-radius: 20px; border: 1px solid var(--border); background: var(--panel-2); font-size: 20px; }
   .video { position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 10px; overflow: hidden; }
   .video.vertical { padding-top: 0; height: 70vh; max-width: 40vh; margin: 0 auto; }
@@ -261,6 +290,7 @@
 <script src="supabase-client.js"></script>
 <script src="holiday.js"></script>
 <script src="program_rx.js"></script>
+<script src="quick_assign.js"></script>
 <script src="athlete.js"></script>
 </body>
 </html>
