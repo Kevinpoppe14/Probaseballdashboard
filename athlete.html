@@ -295,9 +295,17 @@
   .qa-build-rx label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--dim); }
   .qa-build-rx input { width: 100%; text-align: center; }
   .qa-build-note { width: 100%; margin-top: 8px; }
-  .qa-build-link { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--dim); }
-  .qa-build-link input { width: 18px; height: 18px; accent-color: var(--accent); }
-  .qa-add { width: 100%; min-height: 42px; margin: 8px 0; border-radius: 10px; border: 1px dashed var(--border); background: none; color: var(--text); font-size: 14px; }
+  /* a block (A, B ...): its exercises on one card, then its next-exercise button (A2., A3. ...) */
+  .qa-block { display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; }
+  .qa-block .qa-build-row { border: none; padding: 4px 2px; background: none; }
+  .qa-block .qa-build-row + .qa-build-row { border-top: 1px solid var(--border); padding-top: 10px; border-radius: 0; }
+  .qa-add-in { align-self: flex-start; min-height: 34px; padding: 4px 12px; border-radius: 17px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 13px; }
+  .qa-add { width: 100%; min-height: 44px; margin: 10px 0; border-radius: 10px; border: none; background: var(--accent); color: #fff; font-size: 14px; font-weight: 700; }
+  .qa-build-actions button { flex: 1 1 30%; }
+  .qa-row.on { border-color: var(--label, var(--accent)); }
+  .qa-chosen { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; margin-bottom: 8px; }
+  .exercise-tag.qa-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); font-size: 13px; }
+  .qa-chip .exercise-alias-x { width: 22px; height: 22px; padding: 0; border: none; border-radius: 11px; background: none; color: var(--dim); font-size: 15px; }
   .sheet .close { position: absolute; right: 22px; top: calc(22px + env(safe-area-inset-top)); width: 40px; height: 40px; border-radius: 20px; border: 1px solid var(--border); background: var(--panel-2); font-size: 20px; }
   .video { position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 10px; overflow: hidden; }
   .video.vertical { padding-top: 0; height: 70vh; max-width: 40vh; margin: 0 auto; }

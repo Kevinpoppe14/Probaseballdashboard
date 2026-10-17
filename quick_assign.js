@@ -266,7 +266,7 @@
   // ---- a quick session written from scratch ------------------------------------------------------------
   // For a coach logging their own workout without a program, or sending one to an athlete (one away from home
   // with different equipment, say): exercises typed in (the library's names are offered), sets, reps, an
-  // optional %, a note, and supersets. It goes on the plan the same way as one day sent from a program
+  // optional %, a note, and supersets (A1, A2 ...). It goes on the plan the same way as one day sent from a program
   // (sendOneOff), so it logs to the Training Log and counts toward maxes like any session. What's typed is kept
   // while the page is open, in case the sheet is closed before it's saved.
   let libraryNames = null;
@@ -278,8 +278,8 @@
       } catch (e) { libraryNames = []; }
     }
     const today = toISO(new Date());
-    const blankRow = () => ({ name: "", sets: "", reps: "", pct: "", notes: "", linked: false });
-    const d = ctx.draft = ctx.draft || { who: ctx.me ? String(ctx.me.id) : "", date: today, title: "", rows: [blankRow()] };
+    const blankRow = (linked) => ({ name: "", sets: "", reps: "", pct: "", notes: "", linked: !!linked });
+    const d = ctx.draft = ctx.draft || { date: today, title: "", rows: [blankRow()] };
     const lib = el("datalist", { id: "qa-library" }, libraryNames.map((n) => el("option", { value: n })));
     const msg = el("div", { class: "swap-note" });
     const list = el("div", { class: "qa-build-rows" });
@@ -288,43 +288,53 @@
       i.addEventListener("input", () => { row[key] = i.value; });
       return i;
     };
+    const focusRow = (ri) => { const inputs = list.querySelectorAll(".qa-build-name"); if (inputs[ri]) inputs[ri].focus(); };
+    // The rows in blocks, as the program builder lays them out: A1, A2 (a superset), then B1. Each block ends with
+    // a button for its next exercise (A2., A3. ...); the last button starts the next block.
     const drawRows = () => {
       const letters = window.exerciseLabels ? window.exerciseLabels(d.rows.map((r) => ({ name: r.name || "x", linked: r.linked }))) : [];
-      list.replaceChildren(...d.rows.map((row, ri) => el("div", { class: "qa-build-row" },
-        el("div", { class: "qa-build-top" },
-          el("span", { class: "qa-ex-label" }, letters[ri] || ""),
-          field(row, "name", { placeholder: "Exercise", list: "qa-library", "aria-label": "Exercise", class: "qa-build-name" }),
-          d.rows.length > 1 ? el("button", { class: "qa-build-x", type: "button", "aria-label": "Remove this exercise", onclick: () => { d.rows.splice(ri, 1); if (d.rows[0]) d.rows[0].linked = false; drawRows(); } }, "×") : null),
-        el("div", { class: "qa-build-rx" },
-          el("label", null, "Sets", field(row, "sets", { inputmode: "numeric", "aria-label": "Sets" })),
-          el("label", null, "Reps", field(row, "reps", { "aria-label": "Reps" })),
-          el("label", null, "% (optional)", field(row, "pct", { inputmode: "decimal", "aria-label": "Percent" }))),
-        field(row, "notes", { placeholder: "Note (optional)", class: "qa-build-note", "aria-label": "Note" }),
-        ri > 0 ? el("label", { class: "qa-build-link" }, (() => { const c = el("input", { type: "checkbox" }); c.checked = row.linked; c.addEventListener("change", () => { row.linked = c.checked; drawRows(); }); return c; })(), " Superset with the one above") : null)));
+      const blocks = [];
+      d.rows.forEach((row, ri) => { if (!blocks.length || !(ri > 0 && row.linked)) blocks.push([]); blocks[blocks.length - 1].push(ri); });
+      const card = (ri) => {
+        const row = d.rows[ri];
+        return el("div", { class: "qa-build-row" },
+          el("div", { class: "qa-build-top" },
+            el("span", { class: "qa-ex-label" }, letters[ri] || ""),
+            field(row, "name", { placeholder: "Exercise", list: "qa-library", "aria-label": "Exercise", class: "qa-build-name" }),
+            d.rows.length > 1 ? el("button", { class: "qa-build-x", type: "button", "aria-label": "Remove this exercise", onclick: () => {
+              d.rows.splice(ri, 1);
+              if (d.rows[ri] && (ri === 0 || !row.linked) && d.rows[ri].linked) d.rows[ri].linked = false; // the next one starts the block now
+              if (d.rows[0]) d.rows[0].linked = false;
+              drawRows();
+            } }, "×") : null),
+          el("div", { class: "qa-build-rx" },
+            el("label", null, "Sets", field(row, "sets", { inputmode: "numeric", "aria-label": "Sets" })),
+            el("label", null, "Reps", field(row, "reps", { "aria-label": "Reps" })),
+            el("label", null, "% (optional)", field(row, "pct", { inputmode: "decimal", "aria-label": "Percent" }))),
+          field(row, "notes", { placeholder: "Note (optional)", class: "qa-build-note", "aria-label": "Note" }));
+      };
+      list.replaceChildren(...blocks.map((rows, bi) => {
+        const letter = (/^[A-Z]+/.exec(letters[rows[0]] || "") || [String.fromCharCode(65 + bi)])[0];
+        const last = rows[rows.length - 1];
+        return el("div", { class: "qa-block" },
+          rows.map(card),
+          el("button", { class: "qa-add-in", type: "button", onclick: () => { d.rows.splice(last + 1, 0, blankRow(true)); drawRows(); focusRow(last + 1); } }, `+ Add ${letter}${rows.length + 1}.`));
+      }));
+      nextBlock.textContent = `+ Add ${String.fromCharCode(65 + Math.min(25, blocks.length))} block`;
     };
-    const who = el("select", { "aria-label": "Who it's for" },
-      ctx.me ? el("option", { value: String(ctx.me.id), selected: d.who === String(ctx.me.id) }, `Me (${ctx.me.name})`) : null,
-      ctx.people.filter((p) => p !== ctx.me).map((p) => el("option", { value: String(p.id), selected: d.who === String(p.id) }, lastFirst(p.name))));
-    if (!d.who && ctx.people.length) d.who = who.value;
+    const nextBlock = el("button", { class: "qa-add", type: "button", onclick: () => { d.rows.push(blankRow(false)); drawRows(); focusRow(d.rows.length - 1); } });
     const date = el("input", { type: "date", value: d.date, "aria-label": "Date" });
     const title = el("input", { value: d.title, placeholder: "Session name (optional), e.g. Hotel gym lower", autocomplete: "off", "aria-label": "Session name" });
-    const save = el("button", { class: "primary" });
-    const label = () => {
-      const self = ctx.me && d.who === String(ctx.me.id);
-      const person = ctx.people.find((p) => String(p.id) === d.who);
-      save.textContent = self ? (d.date === today ? "Add to my day" : "Add it") : `Send to ${person ? firstName(person.name) : "them"}`;
-    };
-    who.addEventListener("change", () => { d.who = who.value; label(); });
-    date.addEventListener("change", () => { d.date = date.value; label(); });
+    date.addEventListener("change", () => { d.date = date.value; addMine.textContent = d.date === today ? "Add to my day" : "Add to my plan"; });
     title.addEventListener("input", () => { d.title = title.value; });
-    save.addEventListener("click", async () => {
+
+    // the session as it will be saved, or a reason it can't be yet
+    const sessionOf = () => {
       const rows = d.rows.filter((r) => r.name.trim());
-      if (!rows.length) { msg.textContent = "Add at least one exercise."; return; }
-      if (rows.some((r) => !`${r.sets}${r.reps}`.trim())) { msg.textContent = "Give each exercise its sets or reps."; return; }
-      if (!d.date) { msg.textContent = "Pick a date."; return; }
-      const person = ctx.people.find((p) => String(p.id) === d.who);
-      if (!person) { msg.textContent = "Pick who it's for."; return; }
-      const session = {
+      if (!rows.length) return "Add at least one exercise.";
+      if (rows.some((r) => !`${r.sets}${r.reps}`.trim())) return "Give each exercise its sets or reps.";
+      if (!d.date) return "Pick a date.";
+      return {
         name: d.title.trim() || "Quick session",
         exercises: rows.map((r, i) => ({
           id: `ex-${uid()}`, name: r.name.trim().replace(/\s+/g, " "), tempo: "", rest: "", notes: r.notes.trim(), linked: i > 0 && r.linked,
@@ -332,31 +342,83 @@
           groups: [{ sets: `${r.sets}`.trim(), reps: `${r.reps}`.trim(), intensity: `${r.pct}`.trim().replace(/%$/, "") }],
         })),
       };
-      save.disabled = true;
+    };
+    const saveFor = async (people, button) => {
+      const session = sessionOf();
+      if (typeof session === "string") { msg.textContent = session; return false; }
+      button.disabled = true;
       msg.textContent = "Saving…";
       try {
-        const r = await sendOneOff(person, { id: null, name: "Quick session" }, session, d.date, ctx.user.email);
-        if (r === "out-of-range") { msg.textContent = "That date is past the end of the plan."; save.disabled = false; return; }
+        for (const person of people) {
+          const r = await sendOneOff(person, { id: null, name: "Quick session" }, session, d.date, ctx.user.email);
+          if (r === "out-of-range") throw new Error(`${person === ctx.me ? "That date is" : `${day(d.date)} is`} past the end of ${person === ctx.me ? "your" : `${person.name}'s`} plan.`);
+        }
+        return true;
+      } catch (e) { msg.textContent = errorText(e); button.disabled = false; return false; }
+    };
+
+    // Add to my day: on the coach's own plan, and their app opens on it
+    const addMine = el("button", { class: "primary", onclick: async () => {
+      if (!(await saveFor([ctx.me], addMine))) return;
+      ctx.draft = null;
+      ctx.status(d.date === today ? "Added to today. Opening it…" : `Added for ${day(d.date)}`);
+      if (ctx.onAssignedSelf) ctx.onAssignedSelf(); else home();
+    } }, d.date === today ? "Add to my day" : "Add to my plan");
+    // Share: to one athlete or several
+    const share = el("button", { class: "primary", onclick: () => {
+      const session = sessionOf();
+      if (typeof session === "string") { msg.textContent = session; return; }
+      shareSheet();
+    } }, "Share");
+    const discard = el("button", { onclick: () => { if (d.rows.some((r) => r.name.trim()) && !window.confirm("Discard this session?")) return; ctx.draft = null; home(); } }, "Discard");
+
+    function shareSheet() {
+      const picked = new Set();
+      const search = el("input", { type: "search", placeholder: "Search for an athlete", "aria-label": "Search for an athlete", autocomplete: "off" });
+      const results = el("div", { class: "qa-list" });
+      const chosen = el("div", { class: "qa-chosen" });
+      const smsg = el("div", { class: "swap-note" });
+      const send = el("button", { class: "primary" });
+      const draw = () => {
+        const q = search.value.trim().toLowerCase();
+        const hits = q ? ctx.people.filter((p) => p !== ctx.me && p.name.toLowerCase().includes(q)).slice(0, 8) : [];
+        results.replaceChildren(...hits.map((p) => el("button", { class: `qa-row${picked.has(p) ? " on" : ""}`, onclick: () => { if (picked.has(p)) picked.delete(p); else picked.add(p); search.value = ""; draw(); search.focus(); } }, `${picked.has(p) ? "✓ " : ""}${lastFirst(p.name)}`)),
+          q && !hits.length ? el("div", { class: "qa-empty" }, "No active athlete matches that.") : null);
+        chosen.replaceChildren(...[...picked].map((p) => el("span", { class: "exercise-tag qa-chip" }, p.name, el("button", { type: "button", class: "exercise-alias-x", "aria-label": `Remove ${p.name}`, onclick: () => { picked.delete(p); draw(); } }, "×"))));
+        send.disabled = !picked.size;
+        send.textContent = picked.size ? `Send to ${picked.size === 1 ? firstName([...picked][0].name) : `${picked.size} athletes`}` : "Pick who to send it to";
+      };
+      search.addEventListener("input", draw);
+      send.addEventListener("click", async () => {
+        const people = [...picked];
+        const ok = await saveFor(people, send);
+        if (!ok) { smsg.textContent = msg.textContent; return; }
         ctx.draft = null;
-        const self = person === ctx.me;
-        ctx.status(self ? (d.date === today ? "Added to today. Opening it…" : `Added for ${day(d.date)}`) : `Sent to ${person.name} for ${day(d.date)}`);
-        if (self && ctx.onAssignedSelf) { ctx.onAssignedSelf(); return; }
+        ctx.status(`Sent to ${people.length === 1 ? people[0].name : `${people.length} athletes`} for ${day(d.date)}`);
         home();
-      } catch (e) { msg.textContent = errorText(e); save.disabled = false; }
-    });
-    label();
+      });
+      draw();
+      sheet(el("h2", null, "Share"),
+        el("button", { class: "qa-back", onclick: build }, "‹ Back to the session"),
+        el("div", { class: "qa-sub" }, `${d.title.trim() || "Quick session"} for ${day(d.date)}: it goes in each athlete's app under "${ONEOFF_LANE}", ready to log.`),
+        search, results,
+        el("div", { class: "qa-label" }, "Sending to"), chosen,
+        smsg,
+        el("div", { class: "swap-actions" }, send, el("button", { onclick: build }, "Back")));
+      search.focus();
+    }
+
     drawRows();
     sheet(el("h2", null, "Quick session"), lib,
       el("button", { class: "qa-back", onclick: home }, "‹ Programs and sent sessions"),
-      el("label", { class: "qa-date" }, "For", who),
       el("label", { class: "qa-date" }, "Date", date),
       title,
       el("div", { class: "qa-label" }, "Exercises"),
       list,
-      el("button", { class: "qa-add", type: "button", onclick: () => { d.rows.push(blankRow()); drawRows(); const inputs = list.querySelectorAll(".qa-build-name"); if (inputs.length) inputs[inputs.length - 1].focus(); } }, "+ Add exercise"),
-      el("div", { class: "qa-sub" }, "It goes on the plan under Quick Strength Session for that day, with weight boxes, and logs to the Training Log like any session."),
+      nextBlock,
+      el("div", { class: "qa-sub" }, "Add to my day puts it on your plan and opens it, ready to log. Share sends it to one athlete or more. Either way it logs to the Training Log like any session."),
       msg,
-      el("div", { class: "swap-actions" }, save, el("button", { onclick: () => { ctx.draft = null; home(); } }, "Discard")));
+      el("div", { class: "swap-actions qa-build-actions" }, ctx.me ? addMine : null, share, discard));
   }
 
   async function loadMine(box) {
