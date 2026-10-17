@@ -333,7 +333,7 @@
           return el("div", { class: "qa-day" },
             el("div", { class: "qa-day-head" },
               el("span", { class: "qa-day-name" }, (s.name || "").trim() || `Day ${si + 1}`),
-              el("button", { class: "qa-oneoff", onclick: () => oneOff(person, program, s) }, "Send just this day")),
+              el("button", { class: "qa-oneoff", onclick: () => oneOff(person, program, s) }, person === ctx.me ? "Do this today" : "Send just this day")),
             (s.warmup || "").trim() ? el("div", { class: "qa-warm" }, `Warm-up: ${s.warmup.trim()}`) : null,
             rows.map((e, ei) => el("div", { class: "qa-ex" },
               el("span", { class: "qa-ex-label" }, labels[ei] || ""),
@@ -351,13 +351,37 @@
     draw();
   }
 
-  // one day of the program, for one date: a one-off session on their plan
+  // one day of the program, for one date: a one-off session on their plan. For the coach themselves it's a quick
+  // way to log an impromptu lift: it goes on their own plan for today (or the day they pick), and their app
+  // reloads and opens on it, ready to log.
   function oneOff(person, program, session) {
     const today = toISO(new Date());
-    const date = el("input", { type: "date", value: today, min: today, "aria-label": "Date" });
+    const self = person === ctx.me;
+    const date = el("input", { type: "date", value: today, min: self ? null : today, "aria-label": "Date" });
     const msg = el("div", { class: "swap-note" });
-    const who = person === ctx.me ? "me" : firstName(person.name);
+    const who = self ? "me" : firstName(person.name);
     const rows = (session.exercises || []).filter((e) => (e.name || "").trim());
+    if (self) {
+      const add = el("button", { class: "primary", onclick: async () => {
+        if (!date.value) { msg.textContent = "Pick a date."; return; }
+        add.disabled = true;
+        msg.textContent = "Adding…";
+        try {
+          const r = await sendOneOff(person, program, session, date.value, ctx.user.email);
+          if (r === "out-of-range") { msg.textContent = "That date is past the end of your plan."; add.disabled = false; return; }
+          ctx.status(date.value === today ? "Added to today. Opening it…" : `Added for ${day(date.value)}`);
+          if (ctx.onAssignedSelf) ctx.onAssignedSelf();
+        } catch (e) { msg.textContent = errorText(e); add.disabled = false; }
+      } }, date.value === today ? "Add to my day" : "Add it");
+      date.addEventListener("change", () => { add.textContent = date.value === today ? "Add to my day" : "Add it"; });
+      sheet(el("h2", null, "Today's lift"),
+        el("button", { class: "qa-back", onclick: () => preview(person, program.id) }, "‹ Back"),
+        el("div", { class: "qa-sub" }, `${(session.name || "").trim() || "This day"} from ${program.name}: ${rows.length} exercise${rows.length === 1 ? "" : "s"}. It goes in your app under "${ONEOFF_LANE}" and opens there, ready to log. Your regular program isn't changed.`),
+        el("label", { class: "qa-date" }, "Date", date),
+        msg,
+        el("div", { class: "swap-actions" }, add, el("button", { onclick: () => preview(person, program.id) }, "Back")));
+      return;
+    }
     const go = el("button", { class: "primary", onclick: async () => {
       if (!date.value) { msg.textContent = "Pick a date."; return; }
       go.disabled = true;

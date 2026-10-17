@@ -1305,8 +1305,11 @@
       if (coachId && window.parent !== window) window.parent.postMessage({ type: "coach-preview", aid: String(coachId), title: "Nothing is scheduled for this week.", sub: "", warmup: "", rows: [], hasDay: false, done: false }, window.location.origin);
     }
     else {
-      main.append(el("p", { class: "program-name" }, `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`));
       const s = sessions[dayIdx];
+      // a sent session's week (one-off strength, group speed) is named by the session itself: its day and what it is
+      main.append(el("p", { class: "program-name" }, window.isSentProgram(item.program.id)
+        ? `${item.lane.name} · ${(s && s.name) || item.program.name}`
+        : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`));
       const rows = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
@@ -1407,6 +1410,15 @@
       const days = first ? (first.week.sessions || []) : [];
       const next = days.findIndex((s, i) => !logged(first.program.id, sessionKey(first, i)));
       if (next > 0) dayIdx = next;
+      // ...unless a one-off session is set for today and not logged yet (sent by a coach, or a coach's own lift
+      // added from Coach › Assign a program): that opens first
+      itemsAt(weekIdx).some((it, ii) => {
+        if (!String(it.program.id).startsWith("gstrength-")) return false;
+        const at = (it.week.sessions || []).findIndex((s, i) => s.date === localDay() && !logged(it.program.id, sessionKey(it, i)));
+        if (at < 0) return false;
+        itemIdx = ii; dayIdx = at;
+        return true;
+      });
     }
     // a remote athlete fills in their equipment before they see the program for the first time
     if (remote && !equipment.surveyedAt) view = "equipment";
