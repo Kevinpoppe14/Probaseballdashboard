@@ -5534,7 +5534,7 @@ function GoalBadges({ athleteId, small }) {
 }
 
 // After a full assessment, athletes are re-assessed every four weeks (reassessment.js; the rules are
-// window.ReassessRules in program_rx.js). The flag says "Due for Assessment" when there is no full assessment in the last
+// window.ReassessRules in program_rx.js). A grey flag means due for a full assessment: none in the last
 // eight months, "Needs Re-Assessment" once a re-assessment is due (opening that tab), the day it is due in the week before,
 // and otherwise links to the latest assessment. A silenced flag shows as up to date. `onOpenTab(tab)` opens the profile.
 function AssessmentDueBadge({ athleteId, onOpenTab }) {
@@ -5544,8 +5544,14 @@ function AssessmentDueBadge({ athleteId, onOpenTab }) {
   const link = (tab, tone, title, text) => (
     <a href={`?athlete=${athleteId}&tab=${tab}`} onClick={(e) => handleAppLinkClick(e, () => onOpenTab(tab))} className={`badge ${tone} badge-link`} title={title}>{text}</a>
   );
-  if (!assessments.length) return link("assessment", "danger", "No biomechanical assessment on file yet", "Due for Assessment");
-  if (!st || st.state === "assess") return link("assessment", "warn", `Last full assessment ${shortDate(assessments[assessments.length - 1].date)}, more than 8 months ago`, "Due for Assessment");
+  // due for a full assessment: a plain grey flag rather than a colored badge, with the reason on hover
+  const flag = (why) => (
+    <a href={`?athlete=${athleteId}&tab=assessment`} onClick={(e) => handleAppLinkClick(e, () => onOpenTab("assessment"))} className="assess-flag" title={`Due for Assessment: ${why}`} aria-label="Due for Assessment">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 1.5v13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><path d="M4.3 2.3h8.2l-2.1 3.1 2.1 3.1H4.3z" fill="currentColor" /></svg>
+    </a>
+  );
+  if (!assessments.length) return flag("no biomechanical assessment on file yet");
+  if (!st || st.state === "assess") return flag(`last full assessment ${shortDate(assessments[assessments.length - 1].date)}, more than 8 months ago`);
   const lastText = `Last ${st.lastReassess ? "re-assessment" : "full assessment"} ${shortDate(st.last)}`;
   if (st.state === "reassess-due") return link("reassess", "warn", `${lastText}; re-assessment was due ${shortDate(st.due)}`, "Needs Re-Assessment");
   if (st.state === "reassess-soon") return link("reassess", "neutral", `${lastText}; re-assessment due ${shortDate(st.due)}`, `Re-Assessment ${new Date(`${st.due}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`);

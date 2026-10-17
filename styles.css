@@ -3611,3 +3611,6 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .bc-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: -4px 0 10px; }
 .bc-pills { margin: 0; }
 .bc-note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); max-width: 860px; }
+/* team roster: due for a full assessment */
+.assess-flag { display: inline-flex; align-items: center; padding: 2px 4px; color: var(--neutral, #8a8a8a); border-radius: 4px; }
+.assess-flag:hover { color: var(--text); background: var(--surface-muted); }
