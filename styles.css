@@ -3614,3 +3614,6 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* team roster: due for a full assessment */
 .assess-flag { display: inline-flex; align-items: center; padding: 2px 4px; color: var(--neutral, #8a8a8a); border-radius: 4px; }
 .assess-flag:hover { color: var(--text); background: var(--surface-muted); }
+/* exercise library: typing in another name for an exercise */
+.exercise-alias-add { display: flex; gap: 8px; margin-top: 6px; }
+.exercise-alias-add input { flex: 1; min-width: 0; }

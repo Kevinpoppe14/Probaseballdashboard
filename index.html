@@ -890,7 +890,24 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
   const [draft, setDraft] = useState(() => ({ equipment: [], ...(initial || {}) }));
   const set = (key, v) => setDraft((d) => ({ ...d, [key]: v }));
   const name = (draft.name || "").trim();
-  const clash = name && window.AthleteStore.allExercises().some((e) => e.id !== draft.id && [e.name, ...(e.aliases || [])].some((n) => (n || "").trim().toLowerCase() === name.toLowerCase()));
+  // names are compared ignoring case, spaces, hyphens and punctuation, as everywhere exercises link (Push-up = Pushup)
+  const nameKey = window.exerciseNameKey;
+  const clash = name && window.AthleteStore.allExercises().some((e) => e.id !== draft.id && [e.name, ...(e.aliases || [])].some((n) => nameKey(n) === nameKey(name)));
+  // another name typed in: not this exercise's own name or one it already has, and not another exercise's name
+  // (that one would need merging instead, in the library list)
+  const [aliasText, setAliasText] = useState("");
+  const [aliasNote, setAliasNote] = useState("");
+  const addAlias = () => {
+    const alias = aliasText.trim().replace(/\s+/g, " ");
+    const key = nameKey(alias);
+    if (!key) return;
+    if (key === nameKey(name) || (draft.aliases || []).some((a) => nameKey(a) === key)) { setAliasNote(`"${alias}" is already a name for this exercise (case, spaces and hyphens don't matter).`); return; }
+    const other = window.AthleteStore.allExercises().find((e) => e.id !== draft.id && [e.name, ...(e.aliases || [])].some((n) => nameKey(n) === key));
+    if (other) { setAliasNote(`"${alias}" is ${nameKey(other.name) === key ? "its own exercise" : `already a name for ${other.name}`} in the library. Merge the two from the library list instead.`); return; }
+    set("aliases", [...(draft.aliases || []), alias]);
+    setAliasText("");
+    setAliasNote("");
+  };
   const pick = (label, key, options) => (
     <label className="facility-field"><span>{label}</span>
       <select value={draft[key] || ""} onChange={(e) => set(key, e.target.value)}>
@@ -915,8 +932,10 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
           <input value={draft.videoUrl || ""} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
         </label>
         <ExerciseVideoUpload name={name} has={!!(draft.videoUrl || "").trim()} onUploaded={(url) => set("videoUrl", url)} />
-        {(draft.aliases || []).length > 0 && (
-          <div className="facility-field wide"><span>Also called (merged in: programs using these names link here too)</span>
+        {/* other names for the same exercise (typed here, or from a merge): programs written with any of them link
+            here for the video and cues, and weights logged under any of them track together as one lift */}
+        <div className="facility-field wide"><span>Also called (other names for this exercise: they link here, and their weights track together)</span>
+          {(draft.aliases || []).length > 0 && (
             <div className="exercise-aliases">
               {draft.aliases.map((a) => (
                 <span className="exercise-tag" key={a}>{a}
@@ -924,8 +943,14 @@ function ExerciseForm({ initial, onSave, onCancel, onDelete }) {
                 </span>
               ))}
             </div>
+          )}
+          <div className="exercise-alias-add">
+            <input value={aliasText} onChange={(e) => setAliasText(e.target.value)} placeholder="e.g. Hex Bar Deadlift" aria-label="Another name for this exercise"
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAlias(); } }} />
+            <button type="button" className="btn btn-secondary" disabled={!aliasText.trim()} onClick={addAlias}>Add name</button>
           </div>
-        )}
+          {aliasNote && <small className="exercise-equipment-hint">{aliasNote}</small>}
+        </div>
         {pick("Tier", "tier", EXERCISE_TIERS)}
         {pick("Movement pattern", "pattern", EXERCISE_PATTERNS)}
         {pick("Body region", "region", EXERCISE_REGIONS)}
@@ -3829,6 +3854,7 @@ const HELP_SECTIONS = [
     items: [
       "Add or edit exercises with their video, tier, pattern, region, equipment and cues. A video can be a YouTube or Vimeo link, or uploaded (Upload a video / Replace video).",
       "Merge exercises: for one exercise in the library twice under different wording. Pick which one is kept; the other name keeps working everywhere and shows the kept one's video.",
+      "Also called (in an exercise's edit form): type other names for it, e.g. Hex Bar Deadlift on Trap Bar Deadlift. Programs using any of its names link to it, and weights logged under any of them track together as one lift: estimated maxes, the % weights they fill in, Top weights, and the last-time weight under each box. Names already match ignoring case, spaces, hyphens and punctuation (Push-up, Push up and Pushup are one name), so only different wordings and plurals need adding.",
       "Signed-in coaches see a red camera on any exercise without a video, on their own phone app or in Coach Mode: film a short clip and it becomes that exercise's video everywhere. Swapping in an exercise the library doesn't have offers to film it, or add it without a video.",
     ],
   },

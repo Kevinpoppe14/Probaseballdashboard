@@ -83,6 +83,32 @@
   };
   window.ProgramRx = ProgramRx;
 
+  // The same lift under another name: the exercise library's "Also called" names (typed in, or from merging two
+  // exercises) make Hex Bar Deadlift and Trap Bar Deadlift, say, one lift for estimated maxes, top weights and
+  // last-time weights. liftKey(name) is the name a lift is tracked under: the library exercise it belongs to, or
+  // the name itself. The dashboard looks it up in its library (AthleteStore); the phone page is told with
+  // setLiftNames([{ name, canon }]) from what its page data says.
+  // Exercise names are compared ignoring case, spaces, hyphens and punctuation everywhere they link (the library,
+  // videos, lifts), so "Push-up", "Push up" and "Pushup" are one name. Plurals and other wordings are what
+  // "Also called" names are for. (The database does the same in athlete_portal_get, migration_019.)
+  const normName = (n) => String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  window.exerciseNameKey = normName;
+  const liftNames = new Map(), liftCache = new Map();
+  ProgramRx.setLiftNames = (list) => {
+    (list || []).forEach((x) => { if (x && x.name && x.canon) liftNames.set(normName(x.name), normName(x.canon)); });
+    liftCache.clear();
+  };
+  ProgramRx.liftKey = (name) => {
+    const k = normName(name);
+    if (!k || liftNames.has(k)) return liftNames.get(k) || k;
+    if (liftCache.has(k)) return liftCache.get(k);
+    const S = window.AthleteStore;
+    const found = S && S.findExerciseByName ? S.findExerciseByName(name) : null;
+    const key = found && found.name ? normName(found.name) : k;
+    if (S && S.allExercises && S.allExercises().length) liftCache.set(k, key); // (not before the library has loaded)
+    return key;
+  };
+
   // An athlete's estimated maxes from the failure sets logged on their plan, in the order the sets fall on the
   // plan (plan week, then day). `latest` is the newest estimate per exercise; `before(name, week, day)` is the
   // newest one from an earlier day, which is what fills in the weights for the % sets that follow it. So each
@@ -101,7 +127,7 @@
         ProgramRx.groups(e).forEach((g, gi) => {
           const reps = log[ProgramRx.repsLogKey(e, gi)];
           if (!ProgramRx.failure(g) || !reps) return;
-          sets.push({ key: name.toLowerCase(), name, e, g, weight: log[ProgramRx.logKey(e, gi)], reps, pos: (b.start + wi) * 100 + si });
+          sets.push({ key: ProgramRx.liftKey(name), name, e, g, weight: log[ProgramRx.logKey(e, gi)], reps, pos: (b.start + wi) * 100 + si });
         });
       })));
     });
@@ -122,7 +148,7 @@
     });
     const latest = {};
     all.forEach((m) => { latest[m.key] = m; });
-    const before = (name, week, day) => find((name || "").trim().toLowerCase(), week * 100 + day);
+    const before = (name, week, day) => find(ProgramRx.liftKey(name), week * 100 + day);
     return { latest, before, all };
   }
   window.planMaxes = planMaxes;
@@ -202,16 +228,17 @@
     // `aliases`); null when there is none. Throws when the library can't be reached.
     async find(name) {
       const sb = window.supabaseClient;
-      const key = (name || "").trim().toLowerCase();
+      const key = normName(name);
       if (!key) return null;
-      const same = (n) => (n || "").trim().toLowerCase() === key;
-      const { data, error } = await sb.from("exercises").select("id,data").ilike("data->>name", key.replace(/[\\%_]/g, "\\$&"));
+      const same = (n) => normName(n) === key;
+      const { data, error } = await sb.from("exercises").select("id,data").ilike("data->>name", (name || "").trim().replace(/[\\%_]/g, "\\$&"));
       if (error) throw error;
       const exact = (data || []).find((r) => same((r.data || {}).name));
       if (exact) return exact;
-      // not under its own name: look through the merged-in names (just the names, a page at a time), then fetch that row
-      const names = await ExerciseVideo.readLibrary("id,aliases:data->aliases");
-      const hit = names.find((r) => (Array.isArray(r.aliases) ? r.aliases : []).some(same));
+      // not under that exact wording: look through every name and other name (just the names, a page at a time),
+      // compared ignoring spaces and punctuation, then fetch that row
+      const names = await ExerciseVideo.readLibrary("id,name:data->>name,aliases:data->aliases");
+      const hit = names.find((r) => same(r.name) || (Array.isArray(r.aliases) ? r.aliases : []).some(same));
       if (!hit) return null;
       const { data: row, error: rowError } = await sb.from("exercises").select("id,data").eq("id", hit.id).maybeSingle();
       if (rowError) throw rowError;

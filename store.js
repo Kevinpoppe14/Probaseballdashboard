@@ -821,8 +821,9 @@
   }
 
   // ---- exercise library ------------------------------------------------------------------------
-  // Programs link to the library by exercise name, so names are compared without case or extra spaces.
-  const exerciseKey = (name) => (name || "").trim().toLowerCase().replace(/\s+/g, " ");
+  // Programs link to the library by exercise name, so names are compared ignoring case, spaces, hyphens and
+  // punctuation ("Push-up", "Push up" and "Pushup" are one name), the same as window.exerciseNameKey (program_rx.js).
+  const exerciseKey = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   function allExercises() {
     return [...state.exercises].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }

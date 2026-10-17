@@ -55,13 +55,17 @@
       programs.forEach((x) => (x.weeks || []).forEach((w) => (w.sessions || []).forEach((ses) => (ses.exercises || []).forEach((e) => { if ((e.name || "").trim()) names.add(e.name.trim()); }))));
       (ov.data || []).forEach((r) => { if (r.data && (r.data.name || "").trim()) names.add(r.data.name.trim()); });
       // the library, read whole so an exercise also answers to the names merged into it (its `aliases`): each
-      // program name gets the entry it matches, under that name
-      const wanted = new Set([...names].map((n) => n.toLowerCase()));
+      // program name gets the entry it matches (ignoring case, spaces and punctuation), under the program's wording,
+      // with the entry's own name as `canon`, the lift it tracks as
+      const key = window.exerciseNameKey;
+      const wanted = new Map(); // name key -> the program's wordings of it
+      [...names].forEach((n) => { const k = key(n); if (k) wanted.set(k, [...(wanted.get(k) || []), n]); });
       const exercises = [];
       const lib = await window.ExerciseVideo.readLibrary("data"); // every row, a page at a time
       lib.forEach((r) => {
         const d = r.data || {};
-        [d.name, ...(d.aliases || [])].forEach((n) => { if (n && wanted.has(n.trim().toLowerCase())) exercises.push({ name: n.trim(), videoUrl: d.videoUrl, cues: d.cues }); });
+        const keys = new Set([d.name, ...(d.aliases || [])].map(key));
+        keys.forEach((k) => (wanted.get(k) || []).forEach((n) => exercises.push({ name: n, canon: d.name, videoUrl: d.videoUrl, cues: d.cues })));
       });
       return {
         data: {
@@ -240,7 +244,8 @@
   };
 
   // ---- exercise video ----------------------------------------------------------------------------
-  const exerciseInfo = (name) => (data.exercises || []).find((x) => (x.name || "").trim().toLowerCase() === (name || "").trim().toLowerCase()) || null;
+  const nameKey = window.exerciseNameKey; // names match ignoring case, spaces, hyphens and punctuation (program_rx.js)
+  const exerciseInfo = (name) => (data.exercises || []).find((x) => nameKey(x.name) === nameKey(name)) || null;
   const closeVideo = () => { overlay.className = "overlay"; overlay.replaceChildren(); };
   const openVideo = (info) => {
     const embed = window.videoEmbedOf(info.videoUrl);
@@ -529,8 +534,8 @@
     return `Wk of ${f(a)}`;
   };
   function lastLogged(item, si, e, gi) {
-    const pid = item.program.id, name = (e.name || "").trim().toLowerCase();
-    const same = (x) => (x.name || "").trim().toLowerCase() === name;
+    const pid = item.program.id, name = Rx.liftKey(e.name);
+    const same = (x) => Rx.liftKey(x.name) === name; // the same lift, under any of its library names
     const today = ((item.week.sessions || [])[si] || {}).exercises || [];
     const nth = today.filter(same).indexOf(e); // which one, if the exercise is on the day more than once
     for (let wk = weekIdx - 1; wk >= item.block.start; wk -= 1) {
@@ -546,14 +551,14 @@
   // program, or a quick strength session (and a quick session finds it in the regular program). The same set
   // group if it has one, else its first.
   function lastLoggedAnywhere(e, gi, pos) {
-    const name = (e.name || "").trim().toLowerCase();
+    const name = Rx.liftKey(e.name);
     let best = null;
     (plan.blocks || []).filter((b) => b.programId).forEach((b) => {
       const program = programById(b.programId);
       if (!program) return;
       (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((x) => {
         const at = (b.start + wi) * 100 + si;
-        if (x.id === e.id || at >= pos || (best && at <= best.at) || (x.name || "").trim().toLowerCase() !== name) return;
+        if (x.id === e.id || at >= pos || (best && at <= best.at) || Rx.liftKey(x.name) !== name) return;
         const g = Rx.groups(x)[gi] ? gi : 0;
         const wt = logged(program.id, Rx.logKey(x, g)), r = logged(program.id, Rx.repsLogKey(x, g));
         if (wt || r) best = { at, week: b.start + wi + 1, when: loggedWhen(b.start + wi, s.date), text: r ? `${wt || "?"} x ${r}` : wt, w: wt, r };
@@ -1150,7 +1155,7 @@
     const wins = [];
     const seen = new Set();
     rows.forEach((e) => {
-      const key = e.name.trim().toLowerCase();
+      const key = Rx.liftKey(e.name);
       if (seen.has(key)) return;
       seen.add(key);
       const mine = all.filter((m) => m.key === key && m.pos === pos).map((m) => m.value);
@@ -1242,7 +1247,7 @@
         Rx.groups(e).forEach((g, gi) => {
           const v = parseFloat(log[Rx.logKey(e, gi)]);
           if (!(v > 0)) return;
-          const key = name.toLowerCase(), pw = b.start + wi;
+          const key = Rx.liftKey(name), pw = b.start + wi; // one lift under any of its library names
           if (!lifts.has(key)) lifts.set(key, { name, weeks: new Map(), lastPos: 0 });
           const one = lifts.get(key);
           one.weeks.set(pw, Math.max(one.weeks.get(pw) || 0, v));
@@ -1427,6 +1432,7 @@
     });
     (data.overrides || []).forEach((r) => { (overrides[r.programId] = overrides[r.programId] || {})[r.exerciseId] = r.data; });
     data.exercises = data.exercises || [];
+    Rx.setLiftNames(data.exercises); // names that are another name for a library exercise track as that lift (canon)
     if (data.rmChart && typeof data.rmChart === "object") Rx.chart = () => data.rmChart;
     else Rx.chart = () => ({ 1: 100, 2: 95, 3: 92.5, 4: 90, 5: 87.5, 6: 85, 7: 82.5, 8: 80, 9: 77.5, 10: 75, 11: 72.5, 12: 70, 13: 67.5, 14: 65, 15: 60, 16: 55, 17: 50 });
     weekIdx = currentWeek();
