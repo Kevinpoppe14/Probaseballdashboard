@@ -3333,7 +3333,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .program-tag button { padding: 0 4px; border: none; background: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
 .program-tag button:hover { color: var(--text); }
 .program-add-tags { font-size: 12px; }
-.program-tags .btn-link.program-add-tags { color: var(--text); } /* not link blue */
+.program-tags .btn-link.program-add-tags { padding: 2px 10px; border: 1px dashed var(--text-dim); border-radius: 12px; color: var(--text); text-decoration: none; } /* an outlined pill, not a link */
 .program-add-desc { font-size: 12px; color: var(--text); padding: 0; }
 /* asked after changing an exercise that sits in the same spot in other weeks */
 .program-swap-ask { max-width: 460px; }

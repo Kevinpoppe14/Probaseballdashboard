@@ -22,6 +22,8 @@
     kids.flat().forEach((c) => { if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c))); });
     return n;
   };
+  // replaces what's in a box, the way el() fills one: lists are spread and nothing-to-show (null, false) is skipped
+  const fill = (box, ...kids) => box.replaceChildren(...kids.flat(Infinity).filter((c) => c != null && c !== false));
 
   // ---- the plan, as periodization.js keeps it ----------------------------------------------------------
   const MAX_WEEKS = 60;
@@ -200,7 +202,7 @@
   const lastFirst = (name) => { const p = (name || "").trim().split(/\s+/); return p.length > 1 ? `${p[p.length - 1]}, ${p.slice(0, -1).join(" ")}` : name || ""; };
   const firstName = (name) => (name || "").trim().split(/\s+/)[0] || "them";
   const sheet = (...kids) => {
-    ctx.overlay.replaceChildren(el("div", { class: "sheet qa" }, el("button", { class: "close", "aria-label": "Close", onclick: ctx.close }, "×"), ...kids));
+    fill(ctx.overlay, el("div", { class: "sheet qa" }, el("button", { class: "close", "aria-label": "Close", onclick: ctx.close }, "×"), ...kids));
     ctx.overlay.className = "overlay show";
     ctx.overlay.scrollTop = 0;
   };
@@ -217,7 +219,7 @@
       if (!ctx.people) {
         const [people, programs] = await Promise.all([
           readAll("athletes", "id, name:data->>name, status:data->>status, coachUser:data->>coachUserId"),
-          readAll("programs", "id, name:data->>name, folder:data->>folder, owner:data->>athleteId"),
+          readAll("programs", "id, name:data->>name, folder:data->>folder, owner:data->>athleteId, tags:data->tags"),
         ]);
         ctx.people = people.filter((p) => (p.status || "active").toLowerCase() === "active" && (p.name || "").trim()).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
         ctx.programs = programs.filter((p) => !p.owner && !window.isSentProgram(p.id) && (p.name || "").trim()).sort((a, b) => a.name.localeCompare(b.name));
@@ -249,7 +251,7 @@
     const show = () => {
       const q = search.value.trim().toLowerCase();
       const hits = q ? ctx.people.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8) : [];
-      results.replaceChildren(...hits.map((p) => el("button", { class: "qa-row", onclick: () => pickProgram(p) }, lastFirst(p.name))),
+      fill(results, ...hits.map((p) => el("button", { class: "qa-row", onclick: () => pickProgram(p) }, lastFirst(p.name))),
         q && !hits.length ? el("div", { class: "qa-empty" }, "No active athlete matches that.") : null);
     };
     search.addEventListener("input", show);
@@ -313,7 +315,7 @@
             el("label", null, "% (optional)", field(row, "pct", { inputmode: "decimal", "aria-label": "Percent" }))),
           field(row, "notes", { placeholder: "Note (optional)", class: "qa-build-note", "aria-label": "Note" }));
       };
-      list.replaceChildren(...blocks.map((rows, bi) => {
+      fill(list, ...blocks.map((rows, bi) => {
         const letter = (/^[A-Z]+/.exec(letters[rows[0]] || "") || [String.fromCharCode(65 + bi)])[0];
         const last = rows[rows.length - 1];
         return el("div", { class: "qa-block" },
@@ -382,9 +384,9 @@
       const draw = () => {
         const q = search.value.trim().toLowerCase();
         const hits = q ? ctx.people.filter((p) => p !== ctx.me && p.name.toLowerCase().includes(q)).slice(0, 8) : [];
-        results.replaceChildren(...hits.map((p) => el("button", { class: `qa-row${picked.has(p) ? " on" : ""}`, onclick: () => { if (picked.has(p)) picked.delete(p); else picked.add(p); search.value = ""; draw(); search.focus(); } }, `${picked.has(p) ? "✓ " : ""}${lastFirst(p.name)}`)),
+        fill(results, ...hits.map((p) => el("button", { class: `qa-row${picked.has(p) ? " on" : ""}`, onclick: () => { if (picked.has(p)) picked.delete(p); else picked.add(p); search.value = ""; draw(); search.focus(); } }, `${picked.has(p) ? "✓ " : ""}${lastFirst(p.name)}`)),
           q && !hits.length ? el("div", { class: "qa-empty" }, "No active athlete matches that.") : null);
-        chosen.replaceChildren(...[...picked].map((p) => el("span", { class: "exercise-tag qa-chip" }, p.name, el("button", { type: "button", class: "exercise-alias-x", "aria-label": `Remove ${p.name}`, onclick: () => { picked.delete(p); draw(); } }, "×"))));
+        fill(chosen, ...[...picked].map((p) => el("span", { class: "exercise-tag qa-chip" }, p.name, el("button", { type: "button", class: "exercise-alias-x", "aria-label": `Remove ${p.name}`, onclick: () => { picked.delete(p); draw(); } }, "×"))));
         send.disabled = !picked.size;
         send.textContent = picked.size ? `Send to ${picked.size === 1 ? firstName([...picked][0].name) : `${picked.size} athletes`}` : "Pick who to send it to";
       };
@@ -448,23 +450,57 @@
           loadMine(box);
         } catch (err) { e.target.disabled = false; window.alert(errorText(err)); }
       };
-      box.replaceChildren(...(drops.length ? drops.map((d) => el("div", { class: "qa-drop" },
+      fill(box, ...(drops.length ? drops.map((d) => el("div", { class: "qa-drop" },
         el("div", { class: "qa-drop-text" },
           d.oneOff ? el("b", null, el("span", { class: "qa-tag" }, "Quick session"), d.oneOff.s.name) : el("b", null, d.b.label || "Program"),
           el("small", null, `${lastFirst(name(d.athleteId))} · ${d.oneOff ? day(d.oneOff.s.date) : blockDates(d.startDate, d.b)}`)),
         el("button", { class: "qa-remove", onclick: remove(d) }, "Remove"))) : [el("div", { class: "qa-empty" }, "None yet. Programs and sessions you send from here are listed so you can take them off again.")]));
-    } catch (e) { box.replaceChildren(el("div", { class: "qa-empty" }, errorText(e))); }
+    } catch (e) { fill(box, el("div", { class: "qa-empty" }, errorText(e))); }
   }
 
-  // the program, from the library
+  // the program, from the library. With nothing typed it's laid out by folder: each top folder (Strength ...) with
+  // its own programs listed under it, and each of its subfolders (Strength › Pen & Paper Strength Programs) a row
+  // that opens to show its programs. Typing searches every folder (name, folder and tags). Each program shows its tags.
+  const openFolders = new Set();
   function pickProgram(person) {
     const results = el("div", { class: "qa-list" });
-    const search = el("input", { type: "search", placeholder: "Search programs", "aria-label": "Search programs", autocomplete: "off" });
+    const search = el("input", { type: "search", placeholder: "Search programs or tags", "aria-label": "Search programs", autocomplete: "off" });
+    const tagsOf = (p) => (Array.isArray(p.tags) ? p.tags : []).filter(Boolean);
+    const row = (p, where) => el("button", { class: "qa-row qa-prog", onclick: () => preview(person, p.id) },
+      p.name,
+      where ? el("small", null, where) : null,
+      tagsOf(p).length ? el("span", { class: "qa-tags" }, tagsOf(p).map((t) => el("span", { class: "qa-tagchip" }, t))) : null);
     const show = () => {
       const q = search.value.trim().toLowerCase();
-      const hits = ctx.programs.filter((p) => !q || `${p.name} ${p.folder || ""}`.toLowerCase().includes(q)).slice(0, 40);
-      results.replaceChildren(...hits.map((p) => el("button", { class: "qa-row", onclick: () => preview(person, p.id) }, p.name, p.folder ? el("small", null, p.folder) : null)),
-        !hits.length ? el("div", { class: "qa-empty" }, "No program matches that.") : null);
+      if (q) {
+        const hits = ctx.programs.filter((p) => `${p.name} ${p.folder || ""} ${tagsOf(p).join(" ")}`.toLowerCase().includes(q)).slice(0, 40);
+        fill(results, ...hits.map((p) => row(p, p.folder ? p.folder.replace(/\//g, " › ") : "")),
+          !hits.length ? el("div", { class: "qa-empty" }, "No program matches that.") : null);
+        return;
+      }
+      const tops = new Map(); // top folder -> { own: programs, subs: Map(subfolder path -> programs) }
+      ctx.programs.forEach((p) => {
+        const parts = (p.folder || "").split("/").map((x) => x.trim()).filter(Boolean);
+        const top = parts[0] || "";
+        if (!tops.has(top)) tops.set(top, { own: [], subs: new Map() });
+        const t = tops.get(top);
+        if (parts.length < 2) t.own.push(p);
+        else { const sub = parts.slice(1).join(" › "); if (!t.subs.has(sub)) t.subs.set(sub, []); t.subs.get(sub).push(p); }
+      });
+      const names = [...tops.keys()].sort((a, b) => (a ? (b ? a.localeCompare(b) : -1) : 1)); // programs with no folder last
+      fill(results, ...names.map((top) => {
+        const t = tops.get(top);
+        return el("div", { class: "qa-folder" },
+          el("div", { class: "qa-label" }, top || "Other programs"),
+          t.own.map((p) => row(p)),
+          [...t.subs.keys()].sort((a, b) => a.localeCompare(b)).map((sub) => {
+            const key = `${top}/${sub}`, open = openFolders.has(key), list = t.subs.get(sub);
+            return el("div", { class: "qa-sub-folder" },
+              el("button", { class: `qa-folder-row${open ? " open" : ""}`, onclick: () => { if (open) openFolders.delete(key); else openFolders.add(key); show(); } },
+                el("span", { class: "qa-folder-caret", "aria-hidden": "true" }, open ? "▾" : "▸"), el("span", null, sub), el("small", null, `${list.length}`)),
+              open ? el("div", { class: "qa-folder-items" }, list.map((p) => row(p))) : null);
+          }));
+      }), !ctx.programs.length ? el("div", { class: "qa-empty" }, "No programs in the library yet.") : null);
     };
     search.addEventListener("input", show);
     sheet(el("h2", null, `A program for ${person === ctx.me ? "you" : firstName(person.name)}`),
@@ -604,7 +640,7 @@
     if (!libraryNames) {
       readAll("exercises", "id, name:data->>name").then((rows) => {
         libraryNames = [...new Set(rows.map((r) => (r.name || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-        lib.replaceChildren(...libraryNames.map((n) => el("option", { value: n })));
+        fill(lib, ...libraryNames.map((n) => el("option", { value: n })));
       }).catch(() => {});
     }
     // per spot: a replacement name, and per week the sets/reps being changed to (no entry = kept as written)
@@ -619,12 +655,12 @@
       const draw = () => {
         const now = ed.weeks.get(wi);
         if (!now) {
-          box.replaceChildren(el("span", { class: "qa-week-name" }, weekName), el("span", { class: "qa-week-rx" }, groupsText(e)),
+          fill(box, el("span", { class: "qa-week-name" }, weekName), el("span", { class: "qa-week-rx" }, groupsText(e)),
             el("button", { class: "qa-week-btn", type: "button", onclick: () => { ed.weeks.set(wi, JSON.parse(JSON.stringify(e.groups && e.groups.length ? e.groups : [{ sets: "", reps: "", intensity: "" }]))); draw(); } }, "Change"));
           return;
         }
         const unit = Rx.normalize(e).intensityUnit;
-        box.replaceChildren(
+        fill(box, 
           el("div", { class: "qa-week-head" }, el("span", { class: "qa-week-name" }, weekName), el("small", null, `was ${groupsText(e)}`),
             el("button", { class: "qa-week-btn", type: "button", onclick: () => { ed.weeks.delete(wi); draw(); } }, "Keep as written")),
           ...now.map((g, gi) => el("div", { class: "qa-build-rx" },

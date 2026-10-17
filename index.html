@@ -1617,7 +1617,7 @@ function ProgramTags({ tags, all, onChange }) {
           <datalist id={listId}>{(all || []).filter((a) => !list.includes(a)).map((a) => <option key={a} value={a} />)}</datalist>
         </React.Fragment>
       ) : (
-        <button className="btn-link program-add-tags no-print" onClick={() => setAdding(true)}>+ Add tags</button>
+        <button className="btn-link program-add-tags no-print" title="Add tags to this program" onClick={() => setAdding(true)}>+ Tag</button>
       )}
     </div>
   );
