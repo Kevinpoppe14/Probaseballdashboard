@@ -273,6 +273,22 @@
   .qa-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: var(--accent); color: #fff; vertical-align: 2px; }
   .qa-remove { flex: 0 0 auto; min-height: 34px; padding: 4px 12px; border-radius: 8px; border: 1px solid #6b2a2a; background: none; color: #ff8a8a; font-size: 13px; }
   .qa-date { display: block; font-size: 13px; color: var(--dim); margin-top: 6px; }
+  /* building a quick session from scratch */
+  .qa-build { border-color: var(--label, var(--accent)); margin-bottom: 4px; }
+  .qa-date select, .sheet.qa > input:not([type]) { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; margin: 4px 0 8px; color-scheme: dark; }
+  .qa-build-rows { display: flex; flex-direction: column; gap: 8px; }
+  .qa-build-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--panel-2); }
+  .qa-build-top { display: flex; align-items: center; gap: 8px; }
+  .qa-build-row input { height: 40px; font-size: 16px; color: var(--text); background: var(--panel); border: 1px solid #444; border-radius: 8px; padding: 0 10px; min-width: 0; color-scheme: dark; }
+  .qa-build-name { flex: 1; }
+  .qa-build-x { flex: 0 0 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: none; color: var(--dim); font-size: 18px; }
+  .qa-build-rx { display: flex; gap: 8px; margin-top: 8px; }
+  .qa-build-rx label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--dim); }
+  .qa-build-rx input { width: 100%; text-align: center; }
+  .qa-build-note { width: 100%; margin-top: 8px; }
+  .qa-build-link { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--dim); }
+  .qa-build-link input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .qa-add { width: 100%; min-height: 42px; margin: 8px 0; border-radius: 10px; border: 1px dashed var(--border); background: none; color: var(--text); font-size: 14px; }
   .sheet .close { position: absolute; right: 22px; top: calc(22px + env(safe-area-inset-top)); width: 40px; height: 40px; border-radius: 20px; border: 1px solid var(--border); background: var(--panel-2); font-size: 20px; }
   .video { position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 10px; overflow: hidden; }
   .video.vertical { padding-top: 0; height: 70vh; max-width: 40vh; margin: 0 auto; }

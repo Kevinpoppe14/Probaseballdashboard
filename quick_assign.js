@@ -209,7 +209,7 @@
 
   async function open(options) {
     ctx = { ...(ctx || {}), ...options };
-    sheet(el("h2", null, "Assign a program"), note("Loading…"));
+    sheet(el("h2", null, ctx.mode === "build" ? "Quick session" : "Assign a program"), note("Loading…"));
     const { data } = await sb.auth.getSession();
     if (!data || !data.session) { signIn(); return; }
     ctx.user = data.session.user;
@@ -220,10 +220,10 @@
           readAll("programs", "id, name:data->>name, folder:data->>folder, owner:data->>athleteId"),
         ]);
         ctx.people = people.filter((p) => (p.status || "active").toLowerCase() === "active" && (p.name || "").trim()).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
-        ctx.programs = programs.filter((p) => !p.owner && !String(p.id).startsWith("gspeed-") && (p.name || "").trim()).sort((a, b) => a.name.localeCompare(b.name));
+        ctx.programs = programs.filter((p) => !p.owner && !window.isSentProgram(p.id) && (p.name || "").trim()).sort((a, b) => a.name.localeCompare(b.name));
       }
       ctx.me = ctx.people.find((p) => p.coachUser && p.coachUser === ctx.user.id) || null;
-      home();
+      if (ctx.mode === "build") { ctx.mode = null; build(); } else home();
     } catch (e) { sheet(el("h2", null, "Assign a program"), note(errorText(e))); }
   }
 
@@ -255,11 +255,108 @@
     search.addEventListener("input", show);
     const mine = el("div", { class: "qa-list" }, el("div", { class: "qa-empty" }, "Loading…"));
     sheet(el("h2", null, "Assign a program"),
-      el("div", { class: "qa-label" }, "Who is it for?"),
+      el("button", { class: "qa-row qa-build", onclick: () => build() }, "Build a quick session", el("small", null, "Write a session from scratch, for you or an athlete")),
+      el("div", { class: "qa-label" }, "Or assign a saved program. Who is it for?"),
       ctx.me ? el("button", { class: "qa-row qa-me", onclick: () => pickProgram(ctx.me) }, "Me", el("small", null, ctx.me.name)) : null,
       search, results,
-      el("div", { class: "qa-label" }, "Quick programs you've assigned"), mine);
+      el("div", { class: "qa-label" }, "Programs and quick sessions you've sent"), mine);
     loadMine(mine);
+  }
+
+  // ---- a quick session written from scratch ------------------------------------------------------------
+  // For a coach logging their own workout without a program, or sending one to an athlete (one away from home
+  // with different equipment, say): exercises typed in (the library's names are offered), sets, reps, an
+  // optional %, a note, and supersets. It goes on the plan the same way as one day sent from a program
+  // (sendOneOff), so it logs to the Training Log and counts toward maxes like any session. What's typed is kept
+  // while the page is open, in case the sheet is closed before it's saved.
+  let libraryNames = null;
+  async function build() {
+    if (!libraryNames) {
+      try {
+        const rows = await readAll("exercises", "id, name:data->>name");
+        libraryNames = [...new Set(rows.map((r) => (r.name || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      } catch (e) { libraryNames = []; }
+    }
+    const today = toISO(new Date());
+    const blankRow = () => ({ name: "", sets: "", reps: "", pct: "", notes: "", linked: false });
+    const d = ctx.draft = ctx.draft || { who: ctx.me ? String(ctx.me.id) : "", date: today, title: "", rows: [blankRow()] };
+    const lib = el("datalist", { id: "qa-library" }, libraryNames.map((n) => el("option", { value: n })));
+    const msg = el("div", { class: "swap-note" });
+    const list = el("div", { class: "qa-build-rows" });
+    const field = (row, key, attrs) => {
+      const i = el("input", { value: row[key], autocomplete: "off", ...attrs });
+      i.addEventListener("input", () => { row[key] = i.value; });
+      return i;
+    };
+    const drawRows = () => {
+      const letters = window.exerciseLabels ? window.exerciseLabels(d.rows.map((r) => ({ name: r.name || "x", linked: r.linked }))) : [];
+      list.replaceChildren(...d.rows.map((row, ri) => el("div", { class: "qa-build-row" },
+        el("div", { class: "qa-build-top" },
+          el("span", { class: "qa-ex-label" }, letters[ri] || ""),
+          field(row, "name", { placeholder: "Exercise", list: "qa-library", "aria-label": "Exercise", class: "qa-build-name" }),
+          d.rows.length > 1 ? el("button", { class: "qa-build-x", type: "button", "aria-label": "Remove this exercise", onclick: () => { d.rows.splice(ri, 1); if (d.rows[0]) d.rows[0].linked = false; drawRows(); } }, "×") : null),
+        el("div", { class: "qa-build-rx" },
+          el("label", null, "Sets", field(row, "sets", { inputmode: "numeric", "aria-label": "Sets" })),
+          el("label", null, "Reps", field(row, "reps", { "aria-label": "Reps" })),
+          el("label", null, "% (optional)", field(row, "pct", { inputmode: "decimal", "aria-label": "Percent" }))),
+        field(row, "notes", { placeholder: "Note (optional)", class: "qa-build-note", "aria-label": "Note" }),
+        ri > 0 ? el("label", { class: "qa-build-link" }, (() => { const c = el("input", { type: "checkbox" }); c.checked = row.linked; c.addEventListener("change", () => { row.linked = c.checked; drawRows(); }); return c; })(), " Superset with the one above") : null)));
+    };
+    const who = el("select", { "aria-label": "Who it's for" },
+      ctx.me ? el("option", { value: String(ctx.me.id), selected: d.who === String(ctx.me.id) }, `Me (${ctx.me.name})`) : null,
+      ctx.people.filter((p) => p !== ctx.me).map((p) => el("option", { value: String(p.id), selected: d.who === String(p.id) }, lastFirst(p.name))));
+    if (!d.who && ctx.people.length) d.who = who.value;
+    const date = el("input", { type: "date", value: d.date, "aria-label": "Date" });
+    const title = el("input", { value: d.title, placeholder: "Session name (optional), e.g. Hotel gym lower", autocomplete: "off", "aria-label": "Session name" });
+    const save = el("button", { class: "primary" });
+    const label = () => {
+      const self = ctx.me && d.who === String(ctx.me.id);
+      const person = ctx.people.find((p) => String(p.id) === d.who);
+      save.textContent = self ? (d.date === today ? "Add to my day" : "Add it") : `Send to ${person ? firstName(person.name) : "them"}`;
+    };
+    who.addEventListener("change", () => { d.who = who.value; label(); });
+    date.addEventListener("change", () => { d.date = date.value; label(); });
+    title.addEventListener("input", () => { d.title = title.value; });
+    save.addEventListener("click", async () => {
+      const rows = d.rows.filter((r) => r.name.trim());
+      if (!rows.length) { msg.textContent = "Add at least one exercise."; return; }
+      if (rows.some((r) => !`${r.sets}${r.reps}`.trim())) { msg.textContent = "Give each exercise its sets or reps."; return; }
+      if (!d.date) { msg.textContent = "Pick a date."; return; }
+      const person = ctx.people.find((p) => String(p.id) === d.who);
+      if (!person) { msg.textContent = "Pick who it's for."; return; }
+      const session = {
+        name: d.title.trim() || "Quick session",
+        exercises: rows.map((r, i) => ({
+          id: `ex-${uid()}`, name: r.name.trim().replace(/\s+/g, " "), tempo: "", rest: "", notes: r.notes.trim(), linked: i > 0 && r.linked,
+          intensityUnit: rows.some((x) => `${x.pct}`.trim()) ? "%" : "",
+          groups: [{ sets: `${r.sets}`.trim(), reps: `${r.reps}`.trim(), intensity: `${r.pct}`.trim().replace(/%$/, "") }],
+        })),
+      };
+      save.disabled = true;
+      msg.textContent = "Saving…";
+      try {
+        const r = await sendOneOff(person, { id: null, name: "Quick session" }, session, d.date, ctx.user.email);
+        if (r === "out-of-range") { msg.textContent = "That date is past the end of the plan."; save.disabled = false; return; }
+        ctx.draft = null;
+        const self = person === ctx.me;
+        ctx.status(self ? (d.date === today ? "Added to today. Opening it…" : `Added for ${day(d.date)}`) : `Sent to ${person.name} for ${day(d.date)}`);
+        if (self && ctx.onAssignedSelf) { ctx.onAssignedSelf(); return; }
+        home();
+      } catch (e) { msg.textContent = errorText(e); save.disabled = false; }
+    });
+    label();
+    drawRows();
+    sheet(el("h2", null, "Quick session"), lib,
+      el("button", { class: "qa-back", onclick: home }, "‹ Programs and sent sessions"),
+      el("label", { class: "qa-date" }, "For", who),
+      el("label", { class: "qa-date" }, "Date", date),
+      title,
+      el("div", { class: "qa-label" }, "Exercises"),
+      list,
+      el("button", { class: "qa-add", type: "button", onclick: () => { d.rows.push(blankRow()); drawRows(); const inputs = list.querySelectorAll(".qa-build-name"); if (inputs.length) inputs[inputs.length - 1].focus(); } }, "+ Add exercise"),
+      el("div", { class: "qa-sub" }, "It goes on the plan under Quick Strength Session for that day, with weight boxes, and logs to the Training Log like any session."),
+      msg,
+      el("div", { class: "swap-actions" }, save, el("button", { onclick: () => { ctx.draft = null; home(); } }, "Discard")));
   }
 
   async function loadMine(box) {
