@@ -844,6 +844,12 @@
       const go = id === "coach" ? openCoachMenu : () => { view = id; render(); window.scrollTo(0, 0); };
       return el("button", { class: `menu-item${view === id ? " on" : ""}${id === "coach" ? " to-coach" : ""}`, role: id === "coach" ? null : "tab", "aria-selected": id === "coach" ? null : view === id ? "true" : "false", onclick: go }, icon, el("span", null, text));
     }));
+  // Create Quick Session and Assign Existing Program (quick_assign.js), in the coach menu and on a coach's empty
+  // program page; something put on their own plan reloads the page so it shows
+  const quickTools = () => (window.QuickAssign ? [
+    el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "build", onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Create Quick Session"),
+    el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Assign Existing Program"),
+  ] : []);
   function openCoachMenu() {
     const to = (href) => () => { window.location.href = href; };
     overlay.replaceChildren(el("div", { class: "sheet coach-menu" },
@@ -853,10 +859,7 @@
       el("div", { class: "swap-actions" },
         el("button", { class: "primary", onclick: to("coach.html?from=app") }, "Coach Mode"),
         el("button", { class: "primary", onclick: to("index.html?from=app") }, "Dashboard"),
-        // a saved program (or one day of it) dropped onto their own plan or an athlete's, right here (quick_assign.js);
-        // something put on their own plan reloads the page so it shows
-        window.QuickAssign ? el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "build", onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Create Quick Session") : null,
-        window.QuickAssign ? el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Assign Existing Program") : null,
+        quickTools(),
         el("button", { onclick: closeVideo }, "Cancel"))));
     overlay.className = "overlay show";
   }
@@ -872,10 +875,15 @@
     const started = new Date(new Date().toDateString()) >= parseISO(plan.startDate);
     const end = parseISO(plan.startDate); end.setDate(end.getDate() + plan.weeks * 7 - 1);
     const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-    main.append(el("div", { class: "card" },
-      el("div", { class: "card-title" }, started ? `Week ${now + 1} of ${plan.weeks}` : `Starts ${fmt(parseISO(plan.startDate))}`),
-      el("div", { class: "bar" }, el("span", { style: `width:${started ? Math.round(((now + 1) / plan.weeks) * 100) : 0}%` })),
-      el("div", { class: "card-sub" }, `${fmt(parseISO(plan.startDate))} – ${fmt(end)}`)));
+    // the plan's dates once a coach has built one (nothing on it yet: a note instead)
+    if ((plan.blocks || []).length) {
+      main.append(el("div", { class: "card" },
+        el("div", { class: "card-title" }, started ? `Week ${now + 1} of ${plan.weeks}` : `Starts ${fmt(parseISO(plan.startDate))}`),
+        el("div", { class: "bar" }, el("span", { style: `width:${started ? Math.round(((now + 1) / plan.weeks) * 100) : 0}%` })),
+        el("div", { class: "card-sub" }, `${fmt(parseISO(plan.startDate))} – ${fmt(end)}`)));
+    } else {
+      main.append(el("div", { class: "card" }, el("div", { class: "card-title" }, "No plan yet"), el("div", { class: "card-sub" }, "Your plan’s timeline, goals and action plan show here once your coach builds it.")));
+    }
 
     const lanes = (plan.lanes || []).filter((l) => (plan.blocks || []).some((b) => b.lane === l.id));
     if (lanes.length) main.append(el("h2", { class: "section" }, "Timeline"));
@@ -1325,7 +1333,8 @@
   const PHONE_TOUR = [
     { title: "Welcome to your program", text: "Everything your coach has planned for you, with a place to log what you lift. Here’s a quick look at how it works." },
     { sel: ".install-tip", optional: true, title: "Put it on your home screen", text: "Add this page to your home screen and it opens like an app, straight to your program. Close the tip once it’s done." },
-    { sel: ".weekbar", title: "Your week", text: "The week you’re on, with its dates. The arrows look back at past weeks or ahead to what’s coming." },
+    { sel: "main .no-program", optional: true, title: "Your program goes here", text: "Nothing is on your plan yet. As soon as there is, your week’s workouts show on this page. Coaches: Create Quick Session and Assign Existing Program put one on in a few taps, for you or an athlete." },
+    { sel: ".weekbar", optional: true, title: "Your week", text: "The week you’re on, with its dates. The arrows look back at past weeks or ahead to what’s coming." },
     { sel: ".chips:not(.days)", optional: true, title: "Your programs", text: "When you have more than one program this week (strength and speed, say), tap one to switch." },
     { sel: ".chips.days", optional: true, title: "Your days", text: "Tap a day to open it. A day gets a ✓ once it’s logged, and the app opens on the next day you haven’t done." },
     { sel: "main .warmup", optional: true, title: "Warm-up", text: "Start here before the first exercise." },
@@ -1353,6 +1362,29 @@
     }
     if (view === "progress") {
       app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Progress"))), progressView(), menu());
+      return;
+    }
+    // nothing on the plan yet: the program page says so, and a coach gets their tools right there to put
+    // something on it (a quick session for today, or a saved program)
+    if (!(plan.blocks || []).some((b) => b.programId)) {
+      const parts = [el("div", { class: "top" },
+        window.DSTTour ? el("button", { class: "tour-help", "aria-label": "How this app works", title: "How this app works", onclick: () => window.DSTTour.start(PHONE_TOUR) }, "?") : null,
+        el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Program")))];
+      const tip = installTip();
+      if (tip) parts.push(tip);
+      parts.push(el("main", null, el("div", { class: "card no-program" },
+        el("div", { class: "card-title" }, "No program yet"),
+        staff
+          ? el("div", { class: "card-sub" }, "Nothing is on your plan yet. Build a session for today, or put a saved program on your plan, and it shows here. The same tools put a program on an athlete’s plan.")
+          : el("div", { class: "card-sub" }, "Your coach hasn’t put a program on your plan yet. It shows up here as soon as they do. Until then, Progress has your testing results and Plan has your goals."),
+        staff ? el("div", { class: "swap-actions" }, quickTools()) : null)));
+      parts.push(menu());
+      app.replaceChildren(...parts);
+      shown = null;
+      if (!tourTried && window.DSTTour) {
+        tourTried = true;
+        setTimeout(() => { if (view === "program" && !overlay.className.includes("show")) window.DSTTour.autoPlay("phone", PHONE_TOUR, { useLogin: false }); }, 700);
+      }
       return;
     }
     const items = itemsAt(weekIdx);
@@ -1474,14 +1506,13 @@
     remote = !!(data.athlete && data.athlete.remote);
     if (data.equipment) equipment = { access: data.equipment.access || null, custom: data.equipment.custom || [], surveyedAt: data.equipment.surveyedAt || null };
     document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";
-    if (!data.plan || !(data.plan.blocks || []).length) {
-      // no program yet: a remote athlete can still fill in their equipment, so the coach can build around it
-      if (remote) { view = "equipment"; render(); } else message(coachId ? "No program is on this athlete's plan yet." : "Your coach has not put a program on your plan yet.");
-      return;
-    }
-    plan = { ...data.plan, weeks: Number(data.plan.weeks) || 1, programLog: {} };
+    // No program yet: the app still opens (Progress, Plan and, for a coach, their coach tools), with a note where the
+    // program goes. Coach Mode keeps its one-line message for an athlete with nothing on their plan.
+    if (coachId && !(data.plan && (data.plan.blocks || []).some((b) => b.programId))) { message("No program is on this athlete's plan yet."); return; }
+    const given = data.plan || {};
+    plan = { ...given, blocks: given.blocks || [], lanes: given.lanes || [], startDate: given.startDate || localDay(), weeks: Number(given.weeks) || 1, programLog: {} };
     // what's been logged: the older entries kept on the plan, then the log table laid over them
-    Object.entries(data.plan.programLog || {}).forEach(([pid, one]) => { plan.programLog[pid] = { ...one }; });
+    Object.entries(given.programLog || {}).forEach(([pid, one]) => { plan.programLog[pid] = { ...one }; });
     (data.logs || []).forEach((r) => {
       const one = (plan.programLog[r.programId] = plan.programLog[r.programId] || {});
       if (r.value) one[r.key] = r.value; else delete one[r.key];
