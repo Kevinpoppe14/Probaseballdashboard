@@ -3443,6 +3443,18 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .today-card li { padding: 2px 0; }
 .today-card li small { color: var(--text-dim); }
 .today-more { margin-top: 4px; font-size: 12px; }
+/* what a guided tour (tour.js) lights: the row of add buttons hugs the buttons while no form is open */
+.tour-anchor:not(:has(.panel)) { width: fit-content; }
+/* × to close a name or a whole card until Monday; faint until hovered (always shown on touch screens) */
+.today-restore { margin-left: auto; font-size: 12px; }
+.today-restore + .today-toggle { margin-left: 0; }
+.today-card li { display: flex; align-items: baseline; gap: 4px; }
+.today-card li small { flex: 1; }
+.today-x { margin-left: auto; padding: 0 4px; border: none; background: none; color: var(--text-dim); font-size: 15px; line-height: 1; cursor: pointer; opacity: 0.35; }
+.today-x:hover, .today-x:focus-visible { opacity: 1; color: var(--text); }
+.today-card li:hover .today-x { opacity: 0.8; }
+.today-x-card { font-size: 17px; }
+@media (hover: none) { .today-x { opacity: 0.7; } }
 
 /* ---- one font and one text colour across the program builder ----
    Form boxes otherwise fall back to the browser's own fonts (Arial for most, a typewriter font for the warm-up), so

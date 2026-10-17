@@ -30,6 +30,8 @@
   :root[data-theme="light"] .sheet, :root[data-theme="light"] .card, :root[data-theme="light"] .group { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
   /* the sun/moon button, top right */
   .theme-toggle { position: absolute; right: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); }
+  /* the ? that plays the tour again (tour.js), top left, opposite the sun/moon */
+  .tour-help { position: absolute; left: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); font-size: 16px; font-weight: 700; line-height: 1; }
   /* Holiday colors (see holiday.js): only while <html data-holiday> is set, which is on the holiday itself */
   :root[data-holiday] body, :root[data-holiday] body.cubs { --accent: var(--hol-1); --label: var(--hol-1); }
   :root[data-holiday] .top { border-bottom: 5px solid; border-image: linear-gradient(90deg, var(--hol-1) 0 33.3%, var(--hol-3) 33.3% 66.6%, var(--hol-2) 66.6% 100%) 1; }
@@ -351,6 +353,7 @@
 <script src="holiday.js"></script>
 <script src="program_rx.js"></script>
 <script src="quick_assign.js"></script>
+<script src="tour.js"></script>
 <script src="athlete.js"></script>
 </body>
 </html>

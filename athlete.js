@@ -1319,6 +1319,27 @@
   }
 
   // ---- the page ----------------------------------------------------------------------------------
+  // ---- the tour (tour.js) ------------------------------------------------------------------------------
+  // The first time this phone opens the program, a short tour lights up each part in turn. The ? at the top left
+  // plays it again. Steps for things a day may not have (a warm-up, a video, a second program) are skipped.
+  const PHONE_TOUR = [
+    { title: "Welcome to your program", text: "Everything your coach has planned for you, with a place to log what you lift. Here’s a quick look at how it works." },
+    { sel: ".install-tip", optional: true, title: "Put it on your home screen", text: "Add this page to your home screen and it opens like an app, straight to your program. Close the tip once it’s done." },
+    { sel: ".weekbar", title: "Your week", text: "The week you’re on, with its dates. The arrows look back at past weeks or ahead to what’s coming." },
+    { sel: ".chips:not(.days)", optional: true, title: "Your programs", text: "When you have more than one program this week (strength and speed, say), tap one to switch." },
+    { sel: ".chips.days", optional: true, title: "Your days", text: "Tap a day to open it. A day gets a ✓ once it’s logged, and the app opens on the next day you haven’t done." },
+    { sel: "main .warmup", optional: true, title: "Warm-up", text: "Start here before the first exercise." },
+    { sel: "main .group", optional: true, title: "Each block", text: "Exercises are lettered A, B, C. A1 and A2 together are a superset: do a set of one, then the other, and repeat. A block folds up once it’s done; tap it to open it again." },
+    { sel: "main button.name", optional: true, title: "Watch the video", text: "Tap an exercise’s name to see its video and coaching cues." },
+    { sel: "main .set .boxes", optional: true, title: "Log your weights", text: "Type the weight you used for each set. A grey number is filled in for you from your max; leave it or change it. −5 and +5 change it quickly, and last time’s numbers can be copied with one tap. Everything saves as you type." },
+    { sel: "main .swap", optional: true, title: "Change an exercise", text: "Tap ⇄ to swap an exercise for another or change its sets and reps (no equipment for it, say). Your coach sees what you changed." },
+    { sel: "main .film.check", optional: true, title: "Send your coach a clip", text: "Film a set and send it to your coach for a form check. Their reply shows under the exercise." },
+    { sel: "main .session-end", optional: true, title: "Log the session", text: "When you finish, tap Log session. The day gets its ✓ and you’ll see a summary of what you did." },
+    { sel: ".menu", title: "Everything else", text: "Program is this page. Progress shows your numbers and testing over time, and Plan shows where you are in your plan and your goals." },
+    { sel: ".tour-help", title: "That’s it", text: "Tap ? any time to see this again. The sun and moon on the right switch between light and dark." },
+  ];
+  let tourTried = false;
+
   function render() {
     derived = [];
     if (view === "equipment") {
@@ -1342,6 +1363,7 @@
     const go = (fn) => () => { fn(); render(); window.scrollTo(0, 0); };
 
     const top = el("div", { class: "top" },
+      window.DSTTour && !coachId ? el("button", { class: "tour-help", "aria-label": "How this app works", title: "How this app works", onclick: () => window.DSTTour.start(PHONE_TOUR) }, "?") : null,
       el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Program")),
       el("div", { class: "weekbar" },
         el("button", { class: "nav", "aria-label": "Previous week", disabled: weekIdx <= 0, onclick: go(() => { weekIdx -= 1; dayIdx = 0; }) }, "‹"),
@@ -1430,6 +1452,11 @@
     parts.push(main);
     parts.push(menu());
     app.replaceChildren(...parts);
+    // the first time the program shows on this phone (never in Coach Mode, which has its own tour)
+    if (!tourTried && !coachId && window.DSTTour) {
+      tourTried = true;
+      setTimeout(() => { if (view === "program" && !overlay.className.includes("show")) window.DSTTour.autoPlay("phone", PHONE_TOUR, { useLogin: false }); }, 700);
+    }
   }
 
   async function start() {

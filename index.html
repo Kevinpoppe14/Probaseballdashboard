@@ -55,6 +55,7 @@
 <script src="research_snapshots_3.js"></script>
 <script src="cmj_norms.js"></script>
 <script src="holiday.js"></script>
+<script src="tour.js"></script>
 <script src="program_rx.js"></script>
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
@@ -3783,6 +3784,8 @@ const HELP_SECTIONS = [
     title: "Team Overview (home page)",
     items: [
       "Today panel at the top: what needs a coach right now. Program gap (a block ended with nothing after it), Program ending this week, Not logging (5+ days), Re-assessment due, Assessment due (no full assessment in 8 months), and Form checks to review. Kevin also sees Cubs players and Text due. Click a name to open that athlete where it gets dealt with; Hide/Show folds the panel.",
+      "Closing Today flags: the × beside a name closes it, and the × on a card closes the whole card. They stay closed until Monday, when anything that still applies comes back. Show closed brings them all back now. What you close follows your login to other devices.",
+      "Guided tours: Team Overview and Player Profiles each play a short tour the first time you open them. Tour in the top bar plays the one for the page you’re on. The phone app plays its own the first time an athlete opens it, and its ? button plays it again.",
       "Roster: filter by position, status, league, DST location or name; click a column header to sort, and a row to open the athlete.",
       "Status badge beside the name: click Active to make a player Inactive, and Inactive to make them Active again. Inactive players are on their own tab.",
       "Goal badges: an athlete's top three physical goals from their Player Plan, colored by kind. Red = mobility, flexibility or coordination; yellow = strength, speed, power and other outputs; green = body comp, lean mass and nutrition.",
@@ -3990,7 +3993,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4051,6 +4054,7 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
           )}
           <span className="topbar-account-email">{userEmail}</span>
           {FROM_APP && <a className="btn-link" style={{ marginRight: 10 }} href="athlete.html">My program</a>}
+          {onTour && <button className="btn-link" style={{ marginRight: 10 }} onClick={onTour} title="Take a guided tour of this page">Tour</button>}
           <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoHelp}>Help</button>
           <button className="btn-link" onClick={onLogout}>Log out</button>
         </div>
@@ -5113,10 +5117,50 @@ function todayItems() {
     { key: "assess", title: "Assessment due", tone: "neutral", hint: "DST athletes: no full assessment in the last 8 months", list: out.assess.sort(longestFirst) },
   ];
 }
+// A coach can × a name (or a whole card) off the Today panel. It stays off until the week turns over on Monday,
+// when every flag that still applies comes back. Kept on the login (so it follows them to another device) and on
+// this device.
+function todayWeekStart() {
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const todayDismissKey = () => `todayDismissed:${(window.AthleteStore.currentUserEmail() || "").toLowerCase()}`;
+function readTodayDismissed() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(todayDismissKey()) || "null");
+    return saved && saved.week === todayWeekStart() ? saved.ids || [] : [];
+  } catch (e) { return []; }
+}
+function saveTodayDismissed(ids) {
+  const saved = { week: todayWeekStart(), ids };
+  try { localStorage.setItem(todayDismissKey(), JSON.stringify(saved)); } catch (e) { /* the login still keeps it */ }
+  const sb = window.supabaseClient;
+  if (sb) sb.auth.updateUser({ data: { todayDismissed: saved } }).catch(() => {});
+}
 function TodayPanel({ onOpenTab, dataVersion }) {
   const [open, setOpen] = useState({}); // which lists are showing every name
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("todayPanelHidden") === "1"; } catch (e) { return false; } });
-  const items = useMemo(() => todayItems(), [dataVersion]); // eslint-disable-line
+  const [dismissed, setDismissed] = useState(readTodayDismissed); // "card:<key>" or "<key>:<athlete id>", this week only
+  // what was dismissed on another device this week comes in from the login
+  React.useEffect(() => {
+    const sb = window.supabaseClient;
+    if (!sb) return;
+    sb.auth.getUser().then(({ data }) => {
+      const saved = data && data.user && (data.user.user_metadata || {}).todayDismissed;
+      if (!saved || saved.week !== todayWeekStart() || !Array.isArray(saved.ids)) return;
+      setDismissed((d) => {
+        const merged = Array.from(new Set([...d, ...saved.ids]));
+        if (merged.length === d.length) return d;
+        try { localStorage.setItem(todayDismissKey(), JSON.stringify({ week: saved.week, ids: merged })); } catch (e) { /* fine */ }
+        return merged;
+      });
+    }).catch(() => {});
+  }, []);
+  const dismiss = (id) => setDismissed((d) => { const next = [...d, id]; saveTodayDismissed(next); return next; });
+  const restore = () => { setDismissed([]); saveTodayDismissed([]); };
+  const items = useMemo(() => todayItems(), [dataVersion]) // eslint-disable-line
+    .map((it) => (dismissed.includes(`card:${it.key}`) ? { ...it, list: [] } : { ...it, list: it.list.filter(({ a }) => !dismissed.includes(`${it.key}:${a.id}`)) }));
   // form checks remote athletes sent to this coach and nobody has reviewed yet (form_checks.js); each opens the clip
   const checks = window.useOpenFormChecks ? window.useOpenFormChecks() : [];
   const toggle = () => { const next = !hidden; setHidden(next); try { localStorage.setItem("todayPanelHidden", next ? "1" : "0"); } catch (e) { /* not remembered */ } };
@@ -5126,6 +5170,7 @@ function TodayPanel({ onOpenTab, dataVersion }) {
     <div className="panel today-panel no-print">
       <h2>
         Today <small>{total ? `${total} thing${total === 1 ? "" : "s"} to look at across the active roster` : "Nothing needs attention right now"}</small>
+        {dismissed.length > 0 && <button className="btn-link today-restore" onClick={restore} title="Bring back everything you closed this week">Show closed</button>}
         <button className="btn-link today-toggle" onClick={toggle}>{hidden ? "Show" : "Hide"}</button>
       </h2>
       {!hidden && total > 0 && (
@@ -5144,11 +5189,17 @@ function TodayPanel({ onOpenTab, dataVersion }) {
           )}
           {items.filter((it) => it.list.length).map((it) => (
             <div className="today-card" key={it.key}>
-              <div className="today-head"><span className={`badge ${it.tone}`}>{it.list.length}</span><strong>{it.title}</strong></div>
+              <div className="today-head">
+                <span className={`badge ${it.tone}`}>{it.list.length}</span><strong>{it.title}</strong>
+                <button className="today-x today-x-card" onClick={() => dismiss(`card:${it.key}`)} title={`Close ${it.title} until Monday`} aria-label={`Close ${it.title} until Monday`}>×</button>
+              </div>
               <div className="today-hint">{it.hint}</div>
               <ul>
                 {(open[it.key] ? it.list : it.list.slice(0, SHOWN)).map(({ a, note, tab }) => (
-                  <li key={a.id}><button className="btn-link" onClick={() => onOpenTab(a.id, tab)}>{lastFirstName(a.name)}</button>{note ? <small> {note}</small> : null}</li>
+                  <li key={a.id}>
+                    <button className="btn-link" onClick={() => onOpenTab(a.id, tab)}>{lastFirstName(a.name)}</button>{note ? <small> {note}</small> : null}
+                    <button className="today-x" onClick={() => dismiss(`${it.key}:${a.id}`)} title="Close this until Monday" aria-label={`Close ${a.name} until Monday`}>×</button>
+                  </li>
                 ))}
               </ul>
               {it.list.length > SHOWN && <button className="btn-link today-more" onClick={() => setOpen((o) => ({ ...o, [it.key]: !o[it.key] }))}>{open[it.key] ? "Show fewer" : `+ ${it.list.length - SHOWN} more`}</button>}
@@ -5343,9 +5394,11 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
 
       {filterControls}
 
-      <AddAthleteForm onAdded={onDataChange} />
-      <AddCoachForm onAdded={onDataChange} />
-      <ImportAthletes onAdded={onDataChange} />
+      <div className="tour-anchor" data-tour="add">
+        <AddAthleteForm onAdded={onDataChange} />
+        <AddCoachForm onAdded={onDataChange} />
+        <ImportAthletes onAdded={onDataChange} />
+      </div>
       {selectedIds.size > 0 && (
         <BulkActionsBar
           selectedIds={selectedIds}
@@ -5354,7 +5407,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
           onClear={clearSelection}
         />
       )}
-      <div className="panel">
+      <div className="panel" data-tour="status">
         <h2>
           Athlete Status <small>Sorted A-Z by default &middot; click a column header to sort &middot; click a row for detail</small>
         </h2>
@@ -7452,7 +7505,7 @@ function PlayerProfilesPage({ onSelect, dataVersion, onDataChange }) {
   return (
     <div>
       {/* adding someone, as on Team Overview: an athlete, or a coach once their login exists */}
-      <div className="no-print">
+      <div className="no-print tour-anchor" data-tour="profiles-add">
         <AddAthleteForm onAdded={onDataChange} />
         <AddCoachForm onAdded={() => { onDataChange && onDataChange(); setTab("coaches"); }} />
       </div>
@@ -7486,7 +7539,7 @@ function AlumniPage({ onSelect, dataVersion }) {
 
   return (
     <div>
-      <div className="panel">
+      <div className="panel" data-tour="profiles-search">
         <h2>Alumni</h2>
         <input
           placeholder="Search alumni..."
@@ -7550,7 +7603,7 @@ function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = fa
 
   return (
     <div>
-      <div className="panel">
+      <div className="panel" data-tour="profiles-search">
         <h2>{coaches ? "Coaches" : cubs ? "Chicago Cubs" : "Player Profiles"}</h2>
         <input
           placeholder="Search athlete..."
@@ -8916,6 +8969,33 @@ function readDeepLink() {
   return Number.isFinite(athlete) && athlete > 0 ? { athlete, tab } : null;
 }
 
+// ---- guided tours (tour.js) -------------------------------------------------------------------------------
+// Team Overview and Player Profiles each have a tour that plays by itself the first time a coach opens that page
+// (after the welcome popup, for someone brand new), counted on their login. The Tour link in the top bar plays the
+// one for the page that's open.
+const HOME_TOUR = [
+  { title: "Welcome to Team Overview", text: "Your home page: what needs a coach today, the whole roster with its flags, and the way into every athlete. Here’s a quick look around." },
+  { sel: ".nav-tabs", title: "The pages", text: "Team Overview is this page. Player Profiles has a card for everyone, Team Reports builds a one-page report per player, Programs is where programs are built and assigned, and In the News follows your players." },
+  { sel: ".today-panel", title: "Today", text: "What needs a coach right now: program gaps, programs ending this week, athletes not logging, re-assessments and assessments due, and form checks to review. Click a name to open that athlete where it gets dealt with." },
+  { sel: ".today-panel", title: "Close what you’ve handled", text: "The × beside a name (or on a card) closes it until Monday, when anything that still applies comes back. Show closed brings them all back now, and Hide folds the panel away." },
+  { sel: ".location-kpi-row", title: "Roster by location", text: "Click a location to show only the athletes there; click it again for everyone. Chicago Cubs switches to the Cubs roster and look, and Coaches lists everyone with a login." },
+  { sel: ".controls-right", title: "Search and filters", text: "Find an athlete by name, or narrow the list by position, status and league. The day range sets how far back the roster’s numbers look." },
+  { sel: "[data-tour='add']", title: "Add people", text: "+ Add Athlete puts one athlete on the roster. + Add Coach adds a coach once their login has been made in Supabase. + Import Athletes adds several at once from a sheet." },
+  { sel: "[data-tour='status']", title: "Athlete Status", text: "Everyone on the roster, A to Z. Click a column header to sort, or a row to open that athlete’s profile. The badges and flags in a row jump straight to the tab they’re about. Tick boxes to change several athletes at once." },
+  { sel: ".coach-switch", title: "Coach Mode", text: "Flip this to run a session for a group from a tablet or phone: everyone’s program side by side, logged as you go, plus group speed and testing." },
+  { sel: ".topbar-account", title: "Help any time", text: "Help explains every page in detail, and Tour plays the tour for the page you’re on. The sun and moon switch light and dark mode." },
+];
+const PROFILES_TOUR = [
+  { title: "Player Profiles", text: "A card for everyone you work with. Open a card for that athlete’s whole profile: plan, programs, testing, assessments, body composition and their training log." },
+  { sel: "[data-tour='profiles-add']", title: "Add an athlete or coach", text: "+ Add Athlete puts someone new on the roster. For a coach, make their login in Supabase first (Authentication › Users › Add user); + Add Coach then lists it, and adds them under the name you give." },
+  { sel: ".pill-tabs", title: "The rosters", text: "Active Players are your DST athletes. Chicago Cubs, Alumni and Inactive each have their own list, and Coaches lists everyone with a login (coaches get a plan and an app too)." },
+  { sel: "[data-tour='profiles-search']", title: "Search", text: "Type part of a name to find someone on the list that’s showing." },
+  { sel: ".player-card", optional: true, title: "Open a profile", text: "Click a card to open that athlete. Their profile’s tabs hold the player plan, programs, testing, assessments, the training log and more." },
+  { sel: ".player-card .card-edit", optional: true, title: "Quick edits", text: "The pencil changes a name, jersey number, position or status right on the card, without opening the profile." },
+  { sel: ".player-card .status-toggle", optional: true, title: "Active or inactive", text: "Click the badge to switch someone between Active and Inactive. Inactive players move to the Inactive tab, where the same badge brings them back." },
+];
+const TOURS = { team: { name: "home", steps: HOME_TOUR }, players: { name: "profiles", steps: PROFILES_TOUR } };
+
 function App({ userEmail, onLogout }) {
   const deepLink = useMemo(() => readDeepLink(), []);
   const [view, setView] = useState(deepLink ? "athlete" : "team");
@@ -8964,6 +9044,17 @@ function App({ userEmail, onLogout }) {
     try { localStorage.setItem(themeKey, theme); } catch (e) {}
   }, [theme, themeKey]);
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  // the page's tour plays by itself the first time it's opened (once the welcome popup is closed and the roster
+  // has drawn); Tour in the top bar plays it again
+  const tour = TOURS[view] || null;
+  React.useEffect(() => {
+    if (!tour || showWelcome || !window.DSTTour) return undefined;
+    const t = setTimeout(() => window.DSTTour.autoPlay(tour.name, tour.steps, { who: userEmail }), 900);
+    return () => clearTimeout(t);
+  }, [view, showWelcome]); // eslint-disable-line
+  React.useEffect(() => () => window.DSTTour && window.DSTTour.end(), [view]); // leaving the page ends its tour
+  const playTour = tour && window.DSTTour ? () => window.DSTTour.start(tour.steps) : null;
 
   // Which tab the profile opens on: normally the Player Plan, or the tab an
   // "Edit plan" link on the team report (or whatever tab a deep link asked for).
@@ -9055,6 +9146,7 @@ function App({ userEmail, onLogout }) {
         showFacilities={locationFilter === CUBS_LOCATION_LABEL}
         onGoPrograms={goPrograms}
         onGoHelp={goHelp}
+        onTour={playTour}
         userEmail={userEmail}
         onLogout={onLogout}
         cubsTheme={cubsTheme}
