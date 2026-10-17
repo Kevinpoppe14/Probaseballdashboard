@@ -3617,3 +3617,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* exercise library: typing in another name for an exercise */
 .exercise-alias-add { display: flex; gap: 8px; margin-top: 6px; }
 .exercise-alias-add input { flex: 1; min-width: 0; }
+/* Add Coach: logins made in Supabase that aren't on the Coaches roster yet */
+.add-coach-help, .add-coach-note { font-size: 13px; line-height: 1.5; color: var(--text-dim); max-width: 760px; }
+.add-coach-table input { width: 100%; max-width: 260px; }
+.add-coach-table td { vertical-align: middle; }

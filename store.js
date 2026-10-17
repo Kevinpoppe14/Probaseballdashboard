@@ -412,23 +412,34 @@
   // Returns how many were created.
   function ensureCoachRecords(rosterGroup, nameFor) {
     let made = 0;
-    accounts.forEach((acct) => {
-      if (state.customAthletes.some((a) => a.coachUserId === acct.id)) return;
-      const ids = allAthletes().map((a) => a.id);
-      const created = {
-        id: (ids.length ? Math.max(...ids) : 0) + 1,
-        name: nameFor(acct.email),
-        position: "Unassigned", jersey: "--", status: "active", league: "", team: "", photoUrl: "", dstLocation: "",
-        wellness: [], load: [], isCustom: true,
-        rosterGroup, coachUserId: acct.id, coachEmail: acct.email,
-      };
-      stampLocalActivity(created, true);
-      state.customAthletes.push(created);
-      syncUpsert("athletes", created.id, undefined, stripActivity(created));
-      made += 1;
-    });
+    accounts.forEach((acct) => { if (addCoachRecord(rosterGroup, acct, nameFor(acct.email), true)) made += 1; });
     if (made) persistLocal();
     return made;
+  }
+  // One account holder's record in `rosterGroup`, under the name given; null if they already have one.
+  function addCoachRecord(rosterGroup, acct, name, batch) {
+    if (!acct || state.customAthletes.some((a) => a.coachUserId === acct.id)) return null;
+    const ids = allAthletes().map((a) => a.id);
+    const created = {
+      id: (ids.length ? Math.max(...ids) : 0) + 1,
+      name: (name || "").trim() || "Coach",
+      position: "Unassigned", jersey: "--", status: "active", league: "", team: "", photoUrl: "", dstLocation: "",
+      wellness: [], load: [], isCustom: true,
+      rosterGroup, coachUserId: acct.id, coachEmail: acct.email,
+    };
+    stampLocalActivity(created, true);
+    state.customAthletes.push(created);
+    syncUpsert("athletes", created.id, undefined, stripActivity(created));
+    if (!batch) persistLocal();
+    return created;
+  }
+  // Reads the logins again (a coach's login made in Supabase after this page loaded shows up), and returns them.
+  async function refreshAccounts() {
+    const { data, error } = await sb().from("profiles").select("id, email");
+    if (error) throw error;
+    accounts = (data || []).filter((p) => p.email).map((p) => ({ id: p.id, email: p.email }));
+    (data || []).forEach((p) => userEmails.set(p.id, p.email));
+    return accounts;
   }
 
   function updateAthlete(id, patch) {
@@ -1191,6 +1202,8 @@
     setProgramFolders,
     accountHolders,
     ensureCoachRecords,
+    addCoachRecord,
+    refreshAccounts,
     getRmChart,
     setRmChart,
     getAthleteLink,

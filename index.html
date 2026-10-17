@@ -3792,6 +3792,7 @@ const HELP_SECTIONS = [
       "Cubs roster: a coach badge beside each name (Poppe, Weisman, Garza, Simmons, Kinsley, Rooney; click to cycle) that can be filtered and sorted, Texted and Called flags on a monthly cadence (click to mark), and a program start date.",
       "Text and Call links open your phone's messaging app or dialer. The text starts from your saved template ({first} becomes the player's first name). Use the pencil to change a number.",
       "Import Athletes (on the Import page) adds many players at once from a pasted sheet or a CSV, including mobile numbers and emails.",
+      "+ Add Athlete and + Add Coach are on Team Overview and Player Profiles. For a coach, make their login in Supabase first (Authentication › Users › Add user); Add Coach then lists it, reading the logins again so a new one shows without a reload, and adds them to the Coaches roster under the name you give.",
     ],
   },
   {
@@ -4328,6 +4329,66 @@ function AddAthleteForm({ onAdded }) {
       <div style={{ display: "flex", gap: 10 }}>
         <button className="btn btn-primary" disabled={!name.trim()} onClick={handleSubmit}>Add to Roster</button>
         <button className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// Adding a coach: once their login has been made in Supabase (Authentication › Users › Add user), it shows here
+// to be added to the Coaches roster under their name. The logins are read again when this opens, so one made
+// after the page loaded is there without a reload. Each coach's record is tied to their login (coachUserId), which
+// is what Coach Mode, their own app and their quick sessions go by.
+function AddCoachForm({ onAdded }) {
+  const S = window.AthleteStore;
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState("idle"); // idle, loading, error
+  const [names, setNames] = useState({}); // login id -> name typed
+  const [added, setAdded] = useState([]);
+  const waiting = () => S.accountHolders().filter((a) => !S.allAthletes().some((x) => x.coachUserId === a.id));
+  const load = async () => {
+    setState("loading");
+    try { await S.refreshAccounts(); setState("idle"); } catch (e) { setState("error"); }
+  };
+  if (!open) {
+    return (
+      <button className="btn btn-secondary" style={{ marginBottom: 16, marginLeft: 8 }} onClick={() => { setOpen(true); setAdded([]); load(); }}>
+        + Add Coach
+      </button>
+    );
+  }
+  const list = waiting();
+  const add = (acct) => {
+    const made = S.addCoachRecord(COACH_ROSTER_GROUP, acct, names[acct.id] != null ? names[acct.id] : coachNameFromEmail(acct.email));
+    if (made) { setAdded((x) => [...x, made.name]); onAdded && onAdded(); }
+  };
+  return (
+    <div className="panel">
+      <h2>Add Coach</h2>
+      <p className="add-coach-help">
+        First make their login in Supabase (Authentication › Users › Add user, with their email and a password). It then
+        shows below; add it here and they're on the Coaches roster, with Coach Mode, their own app and quick sessions.
+      </p>
+      {state === "loading" && <div className="add-coach-note">Checking for new logins…</div>}
+      {state === "error" && <div className="add-coach-note">Couldn't read the logins. Check your connection and try again.</div>}
+      {added.length > 0 && <div className="success-banner">Added {added.join(", ")} to the Coaches roster.</div>}
+      {state !== "loading" && (list.length ? (
+        <table className="add-coach-table">
+          <thead><tr><th>Login</th><th>Name on the roster</th><th></th></tr></thead>
+          <tbody>
+            {list.map((a) => (
+              <tr key={a.id} style={{ cursor: "default" }}>
+                <td>{a.email}</td>
+                <td><input value={names[a.id] != null ? names[a.id] : coachNameFromEmail(a.email)} onChange={(e) => setNames({ ...names, [a.id]: e.target.value })} aria-label={`Name for ${a.email}`} /></td>
+                <td><button className="btn" onClick={() => add(a)}>Add</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="add-coach-note">Everyone with a login is already on the Coaches roster. Made a new login just now? <button className="btn-link" onClick={load}>Check again</button></div>
+      ))}
+      <div className="facility-form-actions">
+        <button className="btn-link" onClick={() => setOpen(false)}>Done</button>
       </div>
     </div>
   );
@@ -5223,6 +5284,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
     return (
       <div>
         <AddAthleteForm onAdded={onDataChange} />
+        <AddCoachForm onAdded={onDataChange} />
         <ImportAthletes onAdded={onDataChange} />
         <div className="panel">
           <div className="empty-state">
@@ -5282,6 +5344,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       {filterControls}
 
       <AddAthleteForm onAdded={onDataChange} />
+      <AddCoachForm onAdded={onDataChange} />
       <ImportAthletes onAdded={onDataChange} />
       {selectedIds.size > 0 && (
         <BulkActionsBar
@@ -7379,7 +7442,7 @@ function PlayerCardEdit({ athlete, onChanged }) {
 }
 
 let lastProfilesTab = "active"; // remembered while the dashboard stays open, so coming back from a profile lands on the same tab
-function PlayerProfilesPage({ onSelect, dataVersion }) {
+function PlayerProfilesPage({ onSelect, dataVersion, onDataChange }) {
   const [tab, setTabState] = useState(lastProfilesTab);
   const setTab = (t) => { lastProfilesTab = t; setTabState(t); };
   const statusOf = (a) => (a.status || "active").toLowerCase();
@@ -7388,6 +7451,11 @@ function PlayerProfilesPage({ onSelect, dataVersion }) {
   const cubsCount = getRoster().filter((a) => statusOf(a) === "active" && isCubsOnlyAthlete(a)).length;
   return (
     <div>
+      {/* adding someone, as on Team Overview: an athlete, or a coach once their login exists */}
+      <div className="no-print">
+        <AddAthleteForm onAdded={onDataChange} />
+        <AddCoachForm onAdded={() => { onDataChange && onDataChange(); setTab("coaches"); }} />
+      </div>
       <div className="pill-tabs no-print">
         <button className={`pill-tab ${tab === "active" ? "active" : ""}`} onClick={() => setTab("active")}>Active Players ({count("active") - cubsCount})</button>
         <button className={`pill-tab ${tab === "cubs" ? "active" : ""}`} onClick={() => setTab("cubs")}>Chicago Cubs ({cubsCount})</button>
@@ -9043,7 +9111,7 @@ function App({ userEmail, onLogout }) {
           />
         )}
         {view === "teamreport" && <TeamReportPage onSelect={selectAthlete} dataVersion={dataVersion} onEditPeriodization={editPeriodization} />}
-        {view === "players" && <PlayerProfilesPage onSelect={selectAthlete} dataVersion={dataVersion} />}
+        {view === "players" && <PlayerProfilesPage onSelect={selectAthlete} dataVersion={dataVersion} onDataChange={bumpVersion} />}
         {view === "news" && (window.NewsPage
           ? <window.NewsPage dataVersion={dataVersion} />
           : <div className="panel"><div className="empty-state">The In the News page didn't load — make sure news.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>)}
