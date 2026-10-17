@@ -257,6 +257,18 @@
     overlay.className = "overlay show";
   };
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeVideo(); });
+  // a small picture of an exercise's video beside its name; tapping it plays the video. YouTube gives a still
+  // picture, a coach's own clip shows its first frame, and anything else (Vimeo) a plain tile with the play mark.
+  function videoThumb(info) {
+    const embed = window.videoEmbedOf(info.videoUrl);
+    if (!embed) return null;
+    const b = el("button", { class: "thumb", "aria-label": `Play the video for ${info.name}`, title: "Play the video", onclick: () => openVideo(info) });
+    const yt = /youtube\.com\/embed\/([\w-]+)/.exec(embed.src);
+    if (yt) b.append(el("img", { src: `https://i.ytimg.com/vi/${yt[1]}/mqdefault.jpg`, alt: "", loading: "lazy" }));
+    else if (embed.file) { const v = el("video", { src: `${embed.src}#t=0.5`, muted: true, playsinline: true, preload: "metadata", "aria-hidden": "true", tabindex: "-1" }); v.muted = true; b.append(v); }
+    b.append(el("span", { class: "thumb-play", "aria-hidden": "true" }));
+    return b;
+  }
 
   // ---- filming a video for an exercise that has none (signed-in coaches only) ------------------------
   // A camera button beside the switch button on an exercise with no video. It opens the phone's camera; the clip
@@ -638,6 +650,47 @@
   };
 
   // ---- one set group -----------------------------------------------------------------------------
+  // ---- a finished block folds up ---------------------------------------------------------------------
+  // Each card of the day (A, B, ...: one exercise, or the exercises of a superset) shrinks to a single line once
+  // it's done, so the next block moves up. Done means every set in it that takes a weight has one written in (and
+  // the reps, on a set to failure), or the athlete tapped Done: a block with nothing to weigh (a plank, a drill)
+  // only folds that way. A logged session folds every block. Tapping a folded block opens it again. The Done taps
+  // are kept on this phone.
+  const openBlocks = new Set(); // folded blocks opened again with a tap, until the page is reloaded
+  const doneKey = (item, si) => `blocksDone:${token || coachId}:${item.program.id}:${item.weekNo}:${si}`;
+  const tappedDone = (item, si) => { try { return JSON.parse(localStorage.getItem(doneKey(item, si)) || "[]"); } catch (e) { return []; } };
+  function foldable(item, si, b) {
+    const pid = item.program.id, id = `${pid}|${item.weekNo}|${si}|${b.letter}`;
+    // the sets in the block that take something written in
+    const sets = b.rows.flatMap((e) => Rx.groups(e).map((g, gi) => ({ e, g, gi }))).filter((x) => !unloaded(item, x.e) || Rx.failure(x.g));
+    const filled = ({ e, g, gi }) => (unloaded(item, e)
+      ? !!logged(pid, Rx.repsLogKey(e, gi))
+      : !!logged(pid, Rx.logKey(e, gi)) && (!Rx.failure(g) || !!logged(pid, Rx.repsLogKey(e, gi))));
+    const isDone = () => !!logged(pid, sessionKey(item, si)) || tappedDone(item, si).includes(b.letter) || (sets.length > 0 && sets.every(filled));
+    const summary = el("button", { class: "blk-sum", onclick: () => { openBlocks.add(id); update(); } },
+      el("span", { class: "blk-check", "aria-hidden": "true" }, "✓"),
+      el("span", { class: "blk-letter" }, b.letter),
+      el("span", { class: "blk-names" }, b.rows.map((e) => e.name.trim()).join(" · ")),
+      el("span", { class: "blk-open" }, "Show"));
+    const doneBtn = el("button", { class: "blk-done", onclick: () => {
+      if (!isDone()) {
+        try { localStorage.setItem(doneKey(item, si), JSON.stringify([...tappedDone(item, si), b.letter])); } catch (e) { /* private window: folds for now only */ openBlocks.delete(id); b.card.classList.add("folded"); return; }
+      }
+      openBlocks.delete(id);
+      update();
+    } });
+    const update = () => {
+      const done = isDone();
+      b.card.classList.toggle("done", done);
+      b.card.classList.toggle("folded", done && !openBlocks.has(id));
+      doneBtn.textContent = done ? "Fold up" : `✓ Done with ${b.letter}`;
+    };
+    b.card.prepend(summary);
+    b.card.append(el("div", { class: "blk-foot" }, doneBtn));
+    derived.push(update); // weights written in anywhere can finish the block
+    update();
+  }
+
   function setBox(item, si, e, g, gi) {
     const pid = item.program.id;
     const fail = Rx.failure(g);
@@ -1245,23 +1298,31 @@
         }, window.location.origin);
       }
       let group = null;
+      const blocks = []; // each card (A, B, ...) and its exercises, so it can fold up once it's done
       rows.forEach((e, ei) => {
-        if (!group || !(ei > 0 && e.linked)) { group = el("div", { class: "group" }); main.append(group); } // a superset shares one card
+        if (!group || !(ei > 0 && e.linked)) { // a superset shares one card
+          group = el("div", { class: "group" });
+          main.append(group);
+          blocks.push({ card: group, rows: [], letter: (/^[A-Z]+/.exec(labels[ei] || "") || [String(blocks.length + 1)])[0] });
+        }
+        blocks[blocks.length - 1].rows.push(e);
         const info = exerciseInfo(e.name);
         const groups = Rx.groups(e);
         group.append(el("div", { class: "ex" },
           el("div", { class: "ex-head" },
             el("span", { class: "label" }, labels[ei]),
             info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name),
+            info && info.videoUrl ? videoThumb(info) : null,
             canFilm && !(info && info.videoUrl) ? (() => { const b = el("button", { class: "film", "aria-label": `Film a video for ${e.name}`, title: "Film a video for this exercise", onclick: () => filmVideo(e) }); b.innerHTML = CAMERA; return b; })() : null,
             canSendChecks() ? (() => { const b = el("button", { class: "film check", "aria-label": `Film a set of ${e.name} for your coach`, title: "Film a set and send it to your coach", onclick: () => sendCheck(item, e, (s && s.name) || `Day ${dayIdx + 1}`) }); b.innerHTML = CAMERA; return b; })() : null,
             el("button", { class: `swap${e._coach ? " on" : ""}`, "aria-label": `Change ${e.name} or its sets and reps`, title: "Change exercise or sets and reps", onclick: () => openSwap(item, dayIdx, e) }, "⇄")),
           e._coach ? el("div", { class: "notes" }, `You changed this. Coach: ${e._coach.name}${e._coach.text ? `, ${e._coach.text}` : ""}`) : null,
           (e.tempo || e.rest || Rx.extras(e).length) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null, Rx.extras(e).map((x) => el("span", null, `${x.label} ${x.value}`))) : null,
-          e.notes ? el("div", { class: "notes" }, e.notes) : null,
+          e.notes ? el("div", { class: "notes coach-note" }, e.notes) : null, // only when the coach added one
           canSendChecks() ? checkLine(item, e) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));
       });
+      blocks.forEach((b) => foldable(item, dayIdx, b));
       // end of the day: mark the session as done
       if (rows.length) {
         const done = logged(item.program.id, sessionKey(item, dayIdx));
