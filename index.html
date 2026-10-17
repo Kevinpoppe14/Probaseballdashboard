@@ -3750,7 +3750,7 @@ const HELP_SECTIONS = [
     title: "Getting around",
     items: [
       "Top bar: Team Overview (home), Player Profiles, Team Reports, Programs, Facilities and In the News. Help, Log out and the light/dark mode switch are at the top right.",
-      "Bottom bar: the COACH MODE switch and Import & Manual Entry.",
+      "Bottom bar: the COACH MODE switch and the Import button.",
       "Everything saves as you go. If someone else saved the same plan or program while you had it open, you're warned before your changes replace theirs.",
     ],
   },
@@ -3766,7 +3766,7 @@ const HELP_SECTIONS = [
       "Free agents get an FA circle in place of a team logo, and players with no photo get a placeholder.",
       "Cubs roster: a coach badge beside each name (Poppe, Weisman, Garza, Simmons, Kinsley, Rooney; click to cycle) that can be filtered and sorted, Texted and Called flags on a monthly cadence (click to mark), and a program start date.",
       "Text and Call links open your phone's messaging app or dialer. The text starts from your saved template ({first} becomes the player's first name). Use the pencil to change a number.",
-      "Import Athletes (Import & Manual Entry) adds many players at once from a pasted sheet or a CSV, including mobile numbers and emails.",
+      "Import Athletes (on the Import page) adds many players at once from a pasted sheet or a CSV, including mobile numbers and emails.",
     ],
   },
   {
@@ -3869,7 +3869,7 @@ const HELP_SECTIONS = [
   {
     title: "Imports, Vitruve and data entry",
     items: [
-      "Import & Manual Entry (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), the Evolt360 import (Evolt Insights › Reports › Result Activity Report › Download Report, then choose the file: members are matched to non-alumni athletes by email, mobile, then first name and last initial, you check the matches before anything is saved, and scans already on file are skipped), and the Hawkin, VALD and MLB profile imports.",
+      "Import (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), the Evolt360 import (Evolt Insights › Reports › Result Activity Report › Download Report, then choose the file: members are matched to non-alumni athletes by email, mobile, then first name and last initial, you check the matches before anything is saved, and scans already on file are skipped), and the Hawkin, VALD and MLB profile imports.",
     ],
   },
   {
@@ -4067,7 +4067,7 @@ function BottomMenu({ view, onGoImport }) {
     <div className="bottom-menu no-print">
       <CoachModeSwitch />
       <button className={`nav-tab ${view === "import" ? "active" : ""}`} onClick={onGoImport}>
-        Import &amp; Manual Entry
+        Import
       </button>
     </div>
   );
@@ -5931,8 +5931,8 @@ function ForcePlatePanel({ athleteId, range }) {
       <div className="panel">
         <h2>Countermovement Jump <small>Hawkin Dynamics</small></h2>
         <div className="empty-state">
-          No force plate tests on file for this athlete yet. Sync or import them from Hawkin Dynamics under
-          "Import &amp; Manual Entry".
+          No force plate tests on file for this athlete yet. Sync or import them from Hawkin Dynamics on the
+          Import page (bottom bar).
         </div>
       </div>
     );
@@ -6164,8 +6164,8 @@ function BodyCompPanel({ athleteId }) {
       <div className="panel">
         <h2>Body Composition <small>Evolt360</small></h2>
         <div className="empty-state">
-          No body composition scans on file for this athlete yet. Import Evolt's Result Activity Report under
-          "Import &amp; Manual Entry".
+          No body composition scans on file for this athlete yet. Import Evolt's Result Activity Report on the
+          Import page (bottom bar).
         </div>
       </div>
     );
