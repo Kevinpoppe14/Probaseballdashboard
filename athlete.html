@@ -15,12 +15,21 @@
 <link rel="icon" type="image/png" href="assets/app-icon-180.png" />
 <title>My Program</title>
 <style>
-  :root { --bg: #0a0a0a; --panel: #161616; --panel-2: #1f1f1f; --border: #2c2c2c; --text: #f2f2f2; --dim: #9a9a9a; --accent: #c8102e; --pct: #00ffff; }
+  :root { --bg: #0a0a0a; --panel: #161616; --panel-2: #1f1f1f; --border: #2c2c2c; --text: #f2f2f2; --dim: #9a9a9a; --accent: #c8102e; --pct: #00ffff; --line: #444; --placeholder: #666; --good: #6fd58a; --gold: #f0c040; }
   /* Cubs players: navy and Cubs blue, with Cubs red for the superset labels */
   body.cubs { --bg: #06122b; --panel: #0c1d42; --panel-2: #12285a; --border: #23407a; --dim: #a9b8d6; --accent: #0e3386; --label: #ff5a59; --pct: #d6e2f7; }
   body.cubs .chip.on { border-color: #4a74d1; }
   body.cubs .set input { border-color: #3a5a9c; }
   body.cubs .set input:focus { outline-color: #cc3433; }
+  /* Light mode (the sun/moon button at the top, remembered on the phone; see athlete.js): the same layout on light
+     panels, for DST and for the Cubs look. Text on a red or blue fill stays white. */
+  :root[data-theme="light"] { --bg: #f2f3f5; --panel: #ffffff; --panel-2: #eceef1; --border: #d8dbe0; --text: #16181b; --dim: #5d636b; --pct: #00e5ee; --line: #c2c7ce; --placeholder: #9aa0a8; --good: #1f8a45; --gold: #9a6b00; color-scheme: light; }
+  :root[data-theme="light"] body.cubs { --bg: #eef2fa; --panel: #ffffff; --panel-2: #e4ebf7; --border: #c7d3e8; --dim: #4b5a77; --label: #cc3433; --pct: #cfe0fb; }
+  :root[data-theme="light"] .chip.on, :root[data-theme="light"] .now-tag, :root[data-theme="light"] .swap-actions .primary, :root[data-theme="light"] .session-log { color: #fff; }
+  :root[data-theme="light"] .overlay { background: rgba(20, 22, 26, 0.55); }
+  :root[data-theme="light"] .sheet, :root[data-theme="light"] .card, :root[data-theme="light"] .group { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+  /* the sun/moon button, top right */
+  .theme-toggle { position: absolute; right: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); }
   /* Holiday colors (see holiday.js): only while <html data-holiday> is set, which is on the holiday itself */
   :root[data-holiday] body, :root[data-holiday] body.cubs { --accent: var(--hol-1); --label: var(--hol-1); }
   :root[data-holiday] .top { border-bottom: 5px solid; border-image: linear-gradient(90deg, var(--hol-1) 0 33.3%, var(--hol-3) 33.3% 66.6%, var(--hol-2) 66.6% 100%) 1; }
@@ -90,13 +99,13 @@
   /* a remote athlete's form-check camera, and what was sent / the coach's reply under the exercise */
   .ex-head .film.check { border-style: solid; border-color: var(--border); color: var(--text); }
   .check-line { margin-top: 6px; font-size: 13px; }
-  .check-sent { color: #6fd58a; font-weight: 600; }
+  .check-sent { color: var(--good); font-weight: 600; }
   .check-reply { margin-top: 4px; padding: 6px 10px; border-left: 3px solid var(--label, var(--accent)); background: var(--panel-2); border-radius: 0 6px 6px 0; white-space: pre-wrap; }
-  .check-note { width: 100%; margin-top: 10px; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 8px; padding: 8px 10px; resize: vertical; }
+  .check-note { width: 100%; margin-top: 10px; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; }
   .ex-head .swap.on { color: var(--text); border-color: var(--label, var(--accent)); }
   .swap-coach { font-size: 13px; color: var(--dim); margin-bottom: 10px; }
   .swap-label { display: block; font-size: 12px; color: var(--dim); margin: 12px 0 4px; }
-  .sheet input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 8px; padding: 0 10px; }
+  .sheet input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; }
   .swap-name { margin-top: 4px; }
   .matches { display: flex; flex-direction: column; }
   .match { text-align: left; min-height: 40px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--border); border-top: none; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
@@ -113,7 +122,7 @@
   .coach-menu .swap-actions { flex-direction: column; }
   .session-end { margin: 6px 0 20px; }
   .session-log { width: 100%; min-height: 52px; border-radius: 12px; border: none; background: var(--accent); font-size: 17px; font-weight: 700; }
-  .session-done { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1px solid #2e9e4f; color: #6fd58a; font-weight: 700; }
+  .session-done { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1px solid #2e9e4f; color: var(--good); font-weight: 700; }
   .session-undo { background: none; border: none; color: var(--dim); font-size: 14px; text-decoration: underline; min-height: 44px; }
   .log-ex { margin: 12px 0; padding-top: 10px; border-top: 1px solid var(--border); }
   .log-name { font-weight: 700; text-transform: uppercase; font-size: 14px; }
@@ -124,9 +133,9 @@
   .eq-tile input { width: 22px; height: 22px; margin: 0; flex: 0 0 auto; accent-color: var(--accent); }
   .eq-tile span:first-of-type { flex: 1; min-width: 0; }
   .eq-len-wrap { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--dim); }
-  .eq-len { width: 84px; height: 36px; font-size: 16px; text-align: center; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 6px; padding: 0 2px; }
+  .eq-len { width: 84px; height: 36px; font-size: 16px; text-align: center; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 2px; }
   .eq-new-row { display: flex; gap: 8px; margin-top: 8px; }
-  .eq-new { flex: 1; min-width: 0; height: 48px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; }
+  .eq-new { flex: 1; min-width: 0; height: 48px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; }
   .eq-new-btn { flex: 0 0 auto; min-width: 72px; height: 48px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 15px; }
   .session-log:disabled { opacity: 0.6; }
   .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 6px 0 0; font-size: 13px; color: var(--dim); }
@@ -157,9 +166,9 @@
   .set.fail { flex-basis: calc((100% - 10px) / 2); min-width: 140px; }
   .set .reps { font-weight: 700; font-size: 15px; padding-bottom: 3px; }
   .set .boxes { display: flex; }
-  .set input { width: 100%; min-width: 0; height: 44px; font-size: 16px; text-align: center; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 0; padding: 0 4px; -moz-appearance: textfield; appearance: textfield; }
+  .set input { width: 100%; min-width: 0; height: 44px; font-size: 16px; text-align: center; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 0; padding: 0 4px; -moz-appearance: textfield; appearance: textfield; }
   .set input + input { border-left: none; }
-  .set input::placeholder { color: #666; }
+  .set input::placeholder { color: var(--placeholder); }
   .set input.auto { font-style: italic; color: var(--dim); }
   .set input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
   .set .pct { background: var(--pct); color: #000; font-size: 12px; font-style: italic; padding: 2px 4px; }
@@ -167,7 +176,7 @@
   .set .last { font-size: 11px; color: var(--dim); padding-top: 3px; white-space: nowrap; }
   /* faster logging: -5 / +5 under the weight box, last week's numbers as a tap-to-copy button, no box on unloaded drills */
   .set .steps { display: flex; }
-  .set .step { flex: 1; height: 28px; padding: 0; font-size: 12px; font-weight: 700; color: var(--dim); background: var(--panel); border: 1px solid #444; border-top: none; }
+  .set .step { flex: 1; height: 28px; padding: 0; font-size: 12px; font-weight: 700; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-top: none; }
   .set .step + .step { border-left: none; }
   .set .step:active { background: var(--accent); color: #fff; }
   .set button.last { background: none; border: none; font: inherit; font-size: 11px; color: var(--dim); padding: 4px 0 0; cursor: pointer; }
@@ -177,8 +186,8 @@
   .timer-sheet { text-align: center; }
   .timer-round { font-size: 13px; color: var(--dim); min-height: 18px; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
   .timer-face { font-size: 72px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 6px 0 14px; line-height: 1; }
-  .timer-face.ending { color: #f0c040; }
-  .timer-face.done { color: #6fd58a; }
+  .timer-face.ending { color: var(--gold); }
+  .timer-face.done { color: var(--good); }
   .timer-sheet .swap-actions button { font-size: 17px; min-height: 52px; }
   body.cubs .set button.last b { color: var(--label); }
   .set.noload .reps { padding-bottom: 2px; }
@@ -197,7 +206,7 @@
   .session-summary .sum-stats > div { background: var(--panel); border: 1px solid var(--border); }
   .sum-wins { display: flex; flex-direction: column; gap: 6px; }
   .sum-win { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid #b8860b; }
-  .sum-win span { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #f0c040; }
+  .sum-win span { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
   .sum-win b { font-size: 15px; margin-top: 2px; }
   .sum-more { align-self: center; background: none; border: none; color: var(--dim); font-size: 14px; min-height: 40px; }
   /* My Progress */
@@ -245,7 +254,7 @@
   .sheet.finish .swap-actions { justify-content: center; }
   .sheet.finish .swap-actions button { flex: 1 1 140px; }
   /* Coach tab › Assign a program (quick_assign.js) */
-  .sheet.qa input[type="search"], .qa-signin input, .qa-date input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; margin: 4px 0 8px; color-scheme: dark; }
+  .sheet.qa input[type="search"], .qa-signin input, .qa-date input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; margin: 4px 0 8px; color-scheme: dark; }
   .qa-label { margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); }
   .qa-list { display: flex; flex-direction: column; gap: 6px; }
   .qa-row { display: flex; flex-direction: column; align-items: flex-start; width: 100%; min-height: 44px; padding: 10px 12px; text-align: left; font-size: 15px; font-weight: 600; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
@@ -275,11 +284,11 @@
   .qa-date { display: block; font-size: 13px; color: var(--dim); margin-top: 6px; }
   /* building a quick session from scratch */
   .qa-build { border-color: var(--label, var(--accent)); margin-bottom: 4px; }
-  .qa-date select, .sheet.qa > input:not([type]) { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; padding: 0 12px; margin: 4px 0 8px; color-scheme: dark; }
+  .qa-date select, .sheet.qa > input:not([type]) { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; margin: 4px 0 8px; color-scheme: dark; }
   .qa-build-rows { display: flex; flex-direction: column; gap: 8px; }
   .qa-build-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--panel-2); }
   .qa-build-top { display: flex; align-items: center; gap: 8px; }
-  .qa-build-row input { height: 40px; font-size: 16px; color: var(--text); background: var(--panel); border: 1px solid #444; border-radius: 8px; padding: 0 10px; min-width: 0; color-scheme: dark; }
+  .qa-build-row input { height: 40px; font-size: 16px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; min-width: 0; color-scheme: dark; }
   .qa-build-name { flex: 1; }
   .qa-build-x { flex: 0 0 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: none; color: var(--dim); font-size: 18px; }
   .qa-build-rx { display: flex; gap: 8px; margin-top: 8px; }

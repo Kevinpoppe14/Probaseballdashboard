@@ -140,14 +140,42 @@
     document.querySelector('meta[name="apple-mobile-web-app-title"]').setAttribute("content", "My Program");
     document.querySelector('link[rel="manifest"]').setAttribute("href", "athlete-cubs.webmanifest");
   }
-  // the logo, with the day's greeting under it on a holiday (see holiday.js)
+  // ---- light / dark --------------------------------------------------------------------------------------
+  // The page is dark unless it's switched to light with the sun/moon button at the top (beside the logo, so it is
+  // on every screen); the choice is kept on the phone. Light mode has its own colors (athlete.html,
+  // :root[data-theme="light"]), the dark DST logo, and a matching browser bar.
+  let theme = (() => { try { return localStorage.getItem("appTheme") === "light" ? "light" : "dark"; } catch (e) { return "dark"; } })();
+  const applyTheme = () => {
+    if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+    const bar = document.querySelector('meta[name="theme-color"]');
+    if (bar) bar.setAttribute("content", theme === "light" ? (cubs ? "#eef2fa" : "#f2f3f5") : (cubs ? "#06122b" : "#0a0a0a"));
+  };
+  applyTheme();
+  const SUN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+  const MOON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
+  const themeToggle = () => {
+    const toLight = theme !== "light";
+    const b = el("button", { class: "theme-toggle", "aria-label": toLight ? "Switch to light mode" : "Switch to dark mode", title: toLight ? "Light mode" : "Dark mode", onclick: () => {
+      theme = toLight ? "light" : "dark";
+      try { localStorage.setItem("appTheme", theme); } catch (e) { /* private window: for now only */ }
+      applyTheme();
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+    } });
+    b.innerHTML = toLight ? SUN : MOON;
+    return b;
+  };
+  // the logo, with the day's greeting under it on a holiday (see holiday.js), and the light/dark button
   const logo = () => {
     const holiday = window.Holiday && window.Holiday.today();
     return [
       cubs
         ? el("img", { src: "https://www.mlbstatic.com/team-logos/112.svg", alt: "Chicago Cubs" })
-        : el("img", { src: "assets/dst-logo-light.png", alt: "Dynamic Sports Training" }),
+        : el("img", { src: theme === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png", alt: "Dynamic Sports Training" }),
       holiday ? el("div", { class: "holiday-greeting" }, holiday.greeting) : null,
+      plan ? themeToggle() : null, // (not on a message screen, which has nothing to redraw)
     ];
   };
 
