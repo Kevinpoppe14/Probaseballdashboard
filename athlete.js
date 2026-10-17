@@ -855,8 +855,8 @@
         el("button", { class: "primary", onclick: to("index.html?from=app") }, "Dashboard"),
         // a saved program (or one day of it) dropped onto their own plan or an athlete's, right here (quick_assign.js);
         // something put on their own plan reloads the page so it shows
-        window.QuickAssign ? el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "build", onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Log a quick session") : null,
-        window.QuickAssign ? el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Assign a program") : null,
+        window.QuickAssign ? el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "build", onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Create Quick Session") : null,
+        window.QuickAssign ? el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Assign Existing Program") : null,
         el("button", { onclick: closeVideo }, "Cancel"))));
     overlay.className = "overlay show";
   }
