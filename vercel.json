@@ -1,5 +1,6 @@
 {
   "buildCommand": "npm run build",
+  "outputDirectory": "public",
   "crons": [
     { "path": "/api/sync-hawkin", "schedule": "0 9 * * *" },
     { "path": "/api/weekly-roster-email", "schedule": "0 16 * * 0" },
