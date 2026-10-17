@@ -2,8 +2,15 @@
   "name": "athlete-monitoring-dashboard",
   "private": true,
   "version": "1.0.0",
-  "description": "Vercel serverless functions for the Professional Baseball Dashboard (the app itself is a buildless static site served from the repo root).",
+  "description": "Vercel serverless functions for the Professional Baseball Dashboard. The app itself is a static site served from the repo root; on Vercel, scripts/build.js compiles its JSX first (locally it still runs as-is, compiled in the browser).",
+  "scripts": {
+    "build": "node scripts/build.js"
+  },
   "dependencies": {
     "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.25.2",
+    "@babel/preset-react": "7.24.7"
   }
 }

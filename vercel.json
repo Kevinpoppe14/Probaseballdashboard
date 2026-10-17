@@ -1,4 +1,5 @@
 {
+  "buildCommand": "npm run build",
   "crons": [
     { "path": "/api/sync-hawkin", "schedule": "0 9 * * *" },
     { "path": "/api/weekly-roster-email", "schedule": "0 16 * * 0" },
