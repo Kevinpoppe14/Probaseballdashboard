@@ -520,7 +520,14 @@
   }
 
   // What was logged for this set the last time it came up: the same exercise (by name) on the same day of an
-  // earlier week of this block, looking back from last week. Returns { week, text } or null.
+  // earlier week of this block, looking back from last week. Returns { week, when, text } or null.
+  // when a past set was done, for that line: the day, for a quick session (it has one), else the week it was in
+  const loggedWhen = (wk, date) => {
+    const f = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    if (date) return f(parseISO(date));
+    const a = parseISO(plan.startDate); a.setDate(a.getDate() + wk * 7);
+    return `Wk of ${f(a)}`;
+  };
   function lastLogged(item, si, e, gi) {
     const pid = item.program.id, name = (e.name || "").trim().toLowerCase();
     const same = (x) => (x.name || "").trim().toLowerCase() === name;
@@ -531,9 +538,28 @@
       const prev = ((((week || {}).sessions || [])[si] || {}).exercises || []).filter(same)[Math.max(0, nth)];
       if (!prev || prev.id === e.id) continue;
       const w = logged(pid, Rx.logKey(prev, gi)), r = logged(pid, Rx.repsLogKey(prev, gi));
-      if (w || r) return { week: wk + 1, text: r ? `${w || "?"} x ${r}` : w, w, r };
+      if (w || r) return { week: wk + 1, when: loggedWhen(wk), text: r ? `${w || "?"} x ${r}` : w, w, r };
     }
-    return null;
+    return lastLoggedAnywhere(e, gi, weekIdx * 100 + si);
+  }
+  // Otherwise the last time the exercise (by name) was logged anywhere on the plan before this day: in another
+  // program, or a quick strength session (and a quick session finds it in the regular program). The same set
+  // group if it has one, else its first.
+  function lastLoggedAnywhere(e, gi, pos) {
+    const name = (e.name || "").trim().toLowerCase();
+    let best = null;
+    (plan.blocks || []).filter((b) => b.programId).forEach((b) => {
+      const program = programById(b.programId);
+      if (!program) return;
+      (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((x) => {
+        const at = (b.start + wi) * 100 + si;
+        if (x.id === e.id || at >= pos || (best && at <= best.at) || (x.name || "").trim().toLowerCase() !== name) return;
+        const g = Rx.groups(x)[gi] ? gi : 0;
+        const wt = logged(program.id, Rx.logKey(x, g)), r = logged(program.id, Rx.repsLogKey(x, g));
+        if (wt || r) best = { at, week: b.start + wi + 1, when: loggedWhen(b.start + wi, s.date), text: r ? `${wt || "?"} x ${r}` : wt, w: wt, r };
+      })));
+    });
+    return best;
   }
 
   // ---- "add to home screen" tip ------------------------------------------------------------------------
@@ -764,7 +790,7 @@
         el("button", { class: "step", "aria-label": `5 more for ${e.name}`, onclick: step(5) }, "+5")),
       int ? el("span", { class: "pct" }, int) : null,
       est,
-      last ? el("button", { class: "last", title: `Logged in week ${last.week}. Tap to use the same numbers.`, onclick: useLast }, `Wk ${last.week}: ${last.text}`, el("b", null, " · use")) : null,
+      last ? el("button", { class: "last", title: `Logged in week ${last.week} (${last.when}). Tap to use the same numbers.`, onclick: useLast }, `${last.when}: ${last.text}`, el("b", null, " · use")) : null,
       timerFor(e, g));
   }
 
@@ -1306,7 +1332,7 @@
     }
     else {
       const s = sessions[dayIdx];
-      // a sent session's week (one-off strength, group speed) is named by the session itself: its day and what it is
+      // a sent session's week (quick strength session, group speed) is named by the session itself: its day and what it is
       main.append(el("p", { class: "program-name" }, window.isSentProgram(item.program.id)
         ? `${item.lane.name} · ${(s && s.name) || item.program.name}`
         : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`));
@@ -1410,7 +1436,7 @@
       const days = first ? (first.week.sessions || []) : [];
       const next = days.findIndex((s, i) => !logged(first.program.id, sessionKey(first, i)));
       if (next > 0) dayIdx = next;
-      // ...unless a one-off session is set for today and not logged yet (sent by a coach, or a coach's own lift
+      // ...unless a quick strength session is set for today and not logged yet (sent by a coach, or a coach's own lift
       // added from Coach › Assign a program): that opens first
       itemsAt(weekIdx).some((it, ii) => {
         if (!String(it.program.id).startsWith("gstrength-")) return false;

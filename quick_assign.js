@@ -82,13 +82,14 @@
     if (saveError) throw saveError;
   }
 
-  // ---- a one-off strength session -----------------------------------------------------------------------
+  // ---- a quick strength session (one-off) -----------------------------------------------------------------------
   // One day of a program, sent for a single date, the way Coach Mode sends a group speed session (coach.js
-  // sendSpeed): a row called "One-off Strength" on the person's plan, with one small program per week
+  // sendSpeed): a row called "Quick Strength Session" on the person's plan, with one small program per week
   // ("gstrength-<athlete>-<monday>", window.isSentProgram) holding each session sent for that week as a day.
   // Unlike speed, its exercises keep their weight boxes. Each sent day records who sent it, so it can be taken
   // off again; the week's program and its block go once their last day does.
-  const ONEOFF_LANE = "One-off Strength";
+  const ONEOFF_LANE = "Quick Strength Session";
+  const OLD_LANE = "One-off Strength"; // what the row was called at first; a plan that has it gets it renamed
   async function sendOneOff(person, program, session, date, email) {
     const aid = String(person.id);
     const got = await sb.from("periodization").select("data").eq("athlete_id", aid).maybeSingle();
@@ -120,13 +121,25 @@
       exercises: (copy.exercises || []).map((e) => ({ ...e, id: `ex-${uid()}` })), // its own ids, so nothing logged elsewhere lands on it
       oneOffId: uid(), sentBy: email, sentAt: new Date().toISOString(), date, fromProgram: program.id,
     });
+    week.name = `${ONEOFF_LANE} · week of ${day(weekStart)}`;
+    week.folder = ONEOFF_LANE;
     const saved = await sb.from("programs").upsert({ id: pid, data: week });
     if (saved.error) throw saved.error;
+    // the row, renamed if it still has its first name, and this week's block in it
+    let changed = !got.data || !got.data.data;
+    let lane = plan.lanes.find((l) => [ONEOFF_LANE, OLD_LANE].map((n) => n.toLowerCase()).includes((l.name || "").toLowerCase()));
+    if (lane && lane.name !== ONEOFF_LANE) {
+      lane.name = ONEOFF_LANE;
+      plan.blocks.forEach((b) => { if (b.lane === lane.id && b.label === OLD_LANE) b.label = ONEOFF_LANE; });
+      changed = true;
+    }
     if (!plan.blocks.some((b) => b.programId === pid)) {
-      let lane = plan.lanes.find((l) => (l.name || "").toLowerCase() === ONEOFF_LANE.toLowerCase());
       if (!lane) { lane = { id: uid(), name: ONEOFF_LANE, color: PALETTE[0] }; plan.lanes.push(lane); }
       plan.blocks.push({ id: uid(), lane: lane.id, start: wk, len: 1, label: ONEOFF_LANE, notes: "", color: null, programId: pid, assignedBy: email });
       plan.weeks = Math.max(1, Math.min(MAX_WEEKS, Math.max(plan.weeks || 1, wk + 1)));
+      changed = true;
+    }
+    if (changed) {
       const put = await sb.from("periodization").upsert({ athlete_id: aid, data: plan, updated_at: new Date().toISOString() });
       if (put.error) throw put.error;
     }
@@ -139,14 +152,26 @@
     if (!have.data) return;
     const week = have.data.data;
     const sessions = ((week.weeks || [])[0] || {}).sessions || [];
-    week.weeks[0].sessions = sessions.filter((s) => s.oneOffId !== oneOffId);
+    const at = sessions.findIndex((s) => s.oneOffId === oneOffId);
+    if (at < 0) return;
+    const aid = pid.replace(/^gstrength-/, "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
+    // A session that's been logged stays: what was logged is in the Training Log, which needs the session to show
+    // it. A session can't come out from before a logged one either, since each day's "done" mark is kept by its
+    // place in the week and the later one would slip into this one's place.
+    const { data: logs, error: logError } = await sb.from("athlete_logs").select("key, value").eq("athlete_id", aid).eq("program_id", pid);
+    if (logError) throw logError;
+    const keys = (logs || []).filter((r) => r.value).map((r) => r.key);
+    const isLogged = (s, i) => keys.some((k) => k === `session-0-${i}|0` || (s.exercises || []).some((e) => k.startsWith(`${e.id}|`)));
+    const logged = sessions.map(isLogged);
+    if (logged[at]) throw new Error("This session has already been logged, so it stays on file and in the Training Log.");
+    if (logged.slice(at + 1).some(Boolean)) throw new Error("A later quick session that week has already been logged, so this one stays to keep that one in place.");
+    week.weeks[0].sessions = sessions.filter((s, i) => i !== at);
     if (week.weeks[0].sessions.length) {
       const saved = await sb.from("programs").upsert({ id: pid, data: week });
       if (saved.error) throw saved.error;
       return;
     }
     // that was the week's last day: its block comes off the plan, and the empty week program goes
-    const aid = pid.replace(/^gstrength-/, "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
     const got = await sb.from("periodization").select("data").eq("athlete_id", aid).maybeSingle();
     if (got.error) throw got.error;
     if (got.data && got.data.data) {
@@ -245,7 +270,7 @@
       rows.forEach((r) => (Array.isArray(r.blocks) ? r.blocks : []).forEach((b) => {
         if (b && b.quickDrop && b.assignedBy === ctx.user.email) drops.push({ athleteId: r.athlete_id, startDate: r.startDate, b, from: addDays(r.startDate, b.start * 7) });
       }));
-      // and the one-off sessions this coach sent: days of the "gstrength-" week programs
+      // and the quick strength sessions this coach sent: days of the "gstrength-" week programs
       const { data: weeks, error } = await sb.from("programs").select("id, data").like("id", "gstrength-%").limit(5000);
       if (error) throw error;
       (weeks || []).forEach((w) => ((((w.data || {}).weeks || [])[0] || {}).sessions || []).forEach((s) => {
@@ -253,7 +278,7 @@
       }));
       drops.sort((x, y) => y.from.localeCompare(x.from));
       const remove = (d) => async (e) => {
-        const what = d.oneOff ? `the one-off session "${d.oneOff.s.name}"` : `"${d.b.label || "this program"}"`;
+        const what = d.oneOff ? `the quick strength session "${d.oneOff.s.name}"` : `"${d.b.label || "this program"}"`;
         if (!window.confirm(`Take ${what} off ${name(d.athleteId)}'s plan? Anything they logged in it stays on file.`)) return;
         e.target.disabled = true;
         try {
@@ -266,7 +291,7 @@
       };
       box.replaceChildren(...(drops.length ? drops.map((d) => el("div", { class: "qa-drop" },
         el("div", { class: "qa-drop-text" },
-          d.oneOff ? el("b", null, el("span", { class: "qa-tag" }, "One-off"), d.oneOff.s.name) : el("b", null, d.b.label || "Program"),
+          d.oneOff ? el("b", null, el("span", { class: "qa-tag" }, "Quick session"), d.oneOff.s.name) : el("b", null, d.b.label || "Program"),
           el("small", null, `${lastFirst(name(d.athleteId))} · ${d.oneOff ? day(d.oneOff.s.date) : blockDates(d.startDate, d.b)}`)),
         el("button", { class: "qa-remove", onclick: remove(d) }, "Remove"))) : [el("div", { class: "qa-empty" }, "None yet. Programs and sessions you send from here are listed so you can take them off again.")]));
     } catch (e) { box.replaceChildren(el("div", { class: "qa-empty" }, errorText(e))); }
@@ -333,7 +358,7 @@
           return el("div", { class: "qa-day" },
             el("div", { class: "qa-day-head" },
               el("span", { class: "qa-day-name" }, (s.name || "").trim() || `Day ${si + 1}`),
-              el("button", { class: "qa-oneoff", onclick: () => oneOff(person, program, s) }, person === ctx.me ? "Do this today" : "Send just this day")),
+              el("button", { class: "qa-oneoff", onclick: () => oneOff(person, program, s) }, person === ctx.me ? "Do this today" : "Send as a quick session")),
             (s.warmup || "").trim() ? el("div", { class: "qa-warm" }, `Warm-up: ${s.warmup.trim()}`) : null,
             rows.map((e, ei) => el("div", { class: "qa-ex" },
               el("span", { class: "qa-ex-label" }, labels[ei] || ""),
@@ -394,7 +419,7 @@
         home();
       } catch (e) { msg.textContent = errorText(e); go.disabled = false; }
     } }, `Send to ${who}`);
-    sheet(el("h2", null, "One-off session"),
+    sheet(el("h2", null, "Quick strength session"),
       el("button", { class: "qa-back", onclick: () => preview(person, program.id) }, "‹ Back"),
       el("div", { class: "qa-sub" }, `${(session.name || "").trim() || "This day"} from ${program.name}: ${rows.length} exercise${rows.length === 1 ? "" : "s"}. It shows in ${person === ctx.me ? "your" : `${person.name}'s`} app under "${ONEOFF_LANE}" for that day's week, with weight boxes as usual.`),
       el("label", { class: "qa-date" }, "Date", date),

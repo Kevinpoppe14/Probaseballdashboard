@@ -2561,7 +2561,7 @@ function ProgramsPage({ nav, setNav }) {
   const S = window.AthleteStore;
   // athletes' own programs saved before athlete folders existed are filed into theirs, once per visit
   React.useEffect(() => { if (S.fileAthletePrograms) { S.fileAthletePrograms(); setVersion((v) => v + 1); } }, []); // eslint-disable-line
-  // The small one-week programs made when a session is sent to one athlete's app (group speed, or a one-off
+  // The small one-week programs made when a session is sent to one athlete's app (group speed, or a quick
   // strength session; window.isSentProgram) are left out of this list unless asked for: one per athlete per week,
   // reached from the athlete's plan, so here they would only bury the real programs.
   const everyProgram = S.allPrograms();
@@ -2743,7 +2743,7 @@ function ProgramsPage({ nav, setNav }) {
     <div className="panel" key={version}>
       {sectionTabs}
       <h2>Programs <small>{programs.length} saved</small></h2>
-      {sentCount > 0 && <button className="btn-link no-print" style={{ marginBottom: 8 }} onClick={() => setShowSent(!showSent)}>{showSent ? "Hide" : "Show"} {sentCount} session{sentCount === 1 ? "" : "s"} sent to athletes (group speed and one-off strength)</button>}
+      {sentCount > 0 && <button className="btn-link no-print" style={{ marginBottom: 8 }} onClick={() => setShowSent(!showSent)}>{showSent ? "Hide" : "Show"} {sentCount} session{sentCount === 1 ? "" : "s"} sent to athletes (group speed and quick strength sessions)</button>}
       <div className="program-crumbs">
         <button className={`program-crumb ${folder === "" ? "here" : ""} ${dropOver === "" ? "drop-over" : ""}`} onClick={() => setFolder("")} {...dropTarget("")}>All programs</button>
         {folder && folder.split("/").map((part, i, parts) => {
@@ -3863,7 +3863,7 @@ const HELP_SECTIONS = [
       "Progress: sessions by week, estimated maxes, top weights, Group Testing results, and the same body composition graph (Evolt, manual sheet or together). Plan: their timeline, goals and action plan.",
       "They can swap an exercise or change sets and reps (⇄), and tap an exercise's video thumbnail (or its name) to watch it. A note the coach added to an exercise is set off under its name. Each block (A, B, ...) folds to one line once its weights are in, or when they tap Done (for a block with nothing to weigh); tap it to open it again.",
       "Remote athletes: an equipment survey (programs are checked against it, and the coach is emailed if something's missing), and a camera on each exercise to film a set as a form check. Their coach gets an email to watch and reply, and the reply shows under the exercise. Clips are private and deleted after 7 days.",
-      "Coaches on the Coaches roster: their own app has a Coach button to open Coach Mode or the dashboard (each with a way back), and Assign a program: pick themselves or any active athlete, pick a library program, preview it week by week, and assign it starting this week or next (it goes in the Strength row, as the dashboard's Assign puts it). Send just this day sends one day of it for a chosen date instead, as a one-off session under One-off Strength, with weight boxes. For themselves it reads Do this today: a quick way to log an impromptu lift, added to their own plan for today and opened in their app, ready to log. A one-off set for today opens first in the app (theirs or an athlete's), beside their regular program under its own One-off Strength switch. Everything sent this way is listed there with a Remove button.",
+      "Coaches on the Coaches roster: their own app has a Coach button to open Coach Mode or the dashboard (each with a way back), and Assign a program: pick themselves or any active athlete, pick a library program, preview it week by week, and assign it starting this week or next (it goes in the Strength row, as the dashboard's Assign puts it). Send as a quick session sends one day of it for a chosen date instead, under Quick Strength Session, with weight boxes; it counts toward their estimated maxes and Top weights, and logs to the Training Log like any session (once logged it can't be removed). For themselves it reads Do this today: a quick way to log an impromptu lift, added to their own plan for today and opened in their app, ready to log. A quick session set for today opens first in the app (theirs or an athlete's), beside their regular program under its own Quick Strength Session switch. The last-time weight under each box looks across every program on the plan, quick sessions included. Everything sent this way is listed there with a Remove button.",
     ],
   },
   {
