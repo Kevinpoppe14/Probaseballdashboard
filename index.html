@@ -3869,7 +3869,7 @@ const HELP_SECTIONS = [
   {
     title: "Imports, Vitruve and data entry",
     items: [
-      "Import & Manual Entry (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), the Evolt360 import (Evolt Insights › Reports › Result Activity Report › Download Report, then choose the file: members are matched to non-alumni athletes by email, mobile, then first name and last initial, you check the matches before anything is saved, and scans already on file are skipped), and the other imports and manual entries.",
+      "Import & Manual Entry (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), the Evolt360 import (Evolt Insights › Reports › Result Activity Report › Download Report, then choose the file: members are matched to non-alumni athletes by email, mobile, then first name and last initial, you check the matches before anything is saved, and scans already on file are skipped), and the Hawkin, VALD and MLB profile imports.",
     ],
   },
   {
@@ -5931,7 +5931,7 @@ function ForcePlatePanel({ athleteId, range }) {
       <div className="panel">
         <h2>Countermovement Jump <small>Hawkin Dynamics</small></h2>
         <div className="empty-state">
-          No force plate tests on file for this athlete yet. Import a Hawkin Dynamics CSV or add one manually via
+          No force plate tests on file for this athlete yet. Sync or import them from Hawkin Dynamics under
           "Import &amp; Manual Entry".
         </div>
       </div>
@@ -6164,7 +6164,7 @@ function BodyCompPanel({ athleteId }) {
       <div className="panel">
         <h2>Body Composition <small>Evolt360</small></h2>
         <div className="empty-state">
-          No body composition scans on file for this athlete yet. Import Evolt's Result Activity Report or add one manually via
+          No body composition scans on file for this athlete yet. Import Evolt's Result Activity Report under
           "Import &amp; Manual Entry".
         </div>
       </div>
@@ -6732,134 +6732,6 @@ function CsvImporter({ title, description, fieldDefs, numericKeys, saveEntry, on
   );
 }
 
-const WELLNESS_FORM_FIELDS = [
-  { key: "sleepHours", label: "Sleep (hours)", step: 0.1 },
-  { key: "sleepQuality", label: "Sleep Quality (1-5)", step: 1, min: 1, max: 5 },
-  { key: "soreness", label: "Soreness (1-5, 5=worst)", step: 1, min: 1, max: 5 },
-  { key: "fatigue", label: "Fatigue (1-5, 5=worst)", step: 1, min: 1, max: 5 },
-  { key: "stress", label: "Stress (1-5, 5=worst)", step: 1, min: 1, max: 5 },
-  { key: "mood", label: "Mood (1-5, 5=best)", step: 1, min: 1, max: 5 },
-];
-
-const FORCE_FORM_FIELDS = [
-  { key: "testType", label: "Test Type", text: true },
-  { key: "jumpHeight", label: "Jump Height (in)", step: 0.1 },
-  { key: "rsiModified", label: "RSI-Modified (mRSI)", step: 0.01 },
-  { key: "systemWeight", label: "System Weight (N)", step: 0.1 },
-  { key: "peakPower", label: "Peak Power (W)", step: 1 },
-  { key: "relativePeakPower", label: "Relative Peak Power (W/kg)", step: 0.1 },
-  { key: "takeoffVelocity", label: "Takeoff Velocity (m/s)", step: 0.01 },
-  { key: "totalImpulse", label: "Total Impulse (Ns)", step: 1 },
-  { key: "brakingRfd", label: "Braking RFD (N/s)", step: 1 },
-  { key: "concentricImpulse", label: "Concentric Impulse (Ns)", step: 1 },
-];
-
-// the same figures, in the same pounds, as an imported Evolt scan
-const BODYCOMP_FORM_FIELDS = [
-  { key: "weightLb", label: "Weight (lb)", step: 0.1 },
-  { key: "bodyFatPct", label: "Body Fat (%)", step: 0.1 },
-  { key: "bodyFatLb", label: "Fat Mass (lb)", step: 0.1 },
-  { key: "smmLb", label: "Skeletal Muscle Mass (lb)", step: 0.1 },
-  { key: "lbmLb", label: "Lean Body Mass (lb)", step: 0.1 },
-  { key: "visceralFat", label: "Visceral Fat Rating", step: 1 },
-];
-
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function ManualEntryForm({ onImported }) {
-  const [subtype, setSubtype] = useState("wellness");
-  const [athleteName, setAthleteName] = useState("");
-  const [date, setDate] = useState(todayKey());
-  const [values, setValues] = useState({});
-  const [message, setMessage] = useState("");
-
-  const roster = getRoster();
-  const fieldSet =
-    subtype === "wellness" ? WELLNESS_FORM_FIELDS : subtype === "force" ? FORCE_FORM_FIELDS : BODYCOMP_FORM_FIELDS;
-
-  const setField = (key, val) => setValues({ ...values, [key]: val });
-
-  const handleSubtypeChange = (next) => {
-    setSubtype(next);
-    setValues({});
-    setMessage("");
-  };
-
-  const handleSubmit = () => {
-    if (!athleteName.trim() || !date) {
-      setMessage("Pick an athlete and a date first.");
-      return;
-    }
-    const athlete = window.AthleteStore.findOrCreateAthlete(athleteName.trim());
-    const entry = { athleteId: athlete.id, date };
-    fieldSet.forEach((f) => {
-      const raw = values[f.key];
-      if (raw === undefined || raw === "") return;
-      entry[f.key] = f.text ? raw : round2(Number(raw));
-    });
-
-    if (subtype === "wellness") window.AthleteStore.addManualWellness(entry);
-    if (subtype === "force") window.AthleteStore.addForceTest(entry);
-    if (subtype === "bodycomp") window.AthleteStore.addBodyComp(entry);
-
-    setMessage(`Saved ${subtype === "wellness" ? "wellness check-in" : subtype === "force" ? "force plate test" : "body composition scan"} for ${athlete.name}.`);
-    setValues({});
-    onImported();
-  };
-
-  return (
-    <div className="panel">
-      <h2>Manual Entry</h2>
-      <div className="pill-tabs">
-        <button className={`pill-tab ${subtype === "wellness" ? "active" : ""}`} onClick={() => handleSubtypeChange("wellness")}>Wellness Check-in</button>
-        <button className={`pill-tab ${subtype === "force" ? "active" : ""}`} onClick={() => handleSubtypeChange("force")}>Force Plate Test</button>
-        <button className={`pill-tab ${subtype === "bodycomp" ? "active" : ""}`} onClick={() => handleSubtypeChange("bodycomp")}>Body Composition Scan</button>
-      </div>
-
-      {message && <div className="success-banner">{message}</div>}
-
-      <div className="form-row">
-        <div className="field" style={{ minWidth: 240 }}>
-          <label>Athlete</label>
-          <input
-            list="athlete-roster-list"
-            placeholder="Type or pick an athlete name..."
-            value={athleteName}
-            onChange={(e) => setAthleteName(e.target.value)}
-          />
-          <datalist id="athlete-roster-list">
-            {roster.map((a) => <option key={a.id} value={a.name} />)}
-          </datalist>
-        </div>
-        <div className="field">
-          <label>Date</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </div>
-      </div>
-
-      <div className="form-grid">
-        {fieldSet.map((f) => (
-          <div className="field" key={f.key}>
-            <label>{f.label}</label>
-            <input
-              type={f.text ? "text" : "number"}
-              step={f.step}
-              min={f.min}
-              max={f.max}
-              value={values[f.key] ?? ""}
-              onChange={(e) => setField(f.key, e.target.value)}
-            />
-          </div>
-        ))}
-      </div>
-
-      <button className="btn btn-primary" onClick={handleSubmit}>Save Entry</button>
-    </div>
-  );
-}
-
 // ---- MLB / MiLB profile + photo linker -------------------------------------------------
 // Looks each roster athlete up in MLB's official player database (MLB + MiLB), links their
 // MLBAM ID (which is also their Baseball Savant ID — it powers the Statcast tab), and sets
@@ -7340,16 +7212,13 @@ function ImportPage({ onImported, onSelect }) {
       <div className="pill-tabs">
         <button className={`pill-tab ${source === "hawkin" ? "active" : ""}`} onClick={() => setSource("hawkin")}>Hawkin Dynamics</button>
         <button className={`pill-tab ${source === "evolt" ? "active" : ""}`} onClick={() => setSource("evolt")}>Evolt360</button>
-        <button className={`pill-tab ${source === "manual" ? "active" : ""}`} onClick={() => setSource("manual")}>Manual Entry</button>
         <button className={`pill-tab ${source === "vitruve" ? "active" : ""}`} onClick={() => setSource("vitruve")}>Vitruve</button>
         <button className={`pill-tab ${source === "mlb" ? "active" : ""}`} onClick={() => setSource("mlb")}>MLB Profiles &amp; Photos</button>
-        <button className={`pill-tab ${source === "plansheet" ? "active" : ""}`} onClick={() => setSource("plansheet")}>Player Plan Sheet Sync</button>
         <button className={`pill-tab ${source === "vald" ? "active" : ""}`} onClick={() => setSource("vald")}>VALD (Cubs Roster)</button>
       </div>
 
       {source === "vitruve" && <VitruveImportPanel />}
       {source === "mlb" && <MlbLinkerPanel onImported={onImported} />}
-      {source === "plansheet" && <PlayerPlansSyncPage onSelect={onSelect} onImported={onImported} />}
 
       {source === "hawkin" && <HawkinSyncPanel onImported={onImported} />}
       {source === "hawkin" && <NoJumpDataPanel />}
@@ -7417,7 +7286,6 @@ function ImportPage({ onImported, onSelect }) {
           }}
         />
       )}
-      {source === "manual" && <ManualEntryForm onImported={onImported} />}
 
       <div className="panel">
         <h2 style={{ fontSize: 13 }}>Stored on this device</h2>
@@ -7434,136 +7302,6 @@ function ImportPage({ onImported, onSelect }) {
           Clear imported &amp; manual data
         </button>
       </div>
-    </div>
-  );
-}
-
-const PLAYER_PLAN_FIELD_DEFS = [
-  { key: "athleteName", label: "Full Name (single column)", required: false, guesses: ["full name", "athlete name", "athlete", "player"] },
-  { key: "firstName", label: "First Name (if split)", required: false, guesses: ["first name", "first"] },
-  { key: "lastName", label: "Last Name (if split)", required: false, guesses: ["last name", "last"] },
-  { key: "focusArea", label: "Focus Area", required: false, guesses: ["focus", "area", "category", "discipline"] },
-  { key: "goal", label: "Goal / Objective", required: false, guesses: ["goal", "objective", "plan", "target"] },
-  { key: "targetDate", label: "Target Date", required: false, guesses: ["target date", "due", "date"] },
-  { key: "status", label: "Status", required: false, guesses: ["status", "progress"] },
-  { key: "coach", label: "Coach / Owner", required: false, guesses: ["coach", "owner", "assigned", "staff"] },
-  { key: "notes", label: "Notes", required: false, guesses: ["notes", "comments", "detail"] },
-];
-
-function resolveRowName(row, mapping) {
-  if (mapping.athleteName && row[mapping.athleteName]) return row[mapping.athleteName].trim();
-  const first = mapping.firstName ? (row[mapping.firstName] || "").trim() : "";
-  const last = mapping.lastName ? (row[mapping.lastName] || "").trim() : "";
-  return `${first} ${last}`.trim();
-}
-
-function planStatusTone(status) {
-  const s = (status || "").toLowerCase();
-  if (!s) return "neutral";
-  if (s.includes("risk") || s.includes("behind") || s.includes("off track") || s.includes("stalled")) return "danger";
-  if (s.includes("complete") || s.includes("done") || s.includes("achieved")) return "info";
-  if (s.includes("track") || s.includes("progress") || s.includes("active")) return "good";
-  return "neutral";
-}
-
-function letterToIndex(letters) {
-  let n = 0;
-  for (let i = 0; i < letters.length; i++) {
-    n = n * 26 + (letters.charCodeAt(i) - 64);
-  }
-  return n - 1;
-}
-
-function parseColumnSpec(spec) {
-  const clean = (spec || "").toUpperCase().replace(/\s+/g, "");
-  if (!clean) return null;
-  const indices = new Set();
-  clean.split(",").filter(Boolean).forEach((token) => {
-    const rangeMatch = token.match(/^([A-Z]+)-([A-Z]+)$/);
-    if (rangeMatch) {
-      const start = letterToIndex(rangeMatch[1]);
-      const end = letterToIndex(rangeMatch[2]);
-      for (let i = Math.min(start, end); i <= Math.max(start, end); i++) indices.add(i);
-    } else if (/^[A-Z]+$/.test(token)) {
-      indices.add(letterToIndex(token));
-    }
-  });
-  return indices;
-}
-
-function applyColumnFilter(allHeaders, spec) {
-  const indices = parseColumnSpec(spec);
-  if (!indices) return allHeaders;
-  return allHeaders.filter((_, i) => indices.has(i));
-}
-
-function toGvizCsvUrl(input) {
-  const trimmed = (input || "").trim();
-  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (!match) return trimmed;
-  const id = match[1];
-  const gidMatch = trimmed.match(/[?#&]gid=([0-9]+)/);
-  const gid = gidMatch ? gidMatch[1] : null;
-  let url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv`;
-  if (gid) url += `&gid=${gid}`;
-  return url;
-}
-
-function MappingPreviewImport({ headers, rawRows, fieldDefs, mapping, setMapping, onCommit, commitLabel, disabled, disabledHint }) {
-  const requiredMissing = fieldDefs.some((f) => f.required && !mapping[f.key]);
-  const isDisabled = requiredMissing || !!disabled;
-  const previewRows = rawRows.slice(0, 5).map((row) => {
-    const out = {};
-    fieldDefs.forEach((f) => {
-      out[f.key] = mapping[f.key] ? row[mapping[f.key]] : "";
-    });
-    return out;
-  });
-
-  return (
-    <div>
-      <table className="mapping-table">
-        <tbody>
-          {fieldDefs.map((f) => (
-            <tr key={f.key}>
-              <td style={{ width: 220 }}>
-                {f.label}
-                {f.required && <span className="required-mark">*</span>}
-              </td>
-              <td>
-                <select value={mapping[f.key] || ""} onChange={(e) => setMapping({ ...mapping, [f.key]: e.target.value })}>
-                  <option value="">— none —</option>
-                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h2 style={{ fontSize: 13 }}>Preview (first 5 rows)</h2>
-      <table>
-        <thead>
-          <tr>{fieldDefs.map((f) => <th key={f.key}>{f.label}</th>)}</tr>
-        </thead>
-        <tbody>
-          {previewRows.map((row, i) => (
-            <tr key={i} style={{ cursor: "default" }}>
-              {fieldDefs.map((f) => <td key={f.key}>{row[f.key] || "—"}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <button className="btn btn-primary" disabled={isDisabled} style={{ marginTop: 14 }} onClick={onCommit}>
-        {commitLabel}
-      </button>
-      {requiredMissing && (
-        <p style={{ fontSize: 12, color: "var(--warn)", marginTop: 8 }}>Map all required (*) fields before importing.</p>
-      )}
-      {!requiredMissing && disabled && disabledHint && (
-        <p style={{ fontSize: 12, color: "var(--warn)", marginTop: 8 }}>{disabledHint}</p>
-      )}
     </div>
   );
 }
@@ -8046,290 +7784,6 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// The old Player Plans page (Google Sheet sync + summary table). It now lives under Import & Manual Entry.
-function PlayerPlansSyncPage({ onSelect, onImported }) {
-  const [method, setMethod] = useState("url");
-  const [sheetUrl, setSheetUrl] = useState("");
-  const [pasteText, setPasteText] = useState("");
-  const [columnSpec, setColumnSpec] = useState("");
-  const [allHeaders, setAllHeaders] = useState([]);
-  const [headers, setHeaders] = useState([]);
-  const [rawRows, setRawRows] = useState([]);
-  const [mapping, setMapping] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
-  const [search, setSearch] = useState("");
-
-  const parseCsvText = (text) => {
-    const results = Papa.parse(text.trim(), { header: true, skipEmptyLines: true });
-    const fields = results.meta.fields || [];
-    if (!fields.length || !results.data.length) {
-      setError("Couldn't find any rows/columns in that data. Check the sheet has a header row and at least one data row.");
-      return;
-    }
-    setAllHeaders(fields);
-    setRawRows(results.data);
-    const filtered = applyColumnFilter(fields, columnSpec);
-    setHeaders(filtered);
-    setMapping(guessMapping(filtered, PLAYER_PLAN_FIELD_DEFS));
-    setError("");
-    setResult(null);
-  };
-
-  const applyFilter = () => {
-    const filtered = applyColumnFilter(allHeaders, columnSpec);
-    setHeaders(filtered);
-    setMapping(guessMapping(filtered, PLAYER_PLAN_FIELD_DEFS));
-  };
-
-  const handleFetchUrl = async () => {
-    if (!sheetUrl.trim()) {
-      setError("Paste a Google Sheet link first.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const url = toGvizCsvUrl(sheetUrl);
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`Request failed (HTTP ${res.status}).`);
-      }
-      const text = await res.text();
-      parseCsvText(text);
-    } catch (e) {
-      setError(
-        `Couldn't fetch that sheet (${e.message}). This is usually because the sheet isn't shared as "Anyone with the link can view" / published to the web, or the browser blocked the cross-origin request. Try "Paste CSV/Text" below instead — open the sheet, select the range (including headers), copy, and paste it in.`
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setError("");
-    const reader = new FileReader();
-    reader.onload = (ev) => parseCsvText(ev.target.result);
-    reader.readAsText(file);
-  };
-
-  const handleImport = () => {
-    let skipped = 0;
-    let duplicatesCollapsed = 0;
-    const beforeCount = window.AthleteStore.allAthletes().length;
-    const mappedCols = new Set(Object.values(mapping).filter(Boolean));
-    const extraHeaders = headers.filter((h) => !mappedCols.has(h));
-    const entryByAthleteId = new Map();
-
-    rawRows.forEach((row) => {
-      const rawName = resolveRowName(row, mapping);
-      if (!rawName) {
-        skipped++;
-        return;
-      }
-      // Every name becomes (or matches) a roster entry, so the sheet's athlete
-      // list drives who shows up across the dashboard, not just the mock roster.
-      const athlete = window.AthleteStore.findOrCreateAthlete(rawName);
-      const entry = { athleteId: athlete.id };
-      PLAYER_PLAN_FIELD_DEFS.forEach((f) => {
-        if (f.key === "athleteName" || f.key === "firstName" || f.key === "lastName") return;
-        const col = mapping[f.key];
-        if (!col) return;
-        const val = row[col];
-        if (val === undefined || val === null || val === "") return;
-        entry[f.key] = val;
-      });
-      const extra = {};
-      extraHeaders.forEach((h) => {
-        const val = row[h];
-        if (val !== undefined && val !== null && val !== "") extra[h] = val;
-      });
-      if (Object.keys(extra).length) entry.extra = extra;
-
-      if (entryByAthleteId.has(athlete.id)) duplicatesCollapsed++;
-      // Sheet rows are in submission order, so the last row for a given
-      // athlete is the most recent one — overwrite rather than keep both.
-      entryByAthleteId.set(athlete.id, entry);
-    });
-
-    const entries = Array.from(entryByAthleteId.values());
-    window.AthleteStore.setPlayerPlans(entries);
-    const afterCount = window.AthleteStore.allAthletes().length;
-    setResult({
-      imported: entries.length,
-      skipped,
-      duplicatesCollapsed,
-      newAthletes: afterCount - beforeCount,
-    });
-    setAllHeaders([]);
-    setHeaders([]);
-    setRawRows([]);
-    onImported();
-  };
-
-  const syncedAt = window.AthleteStore.getPlayerPlansSyncedAt();
-  const allPlans = window.AthleteStore
-    .getAllPlayerPlans()
-    .map((p) => ({ plan: p, athlete: getRoster().find((a) => a.id === p.athleteId) }))
-    .filter((row) => row.athlete && row.athlete.name.toLowerCase().includes(search.toLowerCase()));
-
-  return (
-    <div>
-      <div className="panel">
-        <h2>Sync Player Plans from Google Sheets</h2>
-        <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: -6 }}>
-          Each sync replaces the current plan list with what's in the sheet — this is meant to mirror the sheet's
-          current state, not build up history. You need either a single Full Name column mapped, or both First Name
-          and Last Name columns — plus whichever of Focus Area, Goal, Target Date, Status, Coach, and Notes your
-          sheet has. Any column naming works, you'll confirm the mapping below.
-        </p>
-
-        <div className="sync-row" style={{ marginBottom: 4 }}>
-          <div className="field">
-            <label>Columns to include (optional)</label>
-            <input
-              placeholder="e.g. I,J,K,N,O,P,AC-AX — leave blank to include every column"
-              value={columnSpec}
-              onChange={(e) => setColumnSpec(e.target.value)}
-            />
-          </div>
-          <button className="btn btn-secondary" onClick={applyFilter} disabled={!allHeaders.length}>
-            Apply Filter
-          </button>
-        </div>
-        <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 0, marginBottom: 14 }}>
-          Use spreadsheet column letters, comma-separated, with ranges like <code>AC-AX</code>. Columns you don't map
-          to a field below are still imported and shown as additional data on each athlete's Player Plan panel — they
-          just won't clutter the mapping list or the summary table here.
-        </p>
-
-        <div className="method-switch">
-          <button className={method === "url" ? "active" : ""} onClick={() => setMethod("url")}>Google Sheet link</button>
-          <button className={method === "paste" ? "active" : ""} onClick={() => setMethod("paste")}>Paste CSV / Text</button>
-          <button className={method === "file" ? "active" : ""} onClick={() => setMethod("file")}>Upload File</button>
-        </div>
-
-        {error && (
-          <div className="success-banner" style={{ background: "#3a1414", color: "var(--danger)", borderColor: "#5a1f1f" }}>
-            {error}
-          </div>
-        )}
-        {result && (
-          <div className="success-banner">
-            Synced plans for {result.imported} athlete{result.imported === 1 ? "" : "s"}
-            {result.newAthletes > 0 ? ` — ${result.newAthletes} new athlete profile${result.newAthletes === 1 ? "" : "s"} added to the roster` : ""}.
-            {result.duplicatesCollapsed > 0
-              ? ` ${result.duplicatesCollapsed} repeat submission${result.duplicatesCollapsed === 1 ? "" : "s"} from the same athlete collapsed to their most recent entry.`
-              : ""}
-            {result.skipped > 0 ? ` Skipped ${result.skipped} row(s) missing an athlete name.` : ""}
-          </div>
-        )}
-
-        {method === "url" && (
-          <div className="sync-row">
-            <div className="field">
-              <label>Published Google Sheet link</label>
-              <input
-                placeholder="https://docs.google.com/spreadsheets/d/.../edit#gid=0"
-                value={sheetUrl}
-                onChange={(e) => setSheetUrl(e.target.value)}
-              />
-            </div>
-            <button className="btn btn-primary" onClick={handleFetchUrl} disabled={loading}>
-              {loading ? "Fetching..." : "Fetch"}
-            </button>
-          </div>
-        )}
-
-        {method === "paste" && (
-          <div>
-            <div className="field">
-              <label>Paste CSV or copied sheet cells</label>
-              <textarea rows={6} value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
-            </div>
-            <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={() => parseCsvText(pasteText)}>
-              Parse
-            </button>
-          </div>
-        )}
-
-        {method === "file" && (
-          <div className="file-drop">
-            <input type="file" accept=".csv,.tsv,.txt" onChange={handleFileUpload} />
-            <span style={{ color: "var(--text-dim)", fontSize: 12 }}>Accepts a CSV exported from Google Sheets (File &gt; Download &gt; CSV).</span>
-          </div>
-        )}
-
-        {syncedAt && (
-          <p className="timestamp-note">Last synced {new Date(syncedAt).toLocaleString()}</p>
-        )}
-
-        {rawRows.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <p style={{ fontSize: 12, color: "var(--text-dim)" }}>{rawRows.length} rows detected. Confirm the mapping below.</p>
-            <MappingPreviewImport
-              headers={headers}
-              rawRows={rawRows}
-              fieldDefs={PLAYER_PLAN_FIELD_DEFS}
-              mapping={mapping}
-              setMapping={setMapping}
-              onCommit={handleImport}
-              disabled={!mapping.athleteName && !(mapping.firstName && mapping.lastName)}
-              disabledHint="Map either a Full Name column, or both First Name and Last Name columns, before syncing."
-              commitLabel={`Sync ${rawRows.length} rows (replaces current plans)`}
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <h2>
-          Player Plans <small>{allPlans.length} plan{allPlans.length === 1 ? "" : "s"} on file</small>
-        </h2>
-        <input
-          placeholder="Search athlete..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ marginBottom: 12, maxWidth: 260 }}
-        />
-        {allPlans.length ? (
-          <table>
-            <thead>
-              <tr>
-                <th>Athlete</th>
-                <th>Focus Area</th>
-                <th>Goal</th>
-                <th>Target Date</th>
-                <th>Status</th>
-                <th>Coach</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allPlans.map(({ plan, athlete }, i) => (
-                <tr key={i} onClick={() => onSelect(athlete.id)}>
-                  <td><Avatar athlete={athlete} />{displayName(athlete)}</td>
-                  <td>{plan.focusArea || "—"}</td>
-                  <td>{plan.goal || "—"}</td>
-                  <td>{plan.targetDate || "—"}</td>
-                  <td><Badge tone={planStatusTone(plan.status)}>{plan.status || "No Status"}</Badge></td>
-                  <td>{plan.coach || "—"}</td>
-                  <td>{plan.notes || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty-state">No player plans synced yet — pull them in from a Google Sheet above.</div>
-        )}
-      </div>
     </div>
   );
 }
