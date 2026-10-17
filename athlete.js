@@ -882,7 +882,8 @@
       });
       if (sets.length) missing.push({ e, sets });
     });
-    const finish = () => { save(pid, sessionKey(item, si), "done"); closeVideo(); render(); showStatus("Session logged"); };
+    // logged: the athlete gets the finish screen; a coach in Coach Mode just a note, to keep the session moving
+    const finish = () => { save(pid, sessionKey(item, si), "done"); closeVideo(); render(); if (coachId) showStatus("Session logged"); else finishScreen(item, si, rows); };
     if (!missing.length) { finish(); return; }
 
     const fields = []; // { key, input }
@@ -1113,8 +1114,8 @@
 
   // What shows at the end of a logged day: the week so far, the streak, any estimated max that went past the
   // athlete's best, and any Group Testing best from today.
-  function sessionSummary(item, si, rows) {
-    const wk = weekCount(weekIdx), st = streak();
+  // what a logged day earned: new or first estimated maxes from it, and today's new testing bests, as [label, text]
+  function sessionWins(item, si, rows) {
     const pos = (item.block.start + item.weekNo - 1) * 100 + si; // where this day sits in planMaxes
     const all = window.planMaxes(plan, programById).all;
     const wins = [];
@@ -1133,6 +1134,34 @@
     if (weekIdx === currentWeek()) {
       (tests || []).filter((t) => t.date === localDay() && isTestBest(t)).forEach((t) => wins.push(["New testing best", `${t.kpiName} ${nice(testValue(t))}${t.unit ? ` ${t.unit}` : ""}`]));
     }
+    return wins;
+  }
+
+  // The moment the athlete logs a day: the day done, the week so far, the streak, and anything new from today.
+  function finishScreen(item, si, rows) {
+    const s = (item.week.sessions || [])[si] || {};
+    const wk = weekCount(weekIdx), st = streak(), wins = sessionWins(item, si, rows);
+    const week = wk.total && wk.done >= wk.total
+      ? (wk.total > 1 ? `Week complete: all ${wk.total} sessions done` : "Week complete")
+      : `${wk.done} of ${wk.total} sessions this week`;
+    overlay.replaceChildren(el("div", { class: "sheet finish", role: "dialog", "aria-label": "Session logged" },
+      el("div", { class: "finish-check", "aria-hidden": "true" }, "✓"),
+      el("h2", null, `${(s.name || "").trim() || `Day ${si + 1}`} done.`),
+      el("div", { class: "finish-lines" },
+        el("div", null, week),
+        st >= 2 ? el("div", null, `${st} weeks in a row`) : null),
+      wins.length
+        ? el("div", { class: "sum-wins" }, wins.map(([k, v]) => el("div", { class: "sum-win" }, el("span", null, k), el("b", null, v))))
+        : el("p", { class: "finish-close" }, "Nice work. See you next session."),
+      el("div", { class: "swap-actions" },
+        el("button", { class: "primary", onclick: () => { closeVideo(); goToProgress(); } }, "See my progress"),
+        el("button", { onclick: closeVideo }, "Done"))));
+    overlay.className = "overlay show";
+  }
+
+  function sessionSummary(item, si, rows) {
+    const wk = weekCount(weekIdx), st = streak();
+    const wins = sessionWins(item, si, rows);
     return el("div", { class: "session-summary" },
       el("div", { class: "session-done" }, "✓ Session logged", el("button", { class: "session-undo", onclick: () => { save(item.program.id, sessionKey(item, si), ""); render(); } }, "Undo")),
       el("div", { class: "sum-stats" },
