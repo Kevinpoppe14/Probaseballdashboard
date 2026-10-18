@@ -6,7 +6,8 @@
 // starts later is extended back, and someone with no plan gets one. The shared program itself is never changed.
 //
 // Blocks dropped this way are marked quickDrop, with the coach who did it (assignedBy), so the Coach tab can list
-// the ones this coach dropped and take any of them off again. Everything reads and writes under the coach's own
+// the ones this coach dropped and take any of them off again. Assigning ends on a screen with Undo and Change, and
+// any program can be moved to start another week or swapped for a different one (manage). Everything reads and writes under the coach's own
 // login (signed-in staff), so it needs them signed in; the sheet asks if they aren't.
 (function () {
   const sb = window.supabaseClient;
@@ -47,6 +48,7 @@
   const blockDates = (startDate, b) => `${day(addDays(startDate, b.start * 7))} – ${day(addDays(startDate, (b.start + b.len) * 7 - 1))}`;
 
   // "added", "created" (they had no plan), "already" (that program is on their plan) or "out-of-range"
+  let lastBlockId = null;
   async function assign(person, program, startDate, email) {
     const { data: row, error } = await sb.from("periodization").select("data").eq("athlete_id", String(person.id)).maybeSingle();
     if (error) throw error;
@@ -67,7 +69,8 @@
     let lane = plan.lanes.find((l) => (l.name || "").toLowerCase() === LANE.toLowerCase());
     if (!lane) { lane = { id: uid(), name: LANE, color: PALETTE[plan.lanes.length % PALETTE.length] }; plan.lanes.push(lane); }
     const len = Math.min(Math.max(1, (program.weeks || []).length), MAX_WEEKS - start);
-    plan.blocks.push({ id: uid(), lane: lane.id, start, len, label: program.name || "Program", notes: "", color: null, programId: program.id, assignedBy: email, quickDrop: true, quickDropAt: new Date().toISOString() });
+    lastBlockId = uid(); // so the Assigned screen can undo or change this block
+    plan.blocks.push({ id: lastBlockId, lane: lane.id, start, len, label: program.name || "Program", notes: "", color: null, programId: program.id, assignedBy: email, quickDrop: true, quickDropAt: new Date().toISOString() });
     plan.weeks = Math.max(1, Math.min(MAX_WEEKS, Math.max(plan.weeks || 1, start + len)));
     const { error: saveError } = await sb.from("periodization").upsert({ athlete_id: String(person.id), data: plan, updated_at: new Date().toISOString() });
     if (saveError) throw saveError;
@@ -82,6 +85,30 @@
     plan.blocks = (plan.blocks || []).filter((b) => b.id !== blockId);
     const { error: saveError } = await sb.from("periodization").upsert({ athlete_id: String(athleteId), data: plan, updated_at: new Date().toISOString() });
     if (saveError) throw saveError;
+  }
+
+  // a block moved to start the week of startDate (a Monday): "moved", "gone" (not on the plan) or "out-of-range".
+  // A plan that starts later is extended back, as assign() does. What was logged in it stays with the program.
+  async function moveBlock(athleteId, blockId, startDate) {
+    const { data: row, error } = await sb.from("periodization").select("data").eq("athlete_id", String(athleteId)).maybeSingle();
+    if (error) throw error;
+    const plan = row && row.data;
+    const b = plan && (plan.blocks || []).find((x) => x.id === blockId);
+    if (!b) return "gone";
+    let start = Math.floor(Math.round((parseISO(startDate) - parseISO(plan.startDate)) / 864e5) / 7);
+    if (start < 0) {
+      const shift = -start;
+      plan.startDate = addDays(plan.startDate, -shift * 7);
+      plan.blocks.forEach((x) => { x.start += shift; });
+      plan.weeks += shift;
+      start = 0;
+    }
+    if (start + b.len > MAX_WEEKS) return "out-of-range";
+    b.start = start;
+    plan.weeks = Math.max(1, Math.min(MAX_WEEKS, Math.max(plan.weeks || 1, start + b.len)));
+    const { error: saveError } = await sb.from("periodization").upsert({ athlete_id: String(athleteId), data: plan, updated_at: new Date().toISOString() });
+    if (saveError) throw saveError;
+    return "moved";
   }
 
   // ---- a quick strength session (one-off) -----------------------------------------------------------------------
@@ -225,6 +252,8 @@
         ctx.programs = programs.filter((p) => !p.owner && !window.isSentProgram(p.id) && (p.name || "").trim()).sort((a, b) => a.name.localeCompare(b.name));
       }
       ctx.me = ctx.people.find((p) => p.coachUser && p.coachUser === ctx.user.id) || null;
+      // opened from the Change button on a program in the coach's own app: straight to changing it
+      if (ctx.manage) { const id = ctx.manage; ctx.manage = null; if (ctx.me) { manage(ctx.me, id); return; } }
       if (ctx.mode === "build") { ctx.mode = null; build(); } else home();
     } catch (e) { sheet(el("h2", null, "Assign Existing Program"), note(errorText(e))); }
   }
@@ -246,6 +275,7 @@
 
   // who it's for, and the quick programs this coach has dropped
   function home() {
+    ctx.replacing = null; // back here, nothing is being swapped out
     const results = el("div", { class: "qa-list" });
     const search = el("input", { type: "search", placeholder: "Search for an athlete", "aria-label": "Search for an athlete", autocomplete: "off" });
     const show = () => {
@@ -427,6 +457,7 @@
     try {
       const rows = await readAll("periodization", "athlete_id, startDate:data->>startDate, blocks:data->blocks");
       const name = (id) => (ctx.people.find((p) => String(p.id) === String(id)) || {}).name || "Unknown athlete";
+      const personOf = (id) => ctx.people.find((p) => String(p.id) === String(id)) || { id, name: name(id) };
       const drops = [];
       rows.forEach((r) => (Array.isArray(r.blocks) ? r.blocks : []).forEach((b) => {
         if (b && b.quickDrop && b.assignedBy === ctx.user.email) drops.push({ athleteId: r.athlete_id, startDate: r.startDate, b, from: addDays(r.startDate, b.start * 7) });
@@ -454,7 +485,9 @@
         el("div", { class: "qa-drop-text" },
           d.oneOff ? el("b", null, el("span", { class: "qa-tag" }, "Quick session"), d.oneOff.s.name) : el("b", null, d.b.label || "Program"),
           el("small", null, `${lastFirst(name(d.athleteId))} · ${d.oneOff ? day(d.oneOff.s.date) : blockDates(d.startDate, d.b)}`)),
-        el("button", { class: "qa-remove", onclick: remove(d) }, "Remove"))) : [el("div", { class: "qa-empty" }, "None yet. Programs and sessions you send from here are listed so you can take them off again.")]));
+        // a program can be moved or swapped (manage); a quick session is only taken off
+        d.oneOff ? null : el("button", { class: "qa-change", onclick: () => manage(personOf(d.athleteId), d.b.id) }, "Change"),
+        el("button", { class: "qa-remove", onclick: remove(d) }, "Remove"))) :[el("div", { class: "qa-empty" }, "None yet. Programs and sessions you send from here are listed so you can take them off again.")]));
     } catch (e) { fill(box, el("div", { class: "qa-empty" }, errorText(e))); }
   }
 
@@ -503,8 +536,10 @@
       }), !ctx.programs.length ? el("div", { class: "qa-empty" }, "No programs in the library yet.") : null);
     };
     search.addEventListener("input", show);
+    const rep = replacingFor(person);
     sheet(el("h2", null, `A program for ${person === ctx.me ? "you" : firstName(person.name)}`),
       el("button", { class: "qa-back", onclick: home }, "‹ Back"),
+      rep ? el("div", { class: "qa-sub" }, `Replacing ${rep.label}. It comes off once the new one is assigned. Pick the same program to just change its start week.`) : null,
       search, results);
     show();
     search.focus();
@@ -574,13 +609,125 @@
     button.disabled = true;
     msg.textContent = "Assigning…";
     try {
+      const rep = replacingFor(person);
+      // replacing a program with the same one is just a new start date
+      if (rep && rep.programId === program.id) {
+        const m = await moveBlock(person.id, rep.blockId, startDate);
+        if (m === "out-of-range") { msg.textContent = "That week is past the end of the plan."; button.disabled = false; return; }
+        ctx.replacing = null;
+        assigned(person, program.name, startDate, rep.blockId, "moved");
+        return;
+      }
       const r = await assign(person, program, startDate, ctx.user.email);
-      if (r === "already") { msg.textContent = `${person === ctx.me ? "You already have" : `${person.name} already has`} this program on ${person === ctx.me ? "your" : "their"} plan.`; button.disabled = false; return; }
+      if (r === "already") { msg.textContent = `${person === ctx.me ? "You already have" : `${person.name} already has`} this program on ${person === ctx.me ? "your" : "their"} plan. To start it another week, use Change on it.`; button.disabled = false; return; }
       if (r === "out-of-range") { msg.textContent = "That week is past the end of the plan. Assign it from the dashboard."; button.disabled = false; return; }
-      ctx.status(`Assigned: ${program.name}, from ${day(startDate)}`);
-      if (person === ctx.me && ctx.onAssignedSelf) { ctx.onAssignedSelf(); return; }
-      home();
+      await assigned(person, program.name, startDate, lastBlockId);
     } catch (e) { msg.textContent = errorText(e); button.disabled = false; }
+  }
+
+  // ---- after assigning: undo, change, or done ------------------------------------------------------------
+  // Assigning ends on a screen saying what went on whose plan, with Undo (takes it straight back off), Change
+  // (another start week or a different program) and Done. When it was replacing another program, that one comes
+  // off now, once the new one is safely on.
+  const replacingFor = (person) => (ctx.replacing && String(ctx.replacing.personId) === String(person.id) ? ctx.replacing : null);
+  async function assigned(person, name, startDate, blockId, how) {
+    const rep = replacingFor(person);
+    ctx.replacing = null;
+    let note2 = "";
+    if (rep && rep.blockId !== blockId) {
+      try { await removeBlock(person.id, rep.blockId); note2 = `${rep.label} came off the plan.`; }
+      catch (e) { note2 = `${rep.label} couldn't be taken off (${errorText(e)}). Remove it from the list of programs you've sent.`; }
+    }
+    const mine = person === ctx.me;
+    const done = () => { if (mine && ctx.onAssignedSelf) ctx.onAssignedSelf(); else home(); }; // a coach's own app reloads to show it
+    const msg = el("div", { class: "swap-note" });
+    const undo = el("button", { onclick: async () => {
+      undo.disabled = true;
+      msg.textContent = "Taking it off…";
+      try {
+        await removeBlock(person.id, blockId);
+        ctx.status(`Undone: ${name} is off ${mine ? "your" : `${person.name}'s`} plan`);
+        // straight back to choosing, for another program or another week
+        pickProgram(person);
+      } catch (e) { msg.textContent = errorText(e); undo.disabled = false; }
+    } }, "Undo");
+    ctx.status(how === "moved" ? `Moved: ${name}, from ${day(startDate)}` : `Assigned: ${name}, from ${day(startDate)}`);
+    sheet(el("h2", null, how === "moved" ? "Moved" : "Assigned"),
+      el("div", { class: "qa-done" },
+        el("b", null, name),
+        el("small", null, `On ${mine ? "your" : `${person.name}'s`} plan from ${day(startDate)}.`)),
+      note2 ? el("div", { class: "qa-sub" }, note2) : null,
+      el("div", { class: "qa-sub" }, "Wrong one, or the wrong week? Undo takes it straight back off; Change picks another start week or swaps it for a different program."),
+      msg,
+      el("div", { class: "swap-actions qa-build-actions" },
+        el("button", { class: "primary", onclick: done }, "Done"),
+        el("button", { onclick: () => manage(person, blockId, () => assigned(person, name, startDate, blockId, how)) }, "Change"),
+        undo));
+  }
+
+  // ---- changing or taking back an assigned program --------------------------------------------------------
+  // From the Assigned screen, the list of programs this coach has sent, or the Change button on a program in a
+  // coach's own app: start it another week, swap it for a different program, or take it off. Swapping picks the
+  // new program the usual way and takes the old one off only once the new one is assigned, so backing out leaves
+  // the plan as it was. Anything already logged in it stays on file.
+  async function manage(person, blockId, back) {
+    back = back || home;
+    sheet(el("h2", null, "Change program"), note("Loading…"));
+    let plan;
+    try {
+      const { data, error } = await sb.from("periodization").select("data").eq("athlete_id", String(person.id)).maybeSingle();
+      if (error) throw error;
+      plan = data && data.data;
+    } catch (e) { sheet(el("h2", null, "Change program"), el("button", { class: "qa-back", onclick: back }, "‹ Back"), note(errorText(e))); return; }
+    const b = plan && (plan.blocks || []).find((x) => x.id === blockId);
+    if (!b) { sheet(el("h2", null, "Change program"), el("button", { class: "qa-back", onclick: back }, "‹ Back"), note("That program isn't on the plan anymore.")); return; }
+    const mine = person === ctx.me;
+    const label = b.label || "this program";
+    const current = addDays(plan.startDate, b.start * 7);
+    const monday = (iso) => { const d = parseISO(iso); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return toISO(d); };
+    let pick = current;
+    const msg = el("div", { class: "swap-note" });
+    const draw = () => {
+      const chip = (iso, text) => el("button", { class: `chip${pick === iso ? " on" : ""}`, onclick: () => { pick = iso; draw(); } }, text);
+      const date = el("input", { type: "date", value: pick, "aria-label": "Start week" });
+      date.addEventListener("change", () => { if (date.value) { pick = monday(date.value); draw(); } });
+      const move = el("button", { class: "primary", disabled: pick === current, onclick: async () => {
+        move.disabled = true;
+        msg.textContent = "Moving…";
+        try {
+          const r = await moveBlock(person.id, blockId, pick);
+          if (r === "gone") { msg.textContent = "That program isn't on the plan anymore."; return; }
+          if (r === "out-of-range") { msg.textContent = "That week is past the end of the plan."; move.disabled = false; return; }
+          assigned(person, label, pick, blockId, "moved");
+        } catch (e) { msg.textContent = errorText(e); move.disabled = false; }
+      } }, pick === current ? "Pick another week" : `Start it ${day(pick)}`);
+      const remove = el("button", { class: "qa-remove", onclick: async () => {
+        if (!window.confirm(`Take ${label} off ${mine ? "your" : `${person.name}'s`} plan? Anything logged in it stays on file.`)) return;
+        remove.disabled = true;
+        msg.textContent = "Taking it off…";
+        try {
+          await removeBlock(person.id, blockId);
+          ctx.status(`Removed: ${label}`);
+          if (mine && ctx.onAssignedSelf) { ctx.onAssignedSelf(); return; }
+          home();
+        } catch (e) { msg.textContent = errorText(e); remove.disabled = false; }
+      } }, "Remove it");
+      sheet(el("h2", null, "Change program"),
+        el("button", { class: "qa-back", onclick: back }, "‹ Back"),
+        el("div", { class: "qa-done" }, el("b", null, label), el("small", null, `${mine ? "Your" : `${person.name}'s`} plan · ${blockDates(plan.startDate, b)}`)),
+        el("div", { class: "qa-label" }, "Start it another week"),
+        el("div", { class: "chips qa-starts" },
+          chip(current, `Now · ${day(current)}`),
+          [["This week", mondayIn(0)], ["Next week", mondayIn(1)], ["In 2 weeks", mondayIn(2)]].filter(([, iso]) => iso !== current).map(([t, iso]) => chip(iso, `${t} · ${day(iso)}`))),
+        el("label", { class: "qa-date" }, "Or the week of", date),
+        el("div", { class: "swap-actions" }, move),
+        el("div", { class: "qa-label" }, "Or"),
+        el("button", { class: "qa-row", onclick: () => { ctx.replacing = { personId: person.id, blockId, programId: b.programId, label }; pickProgram(person); } },
+          "Choose a different program", el("small", null, `${label} comes off once the new one is assigned`)),
+        msg,
+        el("div", { class: "swap-actions" }, remove));
+    };
+    draw();
   }
   function individualizeAsk(person, program, startDate, back) {
     const msg = el("div", { class: "swap-note" });
@@ -696,9 +843,7 @@
         // on their plan as the shared one would have been, its block named without their last name in front
         const r = await assign(person, { ...own, id, name: program.name }, startDate, ctx.user.email);
         if (r === "out-of-range") { msg.textContent = "That week is past the end of the plan."; assignIt.disabled = false; return; }
-        ctx.status(`Assigned: ${own.name}, from ${day(startDate)}`);
-        if (person === ctx.me && ctx.onAssignedSelf) { ctx.onAssignedSelf(); return; }
-        home();
+        await assigned(person, own.name, startDate, lastBlockId);
       } catch (e) { msg.textContent = errorText(e); assignIt.disabled = false; }
     } }, `Assign to ${person === ctx.me ? "me" : firstName(person.name)}`);
     sheet(el("h2", null, "Individualize"), lib,

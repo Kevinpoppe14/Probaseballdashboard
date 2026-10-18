@@ -1421,9 +1421,12 @@
     else {
       const s = sessions[dayIdx];
       // a sent session's week (quick strength session, group speed) is named by the session itself: its day and what it is
+      // a coach's own app: Change on a program moves it to another week, swaps it or takes it off (quick_assign.js)
+      const canChange = staff && window.QuickAssign && !window.isSentProgram(item.program.id) && item.block.id;
       main.append(el("p", { class: "program-name" }, window.isSentProgram(item.program.id)
         ? `${item.lane.name} · ${(s && s.name) || item.program.name}`
-        : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`));
+        : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`,
+        canChange ? el("button", { class: "program-change", title: "Start it another week, swap it, or take it off", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, manage: item.block.id, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Change") : null));
       const rows = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
