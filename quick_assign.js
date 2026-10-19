@@ -116,7 +116,7 @@
   }
 
   // ---- a quick strength session (one-off) -----------------------------------------------------------------------
-  // One day of a program, sent for a single date, the way Coach Mode sends a group speed session (coach.js
+  // A session from Create Quick Session, for a single date, the way Coach Mode sends a group speed session (coach.js
   // sendSpeed): a row called "Quick Strength Session" on the person's plan, with one small program per week
   // ("gstrength-<athlete>-<monday>", window.isSentProgram) holding each session sent for that week as a day.
   // Unlike speed, its exercises keep their weight boxes. Each sent day records who sent it, so it can be taken
@@ -567,11 +567,16 @@
       const who = person === ctx.me ? "me" : firstName(person.name);
       const msg = el("div", { class: "swap-note" });
       // assigning first asks whether to individualize it for them (individualizeAsk, below)
-      const go = el("button", { class: "primary", onclick: () => individualizeAsk(person, program, startDate, draw) }, `Assign to ${who}`);
+      // an existing program is only ever assigned whole (no single days from here): its Assign button sits at the
+      // top as well as the bottom, the top one taking you down to pick the start week
+      const allWeeks = `all ${weeks.length} week${weeks.length === 1 ? "" : "s"}`;
+      const go = el("button", { class: "primary", onclick: () => individualizeAsk(person, program, startDate, draw) }, `Assign ${allWeeks} to ${who}`);
+      const goTop = el("button", { class: "primary qa-assign-top", onclick: () => { const starts = document.querySelector(".qa-starts"); if (starts) starts.scrollIntoView({ behavior: "smooth", block: "center" }); } }, `Assign the whole program (${allWeeks})`);
       sheet(el("h2", null, program.name || "Program"),
         el("button", { class: "qa-back", onclick: () => pickProgram(person) }, "‹ Back"),
         el("div", { class: "qa-sub" }, `${weeks.length} week${weeks.length === 1 ? "" : "s"}${program.folder ? ` · ${program.folder}` : ""}`),
         program.description ? el("p", { class: "qa-desc" }, program.description) : null,
+        goTop,
         weeks.length > 1 ? el("div", { class: "qa-weeknav" },
           el("button", { class: "nav", "aria-label": "Previous week", disabled: wi === 0, onclick: () => { wi -= 1; draw(); } }, "‹"),
           el("b", null, `${w.name || `Week ${wi + 1}`}`, el("small", null, ` ${wi + 1} of ${weeks.length}`)),
@@ -581,8 +586,7 @@
           const labels = window.exerciseLabels ? window.exerciseLabels(rows) : rows.map(() => "");
           return el("div", { class: "qa-day" },
             el("div", { class: "qa-day-head" },
-              el("span", { class: "qa-day-name" }, (s.name || "").trim() || `Day ${si + 1}`),
-              el("button", { class: "qa-oneoff", onclick: () => oneOff(person, program, s) }, person === ctx.me ? "Do this today" : "Send as a quick session")),
+              el("span", { class: "qa-day-name" }, (s.name || "").trim() || `Day ${si + 1}`)),
             (s.warmup || "").trim() ? el("div", { class: "qa-warm" }, `Warm-up: ${s.warmup.trim()}`) : null,
             rows.map((e, ei) => el("div", { class: "qa-ex" },
               el("span", { class: "qa-ex-label" }, labels[ei] || ""),
@@ -873,57 +877,6 @@
       }),
       msg,
       el("div", { class: "swap-actions" }, assignIt, el("button", { onclick: backToPick }, "Back")));
-  }
-
-  // one day of the program, for one date: a one-off session on their plan. For the coach themselves it's a quick
-  // way to log an impromptu lift: it goes on their own plan for today (or the day they pick), and their app
-  // reloads and opens on it, ready to log.
-  function oneOff(person, program, session) {
-    const today = toISO(new Date());
-    const self = person === ctx.me;
-    const date = el("input", { type: "date", value: today, min: self ? null : today, "aria-label": "Date" });
-    const msg = el("div", { class: "swap-note" });
-    const who = self ? "me" : firstName(person.name);
-    const rows = (session.exercises || []).filter((e) => (e.name || "").trim());
-    if (self) {
-      const add = el("button", { class: "primary", onclick: async () => {
-        if (!date.value) { msg.textContent = "Pick a date."; return; }
-        add.disabled = true;
-        msg.textContent = "Adding…";
-        try {
-          const r = await sendOneOff(person, program, session, date.value, ctx.user.email);
-          if (r === "out-of-range") { msg.textContent = "That date is past the end of your plan."; add.disabled = false; return; }
-          ctx.status(date.value === today ? "Added to today. Opening it…" : `Added for ${day(date.value)}`);
-          if (ctx.onAssignedSelf) ctx.onAssignedSelf();
-        } catch (e) { msg.textContent = errorText(e); add.disabled = false; }
-      } }, date.value === today ? "Add to my day" : "Add it");
-      date.addEventListener("change", () => { add.textContent = date.value === today ? "Add to my day" : "Add it"; });
-      sheet(el("h2", null, "Today's lift"),
-        el("button", { class: "qa-back", onclick: () => preview(person, program.id) }, "‹ Back"),
-        el("div", { class: "qa-sub" }, `${(session.name || "").trim() || "This day"} from ${program.name}: ${rows.length} exercise${rows.length === 1 ? "" : "s"}. It goes in your app under "${ONEOFF_LANE}" and opens there, ready to log. Your regular program isn't changed.`),
-        el("label", { class: "qa-date" }, "Date", date),
-        msg,
-        el("div", { class: "swap-actions" }, add, el("button", { onclick: () => preview(person, program.id) }, "Back")));
-      return;
-    }
-    const go = el("button", { class: "primary", onclick: async () => {
-      if (!date.value) { msg.textContent = "Pick a date."; return; }
-      go.disabled = true;
-      msg.textContent = "Sending…";
-      try {
-        const r = await sendOneOff(person, program, session, date.value, ctx.user.email);
-        if (r === "out-of-range") { msg.textContent = "That date is past the end of the plan."; go.disabled = false; return; }
-        ctx.status(`Sent: ${(session.name || "").trim() || "session"} for ${day(date.value)}`);
-        if (person === ctx.me && ctx.onAssignedSelf) { ctx.onAssignedSelf(); return; }
-        home();
-      } catch (e) { msg.textContent = errorText(e); go.disabled = false; }
-    } }, `Send to ${who}`);
-    sheet(el("h2", null, "Quick strength session"),
-      el("button", { class: "qa-back", onclick: () => preview(person, program.id) }, "‹ Back"),
-      el("div", { class: "qa-sub" }, `${(session.name || "").trim() || "This day"} from ${program.name}: ${rows.length} exercise${rows.length === 1 ? "" : "s"}. It shows in ${person === ctx.me ? "your" : `${person.name}'s`} app under "${ONEOFF_LANE}" for that day's week, with weight boxes as usual.`),
-      el("label", { class: "qa-date" }, "Date", date),
-      msg,
-      el("div", { class: "swap-actions" }, go, el("button", { onclick: () => preview(person, program.id) }, "Back")));
   }
 
   window.QuickAssign = { open, takeChange: () => { const c = selfChanged; selfChanged = false; return c; } };
