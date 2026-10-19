@@ -274,7 +274,11 @@
   // ---- exercise video ----------------------------------------------------------------------------
   const nameKey = window.exerciseNameKey; // names match ignoring case, spaces, hyphens and punctuation (program_rx.js)
   const exerciseInfo = (name) => (data.exercises || []).find((x) => nameKey(x.name) === nameKey(name)) || null;
-  const closeVideo = () => { overlay.className = "overlay"; overlay.replaceChildren(); };
+  const closeVideo = () => {
+    overlay.className = "overlay"; overlay.replaceChildren();
+    // the coach's own plan changed in Coach tools (quick_assign.js): reload so the page shows it
+    if (window.QuickAssign && window.QuickAssign.takeChange && window.QuickAssign.takeChange()) window.location.reload();
+  };
   const openVideo = (info) => {
     const embed = window.videoEmbedOf(info.videoUrl);
     overlay.replaceChildren(el("div", { class: "sheet" },
@@ -290,6 +294,19 @@
     overlay.className = "overlay show";
   };
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeVideo(); });
+  // A home-screen app can sit open in the background for days. Coming back to it after 15 minutes or more (or on a
+  // new day) reloads it, so a program assigned since then shows. Not while something is being typed or a sheet is
+  // open, or with weights still waiting to save.
+  let hiddenAt = null;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { hiddenAt = new Date(); return; }
+    const was = hiddenAt;
+    hiddenAt = null;
+    if (!was || coachId) return;
+    const stale = Date.now() - was.getTime() >= 15 * 60e3 || was.toDateString() !== new Date().toDateString();
+    const busy = overlay.className.includes("show") || (document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) || pending.size > 0;
+    if (stale && !busy) window.location.reload();
+  });
   // a small picture of an exercise's video beside its name; tapping it plays the video. YouTube gives a still
   // picture, a coach's own clip shows its first frame, and anything else (Vimeo) a plain tile with the play mark.
   function videoThumb(info) {

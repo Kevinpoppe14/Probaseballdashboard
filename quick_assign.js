@@ -48,7 +48,10 @@
   const blockDates = (startDate, b) => `${day(addDays(startDate, b.start * 7))} – ${day(addDays(startDate, (b.start + b.len) * 7 - 1))}`;
 
   // "added", "created" (they had no plan), "already" (that program is on their plan) or "out-of-range"
-  let lastBlockId = null;
+  let lastBlockId = null, lastBlockStart = null; // the block assigned, or the one already there ("already")
+  // set when the coach's own plan changes while the sheet is open, so the app reloads to show it however the
+  // sheet is closed (window.QuickAssign.takeChange, used by athlete.js)
+  let selfChanged = false;
   async function assign(person, program, startDate, email) {
     const { data: row, error } = await sb.from("periodization").select("data").eq("athlete_id", String(person.id)).maybeSingle();
     if (error) throw error;
@@ -56,7 +59,8 @@
     const plan = existing ? JSON.parse(JSON.stringify(existing)) : { startDate, weeks: 16, lanes: defaultLanes(), blocks: [], goals: { physical: [] }, actionPlan: "" };
     plan.lanes = plan.lanes || [];
     plan.blocks = plan.blocks || [];
-    if (plan.blocks.some((b) => b.programId === program.id)) return "already";
+    const have = plan.blocks.find((b) => b.programId === program.id);
+    if (have) { lastBlockId = have.id; lastBlockStart = addDays(plan.startDate, have.start * 7); return "already"; }
     let start = Math.floor(Math.round((parseISO(startDate) - parseISO(plan.startDate)) / 864e5) / 7);
     if (start < 0) { // the plan starts later: it's extended back to that week
       const shift = -start;
@@ -619,7 +623,15 @@
         return;
       }
       const r = await assign(person, program, startDate, ctx.user.email);
-      if (r === "already") { msg.textContent = `${person === ctx.me ? "You already have" : `${person.name} already has`} this program on ${person === ctx.me ? "your" : "their"} plan. To start it another week, use Change on it.`; button.disabled = false; return; }
+      if (r === "already") {
+        // say when it starts, and offer to change it (another week, a different program, or off)
+        const blockId = lastBlockId, mine = person === ctx.me;
+        if (mine) selfChanged = true; // the app may be showing an older copy of the plan: closing reloads it
+        fill(msg, `${mine ? "You already have" : `${person.name} already has`} ${program.name} on ${mine ? "your" : "their"} plan, starting ${day(lastBlockStart)}. `,
+          el("button", { class: "qa-change", onclick: () => manage(person, blockId) }, "Change it"));
+        button.disabled = false;
+        return;
+      }
       if (r === "out-of-range") { msg.textContent = "That week is past the end of the plan. Assign it from the dashboard."; button.disabled = false; return; }
       await assigned(person, program.name, startDate, lastBlockId);
     } catch (e) { msg.textContent = errorText(e); button.disabled = false; }
@@ -639,6 +651,7 @@
       catch (e) { note2 = `${rep.label} couldn't be taken off (${errorText(e)}). Remove it from the list of programs you've sent.`; }
     }
     const mine = person === ctx.me;
+    if (mine) selfChanged = true; // closing the sheet any way (×, a tap outside) reloads the app so it shows
     const done = () => { if (mine && ctx.onAssignedSelf) ctx.onAssignedSelf(); else home(); }; // a coach's own app reloads to show it
     const msg = el("div", { class: "swap-note" });
     const undo = el("button", { onclick: async () => {
@@ -913,5 +926,5 @@
       el("div", { class: "swap-actions" }, go, el("button", { onclick: () => preview(person, program.id) }, "Back")));
   }
 
-  window.QuickAssign = { open };
+  window.QuickAssign = { open, takeChange: () => { const c = selfChanged; selfChanged = false; return c; } };
 })();
