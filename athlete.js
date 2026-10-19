@@ -106,6 +106,15 @@
       ]);
       return { scans: (bc.data || []).map((r) => r.data || {}), sheets: (as.data || []).map((r) => ({ date: (r.data || {}).date, summary: (r.data || {}).summary })) };
     },
+    // force plate tests, the same figures athlete_portal_cmj hands back
+    async cmj() {
+      const { data, error } = await sb.from("force_tests").select("data").eq("athlete_id", String(coachId)).limit(5000);
+      if (error) return [];
+      return (data || []).map((r) => {
+        const d = r.data || {}, raw = d.raw || {};
+        return { date: d.date, testType: d.testType, jumpHeight: d.jumpHeight, rsiModified: d.rsiModified, peakPower: d.peakPower, relativePeakPower: d.relativePeakPower, systemWeight: d.systemWeight, takeoffVelocity: d.takeoffVelocity, totalImpulse: d.totalImpulse, jumpMomentum: d.jumpMomentum != null ? d.jumpMomentum : raw["Jump Momentum(kg.m/s)"], countermovementDepth: d.countermovementDepth, countermovementDepthM: raw["Countermovement Depth(m)"] };
+      });
+    },
   } : {
     get: () => sb.rpc("athlete_portal_get", { p_token: token }),
     async log(programId, key, value) {
@@ -129,6 +138,11 @@
     async bodyComp() {
       const res = await sb.rpc("athlete_portal_body_comp", { p_token: token });
       return !res.error && res.data ? res.data : null;
+    },
+    // force plate (CMJ) tests (supabase/migration_020_athlete_portal_cmj.sql); none until that has been run
+    async cmj() {
+      const res = await sb.rpc("athlete_portal_cmj", { p_token: token });
+      return !res.error && Array.isArray(res.data) ? res.data : [];
     },
   };
   // Links for Cubs-only players carry ?team=cubs, which changes the logo and colors, and the name the page gets
@@ -197,6 +211,7 @@
   let weekIdx = 0, itemIdx = 0, dayIdx = 0;
   let view = "program"; // "program" (this week's training), "plan" (the player plan), "progress" or "equipment" (remote athletes)
   let tests = null; // the athlete's Group Testing results, loaded after the program is on screen
+  let cmjTests = []; // their force plate (CMJ) tests, for the Progress tab's jump graphs, loaded the same way
   let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
@@ -1139,7 +1154,7 @@
   // the graph: each series a line with a dot per measurement, spaced by date. `joinAll` (Together) draws one line
   // through every point of every series in date order instead, with the dots still in their series' color, and
   // a dashed straight-line trend through all of them.
-  function bcGraph(series, unit, joinAll) {
+  function bcGraph(series, unit, joinAll, label) {
     const pts = series.flatMap((s) => s.points);
     const w = 320, h = 170, l = 38, r = 10, t = 10, b = 24;
     let t0 = Math.min(...pts.map((p) => p.t)), t1 = Math.max(...pts.map((p) => p.t));
@@ -1164,7 +1179,7 @@
     }
     const lines = series.map((s) => `<g style="color:${s.color}">${joinAll ? "" : poly(s.points)}${s.points.map((q) => `<circle cx="${x(q.t).toFixed(1)}" cy="${y(q.v).toFixed(1)}" r="${joinAll ? 4 : 3.5}" fill="currentColor"><title>${bcDay(q.t)}: ${fmt(q.v)}${unit === "lb" ? " lb" : ""}</title></circle>`).join("")}</g>`).join("");
     const box = el("div", { class: "bc-graph" });
-    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Body composition graph">${grid}${joined}${lines}<text x="${l}" y="${h - 6}" class="bc-axis">${bcDay(t0)}</text><text x="${w - r}" y="${h - 6}" text-anchor="end" class="bc-axis">${bcDay(t1)}</text></svg>`;
+    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${label || "Body composition graph"}">${grid}${joined}${lines}<text x="${l}" y="${h - 6}" class="bc-axis">${bcDay(t0)}</text><text x="${w - r}" y="${h - 6}" text-anchor="end" class="bc-axis">${bcDay(t1)}</text></svg>`;
     return box;
   }
   function bodyCompSection() {
@@ -1198,6 +1213,68 @@
       }),
       source === "both" ? el("div", { class: "card-sub" }, "One line through every measurement in date order, scans and sheets alike, with the dashed trend through all of them. A scan and a skinfold sheet measure a little differently, so the line can step where it changes from one to the other.") : null);
     return [el("h2", { class: "section" }, "Body composition", el("small", null, [has.evolt && `${scans.length} scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "))), card];
+  }
+
+  // ---- countermovement jump on the Progress tab ----------------------------------------------------------
+  // Their force plate tests, graphed as on the dashboard's Performance Metrics tab: one figure at a time over a
+  // time window, one test a day (the best jump that day), with a dashed trend line. The figure and window picked
+  // are remembered on this phone.
+  const N_TO_LBF = 4.4482216152605;
+  const num2 = (v) => (typeof v === "number" && isFinite(v) ? Math.round(v * 100) / 100 : null);
+  const CMJ_METRICS = [
+    { key: "jumpHeight", label: "Jump height", unit: "in", get: (t) => num2(t.jumpHeight) },
+    { key: "mRSI", label: "mRSI", unit: "", get: (t) => num2(t.rsiModified) },
+    { key: "peakPower", label: "Peak power", unit: "W", get: (t) => num2(t.peakPower) },
+    { key: "relativePeakPower", label: "Relative peak power", unit: "W/kg", get: (t) => num2(t.relativePeakPower) },
+    { key: "bodyWeight", label: "Body weight", unit: "lb", get: (t) => (typeof t.systemWeight === "number" ? num2(t.systemWeight / N_TO_LBF) : null) },
+    { key: "jumpMomentum", label: "Jump momentum", unit: "kg·m/s", get: (t) => num2(t.jumpMomentum) },
+    { key: "takeoffVelocity", label: "Takeoff velocity", unit: "m/s", get: (t) => num2(t.takeoffVelocity) },
+    { key: "totalImpulse", label: "Propulsive net impulse", unit: "Ns", get: (t) => num2(t.totalImpulse) },
+    { key: "depth", label: "Countermovement depth", unit: "in", get: (t) => (typeof t.countermovementDepth === "number" ? Math.abs(num2(t.countermovementDepth)) : typeof t.countermovementDepthM === "number" ? Math.abs(num2(t.countermovementDepthM * 39.3701)) : null) },
+  ];
+  let cmjView = (() => { try { return JSON.parse(localStorage.getItem("cmjView") || "{}") || {}; } catch (e) { return {}; } })();
+  const setCmjView = (patch) => {
+    cmjView = { ...cmjView, ...patch };
+    try { localStorage.setItem("cmjView", JSON.stringify(cmjView)); } catch (e) { /* private window: not remembered */ }
+    const y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
+  };
+  function cmjSection() {
+    // peak power and relative peak power swapped on some older imports, put right as the dashboard does
+    const fixed = (cmjTests || []).filter((t) => t && t.date).map((t) => {
+      const n = { ...t }, pp = typeof n.peakPower === "number" ? n.peakPower : null, rpp = typeof n.relativePeakPower === "number" ? n.relativePeakPower : null;
+      if (pp !== null && pp < 1000) { n.peakPower = null; if (rpp === null || rpp >= 1000) n.relativePeakPower = pp; }
+      if (rpp !== null && rpp >= 1000) { if (n.peakPower == null) n.peakPower = rpp; if (n.relativePeakPower === rpp) n.relativePeakPower = null; }
+      return n;
+    });
+    // one test a day: the best jump
+    const byDay = new Map();
+    fixed.forEach((t) => { const cur = byDay.get(t.date); const jh = typeof t.jumpHeight === "number" ? t.jumpHeight : -Infinity; if (!cur || jh > (typeof cur.jumpHeight === "number" ? cur.jumpHeight : -Infinity)) byDay.set(t.date, t); });
+    const days = [...byDay.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+    if (!days.length) return null;
+    const offered = CMJ_METRICS.filter((m) => days.some((t) => m.get(t) != null));
+    const metric = offered.find((m) => m.key === cmjView.metric) || offered[0];
+    if (!metric) return null;
+    const range = BC_RANGES.find((x) => x.key === cmjView.range) || BC_RANGES[BC_RANGES.length - 1];
+    const from = range.days ? Date.now() - range.days * 86400000 : -Infinity;
+    const points = days.map((t) => ({ t: new Date(`${t.date}T12:00:00`).getTime(), v: metric.get(t) })).filter((p) => p.v != null && p.t >= from);
+    const chips = (items, on, pick) => el("div", { class: "chips bc-chips" }, items.map(([k, label]) => el("button", { class: `chip${on === k ? " on" : ""}`, onclick: () => pick(k) }, label)));
+    const u = (v) => `${nice(v)}${metric.unit ? ` ${metric.unit}` : ""}`;
+    let summary = null;
+    if (points.length) {
+      const a = points[0], z = points[points.length - 1], best = Math.max(...points.map((p) => p.v));
+      const d = Math.round((z.v - a.v) * 100) / 100;
+      summary = el("div", { class: "bc-latest" }, el("span", { class: "bc-key", style: "background:var(--label, var(--accent))" }),
+        el("span", null, "Latest: ", el("b", null, u(z.v)), el("small", null, ` ${bcDay(z.t)}${points.length > 1 ? ` · ${d > 0 ? "+" : ""}${u(d)} since ${bcDay(a.t)}` : ""}${points.length > 1 && best > z.v && metric.key !== "depth" && metric.key !== "bodyWeight" ? ` · best ${u(best)}` : ""}`)));
+    }
+    const card = el("div", { class: "card" },
+      chips(offered.map((m) => [m.key, m.label]), metric.key, (k) => setCmjView({ metric: k })),
+      chips(BC_RANGES.map((x) => [x.key, x.label]), range.key, (k) => setCmjView({ range: k })),
+      points.length ? bcGraph([{ name: metric.label, color: "var(--label, var(--accent))", points }], metric.unit, true, "Countermovement jump graph") : el("div", { class: "card-sub" }, `No jumps in the last ${range.label.toLowerCase()}. All time shows everything.`),
+      summary,
+      points.length > 1 ? el("div", { class: "card-sub" }, "One point per test day (the best jump that day), with the dashed line showing the trend.") : null);
+    return [el("h2", { class: "section" }, "Countermovement jump", el("small", null, `${days.length} test day${days.length === 1 ? "" : "s"}`)), card];
   }
 
   // What shows at the end of a logged day: the week so far, the streak, any estimated max that went past the
@@ -1333,11 +1410,15 @@
       })));
     }
 
+    // force plate countermovement jumps
+    const cmj = cmjSection();
+    if (cmj) main.append(...cmj);
+
     // Evolt scans and manual body comp sheets
     const bc = bodyCompSection();
     if (bc) main.append(...bc);
 
-    if (!byLift.size && !lifts.size && !byTest.size && !bc) {
+    if (!byLift.size && !lifts.size && !byTest.size && !bc && !cmj) {
       main.append(el("div", { class: "empty" }, "Log your weights and your progress will show up here: your top weights each week, estimated maxes from sets to failure, and your testing results."));
     }
     return main;
@@ -1565,6 +1646,7 @@
     // testing results are only needed for the Progress tab and the end-of-session summary, so they don't hold up the program
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
     api.bodyComp().catch(() => null).then((b) => { bodyComp = b; if (view === "progress" && b) render(); });
+    api.cmj().catch(() => []).then((c) => { cmjTests = Array.isArray(c) ? c : []; if (view === "progress" && cmjTests.length) render(); });
     // a remote athlete's form checks from the past week and the coach's replies (shown under each exercise)
     if (canSendChecks()) {
       sb.rpc("athlete_portal_form_checks", { p_token: token }).then((r) => {
