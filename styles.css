@@ -2004,6 +2004,9 @@ tbody tr:hover {
 }
 
 .bottom-menu .nav-tab { padding: 8px 16px; }
+/* back to a coach's own phone app, at the left of the bottom bar when the dashboard was opened from it */
+.bottom-menu .back-to-app { margin-right: auto; display: inline-flex; align-items: center; padding: 8px 16px; border-radius: 999px; background: var(--dst-red); color: #fff; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.bottom-menu .back-to-app:hover { filter: brightness(1.1); }
 
 /* Status line under the contacts header when emailing a team report */
 .email-status {

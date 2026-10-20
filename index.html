@@ -64,6 +64,7 @@
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
 <script type="text/babel" data-presets="react" src="evolt_import.js"></script>
+<script type="text/babel" data-presets="react" src="ovr_import.js"></script>
 <script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="form_checks.js"></script>
@@ -3903,6 +3904,7 @@ const HELP_SECTIONS = [
   {
     title: "Imports, Vitruve and data entry",
     items: [
+      "OVR import (Import › OVR): choose the sprint CSV OVR exports. Each athlete's day of a drill becomes one testing result, every sprint a trial (its full time; the total for drills with splits, like the 5-10-5), with the best and average; drills that record speed also get a top speed result (mph). They show on the athlete's Training Log and under Testing in their app, and each drill joins Coach Mode's testing list as <Drill> (OVR). Athletes are matched by name; check the matches before importing, and pick anyone the export spells differently (remembered for next time). Nobody new is created, and importing the same export again updates the results instead of adding copies.",
       "Import (bottom bar): Import Athletes from a sheet or CSV, the Vitruve CSV import (bar speeds line up with the athlete's Training Log by date), the Evolt360 import (Evolt Insights › Reports › Result Activity Report › Download Report, then choose the file: members are matched to non-alumni athletes by email, mobile, then first name and last initial, you check the matches before anything is saved, and scans already on file are skipped), and the Hawkin, VALD and MLB profile imports.",
     ],
   },
@@ -4056,7 +4058,7 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
             </button>
           )}
           <span className="topbar-account-email">{userEmail}</span>
-          {FROM_APP && <a className="btn-link" style={{ marginRight: 10 }} href="athlete.html">My program</a>}
+          {FROM_APP && <a className="btn-link" style={{ marginRight: 10 }} href="athlete.html">Back to my app</a>}
           {onTour && <button className="btn-link" style={{ marginRight: 10 }} onClick={onTour} title="Take a guided tour of this page">Tour</button>}
           <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoHelp}>Help</button>
           <button className="btn-link" onClick={onLogout}>Log out</button>
@@ -4100,6 +4102,8 @@ function CoachModeSwitch() {
 function BottomMenu({ view, onGoImport }) {
   return (
     <div className="bottom-menu no-print">
+      {/* opened from a coach's own phone app: the way back to it, always on screen (the app has no Back button) */}
+      {FROM_APP && <a className="back-to-app" href="athlete.html">&lsaquo; Back to my app</a>}
       <CoachModeSwitch />
       <button className={`nav-tab ${view === "import" ? "active" : ""}`} onClick={onGoImport}>
         Import
@@ -7365,6 +7369,7 @@ function ImportPage({ onImported, onSelect }) {
         <button className={`pill-tab ${source === "hawkin" ? "active" : ""}`} onClick={() => setSource("hawkin")}>Hawkin Dynamics</button>
         <button className={`pill-tab ${source === "evolt" ? "active" : ""}`} onClick={() => setSource("evolt")}>Evolt360</button>
         <button className={`pill-tab ${source === "vitruve" ? "active" : ""}`} onClick={() => setSource("vitruve")}>Vitruve</button>
+        <button className={`pill-tab ${source === "ovr" ? "active" : ""}`} onClick={() => setSource("ovr")}>OVR</button>
         <button className={`pill-tab ${source === "mlb" ? "active" : ""}`} onClick={() => setSource("mlb")}>MLB Profiles &amp; Photos</button>
         <button className={`pill-tab ${source === "vald" ? "active" : ""}`} onClick={() => setSource("vald")}>VALD (Cubs Roster)</button>
       </div>
@@ -7405,6 +7410,8 @@ function ImportPage({ onImported, onSelect }) {
           }}
         />
       )}
+      {/* OVR's sprint and agility export, saved as testing results (ovr_import.js) */}
+      {source === "ovr" && window.OvrImporter && <window.OvrImporter onImported={onImported} />}
       {/* the Result Activity Report from Evolt Insights (evolt_import.js) */}
       {source === "evolt" && window.EvoltImporter && <window.EvoltImporter onImported={onImported} />}
       {source === "vald" && (
