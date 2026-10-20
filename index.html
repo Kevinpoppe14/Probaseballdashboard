@@ -3796,6 +3796,7 @@ const HELP_SECTIONS = [
       "Cubs roster: a coach badge beside each name (Poppe, Weisman, Garza, Simmons, Kinsley, Rooney; click to cycle) that can be filtered and sorted, Texted and Called flags on a monthly cadence (click to mark), and a program start date.",
       "Text and Call links open your phone's messaging app or dialer. The text starts from your saved template ({first} becomes the player's first name). Use the pencil to change a number.",
       "Import Athletes (on the Import page) adds many players at once from a pasted sheet or a CSV, including mobile numbers and emails.",
+      "Coach locations: tick a coach's locations with the pencil on their card (Player Profiles › Coaches) or when adding them. The dashboard then opens on that location's roster when they sign in (they can still click out of it), and their weekly email covers only those locations' athletes. A coach with none ticked sees all locations, as before.",
       "+ Add Athlete and + Add Coach are on Team Overview and Player Profiles. For a coach, make their login in Supabase first (Authentication › Users › Add user); Add Coach then lists it, reading the logins again so a new one shows without a reload, and adds them to the Coaches roster under the name you give.",
     ],
   },
@@ -4354,6 +4355,7 @@ function AddCoachForm({ onAdded }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState("idle"); // idle, loading, error
   const [names, setNames] = useState({}); // login id -> name typed
+  const [locs, setLocs] = useState({}); // login id -> locations ticked
   const [added, setAdded] = useState([]);
   const waiting = () => S.accountHolders().filter((a) => !S.allAthletes().some((x) => x.coachUserId === a.id));
   const load = async () => {
@@ -4370,6 +4372,7 @@ function AddCoachForm({ onAdded }) {
   const list = waiting();
   const add = (acct) => {
     const made = S.addCoachRecord(COACH_ROSTER_GROUP, acct, names[acct.id] != null ? names[acct.id] : coachNameFromEmail(acct.email));
+    if (made && (locs[acct.id] || []).length) S.updateAthlete(made.id, { coachLocations: locs[acct.id] });
     if (made) { setAdded((x) => [...x, made.name]); onAdded && onAdded(); }
   };
   return (
@@ -4384,12 +4387,13 @@ function AddCoachForm({ onAdded }) {
       {added.length > 0 && <div className="success-banner">Added {added.join(", ")} to the Coaches roster.</div>}
       {state !== "loading" && (list.length ? (
         <table className="add-coach-table">
-          <thead><tr><th>Login</th><th>Name on the roster</th><th></th></tr></thead>
+          <thead><tr><th>Login</th><th>Name on the roster</th><th>Locations</th><th></th></tr></thead>
           <tbody>
             {list.map((a) => (
               <tr key={a.id} style={{ cursor: "default" }}>
                 <td>{a.email}</td>
                 <td><input value={names[a.id] != null ? names[a.id] : coachNameFromEmail(a.email)} onChange={(e) => setNames({ ...names, [a.id]: e.target.value })} aria-label={`Name for ${a.email}`} /></td>
+                <td><CoachLocationsPicker value={locs[a.id] || []} onChange={(next) => setLocs({ ...locs, [a.id]: next })} /></td>
                 <td><button className="btn" onClick={() => add(a)}>Add</button></td>
               </tr>
             ))}
@@ -7468,6 +7472,27 @@ function ImportPage({ onImported, onSelect }) {
 // Player Profiles page: Active players and Alumni as two tabs (Alumni used to be its own top-level page).
 // Pencil at the top left of a player card: opens the card for editing (name, jersey, position, status)
 // without opening the profile. Position and status save as soon as they are picked, like on the roster table.
+// A coach's locations (coachLocations on their record): the dashboard opens on that location's roster when they
+// sign in, and their weekly email covers only those locations' athletes. None ticked means all locations.
+const coachLocationsOf = (a) => (a && Array.isArray(a.coachLocations) ? a.coachLocations.filter((l) => DST_LOCATIONS.includes(l)) : []);
+const coachLocationsText = (a) => { const l = coachLocationsOf(a); return l.length ? l.join(", ") : "All locations"; };
+function CoachLocationsPicker({ athlete, value, onChange }) {
+  const current = value !== undefined ? value : coachLocationsOf(athlete);
+  const flip = (loc) => {
+    const next = current.includes(loc) ? current.filter((l) => l !== loc) : DST_LOCATIONS.filter((l) => l === loc || current.includes(l));
+    if (onChange) onChange(next);
+    else window.AthleteStore.updateAthlete(athlete.id, { coachLocations: next });
+  };
+  return (
+    <div className="coach-locs" onClick={(e) => e.stopPropagation()}>
+      <span className="coach-locs-label">Locations <small>(none = all)</small></span>
+      {DST_LOCATIONS.map((l) => (
+        <label key={l}><input type="checkbox" checked={current.includes(l)} onChange={() => flip(l)} /> {l.replace(/^DST /, "")}</label>
+      ))}
+    </div>
+  );
+}
+
 function PlayerCardEdit({ athlete, onChanged }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(athlete.name);
@@ -7496,6 +7521,7 @@ function PlayerCardEdit({ athlete, onChanged }) {
       <input className="inline-select" value={jersey} onChange={(e) => setJersey(e.target.value)} placeholder="Jersey #" aria-label="Jersey number" onKeyDown={(e) => { if (e.key === "Enter") save(e); }} />
       <PositionSelect athlete={athlete} onChanged={onChanged} />
       <StatusSelect athlete={athlete} onChanged={onChanged} />
+      {athlete.rosterGroup === COACH_ROSTER_GROUP && <CoachLocationsPicker athlete={athlete} onChange={(next) => { window.AthleteStore.updateAthlete(athlete.id, { coachLocations: next }); onChanged(); }} />}
       <div className="card-edit-actions">
         <button className="btn-link" onClick={save}>Save</button>
         <button className="btn-link" onClick={(e) => { stop(e); setOpen(false); }}>Cancel</button>
@@ -7643,9 +7669,13 @@ function PlayerDirectoryPage({ onSelect, dataVersion, cubs = false, coaches = fa
                 {lastFirstName(athlete.name)}
               </div>
               <div className="player-card-meta">
-                {athlete.position}
-                {athlete.team ? ` · ${athlete.team}` : ""}
-                {athlete.dstLocation ? ` · ${athlete.dstLocation}` : ""}
+                {coaches ? coachLocationsText(athlete) : (
+                  <React.Fragment>
+                    {athlete.position}
+                    {athlete.team ? ` · ${athlete.team}` : ""}
+                    {athlete.dstLocation ? ` · ${athlete.dstLocation}` : ""}
+                  </React.Fragment>
+                )}
               </div>
               <StatusBadge athlete={athlete} onChanged={() => bump((n) => n + 1)} />
             </div>
@@ -9013,7 +9043,12 @@ function App({ userEmail, onLogout }) {
   const [positionFilter, setPositionFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("Active");
   const [leagueFilter, setLeagueFilter] = useState("All");
-  const [locationFilter, setLocationFilter] = useState("All");
+  // a coach with locations set opens on their (first) location's roster; they can click out of it as usual
+  const [locationFilter, setLocationFilter] = useState(() => {
+    const me = (userEmail || "").toLowerCase();
+    const rec = window.AthleteStore.allAthletes().find((a) => a.rosterGroup === COACH_ROSTER_GROUP && (a.coachEmail || "").toLowerCase() === me);
+    return coachLocationsOf(rec)[0] || "All";
+  });
   const [search, setSearch] = useState("");
   const [rangeDays, setRangeDays] = useState(30);
   const [dataVersion, setDataVersion] = useState(0);

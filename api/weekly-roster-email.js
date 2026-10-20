@@ -1,5 +1,6 @@
 // Weekly roster digest — Vercel Cron sends a roster overview (grouped by DST Location, active
-// athletes only) to every coach who has ever signed in, every Sunday around 11am Central, from
+// athletes only; a coach with locations set on their coach record gets only those) to every coach who
+// has ever signed in, every Sunday around 11am Central, from
 // September 1 through March 1. See vercel.json: TWO cron entries fire it (16:00 and 17:00 UTC),
 // one for each side of the Nov/March Central-time DST transition — a single fixed UTC hour would
 // drift an hour off "11am Central" for half the year. Whichever entry actually lands on 11am
@@ -82,8 +83,9 @@ async function sbUpsert(serviceKey, table, rows) {
 
 // Every coach who has ever signed in, via the Supabase Admin API (service-role only) — no list to
 // maintain by hand, a new coach's login just starts showing up here.
+// every login (email and user id), less the excluded ones
 async function getRecipients(serviceKey) {
-  const emails = [];
+  const users = [];
   let page = 1;
   for (;;) {
     const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=200`, {
@@ -91,13 +93,14 @@ async function getRecipients(serviceKey) {
     });
     if (!res.ok) throw new Error(`Failed to list users: HTTP ${res.status} ${await res.text()}`);
     const body = await res.json();
-    const users = body.users || [];
-    users.forEach((u) => { if (u.email) emails.push(u.email); });
-    if (users.length < 200) break;
+    const list = body.users || [];
+    list.forEach((u) => { if (u.email) users.push({ email: u.email, id: u.id }); });
+    if (list.length < 200) break;
     page++;
   }
   const excluded = new Set(EXCLUDED_RECIPIENTS.map((e) => e.toLowerCase()));
-  return [...new Set(emails)].filter((e) => !excluded.has(e.toLowerCase()));
+  const seen = new Set();
+  return users.filter((u) => { const k = u.email.toLowerCase(); if (excluded.has(k) || seen.has(k)) return false; seen.add(k); return true; });
 }
 
 // ---- roster-row indicators, ported from the client (index.html / periodization.js) ------------
@@ -404,19 +407,35 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const withCubs = recipients.filter((e) => CUBS_DIGEST_RECIPIENTS.includes(e.toLowerCase()));
-    const dstOnly = recipients.filter((e) => !CUBS_DIGEST_RECIPIENTS.includes(e.toLowerCase()));
-    if (dstOnly.length) {
-      await sendDigestEmail({ to: dstOnly.join(", "), subject, html: buildDigestHtml({ locations: dstLocations, today: chicagoToday }) });
-      await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: dstOnly.join(", "), subject, kind: "weekly_digest" }]);
-    }
-    if (withCubs.length) {
-      await sendDigestEmail({ to: withCubs.join(", "), subject, html: buildDigestHtml({ locations: allLocations, today: chicagoToday }) });
-      await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: withCubs.join(", "), subject, kind: "weekly_digest" }]);
+    // A coach with locations set on their coach record (coachLocations, by login id or email) gets only those
+    // locations' athletes; a coach with none set gets every location, as before (and the No Location Set list).
+    // The accounts in CUBS_DIGEST_RECIPIENTS get the Cubs-only players as well, under their own heading.
+    // Coaches who get the same locations share one email.
+    const coachRecs = athleteRows.map((r) => r.data).filter((a) => a && a.rosterGroup === "coaches");
+    const locationsFor = (u) => {
+      const rec = coachRecs.find((a) => a.coachUserId === u.id) || coachRecs.find((a) => (a.coachEmail || "").toLowerCase() === u.email.toLowerCase());
+      return rec && Array.isArray(rec.coachLocations) ? rec.coachLocations.filter(Boolean) : [];
+    };
+    const groups = new Map(); // "<cubs>|<locations>" -> { cubs, locs, to: [] }
+    recipients.forEach((u) => {
+      const cubs = CUBS_DIGEST_RECIPIENTS.includes(u.email.toLowerCase());
+      const locs = locationsFor(u).sort();
+      const key = `${cubs}|${locs.join(",")}`;
+      if (!groups.has(key)) groups.set(key, { cubs, locs, to: [] });
+      groups.get(key).to.push(u.email);
+    });
+    const sent = [], skipped = [];
+    for (const g of groups.values()) {
+      const base = g.cubs ? allLocations : dstLocations;
+      const sections = g.locs.length ? base.filter((l) => g.locs.includes(l.location) || (g.cubs && l.location === CUBS_HEADING)) : base;
+      if (!sections.some((l) => l.athletes.length)) { skipped.push({ to: g.to, locations: g.locs, reason: "no active athletes at their locations" }); continue; }
+      await sendDigestEmail({ to: g.to.join(", "), subject, html: buildDigestHtml({ locations: sections, today: chicagoToday }) });
+      await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: g.to.join(", "), subject, kind: "weekly_digest" }]);
+      sent.push({ to: g.to, locations: g.locs.length ? g.locs : "all", cubs: g.cubs });
     }
     if (!force) await sbUpsert(serviceKey, "app_meta", [{ key: "lastWeeklyRosterEmailDate", value: dateKey }]);
 
-    res.status(200).json({ ok: true, sent: recipients.length, recipients, withCubs, athletes: enriched.length, dstAthletes: enriched.filter((a) => !a.cubsOnly).length, locations: allLocations.map((l) => l.location) });
+    res.status(200).json({ ok: true, sent: sent.reduce((n, s) => n + s.to.length, 0), emails: sent, skipped, athletes: enriched.length, dstAthletes: enriched.filter((a) => !a.cubsOnly).length, locations: allLocations.map((l) => l.location) });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }

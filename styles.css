@@ -3480,6 +3480,12 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .today-card li { padding: 2px 0; }
 .today-card li small { color: var(--text-dim); }
 .today-more { margin-top: 4px; font-size: 12px; }
+/* a coach's locations (pencil on their card, and Add Coach) */
+.coach-locs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; margin: 4px 0; }
+.coach-locs-label { width: 100%; font-weight: 600; color: var(--text-dim); }
+.coach-locs-label small { font-weight: 400; }
+.coach-locs label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
+.add-coach-table .coach-locs-label { display: none; }
 /* what a guided tour (tour.js) lights: the row of add buttons hugs the buttons while no form is open */
 .tour-anchor:not(:has(.panel)) { width: fit-content; }
 /* × to close a name or a whole card until Monday; faint until hovered (always shown on touch screens) */
