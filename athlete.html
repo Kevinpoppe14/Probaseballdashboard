@@ -30,6 +30,33 @@
   :root[data-theme="light"] .sheet, :root[data-theme="light"] .card, :root[data-theme="light"] .group { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
   /* the sun/moon button, top right */
   .theme-toggle { position: absolute; right: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); }
+  /* Training log calendar on the Plan tab: a dot per logged day, the tapped day's detail below */
+  .tl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-weight: 700; }
+  .tl-head > div { text-align: center; }
+  .tl-head small { display: block; font-weight: 400; font-size: 12px; color: var(--dim); }
+  .tl-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .tl-dow { text-align: center; font-size: 11px; font-weight: 700; color: var(--dim); }
+  .tl-day { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; min-height: 42px; padding: 5px 0 4px; border: 1px solid transparent; border-radius: 8px; background: var(--panel-2); color: var(--text); font-size: 13px; }
+  .tl-day:disabled { opacity: 1; color: var(--dim); }
+  .tl-day.out { opacity: 0.35; }
+  .tl-day.has { color: var(--text); font-weight: 700; }
+  .tl-day.today > span:first-child { color: var(--accent); }
+  .tl-day.on { border-color: var(--accent); }
+  .tl-dots { display: flex; gap: 3px; }
+  .tl-dots i, .tl-key i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .tl-dots i.test, .tl-key i.test { background: var(--good); }
+  .tl-key { display: flex; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--dim); }
+  .tl-key i { margin-right: 5px; vertical-align: 0; }
+  .tl-detail { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .tl-detail-day { font-weight: 700; margin-bottom: 6px; }
+  .tl-item { padding: 8px 10px; margin-bottom: 6px; border-radius: 8px; background: var(--panel-2); font-size: 14px; }
+  .tl-item > b { display: block; margin-bottom: 4px; }
+  .tl-item.test { display: flex; justify-content: space-between; gap: 10px; }
+  .tl-item.test > b { margin: 0; }
+  .tl-check { color: var(--good); }
+  .tl-ex { display: grid; grid-template-columns: 30px 1fr; column-gap: 6px; padding: 2px 0; font-size: 13px; }
+  .tl-ex .label { color: var(--label, var(--accent)); font-weight: 700; }
+  .tl-ex small { grid-column: 2; color: var(--dim); }
   /* the ? that plays the tour again (tour.js), top left, opposite the sun/moon */
   .tour-help { position: absolute; left: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); font-size: 16px; font-weight: 700; line-height: 1; }
   /* Holiday colors (see holiday.js): only while <html data-holiday> is set, which is on the holiday itself */

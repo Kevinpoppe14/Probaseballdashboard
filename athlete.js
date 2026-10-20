@@ -106,6 +106,11 @@
       ]);
       return { scans: (bc.data || []).map((r) => r.data || {}), sheets: (as.data || []).map((r) => ({ date: (r.data || {}).date, summary: (r.data || {}).summary })) };
     },
+    // when each logged entry was entered, as athlete_portal_log_times hands it back
+    async logTimes() {
+      const { data, error } = await sb.from("athlete_logs").select("program_id,key,updated_at").eq("athlete_id", String(coachId)).neq("value", "").limit(20000);
+      return error ? [] : (data || []).map((r) => ({ programId: r.program_id, key: r.key, at: r.updated_at }));
+    },
     // force plate tests, the same figures athlete_portal_cmj hands back
     async cmj() {
       const { data, error } = await sb.from("force_tests").select("data").eq("athlete_id", String(coachId)).limit(5000);
@@ -138,6 +143,11 @@
     async bodyComp() {
       const res = await sb.rpc("athlete_portal_body_comp", { p_token: token });
       return !res.error && res.data ? res.data : null;
+    },
+    // when each logged entry was entered (supabase/migration_021_athlete_portal_log_times.sql); none until that has been run
+    async logTimes() {
+      const res = await sb.rpc("athlete_portal_log_times", { p_token: token });
+      return !res.error && Array.isArray(res.data) ? res.data : [];
     },
     // force plate (CMJ) tests (supabase/migration_020_athlete_portal_cmj.sql); none until that has been run
     async cmj() {
@@ -212,6 +222,7 @@
   let view = "program"; // "program" (this week's training), "plan" (the player plan), "progress" or "equipment" (remote athletes)
   let tests = null; // the athlete's Group Testing results, loaded after the program is on screen
   let cmjTests = []; // their force plate (CMJ) tests, for the Progress tab's jump graphs, loaded the same way
+  let logTimes = {}; // "<program id>|<key>" -> when it was entered, for the Plan tab's Training Log calendar
   let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
@@ -281,6 +292,7 @@
     if (value === logged(programId, key)) return;
     const one = (plan.programLog[programId] = plan.programLog[programId] || {});
     if (value) one[key] = value; else delete one[key];
+    if (value) logTimes[`${programId}|${key}`] = new Date().toISOString(); else delete logTimes[`${programId}|${key}`]; // for the Training Log
     pending.set(`${programId} ${key}`, { programId, key, value });
     flush();
     derived.forEach((fn) => fn());
@@ -901,6 +913,85 @@
     const f = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
     return `Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""} · ${f(a)} – ${f(z)}`;
   };
+  // ---- Training Log on the Plan tab ---------------------------------------------------------------------
+  // A month calendar of what they did: a dot on each day a session was logged (red) or a test done (green), and
+  // the day tapped shown underneath, each exercise with the weights and reps logged. A session's day is when Log
+  // session was pressed, or else when its last weight was entered (athlete_portal_log_times); a quick session
+  // without either goes on its own date.
+  let tlMonth = null, tlDay = null;
+  function trainingLogSection() {
+    const pad = (n) => String(n).padStart(2, "0");
+    const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const dayOf = (iso) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d) ? "" : key(d); };
+    const byDay = {};
+    const put = (k, item) => { if (k) (byDay[k] = byDay[k] || []).push(item); };
+    let undated = 0;
+    const seen = new Set();
+    (plan.blocks || []).filter((b) => b.programId && !seen.has(b.programId) && seen.add(b.programId)).forEach((b) => {
+      const program = programById(b.programId), log = (plan.programLog || {})[b.programId] || {};
+      if (!program) return;
+      (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => {
+        const rows = (s.exercises || []).filter((e) => (e.name || "").trim());
+        const labels = window.exerciseLabels(rows);
+        let latest = "";
+        const done = rows.map((e, ei) => {
+          const sets = Rx.groups(e).map((g, gi) => {
+            const wk = Rx.logKey(e, gi), rk = Rx.repsLogKey(e, gi), wt = log[wk], rp = log[rk];
+            [wk, rk].forEach((k) => { const at = logTimes[`${b.programId}|${k}`]; if (log[k] && at && at > latest) latest = at; });
+            return wt || rp ? `${wt || "?"}${rp ? ` × ${rp}` : ""}` : null;
+          }).filter(Boolean);
+          return { label: labels[ei] || "", name: e.name.trim(), sets };
+        });
+        const markKey = `session-${wi}-${si}|0`, marked = !!log[markKey];
+        if (!marked && !done.some((r) => r.sets.length)) return;
+        const when = (marked && logTimes[`${b.programId}|${markKey}`]) || latest || (s.date ? `${s.date}T12:00:00` : "");
+        const sent = window.isSentProgram(b.programId);
+        const title = sent ? `${(s.name || "").trim() || "Quick session"}` : `${program.name} · ${w.name || `Week ${wi + 1}`} · ${(s.name || "").trim() || `Day ${si + 1}`}`;
+        if (!when) { undated += 1; return; }
+        put(dayOf(when), { kind: "lift", title, marked, rows: marked ? done : done.filter((r) => r.sets.length) });
+      }));
+    });
+    (tests || []).forEach((t) => { if (t.date && Number.isFinite(testValue(t))) put(t.date, { kind: "test", title: t.kpiName, text: `${nice(testValue(t))}${t.unit ? ` ${t.unit}` : ""}${Array.isArray(t.trials) && t.trials.length > 1 ? ` (trials ${t.trials.join(", ")})` : ""}` }); });
+    const days = Object.keys(byDay).sort();
+    if (!days.length && !undated) return null;
+    const newest = days[days.length - 1];
+    if (!tlMonth) { const d = newest ? new Date(`${newest}T12:00:00`) : new Date(); tlMonth = { y: d.getFullYear(), m: d.getMonth() }; }
+    const picked = tlDay && byDay[tlDay] ? tlDay : newest;
+    const first = new Date(tlMonth.y, tlMonth.m, 1);
+    const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
+    const cells = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
+    while (cells.length > 35 && cells[cells.length - 7].getMonth() !== tlMonth.m) cells.splice(-7);
+    const redraw = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    const step = (n) => () => { const d = new Date(tlMonth.y, tlMonth.m + n, 1); tlMonth = { y: d.getFullYear(), m: d.getMonth() }; redraw(); };
+    const today = key(new Date());
+    const grid = el("div", { class: "tl-grid" },
+      ["M", "T", "W", "T", "F", "S", "S"].map((d) => el("div", { class: "tl-dow" }, d)),
+      cells.map((d) => {
+        const k = key(d), items = byDay[k] || [];
+        const kinds = [...new Set(items.map((x) => x.kind))];
+        return el("button", { class: ["tl-day", d.getMonth() !== tlMonth.m ? "out" : "", k === today ? "today" : "", items.length ? "has" : "", k === picked ? "on" : ""].filter(Boolean).join(" "), disabled: !items.length, "aria-label": `${d.toDateString()}${items.length ? `: ${items.map((x) => x.title).join(", ")}` : ""}`, onclick: () => { tlDay = k; redraw(); } },
+          el("span", null, `${d.getDate()}`),
+          items.length ? el("span", { class: "tl-dots" }, kinds.map((kd) => el("i", { class: kd }))) : null);
+      }));
+    const inMonth = days.filter((k) => k.startsWith(`${tlMonth.y}-${pad(tlMonth.m + 1)}`)).length;
+    const detail = picked && byDay[picked] ? el("div", { class: "tl-detail" },
+      el("div", { class: "tl-detail-day" }, new Date(`${picked}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })),
+      byDay[picked].map((x) => x.kind === "test"
+        ? el("div", { class: "tl-item test" }, el("b", null, x.title), el("span", null, x.text))
+        : el("div", { class: "tl-item" }, el("b", null, x.title, x.marked ? el("span", { class: "tl-check" }, " ✓") : null),
+          x.rows.map((r) => el("div", { class: "tl-ex" }, el("span", { class: "label" }, r.label), el("span", null, r.name), el("small", null, r.sets.length ? r.sets.join(", ") : "—")))))) : null;
+    return [el("h2", { class: "section" }, "Training log", el("small", null, `${days.length} day${days.length === 1 ? "" : "s"} logged`)),
+      el("div", { class: "card tl-card" },
+        el("div", { class: "tl-head" },
+          el("button", { class: "nav", "aria-label": "Previous month", onclick: step(-1) }, "‹"),
+          el("div", null, first.toLocaleDateString(undefined, { month: "long", year: "numeric" }), el("small", null, `${inMonth} day${inMonth === 1 ? "" : "s"}`)),
+          el("button", { class: "nav", "aria-label": "Next month", onclick: step(1) }, "›")),
+        grid,
+        el("div", { class: "tl-key" }, el("span", null, el("i", { class: "lift" }), "Session"), el("span", null, el("i", { class: "test" }), "Testing")),
+        detail,
+        undated ? el("div", { class: "card-sub" }, `${undated} older session${undated === 1 ? " was" : "s were"} logged before times were kept, so ${undated === 1 ? "it isn't" : "they aren't"} on the calendar.`) : null)];
+  }
+
   function planView() {
     const now = currentWeek();
     const main = el("main");
@@ -930,6 +1021,9 @@
             el("div", { class: "phase-when" }, blockDates(b)));
         })));
     });
+
+    const log = trainingLogSection();
+    if (log) main.append(...log);
 
     const goals = plan.goals && typeof plan.goals === "object" ? plan.goals : {};
     [["physical", "Physical Goals"], ["skill", "Skill Goals"], ["habits", "Habits"]].forEach(([key, title]) => {
@@ -1647,6 +1741,11 @@
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
     api.bodyComp().catch(() => null).then((b) => { bodyComp = b; if (view === "progress" && b) render(); });
     api.cmj().catch(() => []).then((c) => { cmjTests = Array.isArray(c) ? c : []; if (view === "progress" && cmjTests.length) render(); });
+    api.logTimes().catch(() => []).then((t) => {
+      logTimes = {};
+      (Array.isArray(t) ? t : []).forEach((r) => { logTimes[`${r.programId}|${r.key}`] = r.at; });
+      if (view === "plan") render();
+    });
     // a remote athlete's form checks from the past week and the coach's replies (shown under each exercise)
     if (canSendChecks()) {
       sb.rpc("athlete_portal_form_checks", { p_token: token }).then((r) => {
