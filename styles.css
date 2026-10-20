@@ -3054,6 +3054,34 @@ tbody tr:hover {
 .tl-badge { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
 .tl-badge.marked { background: #2e9e4f; color: #fff; }
 .tl-badge.weights { background: var(--surface-muted, #2a2a2a); color: var(--text-dim); border: 1px solid var(--border); }
+/* Training Log calendar: a month, Monday first, a tag for each thing done that day; the picked day's detail below */
+.tl-layout { margin: 0 8px 0 0; }
+.tl-cal-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.tl-cal-head h2 { margin: 0; flex: 1; min-width: 200px; text-align: center; }
+.tl-cal-head .btn { padding: 4px 12px; font-size: 16px; }
+.tl-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tl-cal-dow { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); text-align: center; padding: 2px 0; }
+.tl-cal-day { display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 84px; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text); text-align: left; font: inherit; cursor: default; overflow: hidden; }
+.tl-cal-day.has { cursor: pointer; }
+.tl-cal-day.has:hover { border-color: var(--text-dim); }
+.tl-cal-day.out { opacity: 0.4; }
+.tl-cal-day.today .tl-cal-num { background: var(--dst-red); color: #fff; border-radius: 10px; padding: 0 6px; }
+.tl-cal-day.on { border-color: var(--dst-red); box-shadow: 0 0 0 1px var(--dst-red) inset; }
+.tl-cal-day:disabled { color: var(--text); }
+.tl-cal-num { align-self: flex-start; font-size: 12px; font-weight: 700; }
+.tl-cal-tag { display: block; padding: 1px 5px; border-radius: 4px; font-size: 11px; line-height: 1.35; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-cal-more { font-size: 10px; color: var(--text-dim); }
+.tl-cal-tag.lift, .tl-cal-dot.lift { background: #b5283a; }
+.tl-cal-tag.speed, .tl-cal-dot.speed { background: #2563eb; }
+.tl-cal-tag.vitruve, .tl-cal-dot.vitruve { background: #7c3aed; }
+.tl-cal-tag.test, .tl-cal-dot.test { background: #0f8a5f; }
+.tl-cal-key { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+.tl-cal-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+@media (max-width: 700px) {
+  .tl-cal-day { min-height: 56px; padding: 3px; }
+  .tl-cal-tag { font-size: 0; height: 6px; padding: 0; }
+}
+@media print { .tl-cal { display: none; } }
 
 /* ---- Tabs on a player's profile: one row of folder-style tabs. Red for DST, Cubs blue on a Cubs-only
    player's profile (--dst-red follows the theme). The open tab is white with its text in that color. ---- */

@@ -1,6 +1,7 @@
 // Training Log — what an athlete actually did, on the far-right tab of their profile. It reads the weights and
 // reps typed in for each set (from the athlete's phone page, or by a coach) and any exercise or sets / reps
-// changes the athlete made, and lays them out one session at a time, newest first, with the time each was entered.
+// changes the athlete made, and lays them out on a month calendar (each day tagged with what was done, the day
+// clicked shown in full underneath) or as a list, one session at a time, newest first, with the time each was entered.
 // Read only: the program builder on the Player Plan is where a program is written; this is the record of it.
 (function () {
   const { useState, useEffect } = React;
@@ -90,11 +91,9 @@
       </svg>
     );
   }
-  function KpiSection({ athlete }) {
+  // `rows` and `load` come from the tab, which also puts each result on the calendar
+  function KpiSection({ rows, load }) {
     const store = window.AthleteStore;
-    const [rows, setRows] = useState(null);
-    const load = () => store.loadKpiEntries(athlete.id).then(setRows);
-    useEffect(() => { load(); /* eslint-disable-next-line */ }, [athlete.id]);
     if (!rows || !rows.length) return null;
     const groups = {};
     rows.forEach((r) => { (groups[r.kpiId || r.kpiName] = groups[r.kpiId || r.kpiName] || []).push(r); });
@@ -166,18 +165,133 @@
     );
   }
 
+  // A lift session, as a card: each exercise's prescribed sets beside what was done and when it was entered.
+  function SessionCard({ s }) {
+    return (
+      <div className="panel tl-session">
+        <h2>
+          {s.latest ? fmtDay(s.latest) : "Date not recorded"}
+          <small>{s.program} · {s.week} · {s.day}</small>
+          <span className={`tl-badge ${s.marked ? "marked" : "weights"}`}>
+            {s.marked ? `Logged with the Log session button${s.markedAt ? ` · ${fmtWhen(s.markedAt)}` : ""}${s.weights ? "" : " · no weights entered"}` : "Weights entered, Log session not pressed"}
+          </span>
+        </h2>
+        <table className="tl-table">
+          <thead><tr><th>Exercise</th><th>Prescribed</th><th>Done</th><th>Entered</th></tr></thead>
+          <tbody>
+            {s.rows.map((r, ri) => (
+              <React.Fragment key={ri}>
+                {(r.groups.length ? r.groups : [null]).map((g, gi) => (
+                  <tr key={gi} className={gi === 0 ? "tl-first" : ""}>
+                    {gi === 0 && (
+                      <td rowSpan={Math.max(1, r.groups.length)} className="tl-ex">
+                        <strong className="superset-label">{r.label}</strong> {r.name}
+                        {r.coach && <div className="tl-changed">Changed by athlete{r.coach.at ? ` ${fmtWhen(r.coach.at)}` : ""}. Coach: {r.coach.name}{r.coach.text ? `, ${r.coach.text}` : ""}</div>}
+                      </td>
+                    )}
+                    <td>{g ? g.rx : "—"}</td>
+                    <td className="tl-done">
+                      {g && (g.weight || g.reps)
+                        ? <span>{g.weight || "?"}{g.reps ? ` x ${g.reps}` : ""}{g.est ? <em> (est. 1RM {g.est})</em> : null}</span>
+                        : <span className="tl-none">not logged</span>}
+                    </td>
+                    <td className="tl-when">{g && (g.weight || g.reps) ? `${fmtWhen(g.at) || "time not recorded"}${SOURCES[g.source] ? ` · ${SOURCES[g.source]}` : ""}` : ""}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Testing results from one day, as a card (on the calendar, under the day they were done)
+  function KpiDayCard({ date, rows }) {
+    return (
+      <div className="panel tl-session">
+        <h2>{fmtDay(`${date}T12:00:00`)} <small>Testing</small></h2>
+        <table className="tl-table">
+          <thead><tr><th>Test</th><th>Best</th><th>Avg</th><th>Trials</th></tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const u = r.unit ? ` ${r.unit}` : "";
+              return (
+                <tr key={r.id}>
+                  <td className="tl-ex">{r.kpiName}</td>
+                  <td className="tl-done">{r.value}{u}</td>
+                  <td>{r.avg != null ? r.avg : r.value}{u}</td>
+                  <td className="tl-when">{(Array.isArray(r.trials) && r.trials.length ? r.trials : [r.value]).join(", ")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // ---- the calendar -----------------------------------------------------------------------------------------
+  // A month at a time, Monday first. Each day shows a tag for each thing done that day (a lift session, a group
+  // speed session, Vitruve bar speeds, testing); clicking a day shows its full detail underneath.
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const dayKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const localDayOf = (iso) => { if (!iso) return ""; if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso; const d = new Date(iso); return isNaN(d) ? "" : dayKey(d); };
+  const KINDS = { lift: "Lift", speed: "Speed", vitruve: "Vitruve", test: "Testing" };
+  function Calendar({ month, setMonth, byDay, selected, onPick }) {
+    const first = new Date(month.y, month.m, 1);
+    const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7)); // back to that week's Monday
+    const cells = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
+    while (cells.length > 35 && cells[cells.length - 7].getMonth() !== month.m) cells.splice(-7); // drop a trailing week of next month
+    const today = dayKey(new Date());
+    const step = (n) => { const d = new Date(month.y, month.m + n, 1); setMonth({ y: d.getFullYear(), m: d.getMonth() }); };
+    const inMonth = Object.keys(byDay).filter((k) => k.startsWith(`${month.y}-${pad2(month.m + 1)}`));
+    return (
+      <div className="panel tl-cal">
+        <div className="tl-cal-head">
+          <button className="btn btn-secondary" onClick={() => step(-1)} aria-label="Previous month">‹</button>
+          <h2>{first.toLocaleDateString(undefined, { month: "long", year: "numeric" })} <small>{inMonth.length} day{inMonth.length === 1 ? "" : "s"} with something logged</small></h2>
+          <button className="btn btn-secondary" onClick={() => step(1)} aria-label="Next month">›</button>
+          <button className="btn-link" onClick={() => { const d = new Date(); setMonth({ y: d.getFullYear(), m: d.getMonth() }); }}>This month</button>
+        </div>
+        <div className="tl-cal-grid">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <div key={d} className="tl-cal-dow">{d}</div>)}
+          {cells.map((d) => {
+            const k = dayKey(d), items = byDay[k] || [];
+            const cls = ["tl-cal-day", d.getMonth() !== month.m ? "out" : "", k === today ? "today" : "", items.length ? "has" : "", k === selected ? "on" : ""].filter(Boolean).join(" ");
+            return (
+              <button key={k} className={cls} onClick={() => onPick(k)} disabled={!items.length} aria-label={`${d.toDateString()}${items.length ? `: ${items.map((x) => x.label).join(", ")}` : ""}`}>
+                <span className="tl-cal-num">{d.getDate()}</span>
+                {items.slice(0, 3).map((x, i) => <span key={i} className={`tl-cal-tag ${x.kind}`} title={x.label}>{x.short}</span>)}
+                {items.length > 3 && <span className="tl-cal-more">+{items.length - 3} more</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="tl-cal-key">{Object.entries(KINDS).map(([k, label]) => <span key={k}><span className={`tl-cal-dot ${k}`} />{label}</span>)}</div>
+      </div>
+    );
+  }
+
   function TrainingLogTab({ athlete }) {
     const store = window.AthleteStore;
     const [tick, setTick] = useState(0);
     const [loading, setLoading] = useState(true);
     const [speed, setSpeed] = useState([]); // group speed sessions logged for them in Coach Mode
     const [vit, setVit] = useState([]); // rows imported from Vitruve
+    const [kpis, setKpis] = useState([]); // testing results (Group Testing, OVR)
+    // Calendar or List, remembered on this computer; the month shown and the day picked on the calendar
+    const [layout, setLayoutState] = useState(() => { try { return localStorage.getItem("trainingLogLayout") || "calendar"; } catch (e) { return "calendar"; } });
+    const setLayout = (v) => { setLayoutState(v); try { localStorage.setItem("trainingLogLayout", v); } catch (e) { /* not remembered */ } };
+    const [month, setMonth] = useState(null);
+    const [picked, setPicked] = useState(null);
+    const loadKpis = () => store.loadKpiEntries(athlete.id).then((r) => setKpis(r || []));
     // pick up what the athlete has entered on their phone since the dashboard loaded
     const refresh = () => {
       setLoading(true);
-      Promise.all([store.refreshAthleteLogs(athlete.id), store.loadSpeedLogs(athlete.id).then(setSpeed), store.loadVitruveRows(athlete.id).then(setVit)]).then(() => { setLoading(false); setTick((n) => n + 1); });
+      Promise.all([store.refreshAthleteLogs(athlete.id), store.loadSpeedLogs(athlete.id).then(setSpeed), store.loadVitruveRows(athlete.id).then(setVit), loadKpis()]).then(() => { setLoading(false); setTick((n) => n + 1); });
     };
-    useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [athlete.id]);
+    useEffect(() => { setMonth(null); setPicked(null); refresh(); /* eslint-disable-next-line */ }, [athlete.id]);
 
     const { sessions, changes } = buildSessions(athlete.id, store.getPeriodization(athlete.id));
     const weeksText = (ws) => { const s = [...ws].sort((a, b) => a - b); return s.length === 1 ? `week ${s[0]}` : `weeks ${s.join(", ")}`; };
@@ -196,11 +310,37 @@
       if (!window.confirm(`Remove this speed session (${p.group}, ${p.date}) from ${athlete.name}'s training log?`)) return;
       if (await store.deleteSpeedLog(p.id)) refresh();
     };
+
+    // everything by day, for the calendar: lifts, speed, Vitruve and testing
+    const byDay = {};
+    const put = (day, item) => { if (day) (byDay[day] = byDay[day] || []).push(item); };
+    sessions.forEach((s) => put(localDayOf(s.latest), { kind: "lift", s, short: s.day, label: `${s.program} · ${s.week} · ${s.day}` }));
+    speed.forEach((p) => put(p.date, { kind: "speed", p, short: p.title || "Speed", label: `Group speed · ${p.group}${p.title ? ` · ${p.title}` : ""}` }));
+    vitDays.forEach((v) => put(v.date, { kind: "vitruve", v, short: "Vitruve", label: `Vitruve · ${v.rows.length} row${v.rows.length === 1 ? "" : "s"}` }));
+    const kpiDays = {};
+    kpis.forEach((r) => { if (r.date) (kpiDays[r.date] = kpiDays[r.date] || []).push(r); });
+    Object.entries(kpiDays).forEach(([d, rows]) => put(d, { kind: "test", rows, short: rows.length === 1 ? rows[0].kpiName.replace(/ \(OVR\)$/, "") : `${rows.length} tests`, label: rows.map((r) => r.kpiName).join(", ") }));
+    const days = Object.keys(byDay).sort();
+    const newest = days[days.length - 1];
+    // the calendar opens on the month of the newest entry, with that day picked
+    const shownMonth = month || (newest ? { y: Number(newest.slice(0, 4)), m: Number(newest.slice(5, 7)) - 1 } : { y: new Date().getFullYear(), m: new Date().getMonth() });
+    const shownDay = picked || newest || null;
+    const pickedItems = (shownDay && byDay[shownDay]) || [];
+    const sessionsUndated = sessions.filter((s) => !s.latest);
+    const card = (x, i) => x.kind === "lift" ? <SessionCard key={`l${i}`} s={x.s} />
+      : x.kind === "speed" ? <SpeedCard key={x.p.id} p={x.p} onRemove={() => removeSpeed(x.p)} />
+      : x.kind === "vitruve" ? <window.VitruveDayCard key={`vit-${x.v.date}`} date={x.v.date} rows={x.v.rows} onRemove={() => removeVitruve(x.v)} />
+      : <KpiDayCard key={`k${i}`} date={shownDay} rows={x.rows} />;
+
     return (
       <div className="tl-wrap" key={tick}>
         <div className="panel">
-          <h2>Training Log <small>What was actually done, newest first. Times are when each entry was typed in.</small></h2>
+          <h2>Training Log <small>What was actually done. Times are when each entry was typed in.</small></h2>
           <div className="tl-actions no-print">
+            <div className="pill-tabs tl-layout">
+              <button className={`pill-tab ${layout === "calendar" ? "active" : ""}`} onClick={() => setLayout("calendar")}>Calendar</button>
+              <button className={`pill-tab ${layout === "list" ? "active" : ""}`} onClick={() => setLayout("list")}>List</button>
+            </div>
             <button className="btn btn-secondary" onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
             <span className="timestamp-note">{feed.length} session{feed.length === 1 ? "" : "s"} with something logged for {athlete.name}.</span>
           </div>
@@ -208,7 +348,18 @@
 
         {window.FormChecksPanel && <window.FormChecksPanel athlete={athlete} />}
 
-        <KpiSection athlete={athlete} />
+        {layout === "calendar" && (
+          <React.Fragment>
+            <Calendar month={shownMonth} setMonth={setMonth} byDay={byDay} selected={shownDay} onPick={setPicked} />
+            {pickedItems.length > 0 && pickedItems.map(card)}
+            {sessionsUndated.length > 0 && <p className="timestamp-note">{sessionsUndated.length} older session{sessionsUndated.length === 1 ? " was" : "s were"} logged before entry times were kept, so {sessionsUndated.length === 1 ? "it isn't" : "they aren't"} on the calendar; List shows {sessionsUndated.length === 1 ? "it" : "them"}.</p>}
+            {feed.length === 0 && !kpis.length && !loading && (
+              <div className="panel"><div className="empty-state">Nothing logged yet. Weights and reps {athlete.name} enters on their phone link will show up here.</div></div>
+            )}
+          </React.Fragment>
+        )}
+
+        {layout === "list" && <KpiSection rows={kpis} load={loadKpis} />}
 
         {changes.length > 0 && (
           <div className="panel">
@@ -224,47 +375,11 @@
           </div>
         )}
 
-        {feed.length === 0 && !loading && (
+        {layout === "list" && feed.length === 0 && !loading && (
           <div className="panel"><div className="empty-state">Nothing logged yet. Weights and reps {athlete.name} enters on their phone link will show up here.</div></div>
         )}
 
-        {feed.map(({ s, p, v }) => v ? <window.VitruveDayCard key={`vit-${v.date}`} date={v.date} rows={v.rows} onRemove={() => removeVitruve(v)} /> : p ? <SpeedCard key={p.id} p={p} onRemove={() => removeSpeed(p)} /> : (
-          <div className="panel tl-session" key={s.id}>
-            <h2>
-              {s.latest ? fmtDay(s.latest) : "Date not recorded"}
-              <small>{s.program} · {s.week} · {s.day}</small>
-              <span className={`tl-badge ${s.marked ? "marked" : "weights"}`}>
-                {s.marked ? `Logged with the Log session button${s.markedAt ? ` · ${fmtWhen(s.markedAt)}` : ""}${s.weights ? "" : " · no weights entered"}` : "Weights entered, Log session not pressed"}
-              </span>
-            </h2>
-            <table className="tl-table">
-              <thead><tr><th>Exercise</th><th>Prescribed</th><th>Done</th><th>Entered</th></tr></thead>
-              <tbody>
-                {s.rows.map((r, ri) => (
-                  <React.Fragment key={ri}>
-                    {(r.groups.length ? r.groups : [null]).map((g, gi) => (
-                      <tr key={gi} className={gi === 0 ? "tl-first" : ""}>
-                        {gi === 0 && (
-                          <td rowSpan={Math.max(1, r.groups.length)} className="tl-ex">
-                            <strong className="superset-label">{r.label}</strong> {r.name}
-                            {r.coach && <div className="tl-changed">Changed by athlete{r.coach.at ? ` ${fmtWhen(r.coach.at)}` : ""}. Coach: {r.coach.name}{r.coach.text ? `, ${r.coach.text}` : ""}</div>}
-                          </td>
-                        )}
-                        <td>{g ? g.rx : "—"}</td>
-                        <td className="tl-done">
-                          {g && (g.weight || g.reps)
-                            ? <span>{g.weight || "?"}{g.reps ? ` x ${g.reps}` : ""}{g.est ? <em> (est. 1RM {g.est})</em> : null}</span>
-                            : <span className="tl-none">not logged</span>}
-                        </td>
-                        <td className="tl-when">{g && (g.weight || g.reps) ? `${fmtWhen(g.at) || "time not recorded"}${SOURCES[g.source] ? ` · ${SOURCES[g.source]}` : ""}` : ""}</td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
+        {layout === "list" && feed.map(({ s, p, v }) => v ? <window.VitruveDayCard key={`vit-${v.date}`} date={v.date} rows={v.rows} onRemove={() => removeVitruve(v)} /> : p ? <SpeedCard key={p.id} p={p} onRemove={() => removeSpeed(p)} /> : <SessionCard key={s.id} s={s} />)}
       </div>
     );
   }
