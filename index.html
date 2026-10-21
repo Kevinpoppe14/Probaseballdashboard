@@ -3570,6 +3570,17 @@ async function captureElement(el, printCss, width) {
           replacement.style.alignItems = "center";
           input.replaceWith(replacement);
         });
+        // A <textarea> is worse: html2canvas draws its text as one unwrapped line, so anything longer than the box
+        // runs off the side (the assessment's Key Takeaways, the plan's notes). Each one becomes a block of the same
+        // look with its text wrapped, as tall as the text needs.
+        clonedDoc.querySelectorAll("textarea").forEach((ta) => {
+          if (getComputedStyle(ta).display === "none") return;
+          const replacement = clonedDoc.createElement("div");
+          replacement.textContent = ta.value || "";
+          replacement.style.cssText = getComputedStyle(ta).cssText;
+          Object.assign(replacement.style, { display: "block", height: "auto", minHeight: "1.4em", overflow: "visible", whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", resize: "none" });
+          ta.replaceWith(replacement);
+        });
       },
     });
   } finally {
@@ -3597,6 +3608,67 @@ function addImageFitted(pdf, canvas, x, y, boxW, boxH) {
 // and each column separately at their own natural size, then place each into its own box on one
 // PDF page, letting jsPDF's own image scaling do the fitting instead of CSS zoom.
 async function renderAssessmentToPdf() {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
+  await addAssessmentPage(pdf);
+  return pdf.output("datauristring").split(",")[1];
+}
+
+// A tab's content (data-tab-content) shown for as long as `fn` takes, then hidden again if it was: the package
+// email snapshots the assessment and the body comp tab whichever one is open. Charts redraw at their real size
+// once shown, so it waits a moment first.
+async function withTabShown(name, fn) {
+  const el = document.querySelector(`[data-tab-content="${name}"]`);
+  if (!el) throw new Error("Couldn't find that part of the profile to render — try reopening it.");
+  const hidden = el.classList.contains("tab-hidden");
+  if (hidden) { el.classList.remove("tab-hidden"); await new Promise((r) => setTimeout(r, 450)); }
+  try { return await fn(el); } finally { if (hidden) el.classList.add("tab-hidden"); }
+}
+
+// The two-page package: the biomechanical assessment (page 1, as it's emailed on its own) and the Body
+// Composition tab (page 2: the trends graph, the Evolt scans and the manual sheets, fitted to one page).
+async function renderAssessmentPackageToPdf() {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
+  await withTabShown("assessment", () => addAssessmentPage(pdf));
+  await withTabShown("bodycomp", async (el) => {
+    const canvas = await captureElement(el, extractPrintCss(), 1300);
+    pdf.addPage("letter", "landscape");
+    const m = PDF_MARGIN_IN;
+    addImageFitted(pdf, canvas, m, m, pdf.internal.pageSize.getWidth() - m * 2, pdf.internal.pageSize.getHeight() - m * 2);
+  });
+  return pdf.output("datauristring").split(",")[1];
+}
+
+// "Email Assessment + Body Comp": both in one PDF, from the assessment's toolbar or the Body Composition tab
+function EmailPackageButton({ athlete }) {
+  const [open, setOpen] = useState(false);
+  if (!athlete) return null;
+  const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
+  return (
+    <React.Fragment>
+      <button type="button" className="btn btn-secondary no-print" title={`Email ${athlete.name} their biomechanical assessment and body composition as one two-page PDF`} onClick={() => setOpen(true)}>
+        Email Assessment + Body Comp
+      </button>
+      {open && (
+        <EmailComposer
+          title={`Email Assessment + Body Composition to ${athlete.name}`}
+          defaultTo={athlete.email || ""}
+          defaultSubject="Your Biomechanical Assessment and Body Composition from Dynamic Sports Training"
+          defaultBody={`Hi ${first},\n\nAttached are your latest biomechanical assessment and body composition. Let me know if you have any questions.\n`}
+          attachmentNote="A two-page PDF will be attached (page 1 the biomechanical assessment, page 2 body composition), sent from your own email address."
+          renderPdf={renderAssessmentPackageToPdf}
+          filename={`${(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-assessment-and-body-comp.pdf`}
+          logContext={{ kind: "athlete_tab", athleteName: athlete.name, tab: "assessment+bodycomp" }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </React.Fragment>
+  );
+}
+
+// the assessment (header full width, its two columns side by side) onto the PDF's current page
+async function addAssessmentPage(pdf) {
   const wrap = document.querySelector(".assess-wrap");
   if (!wrap) throw new Error("Couldn't find this assessment to render — try reopening it.");
   const header = wrap.querySelector(".assess-header");
@@ -3608,8 +3680,6 @@ async function renderAssessmentToPdf() {
   const col0Canvas = await captureElement(cols[0], printCss, 900);
   const col1Canvas = await captureElement(cols[1], printCss, 900);
 
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
   const m = PDF_MARGIN_IN;
   const pageW = pdf.internal.pageSize.getWidth() - m * 2;
   const pageH = pdf.internal.pageSize.getHeight() - m * 2;
@@ -3623,8 +3693,6 @@ async function renderAssessmentToPdf() {
   const colBoxH = pageH - headerH - 0.1;
   addImageFitted(pdf, col0Canvas, m, colY, colBoxW, colBoxH);
   addImageFitted(pdf, col1Canvas, m + colBoxW + gap, colY, colBoxW, colBoxH);
-
-  return pdf.output("datauristring").split(",")[1];
 }
 
 // Shared fallback for any tab without a fixed one-page layout to composite (the plan, and the
@@ -6608,7 +6676,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         {window.AssessmentTrends && <window.AssessmentTrends athleteId={athlete.id} only="performance" title="Assessment performance tests" hint="from biomechanical assessments and re-assessments; blanks are left out" />}
       </div>
 
-      <div className={activeTab === "bodycomp" ? "" : "tab-hidden"}>
+      <div className={activeTab === "bodycomp" ? "" : "tab-hidden"} data-tab-content="bodycomp">
+        <div className="no-print" style={{ marginBottom: 10 }}><EmailPackageButton athlete={athlete} /></div>
         {/* one graph of the Evolt scans, the manual sheets, or both together (just drawn together: they stay separate records) */}
         <BodyCompTrends athleteId={athlete.id} />
         <BodyCompPanel athleteId={athlete.id} />
@@ -6618,7 +6687,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
 
       {/* the monthly re-assessment: only built while open, so it reads the latest assessments each time */}
       {activeTab === "reassess" && window.ReassessmentTab && <window.ReassessmentTab athlete={athlete} onOpenTab={setActiveTab} />}
-      <div className={activeTab === "assessment" ? "" : "tab-hidden"}>
+      <div className={activeTab === "assessment" ? "" : "tab-hidden"} data-tab-content="assessment">
         {window.AssessmentTab
           ? <window.AssessmentTab athlete={athlete} />
           : <div className="panel"><div className="empty-state">The Biomechanical Assessment tab didn't load — make sure assessment.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>}

@@ -1089,6 +1089,9 @@
             {record && typeof EmailToAthleteButton === "function" && (
               <EmailToAthleteButton athlete={athlete} tab="assessment" tabLabel="Biomechanical Assessment" />
             )}
+            {record && typeof EmailPackageButton === "function" && (
+              <EmailPackageButton athlete={athlete} />
+            )}
           </div>
           {list.length > 0 && <p className="timestamp-note">{list.length} assessment{list.length === 1 ? "" : "s"} on file for {athlete.name}.</p>}
           {record && <AssessmentSignature activity={record._activity} />}
