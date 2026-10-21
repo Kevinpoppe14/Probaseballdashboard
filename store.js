@@ -340,7 +340,7 @@
     // so this is just a matter of reading them here if that ever needs to extend to more tables.
     athletes.forEach((r) => next.customAthletes.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
     forceTests.forEach((r) => next.forceTests.push(r.data));
-    bodyComp.forEach((r) => next.bodyComp.push(r.data));
+    bodyComp.forEach((r) => { next.bodyComp.push(r.data); bodyCompRowIds.set(r.data, r.id); }); // row ids kept so a scan can be edited
     manualWellness.forEach((r) => next.manualWellness.push(r.data));
     notes.forEach((r) => next.notes.push(r.data));
     playerPlans.forEach((r) => next.playerPlans.push(r.data));
@@ -581,9 +581,35 @@
 
   function addBodyComp(entry) {
     const record = { ...entry };
+    const rowId = randomId();
     state.bodyComp.push(record);
+    bodyCompRowIds.set(record, rowId);
     persistLocal();
-    syncInsert("body_comp", randomId(), record.athleteId, record);
+    syncInsert("body_comp", rowId, record.athleteId, record);
+  }
+  // Editing or deleting one scan from the Body Composition tab. `match` is the scan as it was shown (its date,
+  // time and Evolt id pick it out among the athlete's scans); its database row is the one it was loaded from.
+  const bodyCompRowIds = new WeakMap(); // scan record -> body_comp row id
+  function findBodyComp(athleteId, match) {
+    return state.bodyComp.find((s) => s.athleteId === athleteId && (match.evoltId ? String(s.evoltId) === String(match.evoltId) : s.date === match.date && (s.time || "") === (match.time || "")));
+  }
+  function updateBodyComp(athleteId, match, patch) {
+    const rec = findBodyComp(athleteId, match);
+    const rowId = rec && bodyCompRowIds.get(rec);
+    if (!rec || !rowId) return false;
+    Object.keys(patch).forEach((k) => { if (patch[k] === null || patch[k] === "") delete rec[k]; else rec[k] = patch[k]; });
+    persistLocal();
+    syncUpsert("body_comp", rowId, athleteId, rec);
+    return true;
+  }
+  function deleteBodyComp(athleteId, match) {
+    const rec = findBodyComp(athleteId, match);
+    const rowId = rec && bodyCompRowIds.get(rec);
+    if (!rec || !rowId) return false;
+    state.bodyComp = state.bodyComp.filter((s) => s !== rec);
+    persistLocal();
+    syncDelete("body_comp", rowId);
+    return true;
   }
 
   function setPlayerPlans(entries) {
@@ -1167,6 +1193,8 @@
     addManualWellness,
     addForceTest,
     addBodyComp,
+    updateBodyComp,
+    deleteBodyComp,
     getManualWellness,
     getForceTests,
     getBodyComp,

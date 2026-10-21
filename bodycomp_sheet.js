@@ -234,15 +234,24 @@
     const recordOf = (inputs) => {
       const c = calc(inputs);
       const mOk = c.girthsIn && has(inputs.heightCm);
+      // a sheet without the weight and all seven skinfolds yet is saved as it is, marked incomplete, with only the
+      // figures it has (its weight, say), so it can be opened from any device and finished later
+      const complete = has(inputs.weightLb) && SITES.every(([k]) => has(inputs[k]));
       const record = {
         id: recordId.current, athleteId: athlete.id, kind: "bodycomp", date: inputs.date, inputs,
         // the headline figures, kept with the sheet so the list can show them without redoing the sums
-        summary: { weightLb: c.cur.weight, pctFat: c.cur.pctFat, leanLb: c.cur.leanLb, fatLb: c.cur.fatLb, muscleLb: mOk ? c.cur.muscleLb : null, sum7: c.sum7, tester: inputs.tester },
+        summary: complete
+          ? { weightLb: c.cur.weight, pctFat: c.cur.pctFat, leanLb: c.cur.leanLb, fatLb: c.cur.fatLb, muscleLb: mOk ? c.cur.muscleLb : null, sum7: c.sum7, tester: inputs.tester }
+          : { weightLb: has(inputs.weightLb) ? n(inputs.weightLb) : null, pctFat: null, leanLb: null, fatLb: null, muscleLb: null, sum7: null, tester: inputs.tester, incomplete: true },
       };
       if (initial && initial._activity) record._activity = initial._activity;
       return record;
     };
-    const canStore = (inputs) => has(inputs.weightLb) && SITES.every(([k]) => has(inputs[k])) && !!inputs.date;
+    // saved once it has a date and anything measured in it (not just the date, sport and meal defaults)
+    const canStore = (inputs) => {
+      const b = blank();
+      return !!inputs.date && Object.keys(inputs).some((k) => !["date", "sport", "meals", "tester"].includes(k) && typeof inputs[k] !== "object" && has(inputs[k]) && String(inputs[k]) !== String(b[k] == null ? "" : b[k]));
+    };
     const fRef = useRef(f);
     fRef.current = f;
     const lastSaved = useRef(JSON.stringify(f));
@@ -455,7 +464,7 @@
           <span className="timestamp-note">
             {canStore(f)
               ? (saveState === "pending" ? "Saving…" : "✓ Saved automatically")
-              : `${restored.current && !initial ? "Your unfinished sheet was brought back. " : ""}${initial ? "Weight, all seven skinfolds and the date are needed to save changes." : "Kept as a draft on this computer until the weight, all seven skinfolds and the date are in; then it saves automatically."}`}
+              : `${restored.current && !initial ? "Your unfinished sheet was brought back. " : ""}Saves automatically once it has a date and something measured in it. It can be finished later; the body fat figures fill in once the weight and all seven skinfolds are in.`}
           </span>
         </div>
       </div>
@@ -468,6 +477,9 @@
     const [editing, setEditing] = useState(null); // null, "new", or a saved sheet
     const [, bump] = useState(0);
     const sheets = [...store.getBodyCompSheets(athlete.id)].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    // a sheet started before partial sheets saved, still held as a draft in this browser: shown so it can be finished
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem(`bodyCompDraft:${athlete.id}`) || "null"); } catch (e) { draft = null; }
     const remove = (s) => {
       if (!window.confirm(`Delete the body comp sheet from ${s.date}?`)) return;
       store.deleteAssessment(s.id);
@@ -482,16 +494,23 @@
         ) : (
           <React.Fragment>
             <button className="btn btn-assign no-print" style={{ marginBottom: 12 }} onClick={() => setEditing("new")}>+ New body comp sheet</button>
-            {sheets.length === 0 ? <div className="empty-state">No manual body comp sheets yet for {athlete.name}.</div> : (
+            {sheets.length === 0 && !draft ? <div className="empty-state">No manual body comp sheets yet for {athlete.name}.</div> : (
               <table>
                 <thead><tr><th>Date</th><th>Weight (lb)</th><th>% body fat</th><th>Lean (lb)</th><th>Fat (lb)</th><th>Muscle (lb)</th><th>Sum of 7 (mm)</th><th>Tester</th><th></th></tr></thead>
                 <tbody>
+                  {draft && (
+                    <tr className="bcs-list-row no-print" title="Click to finish this sheet" onClick={() => setEditing("new")}>
+                      <td>{draft.date || "—"} <span className="badge warn">Unsaved sheet on this device</span></td>
+                      <td>{has(draft.weightLb) ? draft.weightLb : "—"}</td><td colSpan={5}>Started here and not saved yet. Open it to finish; it saves once it has a date and something measured.</td><td>{draft.tester || ""}</td>
+                      <td><button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditing("new"); }}>Open</button></td>
+                    </tr>
+                  )}
                   {sheets.map((s) => {
                     const m = s.summary || {};
                     return (
-                      <tr key={s.id}>
-                        <td>{s.date}</td><td>{show(m.weightLb)}</td><td>{show(m.pctFat)}</td><td>{show(m.leanLb)}</td><td>{show(m.fatLb)}</td><td>{show(m.muscleLb)}</td><td>{show(m.sum7)}</td><td>{m.tester || ""}</td>
-                        <td className="no-print"><button className="btn-link" onClick={() => setEditing(s)}>Open</button> <button className="btn-link" onClick={() => remove(s)}>Delete</button></td>
+                      <tr key={s.id} className="bcs-list-row" title="Click to open and edit this sheet" onClick={() => setEditing(s)}>
+                        <td>{s.date}{m.incomplete ? <span className="badge warn" title="Not everything for the body fat figures is in yet"> Incomplete</span> : null}</td><td>{show(m.weightLb)}</td><td>{show(m.pctFat)}</td><td>{show(m.leanLb)}</td><td>{show(m.fatLb)}</td><td>{show(m.muscleLb)}</td><td>{show(m.sum7)}</td><td>{m.tester || ""}</td>
+                        <td className="no-print"><button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditing(s); }}>Open</button> <button className="btn-link" onClick={(e) => { e.stopPropagation(); remove(s); }}>Delete</button></td>
                       </tr>
                     );
                   })}

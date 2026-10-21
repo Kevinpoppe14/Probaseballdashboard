@@ -3884,7 +3884,7 @@ const HELP_SECTIONS = [
       "For each item, enter today's result beside the last one and mark Cleared, Improved, No change or Worse (one is suggested). Cleared items drop off next month. + Add a test adds anything else (new symptoms). All performance tests are retested every time; a blank means not tested, never zero.",
       "Silence this flag skips a re-assessment you don't need (it comes back for the next one). The tab also shows the month's body comp, an item-by-item history, and graphs of every number.",
       "Off-season report: the full picture to print or save at the end of the off-season. Findings and outcomes, start vs latest for every measurement, graphs, body comp change, and a coach's summary.",
-      "Body Composition: a trends graph of the Evolt scans, the manual sheets, or both drawn together on one graph (still separate records), for body fat, weight, lean mass, fat mass or muscle over 90 days, 6 months, 1 year or all time. Below it, the Evolt scans in pounds (weight, body fat, fat mass, skeletal muscle, lean mass, visceral fat, BWI, bio age), with the change since the first scan, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves once the weight, seven skinfolds and date are in; until then it's kept as a draft on that computer.",
+      "Body Composition: a trends graph of the Evolt scans, the manual sheets, or both drawn together on one graph (still separate records), for body fat, weight, lean mass, fat mass or muscle over 90 days, 6 months, 1 year or all time. Below it, the Evolt scans in pounds (weight, body fat, fat mass, skeletal muscle, lean mass, visceral fat, BWI, bio age), with the change since the first scan, plus the manual body comp sheet (skinfolds, girths, energy expenditure, macros and a meal plan, all calculated, and any figure can be typed over). Enter moves to the next box. It saves as soon as it has a date and anything measured, so a sheet can be finished later from any device (it's marked Incomplete in the list until the weight and all seven skinfolds are in). Click any saved sheet, or any Evolt scan, to open it and edit it; a scan can also be deleted there.",
       "Pitching: the pitching assessment, for pitchers.",
     ],
   },
@@ -6352,9 +6352,17 @@ function BodyCompTrends({ athleteId }) {
   );
 }
 
+// The Evolt scans on file, latest first. Clicking a scan opens it to correct its figures (or its date), or delete it;
+// the change saves to that scan's record and the trends graph follows.
+const BODYCOMP_EDIT_FIELDS = [
+  ["weightLb", "Weight (lb)"], ["bodyFatPct", "Body Fat %"], ["bodyFatLb", "Fat Mass (lb)"], ["smmLb", "Skeletal Muscle (lb)"],
+  ["lbmLb", "Lean Mass (lb)"], ["visceralFat", "Visceral Fat"], ["bwi", "BWI"], ["bioAge", "Bio Age"], ["bmi", "BMI"],
+];
 function BodyCompPanel({ athleteId }) {
   // with the year, since a history can run over several years: 9/22/26
   const scanDate = (k) => { const [y, m, d] = (k || "").split("-"); return y ? `${Number(m)}/${Number(d)}/${y.slice(2)}` : ""; };
+  const [, bump] = useState(0);
+  const [editing, setEditing] = useState(null); // { match, form } for the scan open for editing
   const scans = bodyCompScansLb(athleteId);
   if (!scans.length) {
     return (
@@ -6376,11 +6384,32 @@ function BodyCompPanel({ athleteId }) {
     const d = Math.round((latest[key] - first[key]) * 10) / 10;
     return `${d > 0 ? "+" : ""}${d}${unit} since ${scanDate(first.date)}`;
   };
+  const keyOf = (s) => `${s.evoltId || ""}|${s.date}|${s.time || ""}`;
+  const open = (s) => setEditing({ match: { evoltId: s.evoltId, date: s.date, time: s.time }, key: keyOf(s), form: { date: s.date || "", ...Object.fromEntries(BODYCOMP_EDIT_FIELDS.map(([k]) => [k, s[k] == null ? "" : String(s[k])])) } });
+  const changed = () => { window.dispatchEvent(new Event("dst-bodycomp-changed")); bump((x) => x + 1); };
+  const save = () => {
+    const f = editing.form;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.date)) { window.alert("Give the scan a date."); return; }
+    const patch = { date: f.date };
+    BODYCOMP_EDIT_FIELDS.forEach(([k]) => { const v = String(f[k]).trim(); patch[k] = v === "" || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100; });
+    // weights edited here are in pounds, so the old kilogram figures they were worked out from are dropped
+    patch.weightKg = null; patch.skeletalMuscleKg = null;
+    if (!window.AthleteStore.updateBodyComp(athleteId, editing.match, patch)) { window.alert("That scan couldn't be saved. Reload the page and try again."); return; }
+    setEditing(null);
+    changed();
+  };
+  const remove = () => {
+    if (!window.confirm(`Delete the scan from ${scanDate(editing.form.date)}? This can't be undone.`)) return;
+    if (!window.AthleteStore.deleteBodyComp(athleteId, editing.match)) { window.alert("That scan couldn't be deleted. Reload the page and try again."); return; }
+    setEditing(null);
+    changed();
+  };
+  const setForm = (k, v) => setEditing((e) => ({ ...e, form: { ...e.form, [k]: v } }));
 
   return (
     <div className="panel">
       <h2>
-        Body Composition <small>Evolt360 &middot; {scans.length} scan{scans.length === 1 ? "" : "s"} on file</small>
+        Body Composition <small>Evolt360 &middot; {scans.length} scan{scans.length === 1 ? "" : "s"} on file &middot; click a scan to edit it</small>
       </h2>
       <div className="metric-strip">
         <KpiCard label="Latest Weight" value={latest.weightLb != null ? `${fmt2(latest.weightLb)} lb` : "—"} sub={since("weightLb", " lb")} />
@@ -6394,35 +6423,33 @@ function BodyCompPanel({ athleteId }) {
           <thead>
             <tr>
               <th>Date</th>
-              <th>Weight (lb)</th>
-              <th>Body Fat %</th>
-              <th>Fat Mass (lb)</th>
-              <th>Skeletal Muscle (lb)</th>
-              <th>Lean Mass (lb)</th>
-              <th>Visceral Fat</th>
-              <th>BWI</th>
-              <th>Bio Age</th>
-              <th>BMI</th>
+              {BODYCOMP_EDIT_FIELDS.map(([k, label]) => <th key={k}>{label}</th>)}
             </tr>
           </thead>
           <tbody>
-            {[...scans].reverse().map((s, i) => (
-              <tr key={s.evoltId || i} style={{ cursor: "default" }}>
-                <td>{scanDate(s.date)}</td>
-                <td>{fmt2(s.weightLb) ?? "—"}</td>
-                <td>{fmt2(s.bodyFatPct) ?? "—"}</td>
-                <td>{fmt2(s.bodyFatLb) ?? "—"}</td>
-                <td>{fmt2(s.smmLb) ?? "—"}</td>
-                <td>{fmt2(s.lbmLb) ?? "—"}</td>
-                <td>{fmt2(s.visceralFat) ?? "—"}</td>
-                <td>{fmt2(s.bwi) ?? "—"}</td>
-                <td>{fmt2(s.bioAge) ?? "—"}</td>
-                <td>{fmt2(s.bmi) ?? "—"}</td>
+            {[...scans].reverse().map((s, i) => (editing && editing.key === keyOf(s) ? (
+              <tr key={keyOf(s) || i} className="bodycomp-edit-row no-print">
+                <td><input type="date" value={editing.form.date} onChange={(e) => setForm("date", e.target.value)} aria-label="Scan date" /></td>
+                {BODYCOMP_EDIT_FIELDS.map(([k, label]) => (
+                  <td key={k}><input inputMode="decimal" value={editing.form[k]} onChange={(e) => setForm(k, e.target.value)} aria-label={label} /></td>
+                ))}
               </tr>
-            ))}
+            ) : (
+              <tr key={keyOf(s) || i} className="bodycomp-row" title="Click to edit this scan" onClick={() => open(s)}>
+                <td>{scanDate(s.date)}</td>
+                {BODYCOMP_EDIT_FIELDS.map(([k]) => <td key={k}>{fmt2(s[k]) ?? "—"}</td>)}
+              </tr>
+            )))}
           </tbody>
         </table>
       </div>
+      {editing && (
+        <div className="bodycomp-edit-actions no-print">
+          <button className="btn btn-assign" onClick={save}>Save scan</button>
+          <button className="btn btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
+          <button className="btn-link" style={{ marginLeft: "auto", color: "var(--danger)" }} onClick={remove}>Delete this scan</button>
+        </div>
+      )}
     </div>
   );
 }

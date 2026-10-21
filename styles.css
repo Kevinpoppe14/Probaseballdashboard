@@ -3745,3 +3745,9 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .spd-editor .spd-extra input { flex: 1; min-width: 0; padding: 3px 6px; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; }
 :root[data-theme="light"] .spd-editor .spd-extra input { background: #fff; color: #111; }
 .spd-tools .spd-more { margin-right: auto; }
+/* body comp: a saved sheet or scan opens with a click anywhere on its row */
+.bcs-list-row, .bodycomp-row { cursor: pointer; }
+.bcs-list-row:hover td, .bodycomp-row:hover td { background: var(--row-hover, rgba(255, 255, 255, 0.04)); }
+.bcs-list-row .badge { margin-left: 6px; }
+.bodycomp-edit-row input { width: 100%; min-width: 64px; box-sizing: border-box; padding: 3px 5px; font-size: 12px; }
+.bodycomp-edit-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
