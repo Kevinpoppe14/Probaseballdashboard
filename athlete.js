@@ -1660,7 +1660,7 @@
             if (sr.name) card.append(el("div", { class: "spd-ser" }, sr.name));
             list.forEach((e) => {
               const info = exerciseInfo(e.name);
-              const rx = Rx.groups(e).map((g) => { const st = `${g.sets || ""}`.trim(), rp = `${g.reps || ""}`.trim(); return st && rp ? `${st} × ${rp}` : rp || (st ? `${st} sets` : ""); }).filter(Boolean).join(", ");
+              const rx = window.speedText(window.speedNormalize(JSON.parse(JSON.stringify(e)))); // "3 × 4 reps @ 10 yd"
               let time = null;
               if (e.record) {
                 const key = Rx.logKey(e, 0);

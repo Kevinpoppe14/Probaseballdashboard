@@ -1,8 +1,8 @@
 // Speed program builder. Speed days don't fit A1/A2 supersets, so a speed program is laid out the way the speed
 // sheets are: each day in sections (Warm-up, Plyometrics, Speed / Agility / Power Endurance, ESD), each with its
-// time, and inside a section, series (Acceleration Series - Prowler) holding drills, each with sets, a distance or
-// reps, a volume (yards or contacts, worked out from sets x distance unless typed) and a category that counts
-// toward the day's totals (Plyometrics, Technical, Application, ESD). It looks and works like the strength
+// time, and inside a section, series (Acceleration Series - Prowler) holding drills, each with its sets, reps and a
+// distance or time per rep (yd, ft, m, mi; s, min), totalled for each section and the day under it (reps, total
+// distance in yards, total time). It looks and works like the strength
 // builder: weeks one under another, each week's days side by side, "Fit week" sizing, and the week, day and
 // section being worked on standing out while the rest dims.
 //
@@ -12,10 +12,11 @@
 (function () {
   const { useState } = React;
   const DEFAULT_SECTIONS = ["Warm-up", "Plyometrics", "Speed / Agility / Power Endurance", "ESD"];
-  const CATS = window.SPEED_CATEGORIES;
   const uid = () => `ex-${Math.random().toString(36).slice(2, 9)}`;
-  const defaultCategory = (section) => (/plyo/i.test(section) ? "plyo" : /esd|endurance$/i.test(section) && !/speed/i.test(section) ? "esd" : /speed|agility/i.test(section) ? "technical" : "");
-  const newDrill = (section, series) => ({ id: uid(), name: "", tempo: "", intensityUnit: "", groups: [{ sets: "", reps: "", intensity: "" }], rest: "", notes: "", linked: false, section, series: series || "", volume: "", category: defaultCategory(section), record: false });
+  const newDrill = (section, series) => ({ id: uid(), name: "", tempo: "", intensityUnit: "", groups: [{ sets: "", reps: "", intensity: "" }], rest: "", notes: "", linked: false, section, series: series || "", distance: "", record: false });
+  // totals: reps (sets x reps), distance in yards, time
+  const round = (n) => Math.round(n * 10) / 10;
+  const clock = (sec) => { const s = Math.round(sec); return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`; };
   const newSpeedDay = (n) => ({ name: `Day ${n}`, sections: DEFAULT_SECTIONS.map((name) => ({ name, time: "" })), exercises: [] });
   const newSpeedProgram = (weeks = 4, days = 4) => ({ name: "", description: "", layout: "speed", tags: [], nextProgramIds: [], weeks: Array.from({ length: weeks }, (_, w) => ({ name: `Week ${w + 1}`, sessions: Array.from({ length: days }, (_, d) => newSpeedDay(d + 1)) })) });
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -25,7 +26,7 @@
     const [draft, setDraft] = useState(() => {
       const d = clone(initial && (initial.weeks || []).length ? initial : { ...newSpeedProgram(), ...(initial || {}), weeks: newSpeedProgram().weeks });
       d.layout = "speed";
-      d.weeks.forEach((w) => w.sessions.forEach((s) => { if (!Array.isArray(s.sections)) s.sections = window.speedSections(s).map((x) => ({ name: x.name, time: x.time })); s.exercises = s.exercises || []; }));
+      d.weeks.forEach((w) => w.sessions.forEach((s) => { if (!Array.isArray(s.sections)) s.sections = window.speedSections(s).map((x) => ({ name: x.name, time: x.time })); s.exercises = (s.exercises || []).map((e) => { const n = window.speedNormalize(e); delete n.volume; delete n.category; return n; }); }));
       return d;
     });
     const draftRef = React.useRef(draft);
@@ -156,17 +157,21 @@
     };
     const renameDay = (si, name) => edit((d) => sameDayEveryWeek(d, si, (s) => { s.name = name; }));
 
-    const totals = (s) => {
-      const out = {};
-      CATS.forEach(([k]) => { out[k] = { sets: 0, volume: 0 }; });
-      (s.exercises || []).forEach((e) => { if (!out[e.category]) return; out[e.category].sets += parseFloat((e.groups[0] || {}).sets) || 0; out[e.category].volume += window.speedVolume(e) || 0; });
-      return out;
+    // each section's reps, distance and time, and the day's
+    const totals = (sections) => {
+      const rows = sections.map((sec) => {
+        const t = { name: sec.name, reps: 0, yards: 0, seconds: 0 };
+        sec.series.forEach((sr) => sr.drills.forEach(({ e }) => { if (!(e.name || "").trim()) return; const a = window.speedAmount(e); t.reps += a.reps; t.yards += a.yards; t.seconds += a.seconds; }));
+        return t;
+      });
+      const all = rows.reduce((n, r) => ({ reps: n.reps + r.reps, yards: n.yards + r.yards, seconds: n.seconds + r.seconds }), { reps: 0, yards: 0, seconds: 0 });
+      return { rows: rows.filter((r) => r.reps || r.yards || r.seconds), all };
     };
 
     const dayCard = (s, wi, si) => {
-      const t = totals(s);
       const inThisWeek = focus && focus.wi === wi;
       const sections = window.speedSections(s);
+      const t = totals(sections);
       return (
         <div className={`program-day spd-day ${inThisWeek && focus.si !== si ? "day-dimmed" : ""}`} key={si}
           onMouseDown={() => { if (!focus || focus.wi !== wi || focus.si !== si) at(wi, si, null); }}>
@@ -193,17 +198,14 @@
                     {sr.name && <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, si, sec.name, sr.name, e.target.value)} />}
                     {sr.drills.map(({ e, index }) => {
                       const g = e.groups[0] || {};
-                      const auto = window.speedVolume({ ...e, volume: "" });
+                      const parsed = window.speedParse(e.distance);
+                      const unclear = (e.distance || "").trim() && !parsed;
                       return (
                         <div className="spd-drill" key={e.id}>
                           <input className="spd-name" list="exercise-library-names" value={e.name} placeholder="Drill" onChange={(ev) => setDrill(wi, si, index, { name: ev.target.value })} />
                           <input className="spd-num" value={g.sets || ""} placeholder="Sets" title="Sets" onChange={(ev) => setGroup(wi, si, index, { sets: ev.target.value })} />
-                          <input className="spd-dist" value={g.reps || ""} placeholder="@ yds / reps" title="Distance or reps, e.g. @7yds, 3 reps, 1x3e" onChange={(ev) => setGroup(wi, si, index, { reps: ev.target.value })} />
-                          <input className="spd-num" value={e.volume || ""} placeholder={auto ? String(auto) : "Vol"} title="Volume (yards or contacts); left blank it is sets x distance" onChange={(ev) => setDrill(wi, si, index, { volume: ev.target.value })} />
-                          <select className="spd-cat" value={e.category || ""} title="Counts toward this total" onChange={(ev) => setDrill(wi, si, index, { category: ev.target.value })}>
-                            <option value="">—</option>
-                            {CATS.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
-                          </select>
+                          <input className="spd-num" value={g.reps || ""} placeholder="Reps" title="Reps in each set" onChange={(ev) => setGroup(wi, si, index, { reps: ev.target.value })} />
+                          <input className={`spd-dist${unclear ? " unclear" : ""}`} value={e.distance || ""} placeholder="Dist / time" title={unclear ? "Not read as a distance or time, so it isn't in the totals. Try 10 yd, 120 ft, 30 m, 6 s or 1:00." : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 2 min, 1:00"} onChange={(ev) => setDrill(wi, si, index, { distance: ev.target.value })} />
                           <input className="spd-notes" value={e.notes || ""} placeholder="Notes" onChange={(ev) => setDrill(wi, si, index, { notes: ev.target.value })} />
                           <span className="spd-tools">
                             <label title="The athlete writes in their best time"><input type="checkbox" checked={!!e.record} onChange={(ev) => setDrill(wi, si, index, { record: ev.target.checked })} /> Time</label>
@@ -226,10 +228,10 @@
           })}
           <button className="btn-link spd-add" title="Add a section to this day in every week" onClick={() => addSection(si)}>+ Section</button>
           <table className="spd-totals">
-            <thead><tr><th>Totals</th><th>Sets</th><th>Volume</th></tr></thead>
+            <thead><tr><th>Totals</th><th>Reps</th><th>Distance</th><th>Time</th></tr></thead>
             <tbody>
-              {CATS.map(([c, label]) => <tr key={c}><td>{label}</td><td>{t[c].sets}</td><td>{t[c].volume}</td></tr>)}
-              <tr className="spd-total-row"><td>Total</td><td>{CATS.reduce((n, [c]) => n + t[c].sets, 0)}</td><td>{CATS.reduce((n, [c]) => n + t[c].volume, 0)}</td></tr>
+              {t.rows.map((r) => <tr key={r.name}><td>{r.name}</td><td>{r.reps || ""}</td><td>{r.yards ? `${round(r.yards)} yd` : ""}</td><td>{r.seconds ? clock(r.seconds) : ""}</td></tr>)}
+              <tr className="spd-total-row"><td>Day</td><td>{t.all.reps || ""}</td><td>{t.all.yards ? `${round(t.all.yards)} yd` : "—"}</td><td>{t.all.seconds ? clock(t.all.seconds) : "—"}</td></tr>
             </tbody>
           </table>
         </div>

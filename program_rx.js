@@ -184,17 +184,51 @@
   // ---- the speed layout (speed_builder.js) ------------------------------------------------------------
   // A speed program is laid out in sections (Warm-up, Plyometrics, Speed / Agility...), each with its time, and
   // inside a section, series (Acceleration Series - Prowler) holding drills, instead of A1/A2 supersets. Each drill
-  // is an ordinary exercise with `section`, and optionally `series`, `volume` (yards or contacts), `category`
-  // (plyo, technical, application, esd) and `record` (write in a best time). The day keeps its sections' order and
-  // times in `sections` ([{ name, time }]).
-  window.SPEED_CATEGORIES = [["plyo", "Plyometrics"], ["technical", "Technical"], ["application", "Application"], ["esd", "ESD"]];
+  // is an ordinary exercise with `section`, optionally `series`, its sets and reps in its one set group, `distance`
+  // (a distance or a time for each rep: "10 yd", "120 ft", "30 m", "6 s", "1:00") and `record` (write in a best
+  // time). The day keeps its sections' order and times in `sections` ([{ name, time }]).
   window.isSpeedSession = (s) => !!s && (s.exercises || []).some((e) => e && e.section);
   window.isSpeedProgram = (p) => !!p && (p.layout === "speed" || (p.weeks || []).some((w) => (w.sessions || []).some(window.isSpeedSession)));
-  // a drill's volume: as written, or else its sets times the first number in its distance ("@7yds" x 3 = 21)
-  window.speedVolume = (e) => {
-    const v = parseFloat(e && e.volume);
-    if (Number.isFinite(v)) return v;
-    return ProgramRx.groups(e).reduce((n, g) => { const sets = parseFloat(g.sets) || 1, d = parseFloat(String(g.reps || "").replace(/^[^0-9.]*/, "")); return Number.isFinite(d) ? n + sets * d : n; }, 0);
+  // "10 yd", "120 feet", "30m", "40 meters", "@7yds", "6 s", "6 seconds", "2 min", "1:30" -> { yards } or { seconds },
+  // or null. A bare number counts as yards.
+  window.speedParse = (text) => {
+    const t = String(text || "").trim().toLowerCase().replace(/^@\s*/, "");
+    let m = /^(\d+):(\d{1,2})$/.exec(t);
+    if (m) return { seconds: Number(m[1]) * 60 + Number(m[2]) };
+    m = /^(\d+(?:\.\d+)?)\s*([a-z'"]*)/.exec(t);
+    if (!m) return null;
+    const n = Number(m[1]), u = m[2];
+    if (/^(s|sec|secs|second|seconds)$/.test(u)) return { seconds: n };
+    if (/^(min|mins|minute|minutes)$/.test(u)) return { seconds: n * 60 };
+    if (/^(ft|feet|foot|')$/.test(u)) return { yards: n / 3 };
+    if (/^(m|meter|meters|metre|metres)$/.test(u)) return { yards: n * 1.09361 };
+    if (/^(mi|mile|miles)$/.test(u)) return { yards: n * 1760 };
+    if (/^(|y|yd|yds|yard|yards)$/.test(u)) return { yards: n };
+    return null;
+  };
+  // a drill's whole amount: sets x reps x its distance (or time) per rep -> { reps, yards, seconds }
+  window.speedAmount = (e) => {
+    const g = ((e && e.groups) || [])[0] || {};
+    const sets = parseFloat(g.sets) || 1, reps = parseFloat(g.reps) || 1, per = window.speedParse(e && e.distance);
+    const count = sets * reps;
+    return { reps: `${g.sets || ""}${g.reps || ""}`.trim() ? count : 0, yards: per && per.yards ? count * per.yards : 0, seconds: per && per.seconds ? count * per.seconds : 0 };
+  };
+  // how a drill reads in the app and Coach Mode: "3 × 4 reps @ 10 yd", "2 × 6 s", "120 ft"
+  window.speedText = (e) => {
+    const g = ((e && e.groups) || [])[0] || {};
+    const sets = `${g.sets || ""}`.trim(), reps = `${g.reps || ""}`.trim(), dist = `${(e && e.distance) || ""}`.trim().replace(/^@\s*/, "");
+    const word = (r) => `${r}${/^\d+$/.test(r) ? (r === "1" ? " rep" : " reps") : ""}`;
+    const count = sets && reps ? `${sets} × ${word(reps)}` : sets ? (dist ? `${sets} ×` : `${sets} sets`) : reps ? word(reps) : "";
+    return [count, dist ? (sets && !reps ? dist : count ? `@ ${dist}` : dist) : ""].filter(Boolean).join(" ");
+  };
+  // a drill made before `distance` existed kept its distance in the reps box ("@7yds"): moved to `distance`
+  window.speedNormalize = (e) => {
+    const g = ((e && e.groups) || [])[0];
+    if (!e || !g || `${e.distance || ""}`.trim()) return e;
+    const r = `${g.reps || ""}`.trim();
+    if (/^\d+\s*reps?$/i.test(r)) g.reps = r.replace(/\D+$/, "");
+    else if (/^@/.test(r) || (window.speedParse(r) && !/^\d+$/.test(r))) { e.distance = r.replace(/^@\s*/, ""); g.reps = ""; }
+    return e;
   };
   // a day's sections in order, each with its time and its drills in series: [{ name, time, series: [{ name, drills: [{ e, index }] }] }]
   window.speedSections = (s) => {

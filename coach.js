@@ -424,14 +424,13 @@
     const ordered = speed
       ? window.speedSections(day).flatMap((sec) => sec.series.flatMap((sr) => sr.drills.map(({ e }) => { where.set(e, { section: `${sec.name}${sec.time ? ` · ${sec.time}` : ""}`, series: sr.name }); return e; })))
       : day.exercises || [];
-    const speedText = (g) => { const st = `${g.sets || ""}`.trim(), rp = `${g.reps || ""}`.trim(); return st && rp ? `${st} × ${rp}` : rp || (st ? `${st} sets` : ""); };
     return {
       groupId: speedGroupId, group: group.name, date: speedDate, fromProgram: true,
       title: `${p.program.name} · Week ${p.week + 1} · ${day.name || `Day ${d + 1}`}`,
       items: ordered.filter((e) => (e.name || "").trim()).map((e) => {
         const base = {
           name: e.name.trim(),
-          detail: Rx.groups(e).map((g) => (speed ? speedText(g) : Rx.groupText(e, g))).join(", "),
+          detail: speed ? window.speedText(window.speedNormalize(JSON.parse(JSON.stringify(e)))) : Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
           ...(speed ? { _section: where.get(e).section, _series: where.get(e).series } : {}),
           notes: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", window.ProgramRx.extrasText(e), e.notes || ""].filter(Boolean).join(" · "),
         };

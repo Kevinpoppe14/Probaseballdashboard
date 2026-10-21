@@ -3699,7 +3699,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .spd-series { margin: 4px 0; }
 .spd-series.named { border-left: 3px solid rgba(148, 163, 184, 0.6); padding-left: 6px; }
 .spd-series-name { width: 100%; box-sizing: border-box; font-weight: 700; font-size: 12px; padding: 3px 6px; margin-bottom: 3px; }
-.spd-drill { display: grid; grid-template-columns: 1fr 42px 84px 48px 92px; gap: 3px; margin-top: 4px; padding: 3px 4px; border: 1px solid rgba(148, 163, 184, 0.45); border-left: 4px solid var(--dst-red); border-radius: 5px; background: rgba(148, 163, 184, 0.06); }
+.spd-drill { display: grid; grid-template-columns: 1fr 44px 44px 92px; gap: 3px; margin-top: 4px; padding: 3px 4px; border: 1px solid rgba(148, 163, 184, 0.45); border-left: 4px solid var(--dst-red); border-radius: 5px; background: rgba(148, 163, 184, 0.06); }
 .spd-drill input, .spd-drill select { min-width: 0; padding: 3px 4px; font-size: 12px; }
 .spd-notes { grid-column: 1 / -1; }
 .spd-tools { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 11px; color: var(--text-dim); }
@@ -3712,3 +3712,9 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .spd-total-row td { font-weight: 700; }
 .program-editor .spd-day { padding-bottom: 10px; }
 .program-day-actions.spd-bottom { position: static; margin-top: 12px; }
+/* every box in the speed builder filled black, like the strength builder's (white in light mode) */
+.spd-editor .spd-drill input, .spd-editor .spd-series-name, .spd-editor .spd-title, .spd-editor .spd-desc { background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; }
+.spd-editor .spd-drill .spd-num { text-align: center; }
+.spd-editor .spd-drill input.unclear { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+:root[data-theme="light"] .spd-editor .spd-drill input, :root[data-theme="light"] .spd-editor .spd-series-name, :root[data-theme="light"] .spd-editor .spd-title, :root[data-theme="light"] .spd-editor .spd-desc { background: #fff; color: #111; }
+.spd-totals th:not(:first-child), .spd-totals td:not(:first-child) { white-space: nowrap; }
