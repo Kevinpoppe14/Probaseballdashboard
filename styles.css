@@ -3737,3 +3737,5 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .spd-editor .program-week-head .btn-link.program-remove-week, :root[data-theme="light"] .spd-editor .program-week-head .btn-link.program-remove-week { color: #fff; }
 .spd-editor .btn.program-copy-prev-week, :root[data-theme="light"] .spd-editor .btn.program-copy-prev-week { background: #000; border-color: rgba(255, 255, 255, 0.5); color: #fff; }
 .spd-editor .btn.program-copy-prev-week:hover, :root[data-theme="light"] .spd-editor .btn.program-copy-prev-week:hover { background: #1a1a1a; border-color: #fff; }
+/* the speed builder's day being progressed: lit in every week (the other days are dimmed with .day-dimmed) */
+.spd-editor .program-day.day-focused { border: 2px solid var(--dst-red); box-shadow: 0 0 12px rgba(165, 42, 52, 0.3); }

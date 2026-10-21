@@ -34,9 +34,11 @@
     const edit = (fn) => { if (onDirty) onDirty(); setDraft((d) => { const c = clone(d); fn(c); return c; }); };
     const canSave = (draft.name || "").trim().length > 0;
 
-    // ---- where the coach is working: that week, that day and that section stand out; the rest is dimmed ----
-    const [focus, setFocus] = useState(null); // { wi, si, sec }
-    const at = (wi, si, sec) => setFocus((f) => (f && f.wi === wi && f.si === si && f.sec === sec ? f : { wi, si, sec }));
+    // ---- where the coach is working: a day is followed through the program, so clicking into Day 1 lights Day 1 in
+    // every week (and the section clicked into, in each of them) and dims every other day, to progress that day
+    // from week to week ----
+    const [focus, setFocus] = useState(null); // { si, sec }
+    const at = (si, sec) => setFocus((f) => (f && f.si === si && f.sec === sec ? f : { si, sec }));
 
     // ---- size: as in the strength builder, "Fit week" shrinks each week just enough for all its days to fit across ----
     const rootRef = React.useRef(null);
@@ -172,21 +174,21 @@
     };
 
     const dayCard = (s, wi, si) => {
-      const inThisWeek = focus && focus.wi === wi;
+      const dayCls = focus ? (focus.si === si ? "day-focused" : "day-dimmed") : "";
       const sections = window.speedSections(s);
       const t = totals(sections);
       return (
-        <div className={`program-day spd-day ${inThisWeek && focus.si !== si ? "day-dimmed" : ""}`} key={si}
-          onMouseDown={() => { if (!focus || focus.wi !== wi || focus.si !== si) at(wi, si, null); }}>
+        <div className={`program-day spd-day ${dayCls}`} key={si}
+          onMouseDown={() => { if (!focus || focus.si !== si) at(si, null); }}>
           <div className="program-session-head">
             <input className="program-session-name" value={s.name || ""} aria-label="Day name" title="The day's name is the same in every week" onChange={(e) => renameDay(si, e.target.value)} />
             <button className="btn-link" title="Remove this day from every week" disabled={days <= 1} onClick={() => removeDay(si)}>✕</button>
           </div>
           {sections.map((sec, k) => {
-            const on = focus && focus.wi === wi && focus.si === si && focus.sec;
+            const on = focus && focus.si === si && focus.sec;
             const cls = on ? (focus.sec === sec.name ? "sec-focused" : "sec-dimmed") : "";
             return (
-              <div className={`spd-section ${cls}`} key={sec.name} onMouseDown={(e) => { e.stopPropagation(); at(wi, si, sec.name); }} onFocusCapture={() => at(wi, si, sec.name)}>
+              <div className={`spd-section ${cls}`} key={sec.name} onMouseDown={(e) => { e.stopPropagation(); at(si, sec.name); }} onFocusCapture={() => at(si, sec.name)}>
                 <div className="spd-section-head">
                   <input className="spd-sec-name" value={sec.name} aria-label="Section name" title="The section's name is the same in every week" onChange={(e) => renameSection(si, sec.name, e.target.value)} />
                   <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => setTime(wi, si, sec.name, e.target.value)} />
@@ -269,10 +271,9 @@
           <input className="spd-title" value={draft.name || ""} placeholder="Program name (e.g. MLB/MiLB OS Speed Ph I)" onChange={(e) => edit((d) => { d.name = e.target.value; })} />
           <input className="spd-desc" value={draft.description || ""} placeholder="Description (optional)" onChange={(e) => edit((d) => { d.description = e.target.value; })} />
         </div>
-        <p className="timestamp-note">Click into a day to work on it: its week stands out and the other weeks and days dim, and the section you're in is highlighted. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>
+        <p className="timestamp-note">Click into a day to work on it: that day lights up in every week and the other days dim, so you can progress it through the program, and the section you're in is highlighted in each week. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>
         {draft.weeks.map((w, wi) => (
-          <div className={`program-week ${focus ? (focus.wi === wi ? "focused" : "dimmed") : ""}`} key={wi}
-            onMouseDown={() => { if (!focus || focus.wi !== wi) at(wi, null, null); }}>
+          <div className="program-week" key={wi}>
             <div className="program-week-head">
               <input className="program-week-name" value={w.name || ""} aria-label="Week name" onChange={(e) => edit((d) => { d.weeks[wi].name = e.target.value; })} />
               {wi > 0 && <button className="btn btn-small-grey program-copy-prev-week" title={`Replace ${w.name || `week ${wi + 1}`} with a copy of the week before`} onClick={() => copyPrevWeek(wi)}>Copy previous week</button>}
