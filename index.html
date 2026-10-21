@@ -65,6 +65,7 @@
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
 <script type="text/babel" data-presets="react" src="evolt_import.js"></script>
 <script type="text/babel" data-presets="react" src="ovr_import.js"></script>
+<script type="text/babel" data-presets="react" src="speed_builder.js"></script>
 <script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="form_checks.js"></script>
@@ -1625,7 +1626,11 @@ function ProgramTags({ tags, all, onChange }) {
   );
 }
 
-function ProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, pdfAthlete }) {
+// A speed program (sections and series, speed_builder.js) opens in its own builder; every other program in this one.
+function ProgramEditor(props) {
+  return props.initial && window.isSpeedProgram(props.initial) && window.SpeedProgramEditor ? <window.SpeedProgramEditor {...props} /> : <StandardProgramEditor {...props} />;
+}
+function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, pdfAthlete }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   // ---- undo and redo ---------------------------------------------------------------------------------
   // Every change to the program can be stepped back with Ctrl+Z (or the Undo button) and forward again with
@@ -2599,10 +2604,10 @@ function ProgramsPage({ nav, setNav }) {
   // folder: path of the folder being viewed ("" is the top level). A folder that no longer exists falls back to the top.
   const folder = nav.folder && folders.includes(nav.folder) ? nav.folder : "";
   // editing: null = list, {} = new program, record = editing that one. assigning: the program being assigned, if any.
-  const editing = nav.editingId === "new" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
+  const editing = nav.editingId === "new" || nav.editingId === "new-speed" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
   // a new program started from an existing one: a copy of it with its own exercise ids, saved as a separate program
   const copySource = nav.editingId === "new" && nav.copyFromId ? programs.find((p) => p.id === nav.copyFromId) : null;
-  const copyStart = copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], tags: [...(copySource.tags || [])], weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
+  const copyStart = nav.editingId === "new-speed" && window.SpeedKit ? window.SpeedKit.newSpeedProgram() : copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], tags: [...(copySource.tags || [])], ...(copySource.layout ? { layout: copySource.layout } : {}), weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
   const [newChoice, setNewChoice] = useState(null); // null, "ask" (the two choices showing) or "copy" (picking a program)
   const [copyQuery, setCopyQuery] = useState("");
   const assigning = (nav.assigningId && programs.find((p) => p.id === nav.assigningId)) || null;
@@ -2724,7 +2729,7 @@ function ProgramsPage({ nav, setNav }) {
   if (editing) {
     return (
       <ProgramEditor
-        key={editing.id || `new-${nav.copyFromId || ""}`}
+        key={editing.id || `${nav.editingId}-${nav.copyFromId || ""}`}
         initial={editing.id ? editing : copyStart}
         onSave={save}
         onSaveAndAssign={(rec) => {
@@ -2795,6 +2800,7 @@ function ProgramsPage({ nav, setNav }) {
           <strong>How do you want to start?</strong>
           <div className="new-program-options">
             <button className="btn btn-assign" onClick={() => { setNewChoice(null); setEditing({}); }}>Build from scratch</button>
+            <button className="btn btn-assign" title="Days laid out in sections (Warm-up, Plyometrics, Speed...) and series instead of A1/A2, with each week side by side" onClick={() => { setNewChoice(null); setNav((n) => ({ ...n, editingId: "new-speed", copyFromId: null })); }}>Build a speed program</button>
             <button className={`btn ${newChoice === "copy" ? "btn-assign" : "btn-secondary"}`} onClick={() => setNewChoice("copy")}>Modify an existing program</button>
             <button className="btn-link" onClick={() => setNewChoice(null)}>Cancel</button>
           </div>
@@ -3850,6 +3856,7 @@ const HELP_SECTIONS = [
     items: [
       "Programs live in folders (including Athletes › each athlete's own programs). Search with the box, filter by tag, and move programs with the check boxes.",
       "New program asks whether to start from scratch or from a copy of an existing one.",
+      "Build a speed program (under + New program): for speed days that don't fit A1/A2. Each day is laid out in sections (Warm-up, Plyometrics, Speed / Agility / Power Endurance, ESD, or your own), each with its time, and inside a section, series (e.g. Acceleration Series - Prowler) holding drills, each with sets, a distance or reps (@7yds, 3 reps), a volume (yards or contacts; left blank it's sets x distance) and a category that adds to the day's totals (Plyometrics, Technical, Application, ESD). One day is shown at a time with its weeks side by side; Copy → next week starts the next week from this one. Tick Time on a drill for the athlete to write in their best time. In the athlete's app only that day of that week shows, in its sections and series, and Coach Mode's Speed screen shows the same headings. It's assigned and sent like any program.",
       "Assign (red) puts a program on athletes' plans or on a group (for group speed in Coach Mode). Save & assign does both from the builder.",
       "Speed sessions sent to athletes' apps are hidden here unless you show them.",
       "1RM chart: the % of max assumed for each number of reps to failure (BM/TF sets), used for estimated maxes.",

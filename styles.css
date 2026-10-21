@@ -3676,3 +3676,38 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .add-coach-help, .add-coach-note { font-size: 13px; line-height: 1.5; color: var(--text-dim); max-width: 760px; }
 .add-coach-table input { width: 100%; max-width: 260px; }
 .add-coach-table td { vertical-align: middle; }
+
+/* ---- speed program builder (speed_builder.js): a day's weeks side by side, in sections and series ---- */
+.spd-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.spd-title { flex: 2 1 280px; font-size: 16px; font-weight: 700; padding: 6px 8px; }
+.spd-desc { flex: 3 1 300px; padding: 6px 8px; }
+.spd-counts { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.spd-days { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 6px; }
+.spd-day-tools { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; margin-bottom: 6px; }
+.spd-day-tools input { padding: 3px 6px; }
+.spd-section-order { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.spd-chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); }
+.spd-chip input { border: none; background: transparent; color: var(--text); font-size: 12px; padding: 2px; }
+.spd-x { border: none; background: none; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 0 3px; }
+.spd-x:hover { color: var(--text); }
+.spd-weeks { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: flex-start; }
+.spd-week { flex: 0 0 440px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); padding: 8px; }
+.spd-week-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.spd-week-name { font-weight: 700; font-size: 14px; width: 110px; padding: 3px 6px; }
+.spd-section { border-top: 2px solid var(--dst-red); padding: 6px 0 4px; margin-top: 6px; }
+.spd-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
+.spd-time { width: 70px; padding: 2px 6px; font-size: 12px; text-transform: none; }
+.spd-series { margin: 4px 0; }
+.spd-series.named { border-left: 3px solid var(--text-dim); padding-left: 6px; }
+.spd-series-name { width: 100%; font-weight: 700; font-size: 12px; padding: 3px 6px; margin-bottom: 3px; }
+.spd-drill { display: grid; grid-template-columns: 1fr 42px 88px 48px 92px; gap: 3px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.spd-drill input, .spd-drill select { min-width: 0; padding: 3px 4px; font-size: 12px; }
+.spd-tools { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 11px; color: var(--text-dim); order: 3; }
+.spd-tools label { display: inline-flex; align-items: center; gap: 3px; margin-right: auto; cursor: pointer; }
+.spd-notes { grid-column: 1 / -1; }
+.spd-add { font-size: 12px; margin: 3px 8px 0 0; }
+.spd-section-foot { display: flex; }
+.spd-totals { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 12px; }
+.spd-totals th, .spd-totals td { padding: 2px 6px; border-bottom: 1px solid var(--border); text-align: right; }
+.spd-totals th:first-child, .spd-totals td:first-child { text-align: left; }
+.spd-total-row td { font-weight: 700; }

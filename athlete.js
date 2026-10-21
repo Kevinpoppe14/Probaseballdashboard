@@ -672,6 +672,7 @@
   const UNLOADED = /sprint|\brun\b|running|jog|shuffle|skip|carioca|bound|hop|jump|mobility|stretch|breath|plank|bird dog|dead bug|walk|march|crawl|acceleration|flying|pogo|agility|cone|start\b|warm-?up|foam roll|90\/90|cat cow|t-spine|thoracic/i;
   const unloaded = (item, e) => {
     const name = e.name || "";
+    if (e.section) return true; // a drill on a speed day: nothing to weigh (a best time, if asked for, has its own box)
     if (LOADED.test(name)) return false;
     return String(item.program.id || "").startsWith("gspeed-") || UNLOADED.test(name);
   };
@@ -1643,7 +1644,42 @@
       }
       let group = null;
       const blocks = []; // each card (A, B, ...) and its exercises, so it can fold up once it's done
-      rows.forEach((e, ei) => {
+      // A speed day (speed_builder.js) is shown in its sections, each a card with its time, and its series as
+      // headings over their drills: "3 × @7yds", the coach's note, and a box for a best time where the drill asks for
+      // one. Each section folds up with its Done button, as a block does.
+      if (s && window.isSpeedSession(s)) {
+        window.speedSections(s).forEach((sec) => {
+          const drills = sec.series.flatMap((x) => x.drills).map((d) => d.e).filter((e) => (e.name || "").trim());
+          if (!drills.length) return;
+          const card = el("div", { class: "group spd" }, el("div", { class: "spd-sec" }, el("span", null, sec.name), sec.time ? el("small", null, sec.time) : null));
+          main.append(card);
+          blocks.push({ card, rows: drills, letter: sec.name });
+          sec.series.forEach((sr) => {
+            const list = sr.drills.map((d) => d.e).filter((e) => (e.name || "").trim());
+            if (!list.length) return;
+            if (sr.name) card.append(el("div", { class: "spd-ser" }, sr.name));
+            list.forEach((e) => {
+              const info = exerciseInfo(e.name);
+              const rx = Rx.groups(e).map((g) => { const st = `${g.sets || ""}`.trim(), rp = `${g.reps || ""}`.trim(); return st && rp ? `${st} × ${rp}` : rp || (st ? `${st} sets` : ""); }).filter(Boolean).join(", ");
+              let time = null;
+              if (e.record) {
+                const key = Rx.logKey(e, 0);
+                time = el("input", { class: "spd-time-box", type: "text", inputmode: "decimal", placeholder: "best time", "aria-label": `Best time for ${e.name}`, autocomplete: "off", value: logged(item.program.id, key) });
+                time.addEventListener("blur", () => save(item.program.id, key, time.value.trim()));
+              }
+              card.append(el("div", { class: `ex spd-drill${sr.name ? " in-series" : ""}` },
+                el("div", { class: "ex-head" },
+                  info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name),
+                  info && info.videoUrl ? videoThumb(info) : null,
+                  canFilm && !(info && info.videoUrl) ? (() => { const b = el("button", { class: "film", "aria-label": `Film a video for ${e.name}`, title: "Film a video for this exercise", onclick: () => filmVideo(e) }); b.innerHTML = CAMERA; return b; })() : null,
+                  rx ? el("span", { class: "spd-rx" }, rx) : null),
+                e.notes ? el("div", { class: "notes coach-note" }, e.notes) : null,
+                time ? el("div", { class: "spd-time-row" }, time) : null));
+            });
+          });
+        });
+      }
+      else rows.forEach((e, ei) => {
         if (!group || !(ei > 0 && e.linked)) { // a superset shares one card
           group = el("div", { class: "group" });
           main.append(group);

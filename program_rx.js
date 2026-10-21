@@ -181,6 +181,38 @@
   // is one per athlete per week; they are reached from the athlete's plan and kept out of the program library.
   window.isSentProgram = (id) => /^g(speed|strength)-/.test(String(id || ""));
 
+  // ---- the speed layout (speed_builder.js) ------------------------------------------------------------
+  // A speed program is laid out in sections (Warm-up, Plyometrics, Speed / Agility...), each with its time, and
+  // inside a section, series (Acceleration Series - Prowler) holding drills, instead of A1/A2 supersets. Each drill
+  // is an ordinary exercise with `section`, and optionally `series`, `volume` (yards or contacts), `category`
+  // (plyo, technical, application, esd) and `record` (write in a best time). The day keeps its sections' order and
+  // times in `sections` ([{ name, time }]).
+  window.SPEED_CATEGORIES = [["plyo", "Plyometrics"], ["technical", "Technical"], ["application", "Application"], ["esd", "ESD"]];
+  window.isSpeedSession = (s) => !!s && (s.exercises || []).some((e) => e && e.section);
+  window.isSpeedProgram = (p) => !!p && (p.layout === "speed" || (p.weeks || []).some((w) => (w.sessions || []).some(window.isSpeedSession)));
+  // a drill's volume: as written, or else its sets times the first number in its distance ("@7yds" x 3 = 21)
+  window.speedVolume = (e) => {
+    const v = parseFloat(e && e.volume);
+    if (Number.isFinite(v)) return v;
+    return ProgramRx.groups(e).reduce((n, g) => { const sets = parseFloat(g.sets) || 1, d = parseFloat(String(g.reps || "").replace(/^[^0-9.]*/, "")); return Number.isFinite(d) ? n + sets * d : n; }, 0);
+  };
+  // a day's sections in order, each with its time and its drills in series: [{ name, time, series: [{ name, drills: [{ e, index }] }] }]
+  window.speedSections = (s) => {
+    const xs = (s && s.exercises) || [];
+    const order = ((s && s.sections) || []).map((x) => x.name);
+    xs.forEach((e) => { const n = e.section || "Other"; if (!order.includes(n)) order.push(n); });
+    return order.map((name) => {
+      const series = [];
+      xs.forEach((e, index) => {
+        if ((e.section || "Other") !== name) return;
+        const last = series[series.length - 1];
+        if (last && last.name === (e.series || "")) last.drills.push({ e, index });
+        else series.push({ name: e.series || "", drills: [{ e, index }] });
+      });
+      return { name, time: (((s && s.sections) || []).find((x) => x.name === name) || {}).time || "", series };
+    });
+  };
+
   // An exercise video link as something that can be embedded (YouTube incl. Shorts, Vimeo), or a clip a coach
   // filmed or uploaded ({ file: true }: played in a <video> rather than a frame).
   window.videoEmbedOf = function (url) {

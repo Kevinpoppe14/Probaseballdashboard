@@ -30,6 +30,16 @@
   :root[data-theme="light"] .sheet, :root[data-theme="light"] .card, :root[data-theme="light"] .group { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
   /* the sun/moon button, top right */
   .theme-toggle { position: absolute; right: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); }
+  /* a speed day: sections as cards with their time, series as headings, each drill with its sets x distance */
+  .group.spd .spd-sec { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0 8px; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label, var(--accent)); }
+  .group.spd .spd-sec small { font-weight: 700; color: var(--dim); letter-spacing: 0; }
+  .spd-ser { margin: 8px 0 2px; font-size: 13px; font-weight: 700; color: var(--text); }
+  .spd-drill.in-series { padding-left: 10px; border-left: 2px solid var(--border); }
+  .spd-drill .ex-head { flex-wrap: wrap; }
+  .spd-rx { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--pct); white-space: nowrap; }
+  :root[data-theme="light"] .spd-rx { color: var(--text); }
+  .spd-time-row { margin-top: 4px; }
+  .spd-time-box { width: 110px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 15px; }
   /* Training log calendar on the Plan tab: a dot per logged day, the tapped day's detail below */
   .tl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-weight: 700; }
   .tl-head > div { text-align: center; }

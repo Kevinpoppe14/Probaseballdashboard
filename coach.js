@@ -418,13 +418,21 @@
     const Rx = window.ProgramRx;
     const seenNames = {}; // how many times each drill name has come up so far in this day
     const group = speedGroups.find((g) => g.id === speedGroupId) || { name: "" };
+    // a day from the speed builder keeps its sections and series as headings (_section, _series) over its drills
+    const speed = window.isSpeedSession(day);
+    const where = new Map();
+    const ordered = speed
+      ? window.speedSections(day).flatMap((sec) => sec.series.flatMap((sr) => sr.drills.map(({ e }) => { where.set(e, { section: `${sec.name}${sec.time ? ` · ${sec.time}` : ""}`, series: sr.name }); return e; })))
+      : day.exercises || [];
+    const speedText = (g) => { const st = `${g.sets || ""}`.trim(), rp = `${g.reps || ""}`.trim(); return st && rp ? `${st} × ${rp}` : rp || (st ? `${st} sets` : ""); };
     return {
       groupId: speedGroupId, group: group.name, date: speedDate, fromProgram: true,
       title: `${p.program.name} · Week ${p.week + 1} · ${day.name || `Day ${d + 1}`}`,
-      items: (day.exercises || []).filter((e) => (e.name || "").trim()).map((e) => {
+      items: ordered.filter((e) => (e.name || "").trim()).map((e) => {
         const base = {
           name: e.name.trim(),
-          detail: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
+          detail: Rx.groups(e).map((g) => (speed ? speedText(g) : Rx.groupText(e, g))).join(", "),
+          ...(speed ? { _section: where.get(e).section, _series: where.get(e).series } : {}),
           notes: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", window.ProgramRx.extrasText(e), e.notes || ""].filter(Boolean).join(" · "),
         };
         const key = String(e.id || base.name.toLowerCase());
@@ -433,7 +441,7 @@
         const spot = `${d}|${seenNames[nm]}`;
         const swap = swapFor(p, d, key, base.name, spot);
         // _key, _orig and _swap are for this screen only; copyItems() drops them before anything is saved
-        return swap ? { ...swap.to, _key: key, _spot: spot, _orig: base, _swap: swap } : { ...base, _key: key, _spot: spot };
+        return swap ? { ...swap.to, _section: base._section, _series: base._series, _key: key, _spot: spot, _orig: base, _swap: swap } : { ...base, _key: key, _spot: spot };
       }),
       notes: (day.warmup || "").trim() ? `Warm-up: ${day.warmup.trim()}` : "",
     };
@@ -804,6 +812,12 @@
         el("h2", { class: "speed-h" }, s.title || "Speed session", el("small", null, `${s.group} · ${dayText(s.date)}`)),
         el("ol", { class: "speed-list" }, s.items.map((it, i) => {
           const key = `${speedId()}|${i}`;
+          // a speed-builder day: its section and series headings, where they change
+          const prev = s.items[i - 1] || {};
+          const heads = [
+            it._section && it._section !== prev._section ? el("div", { class: "speed-sec" }, it._section) : null,
+            it._series && (it._series !== prev._series || it._section !== prev._section) ? el("div", { class: "speed-ser" }, it._series) : null,
+          ].filter(Boolean);
           const li = el("li", { class: speedTicks.has(key) ? "ticked" : "" },
             el("label", null,
               el("input", { type: "checkbox", checked: speedTicks.has(key), onchange: (e) => { if (e.target.checked) speedTicks.add(key); else speedTicks.delete(key); li.classList.toggle("ticked", e.target.checked); } }),
@@ -811,6 +825,7 @@
                 it._orig ? el("small", { class: "speed-changed" }, `Changed ${it._swap.scope === "phase" ? "for the rest of the program" : "for today"}. Program: ${it._orig.name}${it._orig.detail ? `, ${it._orig.detail}` : ""}`) : null)),
             prog ? el("button", { class: `speed-swap${it._orig ? " on" : ""}`, title: "Change drill or sets and reps", "aria-label": `Change ${it.name} or its sets and reps`, onclick: () => { speedSwapOpen = speedSwapOpen === i ? null : i; drawSpeed(); } }, "⇄") : null,
             prog && speedSwapOpen === i ? swapForm(prog, speedPick.d, it, () => drawSpeed()) : null);
+          if (heads.length) li.prepend(el("div", { class: "speed-heads" }, heads));
           return li;
         })),
         s.notes ? el("p", { class: "speed-notes-text" }, s.notes) : null,
