@@ -2,8 +2,9 @@
 // sheets are: each day in sections (Warm-up, Plyometrics, Speed / Agility / Power Endurance, ESD), each with its
 // time, and inside a section, series (Acceleration Series - Prowler) holding drills, each with sets, a distance or
 // reps, a volume (yards or contacts, worked out from sets x distance unless typed) and a category that counts
-// toward the day's totals (Plyometrics, Technical, Application, ESD). One day is shown at a time with its weeks
-// side by side, so the progression from week to week reads across, as on the sheet.
+// toward the day's totals (Plyometrics, Technical, Application, ESD). It looks and works like the strength
+// builder: weeks one under another, each week's days side by side, "Fit week" sizing, and the week, day and
+// section being worked on standing out while the rest dims.
 //
 // It is saved as an ordinary program (layout "speed"): weeks, days and exercises, each drill an exercise carrying
 // its section and series (see window.speedSections in program_rx.js). So it is assigned, sent and logged like any
@@ -27,13 +28,32 @@
       d.weeks.forEach((w) => w.sessions.forEach((s) => { if (!Array.isArray(s.sections)) s.sections = window.speedSections(s).map((x) => ({ name: x.name, time: x.time })); s.exercises = s.exercises || []; }));
       return d;
     });
-    const [day, setDay] = useState(0);
     const draftRef = React.useRef(draft);
     draftRef.current = draft;
     const edit = (fn) => { if (onDirty) onDirty(); setDraft((d) => { const c = clone(d); fn(c); return c; }); };
     const canSave = (draft.name || "").trim().length > 0;
-    const days = Math.max(...draft.weeks.map((w) => w.sessions.length));
-    const di = Math.min(day, days - 1);
+
+    // ---- where the coach is working: that week, that day and that section stand out; the rest is dimmed ----
+    const [focus, setFocus] = useState(null); // { wi, si, sec }
+    const at = (wi, si, sec) => setFocus((f) => (f && f.wi === wi && f.si === si && f.sec === sec ? f : { wi, si, sec }));
+
+    // ---- size: as in the strength builder, "Fit week" shrinks each week just enough for all its days to fit across ----
+    const rootRef = React.useRef(null);
+    const [zoomMode, setZoomMode] = useState(() => { try { return localStorage.getItem("programZoom") || "fit"; } catch (e) { return "fit"; } });
+    const setZoom = (v) => { setZoomMode(v); try { localStorage.setItem("programZoom", v); } catch (e) { /* not remembered */ } };
+    React.useLayoutEffect(() => {
+      const root = rootRef.current;
+      if (!root) return undefined;
+      const size = () => root.querySelectorAll(".program-days").forEach((el) => {
+        if (zoomMode !== "fit") { el.style.zoom = zoomMode === "1" ? "" : zoomMode; return; }
+        el.style.zoom = "";
+        const need = el.scrollWidth, have = el.clientWidth;
+        el.style.zoom = need > have ? String(Math.max(0.45, Math.floor((have / need) * 100) / 100)) : "";
+      });
+      size();
+      window.addEventListener("resize", size);
+      return () => window.removeEventListener("resize", size);
+    });
 
     // ---- saving: the same autosave as the standard builder (a moment after each change, and on leaving) ----
     const recOf = (d) => ({ name: (d.name || "").trim(), description: (d.description || "").trim(), layout: "speed", weeks: d.weeks, nextProgramIds: d.nextProgramIds || [], tags: d.tags || [] });
@@ -73,69 +93,68 @@
       return rec;
     };
 
-    // ---- the day across weeks -----------------------------------------------------------------------------
-    const sessionAt = (d, wi) => d.weeks[wi].sessions[di];
-    const forEachWeek = (d, fn) => d.weeks.forEach((w, wi) => { if (w.sessions[di]) fn(w.sessions[di], wi); });
-    const addSection = () => {
+    // ---- editing. A day's sections (names and order) are kept the same in every week; their times, and the drills,
+    // are set week by week. ------------------------------------------------------------------------------------
+    const sess = (d, wi, si) => d.weeks[wi].sessions[si];
+    const sameDayEveryWeek = (d, si, fn) => d.weeks.forEach((w, wi) => { if (w.sessions[si]) fn(w.sessions[si], wi); });
+    const addSection = (si) => {
       const name = (window.prompt("Section name (e.g. Core / MB / Upper RNT)") || "").trim();
-      if (!name) return;
-      edit((d) => forEachWeek(d, (s) => { if (!s.sections.some((x) => x.name === name)) s.sections.push({ name, time: "" }); }));
+      if (name) edit((d) => sameDayEveryWeek(d, si, (s) => { if (!s.sections.some((x) => x.name === name)) s.sections.push({ name, time: "" }); }));
     };
-    const renameSection = (oldName, name) => edit((d) => forEachWeek(d, (s) => {
+    const renameSection = (si, oldName, name) => edit((d) => sameDayEveryWeek(d, si, (s) => {
       s.sections.forEach((x) => { if (x.name === oldName) x.name = name; });
       s.exercises.forEach((e) => { if (e.section === oldName) e.section = name; });
     }));
-    const removeSection = (name) => {
-      const has = draftRef.current.weeks.some((w) => w.sessions[di] && w.sessions[di].exercises.some((e) => e.section === name));
+    const removeSection = (si, name) => {
+      const has = draftRef.current.weeks.some((w) => w.sessions[si] && w.sessions[si].exercises.some((e) => e.section === name));
       if (has && !window.confirm(`Remove ${name} and its drills from this day in every week?`)) return;
-      edit((d) => forEachWeek(d, (s) => { s.sections = s.sections.filter((x) => x.name !== name); s.exercises = s.exercises.filter((e) => e.section !== name); }));
+      edit((d) => sameDayEveryWeek(d, si, (s) => { s.sections = s.sections.filter((x) => x.name !== name); s.exercises = s.exercises.filter((e) => e.section !== name); }));
     };
-    const moveSection = (name, by) => edit((d) => forEachWeek(d, (s) => {
+    const moveSection = (si, name, by) => edit((d) => sameDayEveryWeek(d, si, (s) => {
       const i = s.sections.findIndex((x) => x.name === name), j = i + by;
       if (i < 0 || j < 0 || j >= s.sections.length) return;
       [s.sections[i], s.sections[j]] = [s.sections[j], s.sections[i]];
     }));
+    const setTime = (wi, si, name, time) => edit((d) => { const s = sess(d, wi, si), x = s.sections.find((y) => y.name === name); if (x) x.time = time; else s.sections.push({ name, time }); });
     // a new drill goes straight after the last one of its series (or its section), so a series stays together
-    const addDrill = (wi, section, series) => edit((d) => {
-      const s = sessionAt(d, wi), xs = s.exercises;
-      let at = -1;
-      xs.forEach((e, i) => { if (e.section === section && (series == null || (e.series || "") === series)) at = i; });
-      xs.splice(at + 1 || xs.length, 0, newDrill(section, series));
+    const addDrill = (wi, si, section, series) => edit((d) => {
+      const xs = sess(d, wi, si).exercises;
+      let last = -1;
+      xs.forEach((e, i) => { if (e.section === section && (series == null || (e.series || "") === series)) last = i; });
+      xs.splice(last >= 0 ? last + 1 : xs.length, 0, newDrill(section, series));
     });
-    const addSeries = (wi, section) => {
+    const addSeries = (wi, si, section) => {
       const name = (window.prompt("Series name (e.g. Acceleration Series - Prowler)") || "").trim();
-      if (name) addDrill(wi, section, name);
+      if (name) addDrill(wi, si, section, name);
     };
-    const renameSeries = (wi, section, oldName, name) => edit((d) => sessionAt(d, wi).exercises.forEach((e) => { if (e.section === section && (e.series || "") === oldName) e.series = name; }));
-    const setDrill = (wi, index, patch) => edit((d) => Object.assign(sessionAt(d, wi).exercises[index], patch));
-    const setGroup = (wi, index, patch) => edit((d) => Object.assign(sessionAt(d, wi).exercises[index].groups[0], patch));
-    const removeDrill = (wi, index) => edit((d) => sessionAt(d, wi).exercises.splice(index, 1));
-    const moveDrill = (wi, index, by) => edit((d) => {
-      const xs = sessionAt(d, wi).exercises, e = xs[index];
-      // the next drill up or down in the same section
-      const same = xs.map((x, i) => i).filter((i) => xs[i].section === e.section);
+    const renameSeries = (wi, si, section, oldName, name) => edit((d) => sess(d, wi, si).exercises.forEach((e) => { if (e.section === section && (e.series || "") === oldName) e.series = name; }));
+    const setDrill = (wi, si, index, patch) => edit((d) => Object.assign(sess(d, wi, si).exercises[index], patch));
+    const setGroup = (wi, si, index, patch) => edit((d) => Object.assign(sess(d, wi, si).exercises[index].groups[0], patch));
+    const removeDrill = (wi, si, index) => edit((d) => sess(d, wi, si).exercises.splice(index, 1));
+    const moveDrill = (wi, si, index, by) => edit((d) => {
+      const xs = sess(d, wi, si).exercises, e = xs[index];
+      const same = xs.map((x, i) => i).filter((i) => xs[i].section === e.section); // the next drill up or down in its section
       const k = same.indexOf(index) + by;
       if (k < 0 || k >= same.length) return;
       const j = same[k];
       xs[index] = xs[j]; xs[j] = e;
       if ((xs[index].series || "") !== (e.series || "")) e.series = xs[index].series || ""; // moving past a series joins it
     });
-    const copyForward = (wi, all) => {
-      const targets = draftRef.current.weeks.map((w, i) => i).filter((i) => (all ? i > wi : i === wi + 1));
-      if (!targets.length) return;
-      const has = targets.some((i) => (draftRef.current.weeks[i].sessions[di] || { exercises: [] }).exercises.some((e) => (e.name || "").trim()));
-      if (has && !window.confirm(`Replace ${draftRef.current.weeks[wi].sessions[di].name || "this day"} in ${targets.length === 1 ? draftRef.current.weeks[targets[0]].name : `the ${targets.length} weeks after`} with this week's?`)) return;
-      edit((d) => targets.forEach((i) => { const keep = d.weeks[i].sessions[di] ? d.weeks[i].sessions[di].name : sessionAt(d, wi).name; d.weeks[i].sessions[di] = { ...freshIds(sessionAt(d, wi)), name: keep }; }));
-    };
-    const renameDay = (name) => edit((d) => forEachWeek(d, (s) => { s.name = name; }));
-    const addDay = () => { edit((d) => d.weeks.forEach((w) => { if (w.sessions.length < 7) w.sessions.push(newSpeedDay(w.sessions.length + 1)); })); setDay(days); };
-    const removeDay = () => {
-      if (days <= 1 || !window.confirm(`Remove ${draft.weeks[0].sessions[di] ? draft.weeks[0].sessions[di].name : "this day"} from every week?`)) return;
-      edit((d) => d.weeks.forEach((w) => { w.sessions.splice(di, 1); }));
-      setDay(Math.max(0, di - 1));
+    const copyPrevWeek = (wi) => {
+      const w = draftRef.current.weeks[wi];
+      const filled = w.sessions.some((s) => s.exercises.some((e) => (e.name || "").trim()));
+      if (filled && !window.confirm(`Replace everything in ${w.name || `week ${wi + 1}`} with a copy of ${draftRef.current.weeks[wi - 1].name || `week ${wi}`}?`)) return;
+      edit((d) => { d.weeks[wi] = { name: d.weeks[wi].name, sessions: d.weeks[wi - 1].sessions.map(freshIds) }; });
     };
     const addWeek = () => edit((d) => { const last = d.weeks[d.weeks.length - 1]; d.weeks.push({ name: `Week ${d.weeks.length + 1}`, sessions: last.sessions.map(freshIds) }); });
-    const removeWeek = () => { if (draft.weeks.length > 1 && window.confirm(`Remove ${draft.weeks[draft.weeks.length - 1].name}?`)) edit((d) => { d.weeks.pop(); }); };
+    const removeWeek = (wi) => { if (draft.weeks.length > 1 && window.confirm(`Remove ${draft.weeks[wi].name || `week ${wi + 1}`}?`)) edit((d) => { d.weeks.splice(wi, 1); }); };
+    const days = Math.max(...draft.weeks.map((w) => w.sessions.length));
+    const addDay = () => edit((d) => d.weeks.forEach((w) => { if (w.sessions.length < 7) w.sessions.push(newSpeedDay(w.sessions.length + 1)); }));
+    const removeDay = (si) => {
+      if (days <= 1 || !window.confirm(`Remove ${(draft.weeks[0].sessions[si] || {}).name || "this day"} from every week?`)) return;
+      edit((d) => d.weeks.forEach((w) => { w.sessions.splice(si, 1); }));
+    };
+    const renameDay = (si, name) => edit((d) => sameDayEveryWeek(d, si, (s) => { s.name = name; }));
 
     const totals = (s) => {
       const out = {};
@@ -143,66 +162,74 @@
       (s.exercises || []).forEach((e) => { if (!out[e.category]) return; out[e.category].sets += parseFloat((e.groups[0] || {}).sets) || 0; out[e.category].volume += window.speedVolume(e) || 0; });
       return out;
     };
-    const head = draft.weeks[0].sessions[di] || newSpeedDay(di + 1);
-    const sectionNames = (head.sections || []).map((x) => x.name);
 
-    const weekColumn = (w, wi) => {
-      const s = w.sessions[di];
-      if (!s) return <div className="spd-week" key={wi}><div className="spd-week-head"><b>{w.name}</b></div><div className="empty-state">This week has no {head.name}.</div></div>;
+    const dayCard = (s, wi, si) => {
       const t = totals(s);
+      const inThisWeek = focus && focus.wi === wi;
+      const sections = window.speedSections(s);
       return (
-        <div className="spd-week" key={wi}>
-          <div className="spd-week-head">
-            <input className="spd-week-name" value={w.name || ""} onChange={(e) => edit((d) => { d.weeks[wi].name = e.target.value; })} aria-label="Week name" />
-            {wi < draft.weeks.length - 1 && <button className="btn-link" title="Copy this day to the next week" onClick={() => copyForward(wi, false)}>Copy → next week</button>}
-            {wi < draft.weeks.length - 2 && <button className="btn-link" title="Copy this day to every week after this one" onClick={() => copyForward(wi, true)}>→ all after</button>}
+        <div className={`program-day spd-day ${inThisWeek && focus.si !== si ? "day-dimmed" : ""}`} key={si}
+          onMouseDown={() => { if (!focus || focus.wi !== wi || focus.si !== si) at(wi, si, null); }}>
+          <div className="program-session-head">
+            <input className="program-session-name" value={s.name || ""} aria-label="Day name" title="The day's name is the same in every week" onChange={(e) => renameDay(si, e.target.value)} />
+            <button className="btn-link" title="Remove this day from every week" disabled={days <= 1} onClick={() => removeDay(si)}>✕</button>
           </div>
-          {window.speedSections(s).map((sec) => (
-            <div className="spd-section" key={sec.name}>
-              <div className="spd-section-head">
-                <b>{sec.name}</b>
-                <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => edit((d) => { const x = sessionAt(d, wi).sections.find((y) => y.name === sec.name); if (x) x.time = e.target.value; else sessionAt(d, wi).sections.push({ name: sec.name, time: e.target.value }); })} />
-              </div>
-              {sec.series.map((sr, k) => (
-                <div className={`spd-series${sr.name ? " named" : ""}`} key={`${sr.name}|${k}`}>
-                  {sr.name && <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, sec.name, sr.name, e.target.value)} />}
-                  {sr.drills.map(({ e, index }) => {
-                    const g = e.groups[0] || {};
-                    const auto = window.speedVolume({ ...e, volume: "" });
-                    return (
-                      <div className="spd-drill" key={e.id}>
-                        <input className="spd-name" list="exercise-library-names" value={e.name} placeholder="Drill" onChange={(ev) => setDrill(wi, index, { name: ev.target.value })} />
-                        <input className="spd-num" value={g.sets || ""} placeholder="Sets" title="Sets" onChange={(ev) => setGroup(wi, index, { sets: ev.target.value })} />
-                        <input className="spd-dist" value={g.reps || ""} placeholder="@ yds / reps" title="Distance or reps, e.g. @7yds, 3 reps, 1x3e" onChange={(ev) => setGroup(wi, index, { reps: ev.target.value })} />
-                        <input className="spd-num" value={e.volume || ""} placeholder={auto ? String(auto) : "Vol"} title="Volume (yards or contacts); left blank it is sets x distance" onChange={(ev) => setDrill(wi, index, { volume: ev.target.value })} />
-                        <select className="spd-cat" value={e.category || ""} title="Counts toward this total" onChange={(ev) => setDrill(wi, index, { category: ev.target.value })}>
-                          <option value="">—</option>
-                          {CATS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-                        </select>
-                        <span className="spd-tools">
-                          <label title="The athlete writes in their best time"><input type="checkbox" checked={!!e.record} onChange={(ev) => setDrill(wi, index, { record: ev.target.checked })} /> Time</label>
-                          <button className="spd-x" title="Move up" onClick={() => moveDrill(wi, index, -1)}>↑</button>
-                          <button className="spd-x" title="Move down" onClick={() => moveDrill(wi, index, 1)}>↓</button>
-                          <button className="spd-x" title="Remove this drill" onClick={() => removeDrill(wi, index)}>×</button>
-                        </span>
-                        <input className="spd-notes" value={e.notes || ""} placeholder="Notes (e.g. 4 sets of 3 reps, record best sprint)" onChange={(ev) => setDrill(wi, index, { notes: ev.target.value })} />
-                      </div>
-                    );
-                  })}
-                  {sr.name && <button className="btn-link spd-add" onClick={() => addDrill(wi, sec.name, sr.name)}>+ Drill in this series</button>}
+          {sections.map((sec, k) => {
+            const on = focus && focus.wi === wi && focus.si === si && focus.sec;
+            const cls = on ? (focus.sec === sec.name ? "sec-focused" : "sec-dimmed") : "";
+            return (
+              <div className={`spd-section ${cls}`} key={sec.name} onMouseDown={(e) => { e.stopPropagation(); at(wi, si, sec.name); }} onFocusCapture={() => at(wi, si, sec.name)}>
+                <div className="spd-section-head">
+                  <input className="spd-sec-name" value={sec.name} aria-label="Section name" title="The section's name is the same in every week" onChange={(e) => renameSection(si, sec.name, e.target.value)} />
+                  <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => setTime(wi, si, sec.name, e.target.value)} />
+                  <span className="spd-sec-tools">
+                    <button className="spd-x" title="Move this section up" disabled={k === 0} onClick={() => moveSection(si, sec.name, -1)}>↑</button>
+                    <button className="spd-x" title="Move this section down" disabled={k === sections.length - 1} onClick={() => moveSection(si, sec.name, 1)}>↓</button>
+                    <button className="spd-x" title="Remove this section from this day in every week" onClick={() => removeSection(si, sec.name)}>✕</button>
+                  </span>
                 </div>
-              ))}
-              <div className="spd-section-foot">
-                <button className="btn-link spd-add" onClick={() => addDrill(wi, sec.name, "")}>+ Drill</button>
-                <button className="btn-link spd-add" onClick={() => addSeries(wi, sec.name)}>+ Series</button>
+                {sec.series.map((sr, j) => (
+                  <div className={`spd-series${sr.name ? " named" : ""}`} key={`${sr.name}|${j}`}>
+                    {sr.name && <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, si, sec.name, sr.name, e.target.value)} />}
+                    {sr.drills.map(({ e, index }) => {
+                      const g = e.groups[0] || {};
+                      const auto = window.speedVolume({ ...e, volume: "" });
+                      return (
+                        <div className="spd-drill" key={e.id}>
+                          <input className="spd-name" list="exercise-library-names" value={e.name} placeholder="Drill" onChange={(ev) => setDrill(wi, si, index, { name: ev.target.value })} />
+                          <input className="spd-num" value={g.sets || ""} placeholder="Sets" title="Sets" onChange={(ev) => setGroup(wi, si, index, { sets: ev.target.value })} />
+                          <input className="spd-dist" value={g.reps || ""} placeholder="@ yds / reps" title="Distance or reps, e.g. @7yds, 3 reps, 1x3e" onChange={(ev) => setGroup(wi, si, index, { reps: ev.target.value })} />
+                          <input className="spd-num" value={e.volume || ""} placeholder={auto ? String(auto) : "Vol"} title="Volume (yards or contacts); left blank it is sets x distance" onChange={(ev) => setDrill(wi, si, index, { volume: ev.target.value })} />
+                          <select className="spd-cat" value={e.category || ""} title="Counts toward this total" onChange={(ev) => setDrill(wi, si, index, { category: ev.target.value })}>
+                            <option value="">—</option>
+                            {CATS.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+                          </select>
+                          <input className="spd-notes" value={e.notes || ""} placeholder="Notes" onChange={(ev) => setDrill(wi, si, index, { notes: ev.target.value })} />
+                          <span className="spd-tools">
+                            <label title="The athlete writes in their best time"><input type="checkbox" checked={!!e.record} onChange={(ev) => setDrill(wi, si, index, { record: ev.target.checked })} /> Time</label>
+                            <button className="spd-x" title="Move up" onClick={() => moveDrill(wi, si, index, -1)}>↑</button>
+                            <button className="spd-x" title="Move down" onClick={() => moveDrill(wi, si, index, 1)}>↓</button>
+                            <button className="spd-x" title="Remove this drill" onClick={() => removeDrill(wi, si, index)}>✕</button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {sr.name && <button className="btn-link spd-add" onClick={() => addDrill(wi, si, sec.name, sr.name)}>+ Drill in this series</button>}
+                  </div>
+                ))}
+                <div className="spd-section-foot">
+                  <button className="btn-link spd-add" onClick={() => addDrill(wi, si, sec.name, "")}>+ Drill</button>
+                  <button className="btn-link spd-add" onClick={() => addSeries(wi, si, sec.name)}>+ Series</button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+          <button className="btn-link spd-add" title="Add a section to this day in every week" onClick={() => addSection(si)}>+ Section</button>
           <table className="spd-totals">
             <thead><tr><th>Totals</th><th>Sets</th><th>Volume</th></tr></thead>
             <tbody>
-              {CATS.map(([k, label]) => <tr key={k}><td>{label}</td><td>{t[k].sets}</td><td>{t[k].volume}</td></tr>)}
-              <tr className="spd-total-row"><td>Total</td><td>{CATS.reduce((n, [k]) => n + t[k].sets, 0)}</td><td>{CATS.reduce((n, [k]) => n + t[k].volume, 0)}</td></tr>
+              {CATS.map(([c, label]) => <tr key={c}><td>{label}</td><td>{t[c].sets}</td><td>{t[c].volume}</td></tr>)}
+              <tr className="spd-total-row"><td>Total</td><td>{CATS.reduce((n, [c]) => n + t[c].sets, 0)}</td><td>{CATS.reduce((n, [c]) => n + t[c].volume, 0)}</td></tr>
             </tbody>
           </table>
         </div>
@@ -210,12 +237,18 @@
     };
 
     return (
-      <div className="panel program-editor spd-editor">
+      <div className={`panel program-editor spd-editor ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef}>
         <datalist id="exercise-library-names">
           {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
         </datalist>
         <div className="program-editor-top">
           <h2>{initial && initial.id ? "Edit speed program" : "New speed program"}</h2>
+          <span className="program-zoom" role="group" aria-label="Size">
+            {[["1", "100%"], ["0.85", "85%"], ["0.7", "70%"], ["fit", "Fit week"]].map(([v, label]) => (
+              <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
+            ))}
+          </span>
+          {focus && <button className="btn btn-small-grey program-show-all" onClick={() => setFocus(null)}>Show everything at full brightness</button>}
           {autoSave && <span className="timestamp-note">{saveState === "saved" ? (savedId.current ? "Saved" : "") : saveState === "pending" ? "Saving…" : "Give it a name to save"}</span>}
           {onSaveAndAssign && <button className="btn btn-assign" disabled={!canSave} onClick={() => canSave && onSaveAndAssign(manualRec())}>Save &amp; assign to athletes or a group</button>}
           <button className="btn btn-primary" disabled={!canSave} onClick={() => canSave && onSave(manualRec())}>Save program</button>
@@ -225,36 +258,25 @@
         <div className="spd-meta">
           <input className="spd-title" value={draft.name || ""} placeholder="Program name (e.g. MLB/MiLB OS Speed Ph I)" onChange={(e) => edit((d) => { d.name = e.target.value; })} />
           <input className="spd-desc" value={draft.description || ""} placeholder="Description (optional)" onChange={(e) => edit((d) => { d.description = e.target.value; })} />
-          <span className="spd-counts">
-            {draft.weeks.length} week{draft.weeks.length === 1 ? "" : "s"}
-            <button className="btn btn-small-grey" onClick={addWeek} title="Add a week, copied from the last one">+ Week</button>
-            {draft.weeks.length > 1 && <button className="btn btn-small-grey" onClick={removeWeek}>− Week</button>}
-          </span>
         </div>
-        <div className="spd-days">
-          {Array.from({ length: days }, (_, i) => (
-            <button key={i} className={`pill-tab ${i === di ? "active" : ""}`} onClick={() => setDay(i)}>{(draft.weeks[0].sessions[i] || {}).name || `Day ${i + 1}`}</button>
-          ))}
-          {days < 7 && <button className="btn-link" onClick={addDay}>+ Day</button>}
+        <p className="timestamp-note">Click into a day to work on it: its week stands out and the other weeks and days dim, and the section you're in is highlighted. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>
+        {draft.weeks.map((w, wi) => (
+          <div className={`program-week ${focus ? (focus.wi === wi ? "focused" : "dimmed") : ""}`} key={wi}
+            onMouseDown={() => { if (!focus || focus.wi !== wi) at(wi, null, null); }}>
+            <div className="program-week-head">
+              <input className="program-week-name" value={w.name || ""} aria-label="Week name" onChange={(e) => edit((d) => { d.weeks[wi].name = e.target.value; })} />
+              {wi > 0 && <button className="btn btn-small-grey program-copy-prev-week" title={`Replace ${w.name || `week ${wi + 1}`} with a copy of the week before`} onClick={() => copyPrevWeek(wi)}>Copy previous week</button>}
+              <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => removeWeek(wi)}>✕</button>
+            </div>
+            <div className="program-days">
+              {w.sessions.map((s, si) => dayCard(s, wi, si))}
+            </div>
+          </div>
+        ))}
+        <div className="program-day-actions spd-bottom">
+          <button className="btn btn-secondary" onClick={addWeek} title="Add a week, copied from the last one">+ Add week</button>
+          {days < 7 && <button className="btn btn-secondary" onClick={addDay} title="Add a day to every week">+ Add day</button>}
         </div>
-        <div className="spd-day-tools">
-          <label>Day name <input value={head.name || ""} onChange={(e) => renameDay(e.target.value)} /></label>
-          <span className="spd-section-order">
-            Sections:
-            {sectionNames.map((n, i) => (
-              <span key={n} className="spd-chip">
-                {i > 0 && <button className="spd-x" title="Move earlier" onClick={() => moveSection(n, -1)}>‹</button>}
-                <input value={n} size={Math.max(6, n.length)} aria-label="Section name" onChange={(e) => renameSection(n, e.target.value)} />
-                {i < sectionNames.length - 1 && <button className="spd-x" title="Move later" onClick={() => moveSection(n, 1)}>›</button>}
-                <button className="spd-x" title="Remove this section" onClick={() => removeSection(n)}>×</button>
-              </span>
-            ))}
-            <button className="btn-link" onClick={addSection}>+ Section</button>
-          </span>
-          {days > 1 && <button className="btn-link" onClick={removeDay}>Remove this day</button>}
-        </div>
-        <p className="timestamp-note">Each week of {head.name || "this day"} side by side. Sections and the day's name are the same in every week; drills, sets, distances and times are set week by week (Copy → next week starts the next one from this one). In the athlete's app only that day of that week shows, in its sections.</p>
-        <div className="spd-weeks">{draft.weeks.map(weekColumn)}</div>
       </div>
     );
   }
