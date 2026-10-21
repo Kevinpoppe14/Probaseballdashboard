@@ -340,7 +340,8 @@
       start = 0;
     }
     if (start >= MAX_WEEKS) return "out-of-range";
-    const name = (laneName || "Strength").trim() || "Strength";
+    // no row named: the program's own kind of row (Speed, Throwing, Re-Education, Strength; window.programLaneName)
+    const name = (laneName || "").trim() || window.programLaneName(program, plan.lanes.map((l) => l.name));
     let lane = plan.lanes.find((l) => l.name.toLowerCase() === name.toLowerCase());
     if (!lane) { lane = { id: uid(), name, color: PALETTE[plan.lanes.length % PALETTE.length] }; plan.lanes.push(lane); }
     const len = Math.min(Math.max(1, (program.weeks || []).length), MAX_WEEKS - start);

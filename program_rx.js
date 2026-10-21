@@ -181,6 +181,23 @@
   // is one per athlete per week; they are reached from the athlete's plan and kept out of the program library.
   window.isSentProgram = (id) => /^g(speed|strength)-/.test(String(id || ""));
 
+  // The plan row a program goes in when it's assigned, which is also the label the athlete's app shows for it:
+  // a speed-layout program, or one in a Speed folder, goes in Speed; a Throwing folder in Throwing; a Re-Ed or
+  // Correctives folder in the plan's own Re-Ed / Correctives row if it has one (else "Re-Education"); anything else
+  // in Strength. `laneNames` are the rows already on the plan, so an existing row is used rather than a near copy.
+  window.programLaneName = (program, laneNames) => {
+    const p = program || {}, names = laneNames || [];
+    const top = String(p.folder || "").split("/")[0];
+    const kinds = [
+      { name: "Speed", is: () => (window.isSpeedProgram && window.isSpeedProgram(p)) || /speed|sprint/i.test(top), row: /^speed/i },
+      { name: "Throwing", is: () => /throw/i.test(top), row: /throw/i },
+      { name: "Re-Education", is: () => /re-?ed|correct|rehab/i.test(top), row: /re-?ed|correct/i },
+      { name: "Strength", is: () => true, row: /^strength$/i },
+    ];
+    const k = kinds.find((x) => x.is());
+    return names.find((n) => k.row.test(String(n || "").trim())) || k.name;
+  };
+
   // ---- the speed layout (speed_builder.js) ------------------------------------------------------------
   // A speed program is laid out in sections (Warm-up, Plyometrics, Speed / Agility...), each with its time, and
   // inside a section, series (Acceleration Series - Prowler) holding drills, instead of A1/A2 supersets. Each drill

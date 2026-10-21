@@ -2461,7 +2461,12 @@ function ProgramGroupAssign({ program, startDate }) {
 function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
   const lib = window.PeriodizationLib;
   const [startDate, setStartDate] = useState(() => initialStart || lib.mondayOfToday());
-  const [laneName, setLaneName] = useState("Strength");
+  // the row follows the program (Speed, Throwing, Re-Education, Strength); changed here, every athlete gets that row,
+  // and left alone, each athlete's own matching row is used (their Correctives row for a Re-Ed program, say)
+  const suggested = window.programLaneName(program, []);
+  const [laneName, setLaneNameState] = useState(suggested);
+  const [laneTouched, setLaneTouched] = useState(false);
+  const setLaneName = (v) => { setLaneNameState(v); setLaneTouched(true); };
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(() => new Set());
   const [result, setResult] = useState(null);
@@ -2484,7 +2489,7 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
     const out = { added: [], created: [], already: [], failed: [] };
     const done = [];
     athletes.filter((a) => picked.has(a.id)).forEach((a) => {
-      const r = lib.assignProgram(a.id, program, { startDate, laneName });
+      const r = lib.assignProgram(a.id, program, { startDate, laneName: laneTouched ? laneName : "" });
       (out[r] || out.failed).push(a.name);
       if (r === "added" || r === "created") done.push(a);
     });
@@ -2513,7 +2518,7 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
         <label className="facility-field"><span>Row on the periodization chart</span>
           <input list="program-assign-lanes" value={laneName} onChange={(e) => setLaneName(e.target.value)} />
           <datalist id="program-assign-lanes">
-            {["Phase", "Running", "Strength", "Correctives", "Throwing"].map((n) => <option key={n} value={n} />)}
+            {["Strength", "Speed", "Throwing", "Re-Education", "Correctives", "Running", "Phase"].map((n) => <option key={n} value={n} />)}
           </datalist>
         </label>
       </div>

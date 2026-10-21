@@ -29,7 +29,7 @@
   // ---- the plan, as periodization.js keeps it ----------------------------------------------------------
   const MAX_WEEKS = 60;
   const PALETTE = ["#b5283a", "#f59e0b", "#14b8a6", "#3b82f6", "#8b5cf6", "#22c55e", "#ec4899", "#6b7280"];
-  const LANE = "Strength";
+  // a program goes in the plan row for its kind (Speed, Throwing, Re-Education, Strength): window.programLaneName
   const uid = () => Math.random().toString(36).slice(2, 10);
   const pad = (n) => String(n).padStart(2, "0");
   const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -70,8 +70,9 @@
       start = 0;
     }
     if (start >= MAX_WEEKS) return "out-of-range";
-    let lane = plan.lanes.find((l) => (l.name || "").toLowerCase() === LANE.toLowerCase());
-    if (!lane) { lane = { id: uid(), name: LANE, color: PALETTE[plan.lanes.length % PALETTE.length] }; plan.lanes.push(lane); }
+    const laneName = window.programLaneName(program, plan.lanes.map((l) => l.name));
+    let lane = plan.lanes.find((l) => (l.name || "").toLowerCase() === laneName.toLowerCase());
+    if (!lane) { lane = { id: uid(), name: laneName, color: PALETTE[plan.lanes.length % PALETTE.length] }; plan.lanes.push(lane); }
     const len = Math.min(Math.max(1, (program.weeks || []).length), MAX_WEEKS - start);
     lastBlockId = uid(); // so the Assigned screen can undo or change this block
     plan.blocks.push({ id: lastBlockId, lane: lane.id, start, len, label: program.name || "Program", notes: "", color: null, programId: program.id, assignedBy: email, quickDrop: true, quickDropAt: new Date().toISOString() });
@@ -597,7 +598,7 @@
         el("div", { class: "chips qa-starts" },
           el("button", { class: `chip${startIn === 0 ? " on" : ""}`, onclick: () => { startIn = 0; draw(); } }, `This week · ${day(mondayIn(0))}`),
           el("button", { class: `chip${startIn === 1 ? " on" : ""}`, onclick: () => { startIn = 1; draw(); } }, `Next week · ${day(mondayIn(1))}`)),
-        el("div", { class: "qa-sub" }, `On ${person === ctx.me ? "your" : `${person.name}'s`} plan in the ${LANE} row, ${day(startDate)} – ${day(addDays(startDate, Math.max(1, weeks.length) * 7 - 1))}.`),
+        el("div", { class: "qa-sub" }, `On ${person === ctx.me ? "your" : `${person.name}'s`} plan in the ${window.programLaneName(program, [])} row, ${day(startDate)} – ${day(addDays(startDate, Math.max(1, weeks.length) * 7 - 1))}.`),
         msg,
         el("div", { class: "swap-actions" }, go, el("button", { onclick: () => pickProgram(person) }, "Back")));
     };
