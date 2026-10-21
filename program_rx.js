@@ -203,7 +203,7 @@
   // inside a section, series (Acceleration Series - Prowler) holding drills, instead of A1/A2 supersets. Each drill
   // is an ordinary exercise with `section`, optionally `series`, its sets and reps in its one set group, `distance`
   // (a distance or a time for each rep: "10 yd", "120 ft", "30 m", "6 s", "1:00") and `record` (write in a best
-  // time). The day keeps its sections' order and times in `sections` ([{ name, time }]).
+  // time). The day keeps its sections' order and times, and an optional description shown at the top of the section in the app, in `sections` ([{ name, time, description }]).
   window.isSpeedSession = (s) => !!s && (s.exercises || []).some((e) => e && e.section);
   window.isSpeedProgram = (p) => !!p && (p.layout === "speed" || (p.weeks || []).some((w) => (w.sessions || []).some(window.isSpeedSession)));
   // "10 yd", "120 feet", "30m", "40 meters", "@7yds", "6 s", "6 seconds", "2 min", "1:30" -> { yards } or { seconds },
@@ -260,7 +260,8 @@
         if (last && last.name === (e.series || "")) last.drills.push({ e, index });
         else series.push({ name: e.series || "", drills: [{ e, index }] });
       });
-      return { name, time: (((s && s.sections) || []).find((x) => x.name === name) || {}).time || "", series };
+      const own = ((s && s.sections) || []).find((x) => x.name === name) || {};
+      return { name, time: own.time || "", description: own.description || "", series };
     });
   };
 

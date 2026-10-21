@@ -1528,7 +1528,7 @@
     { sel: ".install-tip", optional: true, title: "Put it on your home screen", text: "Add this page to your home screen and it opens like an app, straight to your program. Close the tip once it’s done." },
     { sel: "main .no-program", optional: true, title: "Your program goes here", text: "Nothing is on your plan yet. As soon as there is, your week’s workouts show on this page. Coaches: Create Quick Session and Assign Existing Program put one on in a few taps, for you or an athlete." },
     { sel: ".weekbar", optional: true, title: "Your week", text: "The week you’re on, with its dates. The arrows look back at past weeks or ahead to what’s coming." },
-    { sel: ".chips:not(.days)", optional: true, title: "Your programs", text: "When you have more than one program this week (strength and speed, say), tap one to switch." },
+    { sel: ".lane-tabs", optional: true, title: "Your programs", text: "When you have more than one program this week (strength and speed, say), tap its tab to switch." },
     { sel: ".chips.days", optional: true, title: "Your days", text: "Tap a day to open it. A day gets a ✓ once it’s logged, and the app opens on the next day you haven’t done." },
     { sel: "main .warmup", optional: true, title: "Warm-up", text: "Start here before the first exercise." },
     { sel: "main .group", optional: true, title: "Each block", text: "Exercises are lettered A, B, C. A1 and A2 together are a superset: do a set of one, then the other, and repeat. A block folds up once it’s done; tap it to open it again." },
@@ -1599,7 +1599,8 @@
     const tip = installTip();
     if (tip) parts.push(tip);
     if (items.length > 1) {
-      parts.push(el("div", { class: "chips" }, items.map((it, i) => el("button", { class: `chip${i === itemIdx ? " on" : ""}`, onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
+      // the week's programs (Strength, Speed, ...) as one tab bar across the screen, the open one underlined
+      parts.push(el("div", { class: "lane-tabs", role: "tablist" }, items.map((it, i) => el("button", { class: `lane-tab${i === itemIdx ? " on" : ""}`, role: "tab", "aria-selected": i === itemIdx ? "true" : "false", onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }
     if (sessions.length > 1) {
       parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => { const done = logged(item.program.id, sessionKey(item, i)); return el("button", { class: `chip${i === dayIdx ? " on" : ""}${done ? " done" : ""}`, title: done ? "Session logged" : null, onclick: go(() => { dayIdx = i; }) }, done ? "✓ " : "", s.name || `Day ${i + 1}`); })));
@@ -1651,7 +1652,8 @@
         window.speedSections(s).forEach((sec) => {
           const drills = sec.series.flatMap((x) => x.drills).map((d) => d.e).filter((e) => (e.name || "").trim());
           if (!drills.length) return;
-          const card = el("div", { class: "group spd" }, el("div", { class: "spd-sec" }, el("span", null, sec.name), sec.time ? el("small", null, sec.time) : null));
+          const card = el("div", { class: "group spd" }, el("div", { class: "spd-sec" }, el("span", null, sec.name), sec.time ? el("small", null, sec.time) : null),
+            (sec.description || "").trim() ? el("div", { class: "spd-sec-desc" }, sec.description.trim()) : null);
           main.append(card);
           blocks.push({ card, rows: drills, letter: sec.name });
           sec.series.forEach((sr) => {

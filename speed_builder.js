@@ -116,7 +116,10 @@
       if (i < 0 || j < 0 || j >= s.sections.length) return;
       [s.sections[i], s.sections[j]] = [s.sections[j], s.sections[i]];
     }));
-    const setTime = (wi, si, name, time) => edit((d) => { const s = sess(d, wi, si), x = s.sections.find((y) => y.name === name); if (x) x.time = time; else s.sections.push({ name, time }); });
+    const setSectionField = (wi, si, name, field, v) => edit((d) => { const s = sess(d, wi, si), x = s.sections.find((y) => y.name === name); if (x) x[field] = v; else s.sections.push({ name, time: "", [field]: v }); });
+    const setTime = (wi, si, name, time) => setSectionField(wi, si, name, "time", time);
+    // boxes kept out of the way until wanted: a drill's notes ("+ Note") and a section's description ("+ Description")
+    const [opened, setOpened] = useState({}); // "note|<drill id>" or "desc|<week>|<day>|<section>" -> true
     // a new drill goes straight after the last one of its series (or its section), so a series stays together
     const addDrill = (wi, si, section, series) => edit((d) => {
       const xs = sess(d, wi, si).exercises;
@@ -193,6 +196,10 @@
                     <button className="spd-x" title="Remove this section from this day in every week" onClick={() => removeSection(si, sec.name)}>✕</button>
                   </span>
                 </div>
+                {/* a description for the top of the section in the app (this week's), kept to a link until there is one */}
+                {sec.description || opened[`desc|${wi}|${si}|${sec.name}`]
+                  ? <textarea className="spd-sec-desc" rows={2} value={sec.description} placeholder="Description (shows at the top of this section in the app)" autoFocus={!sec.description} onChange={(e) => setSectionField(wi, si, sec.name, "description", e.target.value)} />
+                  : <button className="btn-link spd-add" onClick={() => setOpened((o) => ({ ...o, [`desc|${wi}|${si}|${sec.name}`]: true }))}>+ Description</button>}
                 {sec.series.map((sr, j) => (
                   <div className={`spd-series${sr.name ? " named" : ""}`} key={`${sr.name}|${j}`}>
                     {sr.name && <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, si, sec.name, sr.name, e.target.value)} />}
@@ -206,9 +213,10 @@
                           <input className="spd-num" value={g.sets || ""} placeholder="Sets" title="Sets" onChange={(ev) => setGroup(wi, si, index, { sets: ev.target.value })} />
                           <input className="spd-num" value={g.reps || ""} placeholder="Reps" title="Reps in each set" onChange={(ev) => setGroup(wi, si, index, { reps: ev.target.value })} />
                           <input className={`spd-dist${unclear ? " unclear" : ""}`} value={e.distance || ""} placeholder="Dist / time" title={unclear ? "Not read as a distance or time, so it isn't in the totals. Try 10 yd, 120 ft, 30 m, 6 s or 1:00." : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 2 min, 1:00"} onChange={(ev) => setDrill(wi, si, index, { distance: ev.target.value })} />
-                          <input className="spd-notes" value={e.notes || ""} placeholder="Notes" onChange={(ev) => setDrill(wi, si, index, { notes: ev.target.value })} />
+                          {(e.notes || opened[`note|${e.id}`]) && <input className="spd-notes" value={e.notes || ""} placeholder="Notes" autoFocus={!e.notes} onChange={(ev) => setDrill(wi, si, index, { notes: ev.target.value })} />}
                           <span className="spd-tools">
                             <label title="The athlete writes in their best time"><input type="checkbox" checked={!!e.record} onChange={(ev) => setDrill(wi, si, index, { record: ev.target.checked })} /> Time</label>
+                            {!e.notes && !opened[`note|${e.id}`] && <button className="btn-link spd-add spd-note-link" onClick={() => setOpened((o) => ({ ...o, [`note|${e.id}`]: true }))}>+ Note</button>}
                             <button className="spd-x" title="Move up" onClick={() => moveDrill(wi, si, index, -1)}>↑</button>
                             <button className="spd-x" title="Move down" onClick={() => moveDrill(wi, si, index, 1)}>↓</button>
                             <button className="spd-x" title="Remove this drill" onClick={() => removeDrill(wi, si, index)}>✕</button>

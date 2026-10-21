@@ -3718,3 +3718,15 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .spd-editor .spd-drill input.unclear { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
 :root[data-theme="light"] .spd-editor .spd-drill input, :root[data-theme="light"] .spd-editor .spd-series-name, :root[data-theme="light"] .spd-editor .spd-title, :root[data-theme="light"] .spd-editor .spd-desc { background: #fff; color: #111; }
 .spd-totals th:not(:first-child), .spd-totals td:not(:first-child) { white-space: nowrap; }
+/* day headers in both program builders (strength and speed): black with white writing */
+.program-editor .program-day .program-session-head, :root[data-theme="light"] .program-editor .program-day .program-session-head { background: #000; }
+.program-editor .program-day .program-session-head input, .program-editor .program-day .program-session-head .btn-link, .program-editor .program-day .program-session-head .program-day-grip { color: #fff; }
+.program-editor .program-day .program-session-name { border-bottom-color: rgba(255, 255, 255, 0.4); }
+/* the speed builder's add links (+ Drill, + Series, + Section, + Note, + Description) in white (dark in light mode) */
+.spd-editor .spd-add { color: #fff; }
+:root[data-theme="light"] .spd-editor .spd-add { color: #111; }
+.spd-tools .spd-note-link { margin: 0 auto 0 8px; }
+.spd-tools label { margin-right: 0; }
+/* a section's description for the app, under its red bar */
+.spd-editor .spd-sec-desc { width: 100%; box-sizing: border-box; margin: 2px 0 4px; font-size: 12px; padding: 4px 6px; resize: vertical; background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; }
+:root[data-theme="light"] .spd-editor .spd-sec-desc { background: #fff; color: #111; }

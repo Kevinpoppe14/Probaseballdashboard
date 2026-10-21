@@ -33,6 +33,11 @@
   /* a speed day: sections as cards with their time, series as headings, each drill with its sets x distance */
   .group.spd .spd-sec { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0 8px; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label, var(--accent)); }
   .group.spd .spd-sec small { font-weight: 700; color: var(--dim); letter-spacing: 0; }
+  .spd-sec-desc { margin: -2px 0 8px; font-size: 13px; line-height: 1.4; color: var(--dim); white-space: pre-wrap; }
+  /* the week's programs (Strength, Speed, ...) as a tab bar across the screen, where the program buttons were */
+  .lane-tabs { display: flex; margin: 6px 16px 0; border-bottom: 1px solid var(--border); }
+  .lane-tab { flex: 1 1 0; min-width: 0; padding: 10px 6px 9px; border: none; border-bottom: 3px solid transparent; background: none; color: var(--dim); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane-tab.on { color: var(--text); border-bottom-color: var(--accent); }
   .spd-ser { margin: 8px 0 2px; font-size: 13px; font-weight: 700; color: var(--text); }
   .spd-drill.in-series { padding-left: 10px; border-left: 2px solid var(--border); }
   .spd-drill .ex-head { flex-wrap: wrap; }
