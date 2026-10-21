@@ -3730,3 +3730,10 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 /* a section's description for the app, under its red bar */
 .spd-editor .spd-sec-desc { width: 100%; box-sizing: border-box; margin: 2px 0 4px; font-size: 12px; padding: 4px 6px; resize: vertical; background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; }
 :root[data-theme="light"] .spd-editor .spd-sec-desc { background: #fff; color: #111; }
+/* the speed builder's week bars in red (the strength builder keeps its slate ones); Copy previous week sits on it
+   as a dark button so it still stands out */
+.spd-editor .program-week-head, :root[data-theme="light"] .spd-editor .program-week-head { background: var(--dst-red); }
+.spd-editor .program-week-head .program-week-name { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.45); }
+.spd-editor .program-week-head .btn-link.program-remove-week, :root[data-theme="light"] .spd-editor .program-week-head .btn-link.program-remove-week { color: #fff; }
+.spd-editor .btn.program-copy-prev-week, :root[data-theme="light"] .spd-editor .btn.program-copy-prev-week { background: #000; border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+.spd-editor .btn.program-copy-prev-week:hover, :root[data-theme="light"] .spd-editor .btn.program-copy-prev-week:hover { background: #1a1a1a; border-color: #fff; }
