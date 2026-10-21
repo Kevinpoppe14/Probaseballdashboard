@@ -23,6 +23,7 @@ const EXCLUDED_RECIPIENTS = ["test@test.com"]; // the dev/test login, not a real
 // Everyone gets the DST athletes. These accounts get the Cubs-only players as well, under their own heading.
 const CUBS_DIGEST_RECIPIENTS = ["kevin@dynamicsportstraining.com"];
 const CUBS_HEADING = "Chicago Cubs";
+const REMOTE_LOCATION = "DST Remote Training";
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -341,7 +342,7 @@ module.exports = async (req, res) => {
       sbSelect(serviceKey, "athletes", "select=id,data"),
       sbSelect(serviceKey, "force_tests", "select=athlete_id,data"),
       sbSelect(serviceKey, "periodization", "select=athlete_id,data"),
-      sbSelect(serviceKey, "assessments", "select=athlete_id,data"),
+      sbSelect(serviceKey, "assessments", "select=athlete_id,data,created_by,updated_by"),
     ]);
 
     const activeAthletes = athleteRows
@@ -358,6 +359,15 @@ module.exports = async (req, res) => {
     const planByAthlete = new Map(periodRows.map((r) => [r.athlete_id, r.data]));
     const assessByAthlete = new Map();
     const reassessByAthlete = new Map();
+    // who did each athlete's assessments (login ids), for a remote athlete's coaches (see below)
+    const assessorsByAthlete = new Map();
+    assessRows.forEach((r) => {
+      if (!(r.data && r.data.kind === "bodycomp")) {
+        const who = assessorsByAthlete.get(r.athlete_id) || new Set();
+        [r.created_by, r.updated_by].forEach((id) => { if (id) who.add(id); });
+        assessorsByAthlete.set(r.athlete_id, who);
+      }
+    });
     assessRows.forEach((r) => {
       if (r.data && r.data.kind === "reassess") { const l = reassessByAthlete.get(r.athlete_id) || []; l.push(r.data); reassessByAthlete.set(r.athlete_id, l); return; } // monthly re-assessments
       if (r.data && r.data.kind) return; // pitching assessments and body comp sheets share the table; only the biomechanical one (no kind) is a full assessment
@@ -370,10 +380,16 @@ module.exports = async (req, res) => {
       const key = String(a.id);
       const tests = testsByAthlete.get(key) || [];
       const cubsOnly = a.rosterGroup === "cubs-40man" && !a.dstLocation; // on the Cubs roster and not also a DST client
+      const plan = planByAthlete.get(key) || null;
       return {
         name: a.name,
         photoUrl: a.photoUrl || "",
         cubsOnly,
+        cubsRoster: a.rosterGroup === "cubs-40man",
+        remote: a.dstLocation === REMOTE_LOCATION,
+        // the coaches who assigned a program on their plan (emails) or did an assessment (login ids)
+        assignedBy: new Set(((plan && plan.blocks) || []).map((b) => (b.assignedBy || "").toLowerCase()).filter(Boolean)),
+        assessedBy: assessorsByAthlete.get(key) || new Set(),
         dstLocation: cubsOnly ? CUBS_HEADING : a.dstLocation || "No Location Set",
         ticker: WEEK_METRICS.map((m) => weekOverWeekDelta(tests, m)).filter(Boolean),
         program: programStatus(planByAthlete.get(key) || null, chicagoToday),
@@ -408,26 +424,33 @@ module.exports = async (req, res) => {
     }
 
     // A coach with locations set on their coach record (coachLocations, by login id or email) gets only those
-    // locations' athletes; a coach with none set gets every location, as before (and the No Location Set list).
-    // The accounts in CUBS_DIGEST_RECIPIENTS get the Cubs-only players as well, under their own heading.
-    // Coaches who get the same locations share one email.
+    // locations' athletes, plus any remote athlete whose program they assigned or whose assessment they did (the
+    // dashboard's Today panel uses the same rule); a coach with none set gets every location, as before (and the
+    // No Location Set list). The accounts in CUBS_DIGEST_RECIPIENTS also get every Cubs player, whatever their
+    // locations. Coaches who'd get the same athletes share one email.
     const coachRecs = athleteRows.map((r) => r.data).filter((a) => a && a.rosterGroup === "coaches");
     const locationsFor = (u) => {
       const rec = coachRecs.find((a) => a.coachUserId === u.id) || coachRecs.find((a) => (a.coachEmail || "").toLowerCase() === u.email.toLowerCase());
       return rec && Array.isArray(rec.coachLocations) ? rec.coachLocations.filter(Boolean) : [];
     };
-    const groups = new Map(); // "<cubs>|<locations>" -> { cubs, locs, to: [] }
+    const groups = new Map(); // "<cubs>|<locations>|<their remote athletes>" -> { cubs, locs, sections, to: [] }
     recipients.forEach((u) => {
       const cubs = CUBS_DIGEST_RECIPIENTS.includes(u.email.toLowerCase());
       const locs = locationsFor(u).sort();
-      const key = `${cubs}|${locs.join(",")}`;
-      if (!groups.has(key)) groups.set(key, { cubs, locs, to: [] });
+      const pool = cubs ? enriched : enriched.filter((a) => !a.cubsOnly);
+      let mine = pool, theirRemote = [];
+      if (locs.length) {
+        const worksWith = (a) => a.assignedBy.has(u.email.toLowerCase()) || a.assessedBy.has(u.id);
+        theirRemote = pool.filter((a) => a.remote && !locs.includes(a.dstLocation) && worksWith(a));
+        mine = pool.filter((a) => locs.includes(a.dstLocation) || (cubs && a.cubsRoster) || theirRemote.includes(a));
+      }
+      const key = `${cubs}|${locs.join(",")}|${theirRemote.map((a) => a.name).sort().join(",")}`;
+      if (!groups.has(key)) groups.set(key, { cubs, locs, sections: locs.length ? groupByLocation(mine) : cubs ? allLocations : dstLocations, to: [] });
       groups.get(key).to.push(u.email);
     });
     const sent = [], skipped = [];
     for (const g of groups.values()) {
-      const base = g.cubs ? allLocations : dstLocations;
-      const sections = g.locs.length ? base.filter((l) => g.locs.includes(l.location) || (g.cubs && l.location === CUBS_HEADING)) : base;
+      const sections = g.sections;
       if (!sections.some((l) => l.athletes.length)) { skipped.push({ to: g.to, locations: g.locs, reason: "no active athletes at their locations" }); continue; }
       await sendDigestEmail({ to: g.to.join(", "), subject, html: buildDigestHtml({ locations: sections, today: chicagoToday }) });
       await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: g.to.join(", "), subject, kind: "weekly_digest" }]);

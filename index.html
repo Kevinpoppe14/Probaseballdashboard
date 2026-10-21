@@ -3796,7 +3796,7 @@ const HELP_SECTIONS = [
       "Cubs roster: a coach badge beside each name (Poppe, Weisman, Garza, Simmons, Kinsley, Rooney; click to cycle) that can be filtered and sorted, Texted and Called flags on a monthly cadence (click to mark), and a program start date.",
       "Text and Call links open your phone's messaging app or dialer. The text starts from your saved template ({first} becomes the player's first name). Use the pencil to change a number.",
       "Import Athletes (on the Import page) adds many players at once from a pasted sheet or a CSV, including mobile numbers and emails.",
-      "Coach locations: tick a coach's locations with the pencil on their card (Player Profiles › Coaches) or when adding them. The dashboard then opens on that location's roster when they sign in (they can still click out of it), and their weekly email covers only those locations' athletes. A coach with none ticked sees all locations, as before.",
+      "Coach locations: tick a coach's locations with the pencil on their card (Player Profiles › Coaches) or when adding them. The dashboard then opens on that location's roster when they sign in (they can still click out of it), and their Today panel and weekly email cover only those locations' athletes, plus any remote athlete whose program they assigned or whose assessment they did. A coach with none ticked sees all locations, as before. Kevin's Cubs players stay on his Today panel and in his email whatever his locations.",
       "+ Add Athlete and + Add Coach are on Team Overview and Player Profiles. For a coach, make their login in Supabase first (Authentication › Users › Add user); Add Coach then lists it, reading the logins again so a new one shows without a reload, and adds them to the Coaches roster under the name you give.",
     ],
   },
@@ -5071,6 +5071,28 @@ function coachNameFromEmail(email) {
 //   Assessment due     no full biomechanical assessment in the last eight months
 // Only active players are listed. Each name opens that player on the tab where it gets dealt with.
 const LOG_QUIET_DAYS = 5;
+// Which athletes are a coach's: with locations set on their coach record (coachLocations), the athletes at those
+// locations, plus any remote athlete whose program they assigned or whose assessment they did; with none set,
+// everyone. Used by the Today panel (the weekly email applies the same rule in api/weekly-roster-email.js).
+const REMOTE_LOCATION = "DST Remote Training";
+function coachScopeFor(email) {
+  const me = (email || "").toLowerCase();
+  const rec = window.AthleteStore.allAthletes().find((a) => a.rosterGroup === COACH_ROSTER_GROUP && (a.coachEmail || "").toLowerCase() === me);
+  const locs = coachLocationsOf(rec);
+  return { email: me, locs, all: !locs.length };
+}
+function coachWorksWithRemote(a, email) {
+  const S = window.AthleteStore;
+  const plan = S.getPeriodization(a.id);
+  if (plan && (plan.blocks || []).some((b) => (b.assignedBy || "").toLowerCase() === email)) return true;
+  const did = (r) => { const act = r && r._activity; return !!act && [act.createdBy, act.updatedBy].some((x) => (x || "").toLowerCase() === email); };
+  return [...S.getAssessments(a.id), ...S.getReassessments(a.id), ...S.getPitchingAssessments(a.id)].some(did);
+}
+function inCoachScope(a, scope) {
+  if (scope.all) return true;
+  if (scope.locs.includes(a.dstLocation)) return true;
+  return a.dstLocation === REMOTE_LOCATION && !!scope.email && coachWorksWithRemote(a, scope.email);
+}
 function todayItems() {
   const S = window.AthleteStore;
   const lib = window.PeriodizationLib;
@@ -5080,7 +5102,9 @@ function todayItems() {
   // Cubs players appear only for Kevin (the same account that gets them in the weekly email); for everyone else
   // the panel covers DST athletes only
   const forKevin = (S.currentUserEmail() || "").toLowerCase() === "kevin@dynamicsportstraining.com";
-  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP)).forEach((a) => {
+  const mine = coachScopeFor(S.currentUserEmail());
+  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP)
+    && ((forKevin && a.rosterGroup === CUBS_ROSTER_GROUP) || inCoachScope(a, mine))).forEach((a) => {
     const plan = S.getPeriodization(a.id);
     if (plan && lib) {
       const progress = lib.planProgress(plan);
@@ -5176,11 +5200,12 @@ function TodayPanel({ onOpenTab, dataVersion }) {
   const checks = window.useOpenFormChecks ? window.useOpenFormChecks() : [];
   const toggle = () => { const next = !hidden; setHidden(next); try { localStorage.setItem("todayPanelHidden", next ? "1" : "0"); } catch (e) { /* not remembered */ } };
   const total = items.reduce((n, it) => n + it.list.length, 0) + checks.length;
+  const scopeLocs = coachScopeFor(window.AthleteStore.currentUserEmail()).locs; // a coach's locations narrow the panel
   const SHOWN = 6;
   return (
     <div className="panel today-panel no-print">
       <h2>
-        Today <small>{total ? `${total} thing${total === 1 ? "" : "s"} to look at across the active roster` : "Nothing needs attention right now"}</small>
+        Today <small>{total ? `${total} thing${total === 1 ? "" : "s"} to look at${scopeLocs.length ? ` for ${scopeLocs.map((l) => l.replace(/^DST /, "")).join(", ")} and your remote athletes` : " across the active roster"}` : "Nothing needs attention right now"}</small>
         {dismissed.length > 0 && <button className="btn-link today-restore" onClick={restore} title="Bring back everything you closed this week">Show closed</button>}
         <button className="btn-link today-toggle" onClick={toggle}>{hidden ? "Show" : "Hide"}</button>
       </h2>
