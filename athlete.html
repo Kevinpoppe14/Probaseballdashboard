@@ -43,7 +43,9 @@
   .spd-drill .ex-head { flex-wrap: wrap; }
   .spd-rx { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--pct); white-space: nowrap; }
   :root[data-theme="light"] .spd-rx { color: var(--text); }
-  .spd-time-row { margin-top: 4px; }
+  .spd-boxes { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 6px; }
+  .spd-box { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: var(--dim); }
+  .spd-box small { font-weight: 400; }
   .spd-time-box { width: 110px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 15px; }
   /* Training log calendar on the Plan tab: a dot per logged day, the tapped day's detail below */
   .tl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-weight: 700; }

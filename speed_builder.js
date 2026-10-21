@@ -13,7 +13,7 @@
   const { useState } = React;
   const DEFAULT_SECTIONS = ["Warm-up", "Plyometrics", "Speed / Agility / Power Endurance", "ESD"];
   const uid = () => `ex-${Math.random().toString(36).slice(2, 9)}`;
-  const newDrill = (section, series) => ({ id: uid(), name: "", tempo: "", intensityUnit: "", groups: [{ sets: "", reps: "", intensity: "" }], rest: "", notes: "", linked: false, section, series: series || "", distance: "", record: false });
+  const newDrill = (section, series) => ({ id: uid(), name: "", tempo: "", intensityUnit: "", groups: [{ sets: "", reps: "", intensity: "" }], rest: "", notes: "", linked: false, section, series: series || "", distance: "", extras: [] });
   // totals: reps (sets x reps), distance in yards, time
   const round = (n) => Math.round(n * 10) / 10;
   const clock = (sec) => { const s = Math.round(sec); return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`; };
@@ -26,7 +26,13 @@
     const [draft, setDraft] = useState(() => {
       const d = clone(initial && (initial.weeks || []).length ? initial : { ...newSpeedProgram(), ...(initial || {}), weeks: newSpeedProgram().weeks });
       d.layout = "speed";
-      d.weeks.forEach((w) => w.sessions.forEach((s) => { if (!Array.isArray(s.sections)) s.sections = window.speedSections(s).map((x) => ({ name: x.name, time: x.time })); s.exercises = (s.exercises || []).map((e) => { const n = window.speedNormalize(e); delete n.volume; delete n.category; return n; }); }));
+      d.weeks.forEach((w) => w.sessions.forEach((s) => { if (!Array.isArray(s.sections)) s.sections = window.speedSections(s).map((x) => ({ name: x.name, time: x.time })); s.exercises = (s.exercises || []).map((e) => {
+        const n = window.speedNormalize(e); delete n.volume; delete n.category;
+        // the old "Time" tick becomes a Time box, as if added with the "+"
+        if (n.record) { n.extras = Array.isArray(n.extras) ? n.extras : []; if (!n.extras.some((x) => /^time$/i.test(x.label || ""))) n.extras.push({ label: "Time", value: "" }); }
+        delete n.record;
+        return n;
+      }); }));
       return d;
     });
     const draftRef = React.useRef(draft);
@@ -135,6 +141,9 @@
     };
     const renameSeries = (wi, si, section, oldName, name) => edit((d) => sess(d, wi, si).exercises.forEach((e) => { if (e.section === section && (e.series || "") === oldName) e.series = name; }));
     const setDrill = (wi, si, index, patch) => edit((d) => Object.assign(sess(d, wi, si).exercises[index], patch));
+    const addExtra = (wi, si, index, label) => edit((d) => { const e = sess(d, wi, si).exercises[index]; e.extras = [...(Array.isArray(e.extras) ? e.extras : []), { label, value: "" }]; });
+    const setExtra = (wi, si, index, xi, value) => edit((d) => { sess(d, wi, si).exercises[index].extras[xi].value = value; });
+    const removeExtra = (wi, si, index, xi) => edit((d) => { sess(d, wi, si).exercises[index].extras.splice(xi, 1); });
     const setGroup = (wi, si, index, patch) => edit((d) => Object.assign(sess(d, wi, si).exercises[index].groups[0], patch));
     const removeDrill = (wi, si, index) => edit((d) => sess(d, wi, si).exercises.splice(index, 1));
     const moveDrill = (wi, si, index, by) => edit((d) => {
@@ -215,10 +224,27 @@
                           <input className="spd-num" value={g.sets || ""} placeholder="Sets" title="Sets" onChange={(ev) => setGroup(wi, si, index, { sets: ev.target.value })} />
                           <input className="spd-num" value={g.reps || ""} placeholder="Reps" title="Reps in each set" onChange={(ev) => setGroup(wi, si, index, { reps: ev.target.value })} />
                           <input className={`spd-dist${unclear ? " unclear" : ""}`} value={e.distance || ""} placeholder="Dist / time" title={unclear ? "Not read as a distance or time, so it isn't in the totals. Try 10 yd, 120 ft, 30 m, 6 s or 1:00." : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 2 min, 1:00"} onChange={(ev) => setDrill(wi, si, index, { distance: ev.target.value })} />
+                          {/* boxes added with the "+" (Time, Height...): a target here, or left empty; the athlete fills in their own in the app */}
+                          {(e.extras || []).map((x, xi) => (
+                            <span className="spd-extra" key={xi}>
+                              <span className="spd-extra-label">{x.label}</span>
+                              <input value={x.value || ""} placeholder="Target, or leave for the athlete" title={`${x.label}: a target for the athlete, or leave it empty. The athlete writes in their own ${x.label.toLowerCase()} in the app.`} onChange={(ev) => setExtra(wi, si, index, xi, ev.target.value)} />
+                              <button className="spd-x" title={`Remove ${x.label}`} onClick={() => removeExtra(wi, si, index, xi)}>✕</button>
+                            </span>
+                          ))}
                           {(e.notes || opened[`note|${e.id}`]) && <input className="spd-notes" value={e.notes || ""} placeholder="Notes" autoFocus={!e.notes} onChange={(ev) => setDrill(wi, si, index, { notes: ev.target.value })} />}
                           <span className="spd-tools">
-                            <label title="The athlete writes in their best time"><input type="checkbox" checked={!!e.record} onChange={(ev) => setDrill(wi, si, index, { record: ev.target.checked })} /> Time</label>
-                            {!e.notes && !opened[`note|${e.id}`] && <button className="btn-link spd-add spd-note-link" onClick={() => setOpened((o) => ({ ...o, [`note|${e.id}`]: true }))}>+ Note</button>}
+                            <select className="pe-more spd-more" value="" title="Add a box (time, height, distance, speed, or one you name) or a note" onChange={(ev) => {
+                              const v = ev.target.value;
+                              if (v === "note") setOpened((o) => ({ ...o, [`note|${e.id}`]: true }));
+                              else if (v === "custom") { const label = (window.prompt("Name the new box (for example Height, Load, Holds):") || "").trim().slice(0, 20); if (label) addExtra(wi, si, index, label); }
+                              else if (v) addExtra(wi, si, index, v);
+                            }}>
+                              <option value="" disabled hidden>+</option>
+                              {["Time", "Height", "Distance", "Speed"].filter((l) => !(e.extras || []).some((x) => (x.label || "").toLowerCase() === l.toLowerCase())).map((l) => <option key={l} value={l}>{l}</option>)}
+                              <option value="custom">Custom…</option>
+                              {!e.notes && !opened[`note|${e.id}`] && <option value="note">Note</option>}
+                            </select>
                             <button className="spd-x" title="Move up" onClick={() => moveDrill(wi, si, index, -1)}>↑</button>
                             <button className="spd-x" title="Move down" onClick={() => moveDrill(wi, si, index, 1)}>↓</button>
                             <button className="spd-x" title="Remove this drill" onClick={() => removeDrill(wi, si, index)}>✕</button>

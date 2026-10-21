@@ -3739,3 +3739,9 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .spd-editor .btn.program-copy-prev-week:hover, :root[data-theme="light"] .spd-editor .btn.program-copy-prev-week:hover { background: #1a1a1a; border-color: #fff; }
 /* the speed builder's day being progressed: lit in every week (the other days are dimmed with .day-dimmed) */
 .spd-editor .program-day.day-focused { border: 2px solid var(--dst-red); box-shadow: 0 0 12px rgba(165, 42, 52, 0.3); }
+/* the speed builder's "+" boxes (Time, Height...) on a drill: label, target box, remove */
+.spd-extra { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.spd-extra-label { flex: 0 0 auto; min-width: 54px; color: var(--text-dim); font-weight: 600; }
+.spd-editor .spd-extra input { flex: 1; min-width: 0; padding: 3px 6px; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--input-border, var(--border)); border-radius: 4px; }
+:root[data-theme="light"] .spd-editor .spd-extra input { background: #fff; color: #111; }
+.spd-tools .spd-more { margin-right: auto; }

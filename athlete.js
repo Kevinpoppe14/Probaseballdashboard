@@ -1663,12 +1663,16 @@
             list.forEach((e) => {
               const info = exerciseInfo(e.name);
               const rx = window.speedText(window.speedNormalize(JSON.parse(JSON.stringify(e)))); // "3 × 4 reps @ 10 yd"
-              let time = null;
-              if (e.record) {
-                const key = Rx.logKey(e, 0);
-                time = el("input", { class: "spd-time-box", type: "text", inputmode: "decimal", placeholder: "best time", "aria-label": `Best time for ${e.name}`, autocomplete: "off", value: logged(item.program.id, key) });
-                time.addEventListener("blur", () => save(item.program.id, key, time.value.trim()));
-              }
+              // boxes the coach added with the builder's "+" (Time, Height...): the athlete writes in their own, with the
+              // coach's target shown when there is one. A drill from before the "+" that asked for a best time keeps
+              // its Time box (and what was written in it, kept where it always was).
+              const boxes = (Array.isArray(e.extras) ? e.extras : []).map((x) => ({ label: x.label || "", target: `${x.value || ""}`.trim(), key: `${e.id}|x|${(x.label || "").toLowerCase()}` }));
+              if (e.record && !boxes.some((b) => /^time$/i.test(b.label))) boxes.unshift({ label: "Time", target: "", key: Rx.logKey(e, 0) });
+              const time = boxes.length ? el("div", { class: "spd-boxes" }, boxes.map((b) => {
+                const box = el("input", { class: "spd-time-box", type: "text", placeholder: b.target || b.label.toLowerCase(), "aria-label": `${b.label} for ${e.name}`, autocomplete: "off", value: logged(item.program.id, b.key) });
+                box.addEventListener("blur", () => save(item.program.id, b.key, box.value.trim()));
+                return el("label", { class: "spd-box" }, el("span", null, b.label, b.target ? el("small", null, ` target ${b.target}`) : null), box);
+              })) : null;
               card.append(el("div", { class: `ex spd-drill${sr.name ? " in-series" : ""}` },
                 el("div", { class: "ex-head" },
                   info && (info.videoUrl || info.cues) ? el("button", { class: "name", onclick: () => openVideo(info) }, e.name) : el("span", { class: "name" }, e.name),
@@ -1676,7 +1680,7 @@
                   canFilm && !(info && info.videoUrl) ? (() => { const b = el("button", { class: "film", "aria-label": `Film a video for ${e.name}`, title: "Film a video for this exercise", onclick: () => filmVideo(e) }); b.innerHTML = CAMERA; return b; })() : null,
                   rx ? el("span", { class: "spd-rx" }, rx) : null),
                 e.notes ? el("div", { class: "notes coach-note" }, e.notes) : null,
-                time ? el("div", { class: "spd-time-row" }, time) : null));
+                time));
             });
           });
         });
