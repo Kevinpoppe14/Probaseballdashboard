@@ -34,7 +34,8 @@ async function getSignedInCoachEmail(bearerToken) {
   }
 }
 
-function buildRawEmail({ from, to, cc, subject, bodyText, filename, pdfBase64 }) {
+// The message as MIME text (the PDF base64 in 76-character lines, as mail expects)
+function buildMimeEmail({ from, to, cc, subject, bodyText, filename, pdfBase64 }) {
   const boundary = `dst_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const encodeHeader = (s) => `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
   const lines = [
@@ -56,15 +57,11 @@ function buildRawEmail({ from, to, cc, subject, bodyText, filename, pdfBase64 })
     "Content-Transfer-Encoding: base64",
     `Content-Disposition: attachment; filename="${filename}"`,
     "",
-    pdfBase64,
+    pdfBase64.replace(/\s+/g, "").replace(/.{76}/g, "$&\r\n"),
     `--${boundary}--`,
     "",
   ];
-  return Buffer.from(lines.join("\r\n"), "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return lines.join("\r\n");
 }
 
 async function sendAsCoach({ coachEmail, to, cc, subject, bodyText, filename, pdfBase64 }) {
@@ -77,8 +74,17 @@ async function sendAsCoach({ coachEmail, to, cc, subject, bodyText, filename, pd
     subject: coachEmail, // domain-wide delegation: send AS this coach, not as the service account
   });
   const gmail = google.gmail({ version: "v1", auth: jwtClient });
-  const raw = buildRawEmail({ from: coachEmail, to, cc, subject, bodyText, filename, pdfBase64 });
-  await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+  // Sent as an upload (message/rfc822) rather than as a base64 "raw" field: the plain request tops out at 4 MiB, and
+  // base64-ing the message again pushed a 3 MB nutrition plan past it; an upload can be up to 35 MB.
+  const mime = buildMimeEmail({ from: coachEmail, to, cc, subject, bodyText, filename, pdfBase64 });
+  try {
+    await gmail.users.messages.send({ userId: "me", requestBody: {}, media: { mimeType: "message/rfc822", body: mime } });
+  } catch (e) {
+    // should the upload be refused, a message small enough for the plain request goes that way instead
+    const raw = Buffer.from(mime, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    if (raw.length > 4000000) throw e;
+    await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+  }
 }
 
 // Best-effort — a logging failure shouldn't turn an email that already sent successfully into a

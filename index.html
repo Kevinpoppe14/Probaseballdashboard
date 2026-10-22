@@ -3675,9 +3675,9 @@ const PACKAGE_PARTS = [
 
 // A PDF is rendered at each quality in turn, compressed harder each time, until it fits in an email; then, if it still
 // doesn't, at a lower resolution. (The package starts lower than a single tab, being several tabs in one.) The send
-// itself refused a 3-4 MB nutrition plan, so the line is kept at 3 MB, under what has gone through.
+// (api/send-athlete-email.js) takes at most 4.5 MB, so the PDF is kept under 3.8 MB of base64, leaving room for the message.
 async function renderWithinEmailLimit(render, qualities, tooBig) {
-  const LIMIT = 3 * 1024 * 1024; // of base64
+  const LIMIT = 3.8 * 1000 * 1000; // of base64
   const last = qualities[qualities.length - 1];
   const steps = qualities.map((q) => ({ q, s: 2 })).concat([{ q: last, s: 1.5 }, { q: last, s: 1.2 }]);
   const saved = [pdfJpegQuality, pdfCaptureScale];
