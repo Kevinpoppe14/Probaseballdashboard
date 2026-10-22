@@ -3474,6 +3474,8 @@ const PDF_MARGIN_IN = 0.35;
 // How hard each page's snapshot is compressed. The package lowers it: the email goes through a function that takes
 // about 4.5 MB at most, and a four-part package at full quality comes close to that.
 let pdfJpegQuality = 0.92;
+// and at what resolution: 2 pixels to every screen pixel, lowered for a PDF too big to email (see renderWithinEmailLimit)
+let pdfCaptureScale = 2;
 // Pieces a page break shouldn't cut through (a chart with its title, a panel, a table row): their spans are kept on
 // each snapshot (see captureElement) and addCanvasAsPages moves a break up above any one that fits on a page.
 const PDF_KEEP_TOGETHER = ".panel, .panel > *, .recharts-wrapper, svg, img, canvas, tr, .kpi-card, .metric-strip";
@@ -3567,7 +3569,7 @@ async function captureElement(el, printCss, width) {
   const captureWidth = Math.max(width, el.scrollWidth);
   el.style.width = `${captureWidth}px`;
   await new Promise((r) => setTimeout(r, 30));
-  const scale = 2;
+  const scale = pdfCaptureScale;
   let keepTogether = [];
   try {
     const canvas = await window.html2canvas(el, {
@@ -3671,19 +3673,23 @@ const PACKAGE_PARTS = [
   { key: "statcast", label: "Statcast Metrics", short: "Statcast metrics" },
 ];
 
-// The email can carry about 4.5 MB: a PDF is rendered at each quality in turn, compressed harder each time, until it
-// fits. (The package starts lower than a single tab, being several tabs in one.)
+// A PDF is rendered at each quality in turn, compressed harder each time, until it fits in an email; then, if it still
+// doesn't, at a lower resolution. (The package starts lower than a single tab, being several tabs in one.) The send
+// itself refused a 3-4 MB nutrition plan, so the line is kept at 3 MB, under what has gone through.
 async function renderWithinEmailLimit(render, qualities, tooBig) {
-  const LIMIT = 3.9 * 1024 * 1024; // of base64, leaving room for the message
-  const saved = pdfJpegQuality;
+  const LIMIT = 3 * 1024 * 1024; // of base64
+  const last = qualities[qualities.length - 1];
+  const steps = qualities.map((q) => ({ q, s: 2 })).concat([{ q: last, s: 1.5 }, { q: last, s: 1.2 }]);
+  const saved = [pdfJpegQuality, pdfCaptureScale];
   try {
-    for (const q of qualities) {
+    for (const { q, s } of steps) {
       pdfJpegQuality = q;
+      pdfCaptureScale = s;
       const b64 = await render();
       if (b64.length <= LIMIT) return b64;
     }
   } finally {
-    pdfJpegQuality = saved;
+    [pdfJpegQuality, pdfCaptureScale] = saved;
   }
   throw new Error(tooBig);
 }
