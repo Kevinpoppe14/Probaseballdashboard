@@ -3625,41 +3625,97 @@ async function withTabShown(name, fn) {
   try { return await fn(el); } finally { if (hidden) el.classList.add("tab-hidden"); }
 }
 
-// The two-page package: the biomechanical assessment (page 1, as it's emailed on its own) and the Body
-// Composition tab (page 2: the trends graph, the Evolt scans and the manual sheets, fitted to one page).
-async function renderAssessmentPackageToPdf() {
+// The parts an emailed package can hold, in the order they go into the PDF
+const PACKAGE_PARTS = [
+  { key: "assessment", label: "Biomechanical Assessment", short: "biomechanical assessment" },
+  { key: "bodycomp", label: "Body Composition", short: "body composition" },
+  { key: "performance", label: "Performance Metrics", short: "performance metrics" },
+  { key: "statcast", label: "Statcast Metrics", short: "Statcast metrics" },
+];
+
+// The package, one landscape PDF of the parts chosen: the biomechanical assessment as it's emailed on its own, the
+// Body Composition tab fitted to one page (the trends graph, the Evolt scans and the manual sheets), and the
+// Performance and Statcast tabs at full width over as many pages as they need.
+async function renderAssessmentPackageToPdf(keys) {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
-  await withTabShown("assessment", () => addAssessmentPage(pdf));
-  await withTabShown("bodycomp", async (el) => {
-    const canvas = await captureElement(el, extractPrintCss(), 1300);
-    pdf.addPage("letter", "landscape");
-    const m = PDF_MARGIN_IN;
-    addImageFitted(pdf, canvas, m, m, pdf.internal.pageSize.getWidth() - m * 2, pdf.internal.pageSize.getHeight() - m * 2);
-  });
+  const m = PDF_MARGIN_IN;
+  let started = false; // the first part goes on the page jsPDF starts with
+  for (const key of PACKAGE_PARTS.map((p) => p.key).filter((k) => keys.includes(k))) {
+    await withTabShown(key, async (el) => {
+      if (key === "assessment") {
+        if (started) pdf.addPage("letter", "landscape");
+        await addAssessmentPage(pdf);
+        return;
+      }
+      const canvas = await captureElement(el, extractPrintCss(), 1300);
+      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
+      if (key === "bodycomp") {
+        if (started) pdf.addPage("letter", "landscape");
+        addImageFitted(pdf, canvas, m, m, pageW - m * 2, pageH - m * 2);
+      } else {
+        addCanvasAsPages(pdf, canvas, pageW, pageH, !started);
+      }
+    });
+    started = true;
+  }
   return pdf.output("datauristring").split(",")[1];
 }
 
-// "Email Assessment + Body Comp": both in one PDF, from the assessment's toolbar or the Body Composition tab
+// "Email Package": the coach ticks which parts go in (the assessment and body comp to start with), and they're sent
+// as one PDF. On the assessment's toolbar and the Body Composition tab.
 function EmailPackageButton({ athlete }) {
   const [open, setOpen] = useState(false);
+  const [parts, setParts] = useState(["assessment", "bodycomp"]);
+  const [hasAssessment, setHasAssessment] = useState(true);
   if (!athlete) return null;
   const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
+  const openComposer = () => {
+    // the assessment can only go in when there's one on file (its tab shows it)
+    const has = !!document.querySelector('[data-tab-content="assessment"] .assess-wrap .assess-header');
+    setHasAssessment(has);
+    setParts((p) => (has ? p : p.filter((k) => k !== "assessment")));
+    setOpen(true);
+  };
+  const chosen = PACKAGE_PARTS.filter((p) => parts.includes(p.key));
+  const listed = (words) => (words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`);
+  const titleList = listed(chosen.map((p) => p.label)) || "Assessment Package";
+  const toggle = (key) => setParts((p) => (p.includes(key) ? p.filter((k) => k !== key) : [...p, key]));
+  const chooser = (
+    <div className="field" style={{ marginTop: 10 }}>
+      <label>Include</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px" }}>
+        {PACKAGE_PARTS.map((p) => {
+          const off = p.key === "assessment" && !hasAssessment;
+          return (
+            <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, textTransform: "none", letterSpacing: 0, fontSize: 14, color: off ? "var(--dim)" : "var(--text)", cursor: off ? "default" : "pointer" }} title={off ? "No biomechanical assessment on file" : ""}>
+              <input type="checkbox" checked={parts.includes(p.key)} disabled={off} onChange={() => toggle(p.key)} />
+              {p.label}{off ? " (none on file)" : ""}
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
   return (
     <React.Fragment>
-      <button type="button" className="btn btn-secondary no-print" title={`Email ${athlete.name} their biomechanical assessment and body composition as one two-page PDF`} onClick={() => setOpen(true)}>
-        Email Assessment + Body Comp
+      <button type="button" className="btn btn-secondary no-print" title={`Email ${athlete.name} a PDF of the assessments you choose`} onClick={openComposer}>
+        Email Package
       </button>
       {open && (
         <EmailComposer
-          title={`Email Assessment + Body Composition to ${athlete.name}`}
+          title={`Email Package to ${athlete.name}`}
           defaultTo={athlete.email || ""}
-          defaultSubject="Your Biomechanical Assessment and Body Composition from Dynamic Sports Training"
-          defaultBody={`Hi ${first},\n\nAttached are your latest biomechanical assessment and body composition. Let me know if you have any questions.\n`}
-          attachmentNote="A two-page PDF will be attached (page 1 the biomechanical assessment, page 2 body composition), sent from your own email address."
-          renderPdf={renderAssessmentPackageToPdf}
-          filename={`${(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-assessment-and-body-comp.pdf`}
-          logContext={{ kind: "athlete_tab", athleteName: athlete.name, tab: "assessment+bodycomp" }}
+          defaultSubject={`Your ${titleList} from Dynamic Sports Training`}
+          defaultBody={`Hi ${first},\n\nAttached ${chosen.length > 1 ? "are" : "is"} your latest ${listed(chosen.map((p) => p.short)) || "assessment"}. Let me know if you have any questions.\n`}
+          attachmentNote={chosen.length
+            ? `One PDF will be attached (${chosen.map((p) => p.label.toLowerCase()).join(", then ")}), sent from your own email address.`
+            : "Tick at least one part to send."}
+          extra={chooser}
+          canSend={chosen.length > 0}
+          renderPdf={() => renderAssessmentPackageToPdf(parts)}
+          filename={`${(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${chosen.map((p) => p.key).join("-") || "package"}.pdf`}
+          logContext={{ kind: "athlete_tab", athleteName: athlete.name, tab: chosen.map((p) => p.key).join("+") }}
           onClose={() => setOpen(false)}
         />
       )}
@@ -3739,11 +3795,19 @@ async function renderTeamReportToPdf() {
 // Generic "compose + send a PDF" panel — used both for a single athlete's tab and for a team
 // report going out to several contacts at once. `renderPdf` does the actual snapshot (different
 // for each caller); everything else (recipients, status, error handling) is shared.
-function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, logContext, onClose }) {
+function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, logContext, onClose, extra, canSend = true }) {
   const [to, setTo] = useState(defaultTo || "");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
+  // when the defaults change (the package's parts were changed), the subject and message follow, unless they've been edited
+  const lastDefaults = React.useRef({ subject: defaultSubject, body: defaultBody });
+  React.useEffect(() => {
+    const last = lastDefaults.current;
+    setSubject((s) => (s === last.subject ? defaultSubject : s));
+    setBody((b) => (b === last.body ? defaultBody : b));
+    lastDefaults.current = { subject: defaultSubject, body: defaultBody };
+  }, [defaultSubject, defaultBody]);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState(""); // progress text while sending
   const [error, setError] = useState("");
@@ -3809,10 +3873,11 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
             <label>Message</label>
             <textarea rows={6} value={body} onChange={(e) => setBody(e.target.value)} disabled={sending} style={{ width: "100%" }} />
           </div>
+          {extra}
           <div className="assess-row-note" style={{ marginTop: 6 }}>{attachmentNote}</div>
           {error && <div className="success-banner" style={{ marginTop: 8, background: "#3a1414", color: "var(--danger)", borderColor: "#5a1f1f" }}>{error}</div>}
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button className="btn btn-primary" onClick={send} disabled={sending}>{sending ? status || "Sending…" : "Send"}</button>
+            <button className="btn btn-primary" onClick={send} disabled={sending || !canSend}>{sending ? status || "Sending…" : "Send"}</button>
             <button className="btn btn-secondary" onClick={onClose} disabled={sending}>Cancel</button>
           </div>
         </React.Fragment>
