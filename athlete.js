@@ -1498,8 +1498,8 @@
   const shiftDay = (key, by) => { const [y, m, d] = key.split("-").map(Number); return dayKeyOf(new Date(y, m - 1, d + by)); };
   const FRAC = { 0: "", 0.25: "¼", 0.5: "½", 0.75: "¾" };
   const qtyText = (a) => { const w = Math.floor(a + 1e-9), r = Math.round((a - w) * 4) / 4; return ((w ? String(w) : "") + (FRAC[r] || "")) || "0"; };
-  // a food from the plan's food lists: [name, unit, step, kcal, carbohydrate, protein, fat, plural] by key
-  const foodOf = (key) => { const x = nutrition && nutrition.foods && nutrition.foods[key]; return x ? { key, name: x[0], unit: x[1], step: x[2], kcal: x[3], c: x[4], p: x[5], f: x[6], pl: x[7] } : null; };
+  // a food from the plan's food lists: [name, unit, step, kcal, carbohydrate, protein, fat, plural, group, largest amount] by key
+  const foodOf = (key) => { const x = nutrition && nutrition.foods && nutrition.foods[key]; return x ? { key, name: x[0], unit: x[1], step: x[2], kcal: x[3], c: x[4], p: x[5], f: x[6], pl: x[7], cat: x[8] || "", max: x[9] || 99 } : null; };
   const amountLabel = (f, a) => {
     const q = qtyText(a);
     if (f.unit === "oz") return `${q} oz`;
@@ -1513,7 +1513,8 @@
   const defaultAmount = (f) => (f.unit === "oz" ? (f.step < 1 ? 4 : 2) : 1); // a first guess at a serving, changed with − and +
   const newEntryId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const r1 = (v) => Math.round(v * 10) / 10;
-  const entryOf = (f, a, meal) => ({ id: newEntryId(), meal, name: f.name, amount: amountLabel(f, a), kcal: Math.round(f.kcal * a), c: r1(f.c * a), p: r1(f.p * a), f: r1(f.f * a) });
+  // an entry for a food from the plan's lists: its key and amount are kept too, for editing and the grocery list
+  const entryOf = (f, a, meal) => ({ id: newEntryId(), meal, name: f.name, amount: amountLabel(f, a), kcal: Math.round(f.kcal * a), c: r1(f.c * a), p: r1(f.p * a), f: r1(f.f * a), key: f.key, qty: a, unit: f.unit });
   const sumOf = (entries) => entries.reduce((t, e) => ({ kcal: t.kcal + (+e.kcal || 0), c: t.c + (+e.c || 0), p: t.p + (+e.p || 0), f: t.f + (+e.f || 0) }), { kcal: 0, c: 0, p: 0, f: 0 });
   const mealNames = () => ((nutrition && nutrition.meals) || []).map((m) => m.name).concat(["Other"]);
   const mealNow = () => { const d = new Date(), h = d.getHours() + d.getMinutes() / 60; return h < 9.5 ? "Breakfast" : h < 11.5 ? "Mid-Morning Snack" : h < 14 ? "Lunch" : h < 16.5 ? "Mid-Afternoon Snack" : "Dinner"; };
@@ -1526,7 +1527,13 @@
       showStatus(ok ? "Saved" : "Not saved. Check your connection and try again.", !ok);
     });
   }
-  const addFood = (entries) => { if (!foodDay) foodDay = todayKey(); setFoodDay(foodDay, (foodDays[foodDay] || []).concat(entries)); redrawKeep(); };
+  // added to the day shown; a day still to come is planned, not eaten
+  const addFood = (entries) => {
+    if (!foodDay) foodDay = todayKey();
+    const planned = foodDay > todayKey();
+    setFoodDay(foodDay, (foodDays[foodDay] || []).concat(entries.map((e) => (planned ? Object.assign({}, e, { planned: true }) : e))));
+    redrawKeep();
+  };
   // units for a custom food: [family, size in that family's base unit]; an amount converts within its family
   // (grams and ounces by weight; cups, spoons and fluid ounces by volume)
   const CUSTOM_UNITS = { serving: ["count", 1], piece: ["count", 1], g: ["weight", 1], oz: ["weight", 28.35], cup: ["volume", 48], "fl oz": ["volume", 6], tbsp: ["volume", 3], tsp: ["volume", 1] };
@@ -1556,56 +1563,79 @@
     return out;
   };
 
+  // ---- a meal as it's built in the meal editor: a list of items, each a food from the plan's lists at an amount
+  // ({ kind: "plan", key, amt }), a food from a label at an amount ({ kind: "label", def, eAmt, eUnit }), or an
+  // entry kept as it was ({ kind: "fixed", entry })
+  const numOf = (v) => { const x = parseFloat(v); return Number.isFinite(x) && x >= 0 ? x : 0; };
+  // how much of a label's serving an amount is: in servings, or in a unit that converts to the serving's
+  const labelRatio = (def, eAmt, eUnit) => (eUnit === "servings" ? numOf(eAmt)
+    : CUSTOM_UNITS[eUnit] && CUSTOM_UNITS[def.sUnit] ? (numOf(eAmt) * CUSTOM_UNITS[eUnit][1]) / ((numOf(def.sAmt) || 1) * CUSTOM_UNITS[def.sUnit][1]) : numOf(eAmt));
+  const labelAmount = (eAmt, eUnit) => { const a = numOf(eAmt); return eUnit === "servings" ? `${a} serving${a === 1 ? "" : "s"}` : `${a} ${eUnit}`; };
+  function itemToEntry(it, meal) {
+    if (it.kind === "plan") { const f = foodOf(it.key); return f ? entryOf(f, it.amt, meal) : null; }
+    if (it.kind === "label") {
+      const k = labelRatio(it.def, it.eAmt, it.eUnit);
+      return { id: newEntryId(), meal, name: it.def.name, amount: labelAmount(it.eAmt, it.eUnit), kcal: Math.round(it.def.kcal * k), c: r1(it.def.c * k), p: r1(it.def.p * k), f: r1(it.def.f * k), def: it.def, qty: numOf(it.eAmt), unit: it.eUnit };
+    }
+    return Object.assign({}, it.entry, { id: newEntryId(), meal, planned: false });
+  }
+  function entryToItem(e) {
+    if (e.key && foodOf(e.key) && e.qty) return { kind: "plan", key: e.key, amt: e.qty };
+    if (e.def && e.qty) return { kind: "label", def: e.def, eAmt: String(e.qty), eUnit: e.unit || "servings" };
+    return { kind: "fixed", entry: e };
+  }
+  const itemTotals = (it) => { const e = itemToEntry(it, ""); return e ? { kcal: e.kcal, p: e.p, c: e.c, f: e.f } : { kcal: 0, p: 0, c: 0, f: 0 }; };
+  const DAY_RANGE = 7; // the food log reaches a week back for logging and a week ahead for planning
+  const dayLabel = (k) => { const t = todayKey(); return k === t ? "Today" : k === shiftDay(t, -1) ? "Yesterday" : k === shiftDay(t, 1) ? "Tomorrow" : new Date(`${k}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); };
+  const eatenOf = (entries) => entries.filter((e) => !e.planned);
+  const plannedOf = (entries) => entries.filter((e) => e.planned);
+
+  // the day bar and countdown: what's been eaten against the day's targets (or, for a day still to come, what's planned)
   function foodLogCard(target) {
     if (!foodDay) foodDay = todayKey();
     const today = todayKey();
     const entries = foodDays[foodDay] || [];
-    const eaten = sumOf(entries);
-    const label = foodDay === today ? "Today" : foodDay === shiftDay(today, -1) ? "Yesterday" : new Date(`${foodDay}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    const go = (by) => { const k = shiftDay(foodDay, by); if (k > today || k < shiftDay(today, -7)) return; foodDay = k; redrawKeep(); };
-    const kLeft = Math.round(target.kcal - eaten.kcal);
+    const future = foodDay > today;
+    const counted = sumOf(future ? plannedOf(entries) : eatenOf(entries));
+    const planned = sumOf(plannedOf(entries));
+    const go = (by) => { const k = shiftDay(foodDay, by); if (k > shiftDay(today, DAY_RANGE) || k < shiftDay(today, -DAY_RANGE)) return; foodDay = k; redrawKeep(); };
+    const kLeft = Math.round(target.kcal - counted.kcal);
     const bar = (name, ate, goal) => {
       const over = ate > goal + 0.5;
       return el("div", { class: "food-bar" },
-        el("div", { class: "food-bar-top" }, el("b", null, name), el("small", null, over ? `${Math.round(ate - goal)}g over` : `${Math.round(goal - ate)}g left`)),
+        el("div", { class: "food-bar-top" }, el("b", null, name), el("small", null, over ? `${Math.round(ate - goal)}g over` : `${Math.round(goal - ate)}g ${future ? "to plan" : "left"}`)),
         el("div", { class: `food-track${over ? " over" : ""}` }, el("span", { style: `width:${goal ? Math.min(100, (ate / goal) * 100) : 0}%` })),
         el("small", { class: "food-bar-sub" }, `${Math.round(ate)} of ${goal}g`));
     };
-    // entries by meal, in the plan's meal order
-    const order = mealNames();
-    const byMeal = order.map((m) => ({ m, list: entries.filter((e) => (order.includes(e.meal) ? e.meal : "Other") === m) })).filter((x) => x.list.length);
-    const remove = (id) => { setFoodDay(foodDay, entries.filter((e) => e.id !== id)); redrawKeep(); };
     return el("div", { class: "card food-log" },
       el("div", { class: "food-day" },
-        el("button", { class: "nav", "aria-label": "Previous day", disabled: foodDay <= shiftDay(today, -7), onclick: () => go(-1) }, "‹"),
-        el("b", null, label),
-        el("button", { class: "nav", "aria-label": "Next day", disabled: foodDay >= today, onclick: () => go(1) }, "›")),
+        el("button", { class: "nav", "aria-label": "Previous day", disabled: foodDay <= shiftDay(today, -DAY_RANGE), onclick: () => go(-1) }, "‹"),
+        el("b", null, dayLabel(foodDay), future ? el("small", { class: "food-plan-tag" }, " planning") : null),
+        el("button", { class: "nav", "aria-label": "Next day", disabled: foodDay >= shiftDay(today, DAY_RANGE), onclick: () => go(1) }, "›")),
       el("div", { class: `food-left${kLeft < 0 ? " over" : ""}` },
         el("b", null, Math.abs(kLeft).toLocaleString()),
-        el("span", null, kLeft < 0 ? "calories over" : "calories left"),
-        el("small", null, `${target.kcal.toLocaleString()} goal − ${Math.round(eaten.kcal).toLocaleString()} eaten`)),
-      bar("Protein", eaten.p, target.p), bar("Carbs", eaten.c, target.c), bar("Fat", eaten.f, target.f),
-      el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: () => openFoodPicker() }, "+ Log food")),
-      byMeal.map(({ m, list }) => el("div", { class: "food-meal" },
-        el("div", { class: "food-meal-top" }, el("b", null, m), el("small", null, `${Math.round(sumOf(list).kcal)} cal`)),
-        list.map((e) => el("div", { class: "food-entry" },
-          el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null),
-          el("small", null, `${e.kcal} cal`),
-          el("button", { class: "food-x", "aria-label": `Remove ${e.name}`, onclick: () => remove(e.id) }, "×"))))));
+        el("span", null, kLeft < 0 ? (future ? "calories over, as planned" : "calories over") : future ? "calories still to plan" : "calories left"),
+        el("small", null, future
+          ? `${target.kcal.toLocaleString()} goal − ${Math.round(counted.kcal).toLocaleString()} planned`
+          : `${target.kcal.toLocaleString()} goal − ${Math.round(counted.kcal).toLocaleString()} eaten${planned.kcal ? ` · ${Math.round(planned.kcal).toLocaleString()} more planned` : ""}`)),
+      bar("Protein", counted.p, target.p), bar("Carbs", counted.c, target.c), bar("Fat", counted.f, target.f),
+      el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: () => openFoodPicker() }, future ? "+ Plan a food" : "+ Log food")));
   }
 
-  // the Log food sheet: search the food lists (or a recent food) and set the amount, or enter a food of their own
-  function openFoodPicker(meal) {
+  // The Log food sheet: search the food lists (or a recent food) and set the amount, or enter a food of their own from
+  // its label. With onPick, the food chosen goes back to the meal editor instead of into the log.
+  function openFoodPicker(meal, onPick) {
     let q = "", chosen = null, amt = 1, mealSel = meal || mealNow(), custom = false;
     let fromDb = false; // the label form opened on a food from the database (not added to the library again)
     const cf = { name: "", sAmt: "1", sUnit: "serving", kcal: "", p: "", c: "", f: "", eAmt: "1", eUnit: "servings" };
     // a food of their own, or one from the database, in the label form ready for an amount
     const openLabel = (d, db) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit }); fromDb = !!db; custom = true; draw(); };
-    const openMine = (d) => openLabel(d, false);
+    const done = (item) => { if (onPick) onPick(item); else { closeVideo(); const e = itemToEntry(item, mealSel); if (e) addFood([e]); } };
     const sheet = el("div", { class: "sheet food-sheet" });
     const close = () => el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×");
-    const mealPick = () => el("label", { class: "food-label" }, "Meal",
-      el("select", { class: "food-select", onchange: (e) => { mealSel = e.target.value; } }, mealNames().map((m) => { const o = el("option", { value: m }, m); if (m === mealSel) o.selected = true; return o; })));
+    const mealPick = () => (onPick ? "" : el("label", { class: "food-label" }, "Meal",
+      el("select", { class: "food-select", onchange: (e) => { mealSel = e.target.value; } }, mealNames().map((m) => { const o = el("option", { value: m }, m); if (m === mealSel) o.selected = true; return o; }))));
+    const addText = onPick ? "Add to meal" : "Add";
     const draw = () => {
       if (chosen) {
         const f = chosen, t = { kcal: Math.round(f.kcal * amt), p: r1(f.p * amt), c: r1(f.c * amt), f: r1(f.f * amt) };
@@ -1614,19 +1644,18 @@
           el("div", { class: "food-amt" }, el("button", { class: "food-step", "aria-label": "Less", onclick: step(-1) }, "−"), el("b", null, amountLabel(f, amt)), el("button", { class: "food-step", "aria-label": "More", onclick: step(1) }, "+")),
           el("div", { class: "food-amt-tot" }, `${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`),
           mealPick(),
-          el("div", { class: "swap-actions" }, el("button", { onclick: () => { chosen = null; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => { closeVideo(); addFood([entryOf(f, amt, mealSel)]); } }, "Add")));
+          el("div", { class: "swap-actions" }, el("button", { onclick: () => { chosen = null; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => done({ kind: "plan", key: f.key, amt }) }, addText)));
         return;
       }
       if (custom) {
         // From the nutrition label: what one serving is and what's in it, then how much was eaten, in a unit that
         // converts to the serving's (grams and ounces, cups and spoons) or in servings. The label figures are kept with
         // the entry, so it comes back under My foods for any amount.
-        const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) && x >= 0 ? x : 0; };
         const family = (u) => (CUSTOM_UNITS[u] || CUSTOM_UNITS.serving)[0];
         const eatUnits = ["servings"].concat(Object.keys(CUSTOM_UNITS).filter((u) => family(u) === family(cf.sUnit) && family(u) !== "count"));
         if (!eatUnits.includes(cf.eUnit)) cf.eUnit = "servings";
-        const ratio = () => (cf.eUnit === "servings" ? num(cf.eAmt) : (num(cf.eAmt) * CUSTOM_UNITS[cf.eUnit][1]) / ((num(cf.sAmt) || 1) * CUSTOM_UNITS[cf.sUnit][1]));
-        const per = () => ({ kcal: num(cf.kcal) || num(cf.p) * 4 + num(cf.c) * 4 + num(cf.f) * 9, p: num(cf.p), c: num(cf.c), f: num(cf.f) }); // calories from the macros when left blank
+        const per = () => ({ kcal: numOf(cf.kcal) || numOf(cf.p) * 4 + numOf(cf.c) * 4 + numOf(cf.f) * 9, p: numOf(cf.p), c: numOf(cf.c), f: numOf(cf.f) }); // calories from the macros when left blank
+        const ratio = () => labelRatio({ sAmt: cf.sAmt, sUnit: cf.sUnit }, cf.eAmt, cf.eUnit);
         const totalEl = el("div", { class: "food-amt-tot" });
         const showTotal = () => { const k = ratio(), x = per(); totalEl.textContent = `You ate: ${Math.round(x.kcal * k)} cal · P ${r1(x.p * k)} · C ${r1(x.c * k)} · F ${r1(x.f * k)}`; };
         const box = (k, label, mode) => el("label", { class: "food-label" }, label, el("input", { class: "food-input", value: cf[k], inputmode: mode || "decimal", type: mode === "text" ? "text" : "number", step: "any", min: "0", oninput: (e) => { cf[k] = e.target.value; showTotal(); } }));
@@ -1635,30 +1664,28 @@
         const pair = (amtKey, unitKey, units, label) => el("label", { class: "food-label" }, label, el("div", { class: "food-pair" },
           el("input", { class: "food-input", value: cf[amtKey], inputmode: "decimal", type: "number", step: "any", min: "0", oninput: (e) => { cf[amtKey] = e.target.value; showTotal(); } }),
           unitPick(unitKey, units, label)));
-        sheet.replaceChildren(close(), el("h2", null, fromDb ? "Log food" : "Custom food"),
+        sheet.replaceChildren(close(), el("h2", null, fromDb ? cf.name || "Log food" : "Custom food"),
           box("name", "Food", "text"),
           el("div", { class: "nut-group" }, "From the label"),
           pair("sAmt", "sUnit", Object.keys(CUSTOM_UNITS), "Serving size"),
           el("div", { class: "food-grid" }, box("kcal", "Calories"), box("p", "Protein (g)"), box("c", "Carbs (g)"), box("f", "Fat (g)")),
-          el("div", { class: "nut-group" }, "What you ate"),
+          el("div", { class: "nut-group" }, "How much"),
           pair("eAmt", "eUnit", eatUnits, "Amount"),
           totalEl, mealPick(),
           el("div", { class: "swap-actions" }, el("button", { onclick: () => { custom = false; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => {
             if (!cf.name.trim()) { showStatus("Give the food a name.", true); return; }
-            if (!(ratio() > 0)) { showStatus("Enter how much you ate.", true); return; }
-            const k = ratio(), x = per(), eAmt = num(cf.eAmt);
-            const amount = cf.eUnit === "servings" ? `${eAmt} serving${eAmt === 1 ? "" : "s"}` : `${eAmt} ${cf.eUnit}`;
-            const def = { name: cf.name.trim().slice(0, 60), sAmt: num(cf.sAmt) || 1, sUnit: cf.sUnit, kcal: Math.round(x.kcal), p: r1(x.p), c: r1(x.c), f: r1(x.f) };
-            closeVideo();
-            addFood([{ id: newEntryId(), meal: mealSel, name: def.name, amount, kcal: Math.round(x.kcal * k), c: r1(x.c * k), p: r1(x.p * k), f: r1(x.f * k), def: fromDb ? Object.assign({ db: true }, def) : def }]);
+            if (!(ratio() > 0)) { showStatus("Enter how much.", true); return; }
+            const x = per();
+            const def = { name: cf.name.trim().slice(0, 60), sAmt: numOf(cf.sAmt) || 1, sUnit: cf.sUnit, kcal: Math.round(x.kcal), p: r1(x.p), c: r1(x.c), f: r1(x.f) };
             // a food of their own goes into the shared library for good (one already there under the same name,
             // serving and calories is left as it is)
             if (!fromDb && api.foodLibraryAdd) {
               api.foodLibraryAdd(def).then((id) => {
-                if (id && !libraryFoods.some((x) => x.id === id)) libraryFoods.push(Object.assign({ id, mine: true }, def));
+                if (id && !libraryFoods.some((y) => y.id === id)) libraryFoods.push(Object.assign({ id, mine: true }, def));
               }).catch(() => {});
             }
-          } }, "Add")));
+            done({ kind: "label", def: fromDb ? Object.assign({ db: true }, def) : def, eAmt: cf.eAmt, eUnit: cf.eUnit });
+          } }, addText)));
         showTotal();
         return;
       }
@@ -1676,10 +1703,10 @@
         list.replaceChildren(
           el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
           mine.length ? el("div", { class: "nut-group" }, "My foods") : "",
-          ...mine.map((d) => el("button", { class: "food-row", onclick: () => openMine(d) },
+          ...mine.map((d) => el("button", { class: "food-row", onclick: () => openLabel(d, false) },
             el("span", null, d.name), el("small", null, `${d.kcal} cal / ${d.sAmt} ${d.sUnit}`))),
           recent.length ? el("div", { class: "nut-group" }, "Recent") : "",
-          ...recent.map((e) => el("button", { class: "food-row", onclick: () => { closeVideo(); addFood([Object.assign({}, e, { id: newEntryId(), meal: mealSel })]); } },
+          ...recent.map((e) => el("button", { class: "food-row", onclick: () => done(entryToItem(e)) },
             el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null), el("small", null, `${e.kcal} cal`))),
           foods.length ? el("div", { class: "nut-group" }, "Your plan’s foods") : "",
           ...foods.map((f) => el("button", { class: "food-row", onclick: () => { chosen = f; amt = defaultAmount(f); draw(); } },
@@ -1691,54 +1718,92 @@
             : !mine.length && !recent.length && !foods.length && !db.length ? el("div", { class: "card-sub nut-note" }, "Nothing found. Add it as a custom food from its label.") : "");
       };
       const search = el("input", { type: "search", class: "food-input", placeholder: "Search foods: chicken, rice, eggs…", value: q, oninput: (e) => { q = e.target.value; drawList(); } });
-      sheet.replaceChildren(close(), el("h2", null, "Log food"), mealPick(), search, list);
+      sheet.replaceChildren(close(), el("h2", null, onPick ? `Add a food to ${meal ? meal.toLowerCase() : "the meal"}` : "Log food"), mealPick(), search, list);
       drawList();
     };
     draw();
     overlay.replaceChildren(sheet);
     overlay.className = "overlay show";
   }
-  // "Log this meal": every food in an example meal or option, added at its amount
-  const logMeal = (parts, meal) => {
-    const entries = (parts || []).map(([key, a]) => { const f = foodOf(key); return f ? entryOf(f, a, meal) : null; }).filter(Boolean);
-    if (entries.length) { addFood(entries); showStatus(`Logged ${entries.length} food${entries.length === 1 ? "" : "s"}`); }
-  };
 
-  // the options for one meal (shakes, whole foods, bowls...), each sized to that meal's targets, closest first
-  function openMealOptions(mealName) {
-    const choices = (nutrition && nutrition.choices && nutrition.choices[mealName]) || null;
-    const meal = ((nutrition && nutrition.meals) || []).find((m) => m.name === mealName);
-    if (!choices || !meal) return;
-    let rest = nutRest && !!choices.rest && !!meal.rest;
-    const sheet = el("div", { class: "sheet food-sheet" });
+  // The meal editor: a sample meal, an option, a custom meal or what's already planned, laid out food by food. A food
+  // from the plan's lists can be swapped for another of the same group (resized to bring the same protein, carbohydrate
+  // or fat), and any food resized, removed or added to; then the whole meal is logged, or planned for the day shown.
+  // replaceIds: entries it stands in for (a planned meal being changed), taken out when it's saved.
+  const SWAP_MACRO = { protein: "p", deli: "p", dairy: "p", starch: "c", fruit: "c", bar: "c", fat: "f" };
+  function openMealEditor(opts) {
+    const meal = opts.meal, day = foodDay || todayKey();
+    const items = (opts.items || []).map((it) => Object.assign({}, it));
+    const target = ((nutrition && nutrition.meals) || []).find((m) => m.name === meal);
+    const t = target ? (nutRest && target.rest ? target.rest : target.train) : null;
+    const sheet = el("div", { class: "sheet food-sheet meal-editor" });
+    const show = () => { draw(); overlay.replaceChildren(sheet); overlay.className = "overlay show"; };
+    const swapTo = (it, key) => {
+      const cur = foodOf(it.key), nf = foodOf(key);
+      if (!cur || !nf) return;
+      const m = SWAP_MACRO[cur.cat];
+      let a = m && cur[m] > 0 && nf[m] > 0 ? (it.amt * cur[m]) / nf[m] : it.amt;
+      a = Math.max(nf.step, Math.min(nf.max || 99, Math.round(a / nf.step) * nf.step));
+      it.key = key; it.amt = a;
+    };
     const draw = () => {
-      const t = rest ? meal.rest : meal.train;
-      const list = (rest ? choices.rest : choices.train) || [];
+      const tot = items.map(itemTotals).reduce((s, x) => ({ kcal: s.kcal + x.kcal, p: s.p + x.p, c: s.c + x.c, f: s.f + x.f }), { kcal: 0, p: 0, c: 0, f: 0 });
+      const rows = items.map((it, i) => {
+        const x = itemTotals(it);
+        const remove = el("button", { class: "food-x", "aria-label": "Remove", onclick: () => { items.splice(i, 1); draw(); } }, "×");
+        if (it.kind === "plan") {
+          const f = foodOf(it.key);
+          if (!f) return null;
+          const same = Object.keys(nutrition.foods).map(foodOf).filter((g) => g && g.cat === f.cat).sort((a, b) => a.name.localeCompare(b.name));
+          const pick = el("select", { class: "food-select me-swap", "aria-label": "Swap for", onchange: (e) => { swapTo(it, e.target.value); draw(); } },
+            same.map((g) => { const o = el("option", { value: g.key }, g.name); if (g.key === f.key) o.selected = true; return o; }));
+          const step = (by) => () => { it.amt = Math.max(f.step, Math.round((it.amt + by * f.step) * 100) / 100); draw(); };
+          return el("div", { class: "me-row" }, pick,
+            el("div", { class: "me-amt" }, el("button", { class: "me-step", "aria-label": "Less", onclick: step(-1) }, "−"), el("b", null, amountLabel(f, it.amt)), el("button", { class: "me-step", "aria-label": "More", onclick: step(1) }, "+")),
+            el("small", { class: "me-cal" }, `${x.kcal} cal`), remove);
+        }
+        if (it.kind === "label") {
+          const amtIn = el("input", { class: "food-input me-num", type: "number", step: "any", min: "0", inputmode: "decimal", value: it.eAmt, onchange: (e) => { it.eAmt = e.target.value; draw(); } });
+          return el("div", { class: "me-row" }, el("span", { class: "me-name" }, it.def.name),
+            el("div", { class: "me-amt" }, amtIn, el("small", null, it.eUnit)), el("small", { class: "me-cal" }, `${x.kcal} cal`), remove);
+        }
+        return el("div", { class: "me-row" }, el("span", { class: "me-name" }, it.entry.name, it.entry.amount ? el("small", null, ` ${it.entry.amount}`) : null), el("span", null), el("small", { class: "me-cal" }, `${x.kcal} cal`), remove);
+      }).filter(Boolean);
+      const off = t ? Math.round(tot.kcal - t.kcal) : 0;
+      const save = (asPlan) => {
+        const entries = items.map((it) => itemToEntry(it, meal)).filter(Boolean).map((e) => Object.assign(e, { planned: !!asPlan }));
+        if (!entries.length) { showStatus("Add a food first.", true); return; }
+        const kept = (foodDays[day] || []).filter((e) => !(opts.replaceIds || []).includes(e.id));
+        setFoodDay(day, kept.concat(entries));
+        closeVideo();
+        showStatus(`${asPlan ? "Planned" : "Logged"} ${meal.toLowerCase()}`);
+        redrawKeep();
+      };
+      const today = todayKey();
       sheet.replaceChildren(
         el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
-        el("h2", null, `${mealName} options`),
-        meal.rest ? el("div", { class: "chips nut-chips" },
-          el("button", { class: `chip${!rest ? " on" : ""}`, onclick: () => { rest = false; draw(); } }, "Training day"),
-          el("button", { class: `chip${rest ? " on" : ""}`, onclick: () => { rest = true; draw(); } }, "Rest day")) : "",
-        el("div", { class: "card-sub nut-note" }, `Each one fits your ${mealName.toLowerCase()}: about ${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`),
-        ...list.map((m) => el("div", { class: "nut-option" },
-          el("div", { class: "nut-meal-top" }, el("b", null, m.name), el("small", null, `${m.tot.kcal} cal`)),
-          el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
-          m.note ? el("div", { class: "card-sub" }, m.note) : null,
-          el("div", { class: "card-sub" }, `P ${m.tot.p} · C ${m.tot.c} · F ${m.tot.f}`),
-          foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => { closeVideo(); logMeal(m.parts, mealName); } }, "+ Log this") : null)));
+        el("h2", null, opts.title || meal),
+        el("div", { class: "card-sub nut-note" }, `${meal} · ${dayLabel(day)}${opts.note ? ` · ${opts.note}` : ""}. Swap a food with its menu, change amounts with − and +, or add more.`),
+        rows.length ? el("div", { class: "me-rows" }, rows) : el("div", { class: "card-sub nut-note" }, "No foods yet. Add some below."),
+        el("button", { class: "food-logmeal me-add", onclick: () => openFoodPicker(meal, (item) => { items.push(item); show(); }) }, "+ Add a food"),
+        el("div", { class: `me-tot${t && Math.abs(off) > t.kcal * 0.15 ? " off" : ""}` },
+          el("b", null, `${Math.round(tot.kcal)} cal`), ` · P ${r1(tot.p)} · C ${r1(tot.c)} · F ${r1(tot.f)}`,
+          t ? el("small", null, `Target: ${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`) : null),
+        el("div", { class: "swap-actions" },
+          day <= today ? el("button", { class: "primary", onclick: () => save(false) }, day === today ? "Log it" : `Log for ${dayLabel(day).toLowerCase()}`) : null,
+          day >= today ? el("button", { class: day > today ? "primary" : "", onclick: () => save(true) }, day === today ? "Plan it for later" : "Plan it") : null));
     };
-    draw();
-    overlay.replaceChildren(sheet);
-    overlay.className = "overlay show";
+    show();
   }
 
   // ---- Nutrition: the plan the coach built on the dashboard (nutrition.js), as it wrote it out for the phone ------
-  // The day's targets (training or rest day), each meal's targets, the example meals for a day of the two-week
-  // rotation (this week's half of it and today, to start with), then the lists for building their own meals, the
-  // breakfast, snack and shake options, the grocery list and the hydration and supplement notes, each folded away.
+  // The day's targets (training or rest day) and the countdown for the day shown (a week back to log, a week ahead to
+  // plan); Your meals, each opening to what's logged or planned, the day's sample meal, the options sized to that meal
+  // and a custom meal, all logged or planned whole through the meal editor; the food exchange lists; and a grocery list
+  // from what's planned, hydration and supplements, folded away.
+  let openMeals = new Set(); // the meals opened in Your meals
   function nutritionView() {
-    const main = el("main");
+    const main = el("main", { class: "nut-main" });
     const n = nutrition;
     if (!n) {
       main.append(el("div", { class: "card" },
@@ -1752,6 +1817,8 @@
     const chip = (text, on, onclick) => el("button", { class: `chip${on ? " on" : ""}`, onclick }, text);
     const macros = (t) => `P ${t.p} · C ${t.c} · F ${t.f}`;
     const day = nutRest ? n.rest : n.train;
+    if (!foodDay) foodDay = todayKey();
+    const today = todayKey();
     main.append(el("div", { class: "card nut-head" },
       el("div", { class: "card-title" }, n.goal),
       el("div", { class: "chips nut-chips" }, chip("Training day", !nutRest, () => { nutRest = false; redraw(); }), chip("Rest day", nutRest, () => { nutRest = true; redraw(); })),
@@ -1762,68 +1829,93 @@
         el("div", null, el("b", null, `${day.f}g`), el("span", null, "fat"))),
       nutRest ? el("div", { class: "card-sub" }, "Rest day: the same protein and fat with less carbohydrate, and no post-workout shake.") : null));
 
-    // the food log (once it has loaded; there is none until migration_023 has been run)
-    if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, "counts down to your targets")), foodLogCard(day));
+    // the countdown for the day shown (once the food log has loaded; there is none until migration_023 has been run)
+    if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, foodDay > today ? "planning ahead" : "counts down to your targets")), foodLogCard(day));
 
-    main.append(el("h2", { class: "section" }, "Your meals", el("small", null, nutRest ? "rest day" : "training day")));
-    // a meal with options opens them with a tap
-    const hasChoices = (name) => !!(n.choices && n.choices[name]);
-    if (n.choices) main.append(el("div", { class: "card-sub nut-note" }, "Tap a meal for options that fit it: shakes, whole foods, bowls and more."));
-    main.append(el("div", { class: "card nut-meals" }, n.meals.filter((m) => !nutRest || m.rest).map((m) => {
-      const t = nutRest ? m.rest : m.train;
-      const inner = [
-        el("div", { class: "nut-meal-name" }, el("b", null, m.name), el("small", null, m.time)),
-        el("div", { class: "nut-meal-fig" }, el("b", null, `${t.kcal} cal`), el("small", null, macros(t))),
-        hasChoices(m.name) ? el("span", { class: "nut-chev", "aria-hidden": "true" }, "›") : null,
-      ];
-      return hasChoices(m.name)
-        ? el("button", { class: "nut-meal-row nut-meal-btn", "aria-label": `${m.name} options`, onclick: () => openMealOptions(m.name) }, inner)
-        : el("div", { class: "nut-meal-row" }, inner);
-    })));
-
-    // the example meals: one day of the two-week rotation, starting on today in this week's half of it
+    // ---- Your meals: one cell per meal for the day shown
+    const entries = (foodDays && foodDays[foodDay]) || [];
     const weeks = n.weeks || [];
-    if (weeks.length) {
-      if (nutWeek == null) nutWeek = Math.floor(Date.now() / (7 * 86400000)) % weeks.length;
-      if (nutDay == null) nutDay = (new Date().getDay() + 6) % 7;
-      const shown = (weeks[nutWeek] || weeks[0])[nutDay];
-      main.append(el("h2", { class: "section" }, "Example meals", el("small", null, "or build your own below")));
-      main.append(el("div", { class: "chips nut-chips" }, weeks.map((w, i) => chip(`Week ${i + 1}`, i === nutWeek, () => { nutWeek = i; redraw(); }))));
-      main.append(el("div", { class: "chips days nut-chips" }, (weeks[0] || []).map((d, i) => chip(d.day.slice(0, 3), i === nutDay, () => { nutDay = i; redraw(); }))));
-      if (nutRest) main.append(el("div", { class: "card-sub nut-note" }, "These are training-day amounts. On a rest day, skip the post-workout shake and use the rest-day amounts in the lists below."));
-      shown.meals.forEach((m) => main.append(el("div", { class: `card nut-meal${m.cheat ? " cheat" : ""}` },
-        el("div", { class: "nut-meal-top" }, el("b", null, m.slot), el("small", null, m.cheat ? "your pick" : `${m.tot.kcal} cal`)),
-        m.cheat ? el("div", { class: "card-sub" }, "Cheat meal: enjoy it, then back on plan.") : el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
-        m.note ? el("div", { class: "card-sub" }, m.note) : null,
-        el("div", { class: "nut-meal-acts" },
-          foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => logMeal(m.parts, m.slot) }, "+ Log this meal") : null,
-          hasChoices(m.slot) ? el("button", { class: "food-logmeal nut-other", onclick: () => openMealOptions(m.slot) }, "Other options") : null))));
-      main.append(el("div", { class: "card-sub nut-note" }, `Day total: ${shown.tot.kcal.toLocaleString()} cal · ${macros(shown.tot)}`));
+    const [yy, mm, dd] = foodDay.split("-").map(Number);
+    const dayDate = new Date(yy, mm - 1, dd);
+    const sampleDay = weeks.length ? (weeks[Math.floor(Date.UTC(yy, mm - 1, dd) / (7 * 86400000)) % weeks.length] || weeks[0])[(dayDate.getDay() + 6) % 7] : null;
+    main.append(el("h2", { class: "section" }, "Your meals", el("small", null, `${dayLabel(foodDay)} · ${nutRest ? "rest day" : "training day"}`)));
+    main.append(el("div", { class: "card-sub nut-note" }, foodDays
+      ? (foodDay > today ? "Tap a meal to plan it: the sample, an option, or your own." : "Tap a meal to log it: the sample, an option, your own, or a single food.")
+      : "Tap a meal for its sample and options."));
+    const cells = n.meals.filter((m) => !nutRest || m.rest).map((m) => {
+      const t = nutRest ? m.rest : m.train;
+      const mine = entries.filter((e) => e.meal === m.name);
+      const eaten = eatenOf(mine), planned = plannedOf(mine);
+      const open = openMeals.has(m.name);
+      const toggle = () => { if (open) openMeals.delete(m.name); else openMeals.add(m.name); redraw(); };
+      const status = eaten.length ? `${Math.round(sumOf(eaten).kcal)} of ${t.kcal} cal` : planned.length ? `Planned · ${Math.round(sumOf(planned).kcal)} cal` : `${t.kcal} cal`;
+      const head = el("button", { class: `nut-meal-row nut-meal-btn${eaten.length ? " done" : ""}`, "aria-expanded": open ? "true" : "false", onclick: toggle },
+        el("div", { class: "nut-meal-name" }, el("b", null, m.name), el("small", null, m.time)),
+        el("div", { class: "nut-meal-fig" }, el("b", null, status), el("small", null, macros(t))),
+        el("span", { class: "nut-chev", "aria-hidden": "true" }, open ? "▾" : "›"));
+      if (!open) return el("div", { class: "meal-cell" }, head);
+      const body = [];
+      const remove = (id) => { setFoodDay(foodDay, entries.filter((e) => e.id !== id)); redraw(); };
+      // what's already logged or planned
+      if (mine.length) {
+        body.push(el("div", { class: "meal-done" }, mine.map((e) => el("div", { class: `food-entry${e.planned ? " planned" : ""}` },
+          el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null, e.planned ? el("em", { class: "food-plan-tag" }, " planned") : null),
+          el("small", null, `${e.kcal} cal`),
+          el("button", { class: "food-x", "aria-label": `Remove ${e.name}`, onclick: () => remove(e.id) }, "×")))));
+        if (planned.length) {
+          body.push(el("div", { class: "nut-meal-acts" },
+            foodDay <= today ? el("button", { class: "food-logmeal", onclick: () => {
+              setFoodDay(foodDay, entries.map((e) => (e.meal === m.name && e.planned ? Object.assign({}, e, { planned: false }) : e)));
+              showStatus(`Logged ${m.name.toLowerCase()}`); redraw();
+            } }, "✓ I ate this") : null,
+            el("button", { class: "food-logmeal nut-other", onclick: () => openMealEditor({ meal: m.name, title: `${m.name} (planned)`, items: planned.map(entryToItem), replaceIds: planned.map((e) => e.id) }) }, "Change it")));
+        }
+      }
+      // the day's sample meal
+      const sample = sampleDay && sampleDay.meals.find((x) => x.slot === m.name);
+      if (sample) {
+        body.push(el("div", { class: "nut-group" }, `Sample for ${dayLabel(foodDay).toLowerCase()}`));
+        body.push(sample.cheat
+          ? el("div", { class: "meal-opt" }, el("div", { class: "meal-opt-top" }, el("b", null, "Cheat meal"), el("small", null, "your pick")), el("div", { class: "card-sub" }, "Enjoy it, then back on plan. Log what you have with + Add a food."))
+          : mealOption(sample.title || m.name, sample, m.name));
+      }
+      // the options sized to this meal
+      const choices = n.choices && n.choices[m.name] ? (nutRest && n.choices[m.name].rest ? n.choices[m.name].rest : n.choices[m.name].train) || [] : [];
+      if (choices.length) {
+        body.push(el("div", { class: "nut-group" }, `${m.name} options`));
+        choices.forEach((o) => body.push(mealOption(o.name, o, m.name)));
+      }
+      if (foodDays) {
+        body.push(el("div", { class: "nut-meal-acts meal-own" },
+          el("button", { class: "food-logmeal", onclick: () => openMealEditor({ meal: m.name, title: `Custom ${m.name.toLowerCase()}`, items: [] }) }, "+ Custom meal"),
+          el("button", { class: "food-logmeal nut-other", onclick: () => openFoodPicker(m.name) }, foodDay > today ? "+ Plan a food" : "+ Add a food")));
+      }
+      return el("div", { class: "meal-cell open" }, head, el("div", { class: "meal-body" }, body));
+    });
+    main.append(el("div", { class: "card nut-meals" }, cells));
+    // one meal to choose: its foods and figures, and Choose (opens it in the meal editor to change, log or plan)
+    function mealOption(title, o, mealName, tag) {
+      const canEdit = foodDays && o.parts && o.parts.length;
+      return el("div", { class: "meal-opt" },
+        el("div", { class: "meal-opt-top" }, el("b", null, title, tag ? el("em", { class: "food-plan-tag" }, ` ${tag.toLowerCase()}`) : null), el("small", null, `${o.tot.kcal} cal · ${macros(o.tot)}`)),
+        el("div", { class: "meal-opt-items" }, o.items.join(" · ")),
+        o.note ? el("div", { class: "card-sub" }, o.note) : null,
+        canEdit ? el("button", { class: "food-logmeal", onclick: () => openMealEditor({ meal: mealName, title, items: o.parts.map(([key, amt]) => ({ kind: "plan", key, amt })), note: o.note }) }, "Choose") : null);
     }
 
-    // folded sections
+    // ---- the food exchange lists
     const fold = (title, ...body) => el("details", { class: "card nut-fold" }, el("summary", null, title), ...body);
     const table = (rows, heads) => el("table", { class: "nut-table" },
       el("thead", null, el("tr", null, heads.map((h) => el("th", null, h)))),
       el("tbody", null, rows.map((r) => el("tr", null, r.map((c) => el("td", null, c))))));
-    main.append(el("h2", { class: "section" }, "Build your own"));
+    main.append(el("h2", { class: "section" }, "Food Exchange Options"));
     main.append(el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."));
     (n.lists || []).forEach((l) => main.append(fold(l.title,
       l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"]))));
-    // an option is logged to its own meal (breakfast, the shake), or a snack to whichever snack it's nearest to
-    const optionMeal = (group) => (group === "Breakfast" ? "Breakfast" : group === "Post-workout" ? "Post-Workout Shake" : new Date().getHours() < 13 ? "Mid-Morning Snack" : "Mid-Afternoon Snack");
-    (n.options || []).forEach((o) => main.append(fold(`${o.group} options`, o.meals.map((m) => el("div", { class: "nut-option" },
-      el("div", { class: "nut-meal-top" }, el("b", null, m.name), el("small", null, `${m.tot.kcal} cal`)),
-      el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
-      m.note ? el("div", { class: "card-sub" }, m.note) : null,
-      el("div", { class: "card-sub" }, macros(m.tot)),
-      foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => logMeal(m.parts, optionMeal(o.group)) }, "+ Log this") : null)))));
+
+    // ---- shopping and habits: the grocery list follows what's planned for the coming week
     main.append(el("h2", { class: "section" }, "Shopping & habits"));
-    // (flatMap: the page builder only flattens one level of lists, which is what left these empty)
-    (n.grocery || []).forEach((wk, i) => main.append(fold(`Grocery list · week ${i + 1}`, wk.flatMap((g) => [
-      el("div", { class: "nut-group" }, g.group),
-      table(g.rows, ["Food", "Serving", "Week"]),
-    ]))));
+    main.append(groceryFold(fold, table));
     main.append(fold("Hydration",
       el("ul", { class: "nut-items" },
         el("li", null, "Weigh before and after practice"),
@@ -1832,8 +1924,39 @@
       el("div", { class: "card-sub" }, "Losing 2–3% of your body weight in water can cost 15–20% of your performance.")));
     main.append(fold("Supplements",
       el("ul", { class: "nut-items" }, ["Fish oil", "Multi-vitamin", "Electrolytes", "Whey protein", "Creatine, beta-alanine, leucine"].map((s) => el("li", null, s))),
-      el("div", { class: "card-sub" }, "NSF Certified for Sport products only (nsfsport.com).")));
+      el("div", { class: "card-sub" }, "NSF Certified for Sport products only."),
+      el("a", { class: "food-logmeal thorne-link", href: THORNE_URL, target: "_blank", rel: "noopener" }, "Shop the DST dispensary on Thorne ↗")));
     return main;
+  }
+  const THORNE_URL = "https://s.thorne.com/WFei3"; // the DST dispensary on Thorne
+
+  // The grocery list for what's planned over the next seven days (from today), each food added up across the meals
+  // it's in; with nothing planned yet, the example rotation's lists, as on the printed plan.
+  const GROCERY_GROUP = { protein: "Protein", deli: "Protein", starch: "Carbohydrate", fruit: "Fruit", veg: "Vegetable", dairy: "Dairy & Misc", fat: "Dairy & Misc", bar: "Dairy & Misc" };
+  function groceryFold(fold, table) {
+    const today = todayKey();
+    const byFood = new Map();
+    for (let i = 0; i < 7; i++) {
+      ((foodDays && foodDays[shiftDay(today, i)]) || []).filter((e) => e.planned).forEach((e) => {
+        const f = e.key ? foodOf(e.key) : null;
+        const id = f ? `k|${f.key}` : `n|${e.name.toLowerCase()}|${e.unit || ""}`;
+        const g = byFood.get(id) || { name: f ? f.name : e.name, f, unit: e.unit || "", qty: 0, times: 0, group: f ? GROCERY_GROUP[f.cat] || "Dairy & Misc" : "Other" };
+        g.qty += +e.qty || 0; g.times += 1;
+        byFood.set(id, g);
+      });
+    }
+    if (byFood.size) {
+      const groups = ["Protein", "Carbohydrate", "Fruit", "Vegetable", "Dairy & Misc", "Other"];
+      const rows = (name) => [...byFood.values()].filter((g) => g.group === name).sort((a, b) => a.name.localeCompare(b.name))
+        .map((g) => [g.name, g.f ? amountLabel(g.f, g.qty) : g.qty ? `${r1(g.qty)} ${g.unit === "servings" ? "servings" : g.unit}` : `${g.times}×`, `${g.times} meal${g.times === 1 ? "" : "s"}`]);
+      return fold("Grocery list · your planned meals",
+        el("div", { class: "card-sub" }, "Everything planned for the next 7 days. Plan more meals and this list follows."),
+        ...groups.filter((g) => rows(g).length).flatMap((g) => [el("div", { class: "nut-group" }, g), table(rows(g), ["Food", "Total", "In"])]));
+    }
+    // nothing planned: the example rotation's two weeks (flatMap: the page builder flattens only one level of lists)
+    return fold("Grocery list · example rotation",
+      el("div", { class: "card-sub" }, "For the sample meals. Plan your own meals above and this list follows them instead."),
+      ...((nutrition && nutrition.grocery) || []).flatMap((wk, i) => [el("div", { class: "nut-group" }, `Week ${i + 1}`)].concat(wk.flatMap((g) => [el("div", { class: "card-sub grocery-sub" }, g.group), table(g.rows, ["Food", "Serving", "Week"])]))));
   }
 
   // ---- My Progress: sessions week by week, estimated maxes, top weights and Group Testing results ----------

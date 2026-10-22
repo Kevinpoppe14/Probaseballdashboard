@@ -349,6 +349,40 @@
   .food-pair .food-select { flex: 0 0 auto; width: auto; min-width: 104px; }
   .food-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
   .food-sheet .nut-group { margin: 6px 0 8px; }
+  /* Nutrition tab: section titles in the countdown's green; Your meals cells; the meal editor */
+  .nut-main > h2.section { color: var(--good); }
+  .nut-main > h2.section small { color: var(--dim); }
+  .meal-cell { border-bottom: 1px solid var(--border); }
+  .meal-cell:last-child { border-bottom: none; }
+  .meal-cell .nut-meal-btn { border-bottom: none; }
+  .nut-meal-btn.done .nut-meal-fig b { color: var(--good); }
+  .meal-body { padding: 0 0 12px; }
+  .meal-done { margin-bottom: 8px; }
+  .food-entry.planned > span { color: var(--dim); }
+  .food-plan-tag { font-style: normal; font-size: 11px; font-weight: 700; color: var(--label, var(--accent)); text-transform: uppercase; letter-spacing: 0.04em; }
+  .meal-opt { padding: 10px 0; border-top: 1px solid var(--border); }
+  .meal-opt-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; }
+  .meal-opt-top small { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .meal-opt-items { margin: 4px 0 6px; font-size: 13px; line-height: 1.45; color: var(--text); }
+  .meal-own { margin-top: 10px; }
+  .me-rows { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+  .me-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; }
+  .me-swap { height: 40px; font-size: 14px; padding: 0 8px; }
+  .me-name { font-size: 14px; min-width: 0; }
+  .me-name small { color: var(--dim); }
+  .me-amt { display: flex; align-items: center; gap: 4px; }
+  .me-amt b { min-width: 54px; text-align: center; font-size: 14px; }
+  .me-amt small { color: var(--dim); font-size: 12px; }
+  .me-step { width: 32px; height: 32px; border-radius: 16px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 18px; line-height: 1; padding: 0; }
+  .me-num { width: 64px; height: 36px; padding: 0 6px; font-size: 15px; }
+  .me-cal { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .me-add { margin: 4px 0 10px; }
+  .me-tot { padding: 10px 12px; margin-bottom: 12px; border-radius: 10px; background: var(--panel-2); font-size: 14px; }
+  .me-tot b { color: var(--good); }
+  .me-tot.off b { color: var(--accent); }
+  .me-tot small { display: block; margin-top: 3px; color: var(--dim); font-size: 12px; }
+  .thorne-link { display: inline-block; margin-top: 10px; text-decoration: none; }
+  .grocery-sub { margin: 8px 0 2px; font-weight: 700; }
   .bc-graph svg { display: block; width: 100%; height: auto; margin: 4px 0 6px; }
   .bc-grid { stroke: var(--border); stroke-width: 1; }
   .bc-axis { fill: var(--dim); font-size: 10px; }

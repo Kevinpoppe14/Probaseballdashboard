@@ -587,9 +587,9 @@
   // link by athlete_portal_nutrition (supabase/migration_022_athlete_portal_nutrition.sql).
   const sortedJson = (v) => (Array.isArray(v) ? `[${v.map(sortedJson).join(",")}]`
     : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${sortedJson(v[k])}`).join(",")}}` : JSON.stringify(v));
-  // for the phone's food log: the food lists ([name, unit, step, kcal, carbohydrate, protein, fat, plural] by key),
+  // for the phone's food log: the food lists ([name, unit, step, kcal, carbohydrate, protein, fat, plural, group, largest amount] by key),
   // and each meal's foods as [key, amount], so "Log this meal" can add them one by one
-  const FOOD_TABLE = Object.fromEntries(Object.values(FOODS).map((f) => [f.key, [f.name, f.unit, f.step, f.kcal, f.c, f.p, f.f, f.pl || ""]]));
+  const FOOD_TABLE = Object.fromEntries(Object.values(FOODS).map((f) => [f.key, [f.name, f.unit, f.step, f.kcal, f.c, f.p, f.f, f.pl || "", f.cat, f.max]]));
   const partsOf = (m) => m.items.map((it) => [it.food.key, it.amt]);
   const r0 = (t) => ({ kcal: round(t.kcal != null ? t.kcal : kcalOf(t)), c: round(t.c), p: round(t.p), f: round(t.f) });
   function snapshotOf(basis, T, plan, lists, times) {
