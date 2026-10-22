@@ -971,7 +971,26 @@
     );
   }
 
+  // Every athlete's phone copy of their plan, brought up to date when the dashboard opens: a new body comp scan, or a
+  // change to the plan's meals and options here, reaches their phone without their profile having to be opened first.
+  // Only plans whose copy comes out differently are saved.
+  function refreshAll() {
+    const store = window.AthleteStore;
+    (store.allAthletes ? store.allAthletes() : []).forEach((a) => {
+      try {
+        const rec = planOf(a.id);
+        if (!rec || !GOALS[rec.goal]) return;
+        const basis = basisFor(a, rec);
+        if (!basis) return;
+        const T = targetsFor(basis, rec.goal);
+        const times = SLOTS.map((s) => (s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
+        const snap = snapshotOf(basis, T, buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch }), macroLists(T), times);
+        if (sortedJson(rec.snapshot || null) !== sortedJson(JSON.parse(JSON.stringify(snap)))) savePlan(a, { snapshot: snap });
+      } catch (e) { /* one athlete's plan that can't be worked out doesn't stop the rest */ }
+    });
+  }
+
   window.NutritionTab = NutritionTab;
   window.NutritionGoalPicker = NutritionGoalPicker;
-  window.NutritionPlan = { FOODS, GOALS, basisFor, targetsFor, buildPlan, macroLists, solve, snapshotOf, SLOTS }; // for checking the sums
+  window.NutritionPlan = { FOODS, GOALS, basisFor, targetsFor, buildPlan, macroLists, solve, snapshotOf, SLOTS, refreshAll }; // refreshAll on load; the rest for checking the sums
 })();

@@ -9612,6 +9612,8 @@ function Root() {
       if (!mounted) return;
       setSession(s);
       setStatus("ready");
+      // every athlete's phone copy of their nutrition plan, brought up to date (nutrition.js), once the page has settled
+      setTimeout(() => { if (window.NutritionPlan && window.NutritionPlan.refreshAll) window.NutritionPlan.refreshAll(); }, 2000);
     };
     window.supabaseClient.auth.getSession().then(({ data }) => {
       if (!mounted) return;
