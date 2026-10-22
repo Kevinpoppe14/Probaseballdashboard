@@ -1892,76 +1892,98 @@
       if (!open) return el("div", { class: "meal-cell" }, head);
       const body = [];
       const remove = (id) => { setFoodDay(foodDay, entries.filter((e) => e.id !== id)); redraw(); };
-      // what's already logged or planned
+      const sample0 = sampleDay && sampleDay.meals.find((x) => x.slot === m.name);
+      // a lunch or dinner sample is named for its protein and starch ("Tilapia & Pasta") rather than for the meal
+      const sampleName = (s) => { const a = s.parts && s.parts[0] && foodOf(s.parts[0][0]), b = s.parts && s.parts[1] && foodOf(s.parts[1][0]); return s.title && s.title !== m.name ? s.title : a && b ? `${a.name} & ${b.name}` : m.name; };
+      const sample = sample0 && !sample0.cheat ? Object.assign({}, sample0, { title: sampleName(sample0) }) : sample0;
+      const choices = n.choices && n.choices[m.name] ? (nutRest && n.choices[m.name].rest ? n.choices[m.name].rest : n.choices[m.name].train) || [] : [];
+      // the meal shown: what's logged (or planned) for it, or else the day's sample meal
       if (mine.length) {
         body.push(el("div", { class: "meal-done" }, mine.map((e) => el("div", { class: `food-entry${e.planned ? " planned" : ""}` },
           el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null, e.planned ? el("em", { class: "food-plan-tag" }, " planned") : null),
           el("small", null, `${e.kcal} cal`),
           el("button", { class: "food-x", "aria-label": `Remove ${e.name}`, onclick: () => remove(e.id) }, "×")))));
-        if (planned.length) {
-          body.push(el("div", { class: "nut-meal-acts" },
-            foodDay <= today ? el("button", { class: "food-logmeal", onclick: () => {
-              setFoodDay(foodDay, entries.map((e) => (e.meal === m.name && e.planned ? Object.assign({}, e, { planned: false }) : e)));
-              showStatus(`Logged ${m.name.toLowerCase()}`); redraw();
-            } }, "✓ I ate this") : null,
-            el("button", { class: "food-logmeal nut-other", onclick: () => openMealEditor({ meal: m.name, title: `${m.name} (planned)`, items: planned.map(entryToItem), replaceIds: planned.map((e) => e.id) }) }, "Change it")));
+        if (planned.length && foodDay <= today) {
+          body.push(el("button", { class: "food-logmeal meal-ate", onclick: () => {
+            setFoodDay(foodDay, entries.map((e) => (e.meal === m.name && e.planned ? Object.assign({}, e, { planned: false }) : e)));
+            showStatus(`Logged ${m.name.toLowerCase()}`); redraw();
+          } }, "✓ I ate this"));
         }
-      }
-      // the day's sample meal
-      const sample = sampleDay && sampleDay.meals.find((x) => x.slot === m.name);
-      if (sample) {
-        body.push(el("div", { class: "nut-group" }, `Sample for ${dayLabel(foodDay).toLowerCase()}`));
-        body.push(sample.cheat
-          ? el("div", { class: "meal-opt" }, el("div", { class: "meal-opt-top" }, el("b", null, "Cheat meal"), el("small", null, "your pick")), el("div", { class: "card-sub" }, "Enjoy it, then back on plan. Log what you have with + Add a food."))
-          : mealOption(sample.title || m.name, sample, m.name));
-      }
-      // their saved meals: those saved from this meal first, then the rest
-      if (foodDays && savedMeals && savedMeals.length) {
-        const list = savedMeals.slice().sort((a, b) => (b.data.meal === m.name ? 1 : 0) - (a.data.meal === m.name ? 1 : 0));
-        body.push(el("div", { class: "nut-group" }, "My meals"));
-        list.forEach((s) => body.push(savedOption(s, m.name)));
-      }
-      // the options sized to this meal
-      const choices = n.choices && n.choices[m.name] ? (nutRest && n.choices[m.name].rest ? n.choices[m.name].rest : n.choices[m.name].train) || [] : [];
-      if (choices.length) {
-        body.push(el("div", { class: "nut-group" }, `${m.name} options`));
-        choices.forEach((o) => body.push(mealOption(o.name, o, m.name)));
+      } else if (sample) {
+        body.push(el("div", { class: "meal-current" },
+          el("div", { class: "meal-opt-top" }, el("b", null, sample.cheat ? "Cheat meal" : sample.title || m.name, el("em", { class: "food-plan-tag" }, ` ${foodDay === today ? "today's meal" : `for ${dayLabel(foodDay).toLowerCase()}`}`)),
+            el("small", null, sample.cheat ? "your pick" : `${sample.tot.kcal} cal · ${macros(sample.tot)}`)),
+          el("div", { class: "meal-opt-items" }, sample.cheat ? "Enjoy it, then back on plan. Log what you have with + Add a single food." : sample.items.join(" · ")),
+          sample.note ? el("div", { class: "card-sub" }, sample.note) : null));
       }
       if (foodDays) {
-        body.push(el("div", { class: "nut-meal-acts meal-own" },
-          el("button", { class: "food-logmeal", onclick: () => openMealEditor({ meal: m.name, title: `Custom ${m.name.toLowerCase()}`, items: [] }) }, "+ Custom meal"),
-          el("button", { class: "food-logmeal nut-other", onclick: () => openFoodPicker(m.name) }, foodDay > today ? "+ Plan a food" : "+ Add a food")));
+        // three ways to go: adjust the meal shown, pick a different ready-made (or saved) meal, or build one from
+        // scratch; a meal already planned is replaced by whichever is logged or planned instead
+        const shown = eaten.length ? eaten : planned;
+        const adjustItems = shown.length ? shown.map(entryToItem) : sample && !sample.cheat && sample.parts ? sample.parts.map(([key, amt]) => ({ kind: "plan", key, amt })) : [];
+        const replaceIds = planned.map((e) => e.id);
+        const saved = (savedMeals || []).length;
+        const act = (title, sub, onclick) => el("button", { class: "meal-act", onclick }, el("b", null, title), el("small", null, sub), el("span", { class: "nut-chev", "aria-hidden": "true" }, "›"));
+        body.push(el("div", { class: "meal-actions" },
+          adjustItems.length ? act("Adjust this meal", "Swap foods or change amounts", () => openMealEditor({
+            meal: m.name, items: adjustItems, replaceIds: shown.map((e) => e.id),
+            title: eaten.length ? `${m.name} (logged)` : planned.length ? `${m.name} (planned)` : sample.title || m.name, note: shown.length ? "" : sample.note,
+          })) : null,
+          choices.length || saved ? act("Pick a different meal", `${choices.length} ready-made option${choices.length === 1 ? "" : "s"}${saved ? " and your saved meals" : ""}`, () => openMealChooser(m.name, choices, replaceIds)) : null,
+          act("Build my own meal", "Start from scratch with any foods", () => openMealEditor({ meal: m.name, title: `My ${m.name.toLowerCase()}`, items: [], replaceIds }))));
+        body.push(el("button", { class: "meal-single", onclick: () => openFoodPicker(m.name) }, foodDay > today ? "+ Plan a single food" : "+ Add a single food"));
+      } else if (choices.length) {
+        // no food log yet (migration_023): the options, to read
+        body.push(el("div", { class: "nut-group" }, `${m.name} options`));
+        choices.forEach((o) => body.push(mealCard(o.name, o.tot, o.items, o.note, null)));
       }
       return el("div", { class: "meal-cell open" }, head, el("div", { class: "meal-body" }, body));
     });
     main.append(el("div", { class: "card nut-meals" }, cells));
-    // a saved meal: its foods and figures worked out again from what was saved, Choose, and × to delete it
-    function savedOption(s, mealName) {
-      const items = (s.data.items || []).filter((it) => it && (it.kind !== "plan" || foodOf(it.key)));
-      const tot = items.map(itemTotals).reduce((a, x) => ({ kcal: a.kcal + x.kcal, p: a.p + x.p, c: a.c + x.c, f: a.f + x.f }), { kcal: 0, p: 0, c: 0, f: 0 });
-      const names = items.map((it) => { const e = itemToEntry(it, ""); return e ? `${e.amount ? `${e.amount} ` : ""}${e.name}` : ""; }).filter(Boolean);
-      const remove = () => {
-        if (!window.confirm(`Delete ${s.data.name} from My meals?`)) return;
-        savedMeals = savedMeals.filter((x) => x.id !== s.id);
-        api.savedMealSave(s.id, null).then((ok) => { if (!ok) showStatus("Not deleted. Check your connection and try again.", true); });
-        redraw();
-      };
+    // one meal as a card: name, figures and foods, with Choose (and, for a saved meal, Delete) when given
+    function mealCard(title, tot, itemTexts, note, onChoose, tag, onDelete) {
       return el("div", { class: "meal-opt" },
-        el("div", { class: "meal-opt-top" }, el("b", null, s.data.name, s.data.meal && s.data.meal !== mealName ? el("em", { class: "food-plan-tag" }, ` ${s.data.meal.toLowerCase()}`) : null),
+        el("div", { class: "meal-opt-top" }, el("b", null, title, tag ? el("em", { class: "food-plan-tag" }, ` ${tag}`) : null),
           el("small", null, `${Math.round(tot.kcal)} cal · P ${Math.round(tot.p)} · C ${Math.round(tot.c)} · F ${Math.round(tot.f)}`)),
-        el("div", { class: "meal-opt-items" }, names.join(" · ")),
-        el("div", { class: "nut-meal-acts" },
-          el("button", { class: "food-logmeal", onclick: () => openMealEditor({ meal: mealName, title: s.data.name, items: items.map((it) => JSON.parse(JSON.stringify(it))), savedId: s.id, savedName: s.data.name }) }, "Choose"),
-          el("button", { class: "food-logmeal nut-other", onclick: remove }, "Delete")));
+        el("div", { class: "meal-opt-items" }, itemTexts.join(" · ")),
+        note ? el("div", { class: "card-sub" }, note) : null,
+        onChoose || onDelete ? el("div", { class: "nut-meal-acts" },
+          onChoose ? el("button", { class: "food-logmeal", onclick: onChoose }, "Choose") : null,
+          onDelete ? el("button", { class: "food-logmeal nut-other", onclick: onDelete }, "Delete") : null) : null);
     }
-    // one meal to choose: its foods and figures, and Choose (opens it in the meal editor to change, log or plan)
-    function mealOption(title, o, mealName, tag) {
-      const canEdit = foodDays && o.parts && o.parts.length;
-      return el("div", { class: "meal-opt" },
-        el("div", { class: "meal-opt-top" }, el("b", null, title, tag ? el("em", { class: "food-plan-tag" }, ` ${tag.toLowerCase()}`) : null), el("small", null, `${o.tot.kcal} cal · ${macros(o.tot)}`)),
-        el("div", { class: "meal-opt-items" }, o.items.join(" · ")),
-        o.note ? el("div", { class: "card-sub" }, o.note) : null,
-        canEdit ? el("button", { class: "food-logmeal", onclick: () => openMealEditor({ meal: mealName, title, items: o.parts.map(([key, amt]) => ({ kind: "plan", key, amt })), note: o.note }) }, "Choose") : null);
+    // Pick a different meal: their saved meals (those saved from this meal first) and the ready-made options sized to
+    // it; the one chosen opens in the meal editor, to change if they like, then log or plan
+    function openMealChooser(mealName, choices, replaceIds) {
+      const sheet = el("div", { class: "sheet food-sheet" });
+      const draw = () => {
+        const saved = (savedMeals || []).slice().sort((a, b) => (b.data.meal === mealName ? 1 : 0) - (a.data.meal === mealName ? 1 : 0));
+        const savedCard = (s) => {
+          const items = (s.data.items || []).filter((it) => it && (it.kind !== "plan" || foodOf(it.key)));
+          const tot = items.map(itemTotals).reduce((a, x) => ({ kcal: a.kcal + x.kcal, p: a.p + x.p, c: a.c + x.c, f: a.f + x.f }), { kcal: 0, p: 0, c: 0, f: 0 });
+          const names = items.map((it) => { const e = itemToEntry(it, ""); return e ? `${e.amount ? `${e.amount} ` : ""}${e.name}` : ""; }).filter(Boolean);
+          return mealCard(s.data.name, tot, names, "",
+            () => openMealEditor({ meal: mealName, title: s.data.name, items: items.map((it) => JSON.parse(JSON.stringify(it))), savedId: s.id, savedName: s.data.name, replaceIds }),
+            s.data.meal && s.data.meal !== mealName ? s.data.meal.toLowerCase() : "",
+            () => {
+              if (!window.confirm(`Delete ${s.data.name} from My meals?`)) return;
+              savedMeals = savedMeals.filter((x) => x.id !== s.id);
+              api.savedMealSave(s.id, null).then((ok) => { if (!ok) showStatus("Not deleted. Check your connection and try again.", true); });
+              draw();
+            });
+        };
+        sheet.replaceChildren(
+          el("button", { class: "close", "aria-label": "Close", onclick: () => { closeVideo(); redraw(); } }, "×"),
+          el("h2", null, `Pick a different ${mealName.toLowerCase()}`),
+          el("div", { class: "card-sub nut-note" }, "Each one fits this meal's targets. Choose one to log or plan it, changing anything you like first."),
+          saved.length ? el("div", { class: "nut-group" }, "My meals") : "",
+          ...saved.map(savedCard),
+          choices.length ? el("div", { class: "nut-group" }, "Ready-made options") : "",
+          ...choices.map((o) => mealCard(o.name, o.tot, o.items, o.note,
+            o.parts && o.parts.length ? () => openMealEditor({ meal: mealName, title: o.name, items: o.parts.map(([key, amt]) => ({ kind: "plan", key, amt })), note: o.note, replaceIds }) : null)));
+      };
+      draw();
+      overlay.replaceChildren(sheet);
+      overlay.className = "overlay show";
     }
 
     // ---- the food exchange lists
