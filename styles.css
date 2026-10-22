@@ -3770,6 +3770,9 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .nut-lib-search { height: 34px; min-width: 240px; padding: 0 10px; font: inherit; font-size: 14px; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; }
 .nut-lib-acts { white-space: nowrap; }
 .nut-check-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.nut-allergies { margin: 4px 0 10px; font-size: 13px; }
+.nut-allergies .btn-link { margin-left: 8px; }
+.nut-allergy-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0; }
 .nut-lib-acts .btn-link + .btn-link { margin-left: 10px; }
 .nut-flag { margin: 8px 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--badge-warn-bg); color: var(--text); border: 1px solid var(--warn); }
 .nut h3 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--dst-red); }

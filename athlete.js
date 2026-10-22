@@ -132,6 +132,18 @@
       const { error } = await sb.from("food_library").insert({ id, data: Object.assign({}, def, { source: "coach", athleteId: String(coachId), addedBy: by }) });
       return error ? null : id;
     },
+    // their food allergies, as athlete_portal_allergies / _set_allergies read and write them (the "nutrition_prefs" record)
+    async allergies() {
+      const { data, error } = await sb.from("assessments").select("data").eq("id", `nutprefs-${coachId}`).maybeSingle();
+      if (error) return null;
+      return data && data.data ? { allergies: data.data.allergies || [], other: data.data.other || "", asked: true } : { allergies: [], other: "", asked: false };
+    },
+    async setAllergies(list, other) {
+      const id = `nutprefs-${coachId}`;
+      const athleteId = /^\d+$/.test(String(coachId)) ? Number(coachId) : String(coachId);
+      const { error } = await sb.from("assessments").upsert({ id, athlete_id: String(coachId), data: { id, kind: "nutrition_prefs", athleteId, allergies: list, other: other || "", asked: true, date: new Date().toISOString().slice(0, 10), source: "coach" }, updated_at: new Date().toISOString() });
+      return !error;
+    },
     // the athlete's saved meals, as athlete_portal_saved_meals / _save read and write them
     async savedMeals() {
       const { data, error } = await sb.from("saved_meals").select("id,data,updated_at").eq("athlete_id", String(coachId)).order("updated_at", { ascending: false }).limit(500);
@@ -206,6 +218,17 @@
     async foodLibrary() {
       const res = await sb.rpc("athlete_portal_food_library", { p_token: token });
       return !res.error && Array.isArray(res.data) ? res.data : null;
+    },
+    // their food allergies (supabase/migration_026_nutrition_allergies.sql): null until that has been run, then
+    // { allergies, other, asked } (asked false until they've answered)
+    async allergies() {
+      const res = await sb.rpc("athlete_portal_allergies", { p_token: token });
+      if (res.error) return null;
+      return res.data ? { allergies: res.data.allergies || [], other: res.data.other || "", asked: true } : { allergies: [], other: "", asked: false };
+    },
+    async setAllergies(list, other) {
+      const res = await sb.rpc("athlete_portal_set_allergies", { p_token: token, p_allergies: list, p_other: other || "" });
+      return !res.error && res.data === true;
     },
     // the athlete's saved meals (supabase/migration_025_saved_meals.sql); none until that has been run
     async savedMeals() {
@@ -301,6 +324,8 @@
   let foodDay = null; // the day the food log is showing ("YYYY-MM-DD"), today to start with
   let libraryFoods = []; // the shared food library: custom foods athletes and coaches have added (migration_024)
   let savedMeals = null; // My meals: [{ id, data: { name, meal, items } }] (null until loaded, or without migration_025)
+  let allergyInfo = null; // their food allergies { allergies, other, asked } (null until loaded, or without migration_026)
+  let allergyAsked = false; // the allergy question has been put to them this visit
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -1541,6 +1566,8 @@
   const mealNow = () => { const d = new Date(), h = d.getHours() + d.getMinutes() / 60; return h < 9.5 ? "Breakfast" : h < 11.5 ? "Mid-Morning Snack" : h < 14 ? "Lunch" : h < 16.5 ? "Mid-Afternoon Snack" : "Dinner"; };
   let foodSaving = Promise.resolve(); // saves go one after another, each sending the day as it is by then
   function setFoodDay(key, entries) {
+    // a day with food on it is marked training or rest the first time (as the Nutrition tab is set), for their coach
+    if (entries.some((e) => e.name) && !entries.some((e) => e.id === DAY_TAG)) entries = entries.concat([{ id: DAY_TAG, dayType: nutRest ? "rest" : "train" }]);
     foodDays[key] = entries;
     foodSaving = foodSaving.then(async () => {
       let ok = false;
@@ -1577,12 +1604,78 @@
   const recentFoods = () => {
     const seen = new Set(), out = [];
     Object.keys(foodDays || {}).sort().reverse().forEach((k) => (foodDays[k] || []).slice().reverse().forEach((e) => {
-      if (e.def && !e.def.db) return; // their own foods are under My foods
+      if (!e.name || (e.def && !e.def.db)) return; // their own foods are under My foods (and the day's training/rest mark isn't a food)
       const id = `${e.name}|${e.amount}`;
       if (!seen.has(id)) { seen.add(id); out.push(e); }
     }));
     return out;
   };
+
+  // ---- training or rest day: kept in the day's log as one more entry ({ id: "daytype", dayType }), with no food in it,
+  // so their coach's Meal Log can show which days were which
+  const DAY_TAG = "daytype";
+  let dayTypeShown = null; // the day whose training/rest setting the Nutrition tab last took up
+  const dayTypeOf = (dk) => { const e = ((foodDays && foodDays[dk]) || []).find((x) => x.id === DAY_TAG); return e ? e.dayType === "rest" : null; };
+  function setDayType(dk, rest) {
+    if (!foodDays) return;
+    setFoodDay(dk, (foodDays[dk] || []).filter((x) => x.id !== DAY_TAG).concat([{ id: DAY_TAG, dayType: rest ? "rest" : "train" }]));
+  }
+
+  // ---- food allergies: what they've said they can't eat, and the foods and meals that rules out. The plan's own foods
+  // carry their allergens (nutrition.js); other foods (the database, the library) are matched by name. Their answer
+  // here counts at once; the plan itself is rebuilt without those foods the next time the dashboard opens.
+  const ALLERGY_LABELS = { peanut: "Peanuts", treenut: "Tree nuts", fish: "Fish", shellfish: "Shellfish", dairy: "Dairy", egg: "Eggs", gluten: "Gluten / wheat", soy: "Soy", sesame: "Sesame" };
+  const ALLERGY_WORDS = {
+    peanut: /peanut|pb&j/i,
+    treenut: /almond|cashew|walnut|pecan|pistachio|hazelnut|macadamia|mixed nuts|trail mix|nutella|granola/i,
+    fish: /salmon|tuna|\bcod\b|tilapia|mahi|halibut|sardine|\bfish\b|trout|anchov/i,
+    shellfish: /shrimp|scallop|crab|lobster|clam|oyster|mussel|california roll/i,
+    dairy: /milk|cheese|yogurt|whey|casein|cream|\bbutter\b|latte|ice cream|pizza|core power|premier protein|oikos|egg bites|mcmuffin|big mac|quarter pounder|zone/i,
+    egg: /\begg|mayo/i,
+    gluten: /bread|bagel|pasta|noodle|flour tortilla|wheat|pita|\bbun\b|pancake|waffle|cracker|pretzel|cereal|cheerios|flakes|bran|granola|muffin|couscous|cookie|oreo|newton|clif|subway|sandwich|pizza|big mac|quarter pounder|soy sauce|teriyaki|mac and cheese|\boat|goldfish|graham|jerky|zone/i,
+    soy: /\bsoy|tofu|edamame|tempeh|teriyaki|jerky|zone/i,
+    sesame: /sesame|hummus|tahini/i,
+  };
+  const myAllergies = () => (allergyInfo && allergyInfo.asked ? allergyInfo.allergies : (nutrition && nutrition.allergies) || []).filter((a) => ALLERGY_LABELS[a]);
+  // a food named this would contain one of their allergens (peanut and almond butter and plant milks aren't dairy)
+  const nameBanned = (name) => {
+    const n = String(name || "").toLowerCase();
+    return myAllergies().some((a) => ALLERGY_WORDS[a].test(a === "dairy" ? n.replace(/(peanut|almond|nut) butter|(almond|oat|soy|coconut) milk/g, "") : n));
+  };
+  const foodBanned = (key) => {
+    const x = nutrition && nutrition.foods && nutrition.foods[key];
+    if (!x || !myAllergies().length) return false;
+    return Array.isArray(x[10]) ? x[10].some((a) => myAllergies().includes(a)) : nameBanned(x[0]);
+  };
+  const partsOk = (parts) => !(parts || []).some(([key]) => foodBanned(key));
+
+  // the allergy question: asked the first time they open Nutrition, and from the link on it after that
+  function openAllergySheet() {
+    allergyAsked = true;
+    const pick = new Set(myAllergies());
+    let other = (allergyInfo && allergyInfo.other) || "";
+    const sheet = el("div", { class: "sheet food-sheet" });
+    const save = async (list) => {
+      const ok = await api.setAllergies(list, other.trim());
+      if (!ok) { showStatus("Not saved. Check your connection and try again.", true); return; }
+      allergyInfo = { allergies: list, other: other.trim(), asked: true };
+      closeVideo();
+      showStatus(list.length ? "Saved: your meals leave those foods out" : "Saved: no food allergies");
+      redrawKeep();
+    };
+    const draw = () => sheet.replaceChildren(
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Any food allergies?"),
+      el("div", { class: "card-sub nut-note" }, "Tap any that apply. Your sample meals, meal options and food search will leave those foods out. Always check labels too."),
+      el("div", { class: "chips nut-chips allergy-chips" }, Object.keys(ALLERGY_LABELS).map((a) => el("button", { class: `chip${pick.has(a) ? " on" : ""}`, onclick: () => { if (pick.has(a)) pick.delete(a); else pick.add(a); draw(); } }, ALLERGY_LABELS[a]))),
+      el("label", { class: "food-label" }, "Anything else (your coach will see it)", el("input", { class: "food-input", value: other, placeholder: "e.g. strawberries", oninput: (e) => { other = e.target.value; } })),
+      el("div", { class: "swap-actions" },
+        el("button", { class: "primary", onclick: () => save([...pick]) }, pick.size ? `Save ${pick.size} allerg${pick.size === 1 ? "y" : "ies"}` : "Save"),
+        el("button", { onclick: () => { pick.clear(); save([]); } }, "No food allergies")));
+    draw();
+    overlay.replaceChildren(sheet);
+    overlay.className = "overlay show";
+  }
 
   // ---- a meal as it's built in the meal editor: a list of items, each a food from the plan's lists at an amount
   // ({ kind: "plan", key, amt }), a food from a label at an amount ({ kind: "label", def, eAmt, eUnit }), or an
@@ -1714,11 +1807,11 @@
       const drawList = () => {
         const words = q.toLowerCase().trim();
         const match = (name) => !words || words.split(/\s+/).every((w) => name.toLowerCase().includes(w));
-        const foods = Object.keys((nutrition && nutrition.foods) || {}).map(foodOf).filter((f) => f && match(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+        const foods = Object.keys((nutrition && nutrition.foods) || {}).map(foodOf).filter((f) => f && match(f.name) && !foodBanned(f.key)).sort((a, b) => a.name.localeCompare(b.name));
         const mine = myFoods().filter((d) => match(d.name));
         const recent = recentFoods().filter((e) => match(e.name)).slice(0, 8);
         // the database is searched, not listed whole: the closest 40 names (those starting with the search first)
-        const db = words ? databaseFoods().filter((d) => match(d.name))
+        const db = words ? databaseFoods().filter((d) => match(d.name) && !nameBanned(d.name))
           .sort((a, b) => (b.name.toLowerCase().startsWith(words) ? 1 : 0) - (a.name.toLowerCase().startsWith(words) ? 1 : 0) || a.name.localeCompare(b.name)).slice(0, 40) : [];
         const dbCount = databaseFoods().length;
         list.replaceChildren(
@@ -1779,8 +1872,14 @@
         const more = [];
         meals.forEach((name) => {
           if (entries.some((e) => e.meal === name)) return;
-          const s = sampleFor(dk, name);
+          let s = sampleFor(dk, name);
           if (!s || s.cheat || !s.parts || !s.parts.length) return;
+          // a sample with a food they can't eat gives way to the closest option without one
+          if (!partsOk(s.parts)) {
+            const c = nutrition.choices && nutrition.choices[name];
+            s = ((c && ((nutRest && c.rest) || c.train)) || []).find((o) => o.parts && o.parts.length && partsOk(o.parts));
+            if (!s) return;
+          }
           s.parts.forEach(([key, amt]) => { const f = foodOf(key); if (f) more.push(Object.assign(entryOf(f, amt, name), { planned: true })); });
           added += 1;
         });
@@ -1855,7 +1954,7 @@
         if (it.kind === "plan") {
           const f = foodOf(it.key);
           if (!f) return null;
-          const same = Object.keys(nutrition.foods).map(foodOf).filter((g) => g && g.cat === f.cat).sort((a, b) => a.name.localeCompare(b.name));
+          const same = Object.keys(nutrition.foods).map(foodOf).filter((g) => g && g.cat === f.cat && (g.key === f.key || !foodBanned(g.key))).sort((a, b) => a.name.localeCompare(b.name));
           const pick = el("select", { class: "food-select me-swap", "aria-label": "Swap for", onchange: (e) => { swapTo(it, e.target.value); draw(); } },
             same.map((g) => { const o = el("option", { value: g.key }, g.name); if (g.key === f.key) o.selected = true; return o; }));
           const step = (by) => () => { it.amt = Math.max(f.step, Math.round((it.amt + by * f.step) * 100) / 100); draw(); };
@@ -1943,16 +2042,25 @@
       return main;
     }
     const redraw = redrawKeep;
-    const chip = (text, on, onclick) => el("button", { class: `chip${on ? " on" : ""}`, onclick }, text);
     const macros = (t) => `P ${t.p} · C ${t.c} · F ${t.f}`;
+    if (!foodDay) foodDay = todayKey();
+    // a day shown for the first time takes the training or rest day it was logged as (training to start with)
+    if (foodDays && foodDay !== dayTypeShown) { const t = dayTypeOf(foodDay); nutRest = t == null ? false : t; dayTypeShown = foodDay; }
     const day = nutRest ? n.rest : n.train;
     if (!foodDay) foodDay = todayKey();
     const today = todayKey();
     // training or rest day, as a tab bar across the top (like Strength / Speed on the Program page)
     main.append(el("div", { class: "lane-tabs nut-lanes", role: "tablist" },
-      [["Training day", false], ["Rest day", true]].map(([text, rest]) => el("button", { class: `lane-tab${nutRest === rest ? " on" : ""}`, role: "tab", "aria-selected": nutRest === rest ? "true" : "false", onclick: () => { nutRest = rest; redraw(); } }, text))));
+      [["Training day", false], ["Rest day", true]].map(([text, rest]) => el("button", { class: `lane-tab${nutRest === rest ? " on" : ""}`, role: "tab", "aria-selected": nutRest === rest ? "true" : "false", onclick: () => {
+        nutRest = rest;
+        if (foodDays) setDayType(foodDay, rest); // the day is logged as a training or rest day (their coach sees it)
+        redraw();
+      } }, text))));
+    const al = myAllergies();
     main.append(el("div", { class: "card nut-head" },
       el("div", { class: "card-title" }, n.goal),
+      allergyInfo ? el("button", { class: "nut-allergy-line", onclick: openAllergySheet },
+        "Food allergies: ", el("b", null, al.length ? al.map((a) => ALLERGY_LABELS[a]).join(", ") : allergyInfo.asked ? "none" : "not set"), el("span", null, " · change")) : null,
       el("div", { class: "sum-stats" },
         el("div", null, el("b", null, day.kcal.toLocaleString()), el("span", null, "calories")),
         el("div", null, el("b", null, `${day.p}g`), el("span", null, "protein")),
@@ -1992,8 +2100,9 @@
       const sample0 = sampleDay && sampleDay.meals.find((x) => x.slot === m.name);
       // a lunch or dinner sample is named for its protein and starch ("Tilapia & Pasta") rather than for the meal
       const sampleName = (s) => { const a = s.parts && s.parts[0] && foodOf(s.parts[0][0]), b = s.parts && s.parts[1] && foodOf(s.parts[1][0]); return s.title && s.title !== m.name ? s.title : a && b ? `${a.name} & ${b.name}` : m.name; };
-      const sample = sample0 && !sample0.cheat ? Object.assign({}, sample0, { title: sampleName(sample0) }) : sample0;
-      const choices = n.choices && n.choices[m.name] ? (nutRest && n.choices[m.name].rest ? n.choices[m.name].rest : n.choices[m.name].train) || [] : [];
+      // a sample or option with a food they can't eat is left out (they pick a different meal instead)
+      const sample = sample0 && !sample0.cheat ? (partsOk(sample0.parts) ? Object.assign({}, sample0, { title: sampleName(sample0) }) : null) : sample0;
+      const choices = (n.choices && n.choices[m.name] ? (nutRest && n.choices[m.name].rest ? n.choices[m.name].rest : n.choices[m.name].train) || [] : []).filter((o) => partsOk(o.parts));
       // the meal shown: what's logged (or planned) for it, or else the day's sample meal
       if (mine.length) {
         body.push(el("div", { class: "meal-done" }, mine.map((e) => el("div", { class: `food-entry${e.planned ? " planned" : ""}` },
@@ -2269,6 +2378,8 @@
     }
     if (view === "nutrition") {
       app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Nutrition"))), nutritionView(), menu());
+      // the first time they open it, the allergy question (until they've answered it once)
+      if (nutrition && allergyInfo && !allergyInfo.asked && !allergyAsked) setTimeout(() => { if (view === "nutrition" && !overlay.className.includes("show")) openAllergySheet(); }, 400);
       return;
     }
     // nothing on the plan yet: the program page says so, and a coach gets their tools right there to put
@@ -2506,6 +2617,12 @@
     });
     // the shared food library (none until migration_024 has been run); only searched, so nothing to redraw
     if (api.foodLibrary) api.foodLibrary().catch(() => null).then((rows) => { if (Array.isArray(rows)) libraryFoods = rows; });
+    // their food allergies (none until migration_026 has been run): the Nutrition tab asks the first time
+    if (api.allergies) api.allergies().catch(() => null).then((a) => {
+      if (!a) return;
+      allergyInfo = a;
+      if (view === "nutrition" && !overlay.className.includes("show")) redrawKeep();
+    });
     // My meals (none until migration_025 has been run)
     if (api.savedMeals) api.savedMeals().catch(() => null).then((rows) => {
       if (!Array.isArray(rows)) return;

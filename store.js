@@ -675,6 +675,11 @@
   function getReassessments(athleteId) {
     return assessmentsOf(athleteId, "reassess");
   }
+  // the athlete's food allergies for the nutrition plan, kind "nutrition_prefs" (migration_026; saved from their phone or here)
+  function getNutritionPrefs(athleteId) {
+    const prefs = assessmentsOf(athleteId, "nutrition_prefs");
+    return prefs[prefs.length - 1] || null;
+  }
   // the nutrition plan (nutrition.js), kind "nutrition": one per athlete, its goal and its shuffle
   function getNutritionPlan(athleteId) {
     const plans = assessmentsOf(athleteId, "nutrition");
@@ -1222,6 +1227,7 @@
     getPitchingAssessments,
     getBodyCompSheets,
     getNutritionPlan,
+    getNutritionPrefs,
     getReassessments,
     saveAssessment,
     deleteAssessment,

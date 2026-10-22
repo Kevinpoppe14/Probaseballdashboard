@@ -115,6 +115,33 @@
   food("cucumber", "veg", "Cucumber", "cup", 0.5, 16, 3.8, 0.7, 0.1);
   food("onion", "veg", "Red Onion", "cup", 0.25, 64, 15, 1.8, 0.2, { max: 0.5 });
   food("mushrooms", "veg", "Mushrooms", "cup", 0.5, 15, 2.3, 2.2, 0.2);
+  // a dairy-free protein powder (pea based), for athletes who can't have whey
+  food("plantprotein", "dairy", "Plant Protein (pea)", "scoop", 0.5, 120, 4, 21, 2.5, { min: 1, max: 2.5 });
+
+  // ---- food allergies: the foods each one rules out. A plan built with allergies (buildPlan, macroLists) leaves these
+  // out of every sample meal, option, list and swap: a meal that can't do without one is dropped, and a food it can
+  // do without is left out of it. (Oats count as gluten: most aren't certified gluten-free.)
+  const ALLERGIES = {
+    peanut: { label: "Peanuts", foods: ["pb", "nuts", "zone"] },
+    treenut: { label: "Tree nuts", foods: ["almonds", "nuts", "almondbutter", "almondmilk", "granola"] },
+    fish: { label: "Fish", foods: ["salmon", "tilapia", "cod", "mahi", "tuna"] },
+    shellfish: { label: "Shellfish", foods: ["shrimp"] },
+    dairy: { label: "Dairy", foods: ["milk", "greek", "cottage", "cheese", "stringcheese", "whey", "chocmilk", "zone"] },
+    egg: { label: "Eggs", foods: ["eggs", "whites"] },
+    gluten: { label: "Gluten / wheat", foods: ["bread", "bagel", "pasta", "wwpasta", "couscous", "granola", "tortilla", "oats", "jerky", "zone"] },
+    soy: { label: "Soy", foods: ["jerky", "zone"] },
+    sesame: { label: "Sesame", foods: [] },
+  };
+  const ALLERGY_KEYS = Object.keys(ALLERGIES);
+  const allergensOf = (key) => ALLERGY_KEYS.filter((a) => ALLERGIES[a].foods.includes(key));
+  let BANNED = new Set(); // the foods ruled out while a plan is being built
+  const allowed = (key) => !BANNED.has(key);
+  // runs fn with the foods those allergies rule out left out
+  const withAllergies = (allergies, fn) => {
+    const prev = BANNED;
+    BANNED = new Set((allergies || []).flatMap((a) => (ALLERGIES[a] ? ALLERGIES[a].foods : [])));
+    try { return fn(); } finally { BANNED = prev; }
+  };
 
   const MAIN_PROTEINS = ["chicken", "turkey", "gturkey", "gbeef", "sirloin", "tenderloin", "pork", "salmon", "tilapia", "cod", "mahi", "shrimp"];
   const MAIN_STARCHES = ["rice", "brownrice", "pasta", "wwpasta", "quinoa", "couscous", "sweetpotato", "redpotato"];
@@ -152,7 +179,8 @@
   const kcalOf = (m) => m.c * 4 + m.p * 4 + m.f * 9;
   // seeded random numbers, so a plan shows the same examples until Shuffle is pressed
   const rngOf = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-  const pick = (rng, list) => list[Math.floor(rng() * list.length)];
+  // a random one of the list, leaving out any food an allergy rules out (if every one is, the first: the meal using it is dropped)
+  const pick = (rng, list) => { const ok = list.filter((k) => typeof k !== "string" || allowed(k)); const from = ok.length ? ok : list; return from[Math.floor(rng() * from.length)]; };
   const shuffled = (rng, list) => { const a = list.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
   // a list handed out in a random order, reshuffled each time round, never the same twice in a row
   const cycler = (rng, list) => {
@@ -211,7 +239,7 @@
     }).filter((it) => it.amt > 0);
     return { items, tot: totalsOf(items) };
   }
-  const part = (key, role, more) => Object.assign({ food: FOODS[key], role }, more || {});
+  const part = (key, role, more) => Object.assign({ food: FOODS[key], role, banned: !allowed(key) }, more || {});
 
   // lunch and dinner, as on the DST rotation: a protein, a starch, a vegetable and a fruit (a little oil when the
   // protein is lean and the meal still needs fat). Bigger meals get more vegetables and a whole fruit.
@@ -241,7 +269,14 @@
     { name: "Eggs & Fruit", parts: (rng) => [part("eggs", "protein", { max: 4 }), part(pick(rng, ["orange", "apple", "banana", "grapes"]), "carb", { min: 0.5 }), part("ricecakes", "carb", { opt: true })] },
   ];
   const POST = { name: "Post-Workout Shake", parts: () => [part("whey", "protein"), part("banana", "carb", { min: 0.5 }), part("oats", "carb", { opt: true, max: 0.75 }), part("honey", "carb", { opt: true }), part("milk", "fixed", { amt: 1 })] };
-  const templated = (target, tpl, rng) => Object.assign({ name: tpl.name, note: tpl.note }, solve(target, tpl.parts(rng)));
+  // a template sized to a meal; null when it needs a food an allergy rules out (one it can do without is left out)
+  const templated = (target, tpl, rng) => {
+    const parts = tpl.parts(rng);
+    if (parts.some((p) => p.banned && !p.opt)) return null;
+    return Object.assign({ name: tpl.name, note: tpl.note }, solve(target, parts.filter((p) => !p.banned)));
+  };
+  // the first of the templates (from a starting place) that can be made, for the rotation
+  const firstMade = (target, tpls, start, rng) => { for (let i = 0; i < tpls.length; i++) { const m = templated(target, tpls[(start + i) % tpls.length], rng); if (m && m.items.length) return m; } return null; };
 
   // ---- meal options: alternatives for each meal, sized to that meal's targets ----------------------------
   // The athlete taps a meal in the app and picks from these (shakes and whole-food breakfasts; bars, fruit and nuts,
@@ -252,16 +287,24 @@
     { name: "Overnight Oats", parts: (rng) => [part("oats", "carb"), part("greek", "protein"), part("milk", "fixed", { amt: 0.5 }), part(pick(rng, BERRIES), "carb", { min: 0.5 }), part("almonds", "fat", { opt: true })], note: "Mix the night before and refrigerate" },
     { name: "Sweet Potato Hash", parts: () => [part("sweetpotato", "carb"), part("eggs", "fat"), part("gturkey", "protein", { opt: true }), part("bellpepper", "fixed", { amt: 1 }), part("onion", "fixed", { amt: 0.25 }), part("bread", "carb", { opt: true })] },
     { name: "Bagel, PB & Chocolate Milk", parts: () => [part("bagel", "carb", { min: 0.5 }), part("chocmilk", "protein", { min: 1, max: 2 }), part("pb", "fat", { opt: true })] },
+    // without eggs, dairy or gluten (and fine for everyone)
+    { name: "Turkey & Sweet Potato Hash", parts: (rng) => [part("gturkey", "protein"), part("sweetpotato", "carb"), part("bellpepper", "fixed", { amt: 1 }), part("onion", "fixed", { amt: 0.25 }), part(pick(rng, BERRIES), "carb", { opt: true }), part("oliveoil", "fat", { opt: true })] },
+    { name: "Breakfast Rice Bowl", parts: (rng) => [part(pick(rng, ["gturkey", "chicken"]), "protein"), part("rice", "carb"), part("blackbeans", "fixed", { amt: 0.25 }), part("bellpepper", "fixed", { amt: 0.5 }), part("avocado", "fat", { opt: true }), part(pick(rng, ["orange", "banana"]), "carb", { opt: true })] },
+    { name: "Plant Protein Smoothie", parts: (rng) => [part("plantprotein", "protein"), part("banana", "carb", { min: 0.5, max: 1.5 }), part(pick(rng, BERRIES), "carb", { opt: true }), part("oats", "carb", { opt: true, max: 0.5 }), part("almondmilk", "fixed", { amt: 1, opt: true }), part("almondbutter", "fat", { opt: true })], note: "Blend with ice" },
   ];
   const MORE_SNACKS = [
     { name: "Chocolate Milk & Banana", parts: () => [part("chocmilk", "protein", { min: 1, max: 2 }), part("banana", "carb", { opt: true })] },
     { name: "PB & Banana Toast", parts: () => [part("bread", "carb", { min: 1, max: 3 }), part("pb", "fat", { min: 0.5 }), part("banana", "fixed", { amt: 0.5 }), part("stringcheese", "protein", { opt: true })] },
     { name: "Jerky & Mixed Nuts", parts: (rng) => [part("jerky", "protein"), part("nuts", "fat", { min: 0.5 }), part(pick(rng, ["apple", "orange"]), "carb", { opt: true }), part("ricecakes", "carb", { opt: true })] },
+    { name: "Turkey & Rice Cakes", parts: (rng) => [part("dturkey", "protein", { min: 2 }), part("ricecakes", "carb"), part(pick(rng, ["apple", "grapes", "orange", "banana"]), "carb", { opt: true }), part("avocado", "fat", { opt: true })] },
+    { name: "Turkey Roll-Ups & Fruit", parts: (rng) => [part("dturkey", "protein", { min: 2 }), part(pick(rng, ["apple", "pear", "grapes"]), "carb", { min: 0.5 }), part("ricecakes", "carb", { opt: true }), part("avocado", "fat", { opt: true })] },
     { name: "Tuna & Rice Cakes", parts: (rng) => [part("tuna", "protein"), part("ricecakes", "carb"), part(pick(rng, ["apple", "grapes", "orange"]), "carb", { opt: true }), part("cucumber", "fixed", { amt: 0.5 }), part("avocado", "fat", { opt: true })] },
   ];
   const MORE_POST = [
     { name: "Chocolate Milk", parts: () => [part("chocmilk", "carb", { min: 1, max: 2 }), part("banana", "carb", { opt: true }), part("whey", "protein", { opt: true })] },
-    { name: "Recovery Smoothie", parts: (rng) => [part("whey", "protein"), part("banana", "carb", { min: 0.5, max: 1 }), part(pick(rng, ["strawberries", "blueberries", "pineapple"]), "carb", { opt: true }), part("almondmilk", "fixed", { amt: 1 }), part("honey", "carb", { opt: true })], note: "Blend with ice" },
+    { name: "Recovery Smoothie", parts: (rng) => [part("whey", "protein"), part("banana", "carb", { min: 0.5, max: 1 }), part(pick(rng, ["strawberries", "blueberries", "pineapple"]), "carb", { opt: true }), part("almondmilk", "fixed", { amt: 1, opt: true }), part("honey", "carb", { opt: true })], note: "Blend with ice" },
+    { name: "Plant Protein Shake", parts: (rng) => [part("plantprotein", "protein"), part("banana", "carb", { min: 0.5, max: 2 }), part(pick(rng, ["strawberries", "blueberries", "pineapple", "mango"]), "carb", { opt: true }), part("honey", "carb", { opt: true })], note: "Blend with water and ice" },
+    { name: "Rice Cakes, Banana & Honey", parts: () => [part("ricecakes", "carb", { min: 2 }), part("banana", "carb", { min: 0.5 }), part("honey", "carb", { opt: true }), part("dturkey", "protein", { opt: true })] },
     { name: "Yogurt & Fruit", parts: (rng) => [part("greek", "protein"), part(pick(rng, ["banana", "pineapple", "mango"]), "carb", { min: 0.5 }), part("honey", "carb", { opt: true }), part("granola", "carb", { opt: true })] },
   ];
   // lunch and dinner beyond the plate: the DST salad, and bowls, wraps, pasta and stir fry
@@ -312,14 +355,14 @@
       let list;
       if (m.key === "lunch" || m.key === "dinner") {
         // four plates with different proteins, starches, vegetables and fruit, then the bowls, wrap, pasta and stir fry
-        const proteins = shuffled(rng, MAIN_PROTEINS), starches = shuffled(rng, MAIN_STARCHES), veg = shuffled(rng, MAIN_VEG), fruit = shuffled(rng, MAIN_FRUIT);
-        const plates = [0, 1, 2, 3].map((i) => Object.assign({ name: `${FOODS[proteins[i]].name} Plate` }, mainMeal(m.target, { protein: proteins[i], starch: starches[i], veg: veg[i], fruit: fruit[i] })));
+        const proteins = shuffled(rng, MAIN_PROTEINS.filter(allowed)), starches = shuffled(rng, MAIN_STARCHES.filter(allowed)), veg = shuffled(rng, MAIN_VEG.filter(allowed)), fruit = shuffled(rng, MAIN_FRUIT.filter(allowed));
+        const plates = [0, 1, 2, 3].filter((i) => proteins[i] && starches.length).map((i) => Object.assign({ name: `${FOODS[proteins[i]].name} Plate` }, mainMeal(m.target, { protein: proteins[i], starch: starches[i % starches.length], veg: veg[i % veg.length], fruit: fruit[i % fruit.length] })));
         list = plates.concat((m.key === "lunch" ? PACKED_LUNCHES : []).concat(MAIN_CHOICES).map((tpl) => templated(m.target, tpl, rng)));
       } else {
         const tpls = m.key === "breakfast" ? BREAKFASTS.concat(MORE_BREAKFASTS, GRAB_AND_GO) : m.key === "post" ? [POST].concat(MORE_POST) : SNACKS.concat(MORE_SNACKS);
         list = tpls.map((tpl) => templated(m.target, tpl, rng));
       }
-      list = list.filter((x) => x.items.length).sort((a, b) => missBy(a.tot, m.target) - missBy(b.tot, m.target));
+      list = list.filter((x) => x && x.items.length).sort((a, b) => missBy(a.tot, m.target) - missBy(b.tot, m.target));
       // only those within 15% of the meal's calories (kitchen-sized steps throw a small snack further off), and
       // never fewer than five
       const tk = kcalOf(m.target) || 1;
@@ -448,8 +491,9 @@
   }
 
   // ---- the plan --------------------------------------------------------------------------------------
-  // opts.school: packed school lunches and grab-and-go breakfasts Monday to Friday
-  function buildPlan(T, seed, opts) {
+  // opts.school: packed school lunches and grab-and-go breakfasts Monday to Friday; opts.allergies: foods to leave out
+  function buildPlan(T, seed, opts) { return withAllergies(opts && opts.allergies, () => buildPlanWith(T, seed, opts)); }
+  function buildPlanWith(T, seed, opts) {
     const school = !!(opts && opts.school);
     const rng = rngOf(seed);
     const mealT = (key) => T.trainMeals.find((m) => m.key === key).target;
@@ -457,7 +501,7 @@
       // like the DST rotation, each week works through a few foods (three proteins, three starches, three vegetables,
       // four fruits) so its grocery list stays short; the second week draws its own
       const few = (list, count) => cycler(rng, shuffled(rng, list).slice(0, count));
-      const next = { protein: few(MAIN_PROTEINS, 3), starch: few(MAIN_STARCHES, 3), veg: few(MAIN_VEG, 3), fruit: few(MAIN_FRUIT, 4) };
+      const next = { protein: few(MAIN_PROTEINS.filter(allowed), 3), starch: few(MAIN_STARCHES.filter(allowed), 3), veg: few(MAIN_VEG.filter(allowed), 3), fruit: few(MAIN_FRUIT.filter(allowed), 4) };
       let lastBreakfast = null;
       const packed = cycler(rng, PACKED_LUNCHES), grab = cycler(rng, GRAB_AND_GO);
       return [0, 1, 2, 3, 4, 5, 6].map((d) => {
@@ -468,14 +512,14 @@
         const s1 = Math.floor(rng() * SNACKS.length);
         let s2 = Math.floor(rng() * SNACKS.length);
         if (s2 === s1) s2 = (s2 + 1) % SNACKS.length;
-        const main = (key) => Object.assign({ name: key === "lunch" ? "Lunch" : "Dinner" }, mainMeal(mealT(key), { protein: next.protein(), starch: next.starch(), veg: next.veg(), fruit: next.fruit() }));
+        const main = (key) => Object.assign({ name: (SLOTS.find((s) => s.key === key) || { name: "Meal" }).name }, mainMeal(mealT(key), { protein: next.protein(), starch: next.starch(), veg: next.veg(), fruit: next.fruit() }));
         const day = {
-          breakfast: templated(mealT("breakfast"), schoolDay ? grab() : BREAKFASTS[bi], rng),
-          snack1: templated(mealT("snack1"), SNACKS[s1], rng),
-          lunch: schoolDay ? templated(mealT("lunch"), packed(), rng) : main("lunch"),
-          snack2: templated(mealT("snack2"), SNACKS[s2], rng),
+          breakfast: (schoolDay ? firstMade(mealT("breakfast"), [grab()].concat(GRAB_AND_GO, BREAKFASTS), 0, rng) : firstMade(mealT("breakfast"), BREAKFASTS.concat(MORE_BREAKFASTS), bi, rng)) || main("breakfast"),
+          snack1: firstMade(mealT("snack1"), SNACKS.concat(MORE_SNACKS), s1, rng) || main("snack1"),
+          lunch: (schoolDay && firstMade(mealT("lunch"), [packed()].concat(PACKED_LUNCHES), 0, rng)) || main("lunch"),
+          snack2: firstMade(mealT("snack2"), SNACKS.concat(MORE_SNACKS), s2, rng) || main("snack2"),
           dinner: d === 5 ? { cheat: true, name: "Cheat Meal", items: [], tot: Object.assign({ kcal: kcalOf(mealT("dinner")) }, mealT("dinner")) } : main("dinner"),
-          post: templated(mealT("post"), POST, rng),
+          post: firstMade(mealT("post"), [POST].concat(MORE_POST, SNACKS, MORE_SNACKS), 0, rng) || main("post"),
         };
         day.tot = SLOTS.reduce((t, s) => { const m = day[s.key].tot; return { kcal: t.kcal + m.kcal, c: t.c + m.c, p: t.p + m.p, f: t.f + m.f }; }, { kcal: 0, c: 0, p: 0, f: 0 });
         return day;
@@ -483,17 +527,18 @@
     });
     // one of each breakfast, snack and shake, sized to this athlete (the options pages)
     const options = {
-      breakfast: BREAKFASTS.map((tpl) => templated(mealT("breakfast"), tpl, rng)),
-      snack: SNACKS.map((tpl) => templated(mealT("snack1"), tpl, rng)),
-      post: templated(mealT("post"), POST, rng),
+      breakfast: BREAKFASTS.map((tpl) => templated(mealT("breakfast"), tpl, rng)).filter(Boolean),
+      snack: SNACKS.map((tpl) => templated(mealT("snack1"), tpl, rng)).filter(Boolean),
+      post: firstMade(mealT("post"), [POST].concat(MORE_POST), 0, rng),
     };
-    return { weeks, options, choices: mealChoices(T, seed), school };
+    return { weeks, options, choices: mealChoices(T, seed), school, allergies: (opts && opts.allergies) || [] };
   }
 
   // the macro lists: for a lunch or dinner, the portion of each food that fills its place in the meal (the protein
   // with the meal's protein, the starch with what carbohydrate is left after a fruit and the vegetables), so the
   // athlete can build their own meals by picking one of each
-  function macroLists(T) {
+  function macroLists(T, opts) { return withAllergies(opts && opts.allergies, () => macroListsWith(T)); }
+  function macroListsWith(T) {
     const avg = (meals) => { const l = meals.find((m) => m.key === "lunch").target, d = meals.find((m) => m.key === "dinner").target; return { c: (l.c + d.c) / 2, p: (l.p + d.p) / 2, f: (l.f + d.f) / 2 }; };
     const sizes = (t) => {
       const kcal = kcalOf(t);
@@ -507,11 +552,11 @@
     const portion = (f, grams, macro) => { const a = Math.round(grams / f[macro] / f.step) * f.step; return Math.max(f.step, Math.min(f.max, a)); };
     const row = (key, macro, tg, rg) => { const f = FOODS[key]; return { food: f, train: portion(f, tg, macro), rest: portion(f, rg, macro) }; };
     return {
-      protein: MAIN_PROTEINS.concat(["tuna"]).map((k) => row(k, "p", train.proteinNeed, rest.proteinNeed)),
-      starch: MAIN_STARCHES.concat(["blackbeans", "bread", "oats"]).map((k) => row(k, "c", train.carbNeed, rest.carbNeed)),
-      fruit: MAIN_FRUIT.map((k) => row(k, "c", train.fruitC, rest.fruitC)),
-      veg: MAIN_VEG.concat(["peas", "greens", "bellpepper"]).map((k) => { const f = FOODS[k]; const a = k === "peas" ? 0.5 : k === "greens" ? 2 : k === "bellpepper" ? 1 : null; return { food: f, train: a || train.veg, rest: a || rest.veg }; }),
-      fat: ["oliveoil", "avocado", "pb", "almondbutter", "almonds", "nuts", "cheese", "dressing"].map((k) => { const f = FOODS[k]; const a = Math.max(f.step, Math.round(9 / f.f / f.step) * f.step); return { food: f, train: a, rest: a }; }),
+      protein: MAIN_PROTEINS.concat(["tuna"]).filter(allowed).map((k) => row(k, "p", train.proteinNeed, rest.proteinNeed)),
+      starch: MAIN_STARCHES.concat(["blackbeans", "bread", "oats"]).filter(allowed).map((k) => row(k, "c", train.carbNeed, rest.carbNeed)),
+      fruit: MAIN_FRUIT.filter(allowed).map((k) => row(k, "c", train.fruitC, rest.fruitC)),
+      veg: MAIN_VEG.concat(["peas", "greens", "bellpepper"]).filter(allowed).map((k) => { const f = FOODS[k]; const a = k === "peas" ? 0.5 : k === "greens" ? 2 : k === "bellpepper" ? 1 : null; return { food: f, train: a || train.veg, rest: a || rest.veg }; }),
+      fat: ["oliveoil", "avocado", "pb", "almondbutter", "almonds", "nuts", "cheese", "dressing"].filter(allowed).map((k) => { const f = FOODS[k]; const a = Math.max(f.step, Math.round(9 / f.f / f.step) * f.step); return { food: f, train: a, rest: a }; }),
     };
   }
 
@@ -545,6 +590,49 @@
 
   // ---- saved plan ------------------------------------------------------------------------------------
   const planOf = (athleteId) => (window.AthleteStore.getNutritionPlan ? window.AthleteStore.getNutritionPlan(athleteId) : null);
+  // the athlete's food allergies (their own record, kind "nutrition_prefs": answered on their phone, or set here)
+  const prefsOf = (athleteId) => (window.AthleteStore.getNutritionPrefs ? window.AthleteStore.getNutritionPrefs(athleteId) : null);
+  const allergiesOf = (athleteId) => { const p = prefsOf(athleteId); return p && Array.isArray(p.allergies) ? p.allergies.filter((a) => ALLERGIES[a]) : []; };
+  function saveAllergies(athlete, allergies, other) {
+    const prev = prefsOf(athlete.id);
+    const record = Object.assign({}, prev || {}, { id: `nutprefs-${athlete.id}`, athleteId: athlete.id, kind: "nutrition_prefs", allergies, other: other || "", asked: true, date: new Date().toISOString().slice(0, 10), source: "coach" });
+    window.AthleteStore.saveAssessment(record);
+    window.dispatchEvent(new Event("dst-nutrition-changed"));
+  }
+  // The athlete's allergies on the Nutrition tab, with Edit to change them (the plan is rebuilt without those foods)
+  function AllergyLine({ athlete }) {
+    const [edit, setEdit] = useState(null); // the allergies being chosen, while editing
+    const prefs = prefsOf(athlete.id);
+    const list = allergiesOf(athlete.id);
+    const other = (prefs && prefs.other) || "";
+    const text = list.length ? list.map((a) => ALLERGIES[a].label).join(", ") : prefs && prefs.asked ? "None" : "Not asked yet";
+    if (!edit) {
+      return (
+        <div className="nut-allergies">
+          <b>Food allergies:</b> {text}{other ? ` · ${other}` : ""}
+          {prefs && prefs.source === "athlete" ? <span className="nut-hint"> (from the athlete’s app)</span> : null}
+          {list.length ? <span className="nut-hint"> · the plan leaves those foods out</span> : null}
+          <button type="button" className="btn-link no-print" onClick={() => setEdit({ list: list.slice(), other })}>Edit</button>
+        </div>
+      );
+    }
+    const toggle = (a) => setEdit((e) => Object.assign({}, e, { list: e.list.includes(a) ? e.list.filter((x) => x !== a) : e.list.concat([a]) }));
+    return (
+      <div className="nut-allergies no-print">
+        <b>Food allergies:</b>
+        <div className="nut-allergy-picks">
+          {ALLERGY_KEYS.map((a) => (
+            <label key={a} className="nut-check-opt"><input type="checkbox" checked={edit.list.includes(a)} onChange={() => toggle(a)} />{ALLERGIES[a].label}</label>
+          ))}
+          <input className="nut-lib-search" placeholder="Other (noted on the plan)" value={edit.other} onChange={(e) => { const v = e.target.value; setEdit((x) => Object.assign({}, x, { other: v })); }} />
+        </div>
+        <div className="nut-top">
+          <button type="button" className="btn btn-assign" onClick={() => { saveAllergies(athlete, edit.list, edit.other.trim()); setEdit(null); }}>Save allergies</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setEdit(null)}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
   function savePlan(athlete, patch) {
     const prev = planOf(athlete.id);
     const record = Object.assign({ id: `nutrition-${athlete.id}`, athleteId: athlete.id, kind: "nutrition", seed: Math.floor(Math.random() * 1e9) }, prev || {}, patch, { date: new Date().toISOString().slice(0, 10) });
@@ -617,15 +705,15 @@
   // link by athlete_portal_nutrition (supabase/migration_022_athlete_portal_nutrition.sql).
   const sortedJson = (v) => (Array.isArray(v) ? `[${v.map(sortedJson).join(",")}]`
     : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${sortedJson(v[k])}`).join(",")}}` : JSON.stringify(v));
-  // for the phone's food log: the food lists ([name, unit, step, kcal, carbohydrate, protein, fat, plural, group, largest amount] by key),
+  // for the phone's food log: the food lists ([name, unit, step, kcal, carbohydrate, protein, fat, plural, group, largest amount, allergies] by key),
   // and each meal's foods as [key, amount], so "Log this meal" can add them one by one
-  const FOOD_TABLE = Object.fromEntries(Object.values(FOODS).map((f) => [f.key, [f.name, f.unit, f.step, f.kcal, f.c, f.p, f.f, f.pl || "", f.cat, f.max]]));
+  const FOOD_TABLE = Object.fromEntries(Object.values(FOODS).map((f) => [f.key, [f.name, f.unit, f.step, f.kcal, f.c, f.p, f.f, f.pl || "", f.cat, f.max, allergensOf(f.key)]]));
   const partsOf = (m) => m.items.map((it) => [it.food.key, it.amt]);
   const r0 = (t) => ({ kcal: round(t.kcal != null ? t.kcal : kcalOf(t)), c: round(t.c), p: round(t.p), f: round(t.f) });
   function snapshotOf(basis, T, plan, lists, times) {
     const mealOut = (m) => (m.cheat ? { title: "Cheat Meal", cheat: true, items: [], tot: r0(m.tot) } : { title: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) });
     return {
-      v: 2, foods: FOOD_TABLE, school: !!plan.school, packing: PACKING_TIPS, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
+      v: 2, foods: FOOD_TABLE, school: !!plan.school, allergies: plan.allergies || [], packing: PACKING_TIPS, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
       train: r0(T.train), rest: r0(T.rest),
       meals: SLOTS.map((s, i) => {
         const t = T.trainMeals.find((m) => m.key === s.key), r = T.restMeals.find((m) => m.key === s.key);
@@ -635,7 +723,7 @@
       lists: [["Protein", lists.protein], ["Carbohydrate", lists.starch], ["Fruit", lists.fruit], ["Vegetables", lists.veg], ["Add a fat (when a meal is low)", lists.fat]].map(([title, rows]) => ({
         title, same: rows.every((r) => r.train === r.rest), rows: rows.map((r) => [r.food.name, amountText(r.food, r.train), amountText(r.food, r.rest)]),
       })),
-      options: [["Breakfast", plan.options.breakfast], ["Snacks", plan.options.snack], ["Post-workout", [plan.options.post]]].map(([group, meals]) => ({
+      options: [["Breakfast", plan.options.breakfast], ["Snacks", plan.options.snack], ["Post-workout", [plan.options.post].filter(Boolean)]].map(([group, meals]) => ({
         group, meals: meals.map((m) => ({ name: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) })),
       })),
       // each meal's options by meal name, for a training day and a rest day
@@ -654,8 +742,9 @@
     const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
     const ready = !!(basis && goalKey);
     const T = ready ? targetsFor(basis, goalKey) : null;
-    const plan = ready ? buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch }) : null;
-    const lists = ready ? macroLists(T) : null;
+    const allergies = allergiesOf(athlete.id);
+    const plan = ready ? buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch, allergies }) : null;
+    const lists = ready ? macroLists(T, { allergies }) : null;
     const times = SLOTS.map((s) => (basis && s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : basis && s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
     // the athlete's copy is saved again whenever the plan comes out differently (a new scan, a new goal, a shuffle);
     // this tab is drawn whenever a profile is open, so opening one keeps that athlete's phone up to date
@@ -708,6 +797,7 @@
             {basis.typedCal ? " training-day calories as typed on the sheet" : ` ${g.pct > 0 ? "+" : ""}${g.pct}% for the goal`}
             {T.proteinKg !== T.kg ? ` · protein worked off the goal weight (${(T.proteinKg * 2.2).toFixed(0)} lb)` : ""}
           </div>
+          <AllergyLine athlete={athlete} />
           <table className="nut-table nut-targets">
             <thead><tr><th></th><th>Calories</th><th>Protein</th><th>Carbohydrate</th><th>Fat</th><th>C / P / F</th></tr></thead>
             <tbody>
@@ -984,7 +1074,8 @@
         if (!basis) return;
         const T = targetsFor(basis, rec.goal);
         const times = SLOTS.map((s) => (s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
-        const snap = snapshotOf(basis, T, buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch }), macroLists(T), times);
+        const allergies = allergiesOf(a.id);
+        const snap = snapshotOf(basis, T, buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch, allergies }), macroLists(T, { allergies }), times);
         if (sortedJson(rec.snapshot || null) !== sortedJson(JSON.parse(JSON.stringify(snap)))) savePlan(a, { snapshot: snap });
       } catch (e) { /* one athlete's plan that can't be worked out doesn't stop the rest */ }
     });
