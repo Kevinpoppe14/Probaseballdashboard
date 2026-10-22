@@ -2207,15 +2207,14 @@
     const table = (rows, heads) => el("table", { class: "nut-table" },
       el("thead", null, el("tr", null, heads.map((h) => el("th", null, h)))),
       el("tbody", null, rows.map((r) => el("tr", null, r.map((c) => el("td", null, c))))));
-    // one menu, folded: it opens to the protein, carbohydrate, fruit, vegetable and fat lists, each folded again
-    main.append(el("details", { class: "card nut-fold exchange-menu" },
-      el("summary", null, "Food Exchange Options"),
-      el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."),
-      ...(n.lists || []).map((l) => el("details", { class: "nut-fold nut-subfold" }, el("summary", null, l.title),
-        l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"])))));
+    // ---- supplements, with the DST dispensary
+    main.append(fold("Supplements",
+      el("ul", { class: "nut-items" }, ["Fish oil", "Multi-vitamin", "Electrolytes", "Whey protein", "Creatine, beta-alanine, leucine"].map((s) => el("li", null, s))),
+      el("div", { class: "card-sub" }, "NSF Certified for Sport products only."),
+      el("a", { class: "food-logmeal thorne-link", href: THORNE_URL, target: "_blank", rel: "noopener" }, "Shop the DST dispensary on Thorne ↗")));
 
-    // ---- shopping and habits: the grocery list follows what's planned for the coming week
-    main.append(el("h2", { class: "section" }, "Shopping & habits"));
+    // ---- More: the grocery list (following what's planned for the coming week), hydration, packing and the exchange lists
+    main.append(el("h2", { class: "section" }, "More"));
     main.append(groceryFold(fold, table));
     main.append(fold("Hydration",
       el("ul", { class: "nut-items" },
@@ -2226,10 +2225,12 @@
     // packing tips, from the DST high school meal rotation
     if (n.packing && n.packing.length) main.append(fold(n.school ? "Packing your school lunch" : "Packing a lunch",
       el("ul", { class: "nut-items" }, n.packing.map((t) => el("li", null, t)))));
-    main.append(fold("Supplements",
-      el("ul", { class: "nut-items" }, ["Fish oil", "Multi-vitamin", "Electrolytes", "Whey protein", "Creatine, beta-alanine, leucine"].map((s) => el("li", null, s))),
-      el("div", { class: "card-sub" }, "NSF Certified for Sport products only."),
-      el("a", { class: "food-logmeal thorne-link", href: THORNE_URL, target: "_blank", rel: "noopener" }, "Shop the DST dispensary on Thorne ↗")));
+    // the exchange lists: one menu, folded, opening to the protein, carbohydrate, fruit, vegetable and fat lists
+    main.append(el("details", { class: "card nut-fold exchange-menu" },
+      el("summary", null, "Food Exchange Options"),
+      el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."),
+      ...(n.lists || []).map((l) => el("details", { class: "nut-fold nut-subfold" }, el("summary", null, l.title),
+        l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"])))));
     return main;
   }
   const THORNE_URL = "https://s.thorne.com/WFei3"; // the DST dispensary on Thorne
