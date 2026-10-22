@@ -265,6 +265,32 @@
     { name: "Yogurt & Fruit", parts: (rng) => [part("greek", "protein"), part(pick(rng, ["banana", "pineapple", "mango"]), "carb", { min: 0.5 }), part("honey", "carb", { opt: true }), part("granola", "carb", { opt: true })] },
   ];
   // lunch and dinner beyond the plate: the DST salad, and bowls, wraps, pasta and stir fry
+  // From the DST high school meal rotation: grab-and-go breakfasts for school mornings, and lunches that pack cold
+  // for school (an insulated bag and an ice pack). With "packed school lunches" on, the rotation's Monday to Friday
+  // breakfasts and lunches come from these; they're among every athlete's options either way.
+  const GRAB_AND_GO = [
+    { name: "Egg & Turkey Breakfast Sandwich", parts: (rng) => [part("bread", "carb", { min: 2, max: 4 }), part("eggs", "fat", { min: 1, max: 3 }), part(pick(rng, ["dturkey", "ham"]), "protein", { min: 2 }), part(pick(rng, ["strawberries", "blueberries", "orange"]), "carb", { opt: true }), part("banana", "carb", { opt: true })] },
+    { name: "Peanut Butter Banana Toast", parts: () => [part("bread", "carb", { min: 2, max: 4 }), part("banana", "carb", { min: 1, max: 2 }), part("pb", "fat", { min: 0.5 }), part("eggs", "protein", { opt: true, max: 3 }), part("almondmilk", "fixed", { amt: 1 })] },
+    { name: "Eggs, Toast & Fruit", parts: (rng) => [part("eggs", "fat", { min: 2 }), part("bread", "carb", { min: 1, max: 4 }), part(pick(rng, ["strawberries", "cantaloupe", "pineapple"]), "carb", { opt: true }), part("banana", "carb", { opt: true }), part("dturkey", "protein", { opt: true })] },
+    { name: "Oatmeal & Hard-Boiled Eggs", parts: (rng) => [part("oats", "carb"), part("eggs", "protein", { max: 3 }), part(pick(rng, BERRIES), "carb", { opt: true })] },
+    { name: "Bar, Nuts & Fruit", parts: (rng) => [part("zone", "fixed", { amt: 1 }), part(pick(rng, ["cantaloupe", "apple", "orange"]), "carb", { opt: true }), part("banana", "carb", { opt: true }), part("oats", "carb", { opt: true, max: 0.75 }), part("nuts", "fat", { opt: true }), part("whey", "protein", { opt: true })], note: "Oats as overnight oats or in a shake" },
+  ];
+  const PACKED_NOTE = "Packs cold for school";
+  const PACKING_TIPS = [
+    "Use an insulated bag with an ice pack for meat and egg lunches",
+    "Pack sandwich vegetables and fruit separately so nothing gets soggy",
+    "Rice bowls and pasta salads can be eaten cold, or microwaved if the school has one",
+    "School mornings: keep breakfast quick (a breakfast sandwich, PB banana toast, oatmeal with eggs, or a shake)",
+    "Add a snack or a shake around practice when you need more",
+  ];
+  const PACKED_LUNCHES = [
+    { name: "Deli Sandwich", note: PACKED_NOTE, parts: (rng) => [part("bread", "carb", { min: 2, max: 4 }), part(pick(rng, ["dturkey", "ham", "roastbeef"]), "protein", { min: 2 }), part(pick(rng, ["carrots", "broccoli"]), "fixed", { amt: 1 }), part(pick(rng, ["apple", "orange", "banana"]), "carb", { opt: true }), part("cheese", "fat", { opt: true })] },
+    { name: "Cold Chicken Pasta Salad", note: PACKED_NOTE, parts: (rng) => [part("chicken", "protein"), part("wwpasta", "carb"), part(pick(rng, ["broccoli", "carrots"]), "fixed", { amt: 1 }), part(pick(rng, ["apple", "orange"]), "carb", { opt: true }), part("dressing", "fat", { opt: true })] },
+    { name: "Roast Beef Pasta Salad", note: PACKED_NOTE, parts: (rng) => [part("roastbeef", "protein", { min: 3 }), part("wwpasta", "carb"), part("broccoli", "fixed", { amt: 1 }), part(pick(rng, ["apple", "orange"]), "carb", { opt: true }), part("dressing", "fat", { opt: true })] },
+    { name: "Chicken Rice Bowl", note: PACKED_NOTE, parts: (rng) => [part("chicken", "protein"), part(pick(rng, ["brownrice", "rice"]), "carb"), part("greenbeans", "fixed", { amt: 1 }), part(pick(rng, ["orange", "apple"]), "carb", { opt: true }), part("oliveoil", "fat", { opt: true })] },
+    { name: "Chicken & Potato Bowl", note: PACKED_NOTE, parts: (rng) => [part("chicken", "protein"), part("redpotato", "carb"), part("greenbeans", "fixed", { amt: 1 }), part(pick(rng, ["orange", "apple"]), "carb", { opt: true }), part("oliveoil", "fat", { opt: true })] },
+    { name: "Turkey Roll-Ups", note: PACKED_NOTE, parts: (rng) => [part("dturkey", "protein", { min: 3 }), part(pick(rng, ["sweetpotato", "redpotato"]), "carb"), part("carrots", "fixed", { amt: 1 }), part(pick(rng, ["orange", "apple"]), "carb", { opt: true }), part("cheese", "fat", { opt: true })] },
+  ];
   const MAIN_CHOICES = [
     { name: "Salad Bowl", parts: (rng) => [part("greens", "fixed", { amt: 2 }), part(pick(rng, ["salmon", "chicken", "tuna", "shrimp"]), "protein"), part("chickpeas", "carb"), part("cucumber", "fixed", { amt: 0.5 }), part("carrots", "fixed", { amt: 0.5 }), part("onion", "fixed", { amt: 0.25 }), part("eggs", "fixed", { amt: 1 }), part("dressing", "fat", { opt: true }), part("bread", "carb", { opt: true })] },
     { name: "Burrito Bowl", parts: (rng) => [part(pick(rng, ["rice", "brownrice"]), "carb"), part("blackbeans", "fixed", { amt: 0.5 }), part(pick(rng, ["chicken", "gturkey", "gbeef", "sirloin"]), "protein"), part("bellpepper", "fixed", { amt: 1 }), part("avocado", "fat", { opt: true })] },
@@ -288,9 +314,9 @@
         // four plates with different proteins, starches, vegetables and fruit, then the bowls, wrap, pasta and stir fry
         const proteins = shuffled(rng, MAIN_PROTEINS), starches = shuffled(rng, MAIN_STARCHES), veg = shuffled(rng, MAIN_VEG), fruit = shuffled(rng, MAIN_FRUIT);
         const plates = [0, 1, 2, 3].map((i) => Object.assign({ name: `${FOODS[proteins[i]].name} Plate` }, mainMeal(m.target, { protein: proteins[i], starch: starches[i], veg: veg[i], fruit: fruit[i] })));
-        list = plates.concat(MAIN_CHOICES.map((tpl) => templated(m.target, tpl, rng)));
+        list = plates.concat((m.key === "lunch" ? PACKED_LUNCHES : []).concat(MAIN_CHOICES).map((tpl) => templated(m.target, tpl, rng)));
       } else {
-        const tpls = m.key === "breakfast" ? BREAKFASTS.concat(MORE_BREAKFASTS) : m.key === "post" ? [POST].concat(MORE_POST) : SNACKS.concat(MORE_SNACKS);
+        const tpls = m.key === "breakfast" ? BREAKFASTS.concat(MORE_BREAKFASTS, GRAB_AND_GO) : m.key === "post" ? [POST].concat(MORE_POST) : SNACKS.concat(MORE_SNACKS);
         list = tpls.map((tpl) => templated(m.target, tpl, rng));
       }
       list = list.filter((x) => x.items.length).sort((a, b) => missBy(a.tot, m.target) - missBy(b.tot, m.target));
@@ -422,7 +448,9 @@
   }
 
   // ---- the plan --------------------------------------------------------------------------------------
-  function buildPlan(T, seed) {
+  // opts.school: packed school lunches and grab-and-go breakfasts Monday to Friday
+  function buildPlan(T, seed, opts) {
+    const school = !!(opts && opts.school);
     const rng = rngOf(seed);
     const mealT = (key) => T.trainMeals.find((m) => m.key === key).target;
     const weeks = [0, 1].map((w) => {
@@ -431,7 +459,9 @@
       const few = (list, count) => cycler(rng, shuffled(rng, list).slice(0, count));
       const next = { protein: few(MAIN_PROTEINS, 3), starch: few(MAIN_STARCHES, 3), veg: few(MAIN_VEG, 3), fruit: few(MAIN_FRUIT, 4) };
       let lastBreakfast = null;
+      const packed = cycler(rng, PACKED_LUNCHES), grab = cycler(rng, GRAB_AND_GO);
       return [0, 1, 2, 3, 4, 5, 6].map((d) => {
+        const schoolDay = school && d < 5;
         let bi = Math.floor(rng() * BREAKFASTS.length);
         if (bi === lastBreakfast) bi = (bi + 1) % BREAKFASTS.length;
         lastBreakfast = bi;
@@ -440,9 +470,9 @@
         if (s2 === s1) s2 = (s2 + 1) % SNACKS.length;
         const main = (key) => Object.assign({ name: key === "lunch" ? "Lunch" : "Dinner" }, mainMeal(mealT(key), { protein: next.protein(), starch: next.starch(), veg: next.veg(), fruit: next.fruit() }));
         const day = {
-          breakfast: templated(mealT("breakfast"), BREAKFASTS[bi], rng),
+          breakfast: templated(mealT("breakfast"), schoolDay ? grab() : BREAKFASTS[bi], rng),
           snack1: templated(mealT("snack1"), SNACKS[s1], rng),
-          lunch: main("lunch"),
+          lunch: schoolDay ? templated(mealT("lunch"), packed(), rng) : main("lunch"),
           snack2: templated(mealT("snack2"), SNACKS[s2], rng),
           dinner: d === 5 ? { cheat: true, name: "Cheat Meal", items: [], tot: Object.assign({ kcal: kcalOf(mealT("dinner")) }, mealT("dinner")) } : main("dinner"),
           post: templated(mealT("post"), POST, rng),
@@ -457,7 +487,7 @@
       snack: SNACKS.map((tpl) => templated(mealT("snack1"), tpl, rng)),
       post: templated(mealT("post"), POST, rng),
     };
-    return { weeks, options, choices: mealChoices(T, seed) };
+    return { weeks, options, choices: mealChoices(T, seed), school };
   }
 
   // the macro lists: for a lunch or dinner, the portion of each food that fills its place in the meal (the protein
@@ -595,7 +625,7 @@
   function snapshotOf(basis, T, plan, lists, times) {
     const mealOut = (m) => (m.cheat ? { title: "Cheat Meal", cheat: true, items: [], tot: r0(m.tot) } : { title: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) });
     return {
-      v: 2, foods: FOOD_TABLE, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
+      v: 2, foods: FOOD_TABLE, school: !!plan.school, packing: PACKING_TIPS, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
       train: r0(T.train), rest: r0(T.rest),
       meals: SLOTS.map((s, i) => {
         const t = T.trainMeals.find((m) => m.key === s.key), r = T.restMeals.find((m) => m.key === s.key);
@@ -624,7 +654,7 @@
     const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
     const ready = !!(basis && goalKey);
     const T = ready ? targetsFor(basis, goalKey) : null;
-    const plan = ready ? buildPlan(T, rec.seed || 1) : null;
+    const plan = ready ? buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch }) : null;
     const lists = ready ? macroLists(T) : null;
     const times = SLOTS.map((s) => (basis && s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : basis && s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
     // the athlete's copy is saved again whenever the plan comes out differently (a new scan, a new goal, a shuffle);
@@ -666,6 +696,10 @@
             <NutritionGoalPicker athlete={athlete} />
             <button type="button" className="btn btn-secondary" title="Pick new example meals" onClick={() => savePlan(athlete, { seed: Math.floor(Math.random() * 1e9) })}>Shuffle examples</button>
             {basis.source === "manual" && !editing && <button type="button" className="btn btn-secondary" onClick={() => setEditing(true)}>Edit details</button>}
+            <label className="nut-check-opt" title="For school days: Monday to Friday breakfasts are quick grab-and-go options and lunches pack cold for school">
+              <input type="checkbox" checked={!!rec.schoolLunch} onChange={(e) => savePlan(athlete, { schoolLunch: e.target.checked })} />
+              Packed school lunches (Mon–Fri)
+            </label>
           </div>
           {basis.source === "manual" && editing && <ManualBasisForm athlete={athlete} rec={rec} onDone={() => setEditing(false)} />}
           <div className="nut-basis">
@@ -840,6 +874,10 @@
                 <li><b>Post the meal rotation and accountability chart on the fridge</b></li>
                 <li><b>Add accountability:</b> a food-tracking app, phone reminders, a training partner and a sleep app</li>
               </ol>
+              <h3>Packing a school lunch</h3>
+              <ul>
+                {PACKING_TIPS.map((t) => <li key={t}>{t}</li>)}
+              </ul>
             </div>
           </div>
         </div>

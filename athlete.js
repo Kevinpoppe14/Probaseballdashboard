@@ -2005,6 +2005,9 @@
         el("li", null, "Drink 16 oz of water for every pound lost"),
         el("li", null, "About 128 oz (1 gallon) through the day: two 32 oz bottles in the morning, two in the afternoon")),
       el("div", { class: "card-sub" }, "Losing 2–3% of your body weight in water can cost 15–20% of your performance.")));
+    // packing tips, from the DST high school meal rotation
+    if (n.packing && n.packing.length) main.append(fold(n.school ? "Packing your school lunch" : "Packing a lunch",
+      el("ul", { class: "nut-items" }, n.packing.map((t) => el("li", null, t)))));
     main.append(fold("Supplements",
       el("ul", { class: "nut-items" }, ["Fish oil", "Multi-vitamin", "Electrolytes", "Whey protein", "Creatine, beta-alanine, leucine"].map((s) => el("li", null, s))),
       el("div", { class: "card-sub" }, "NSF Certified for Sport products only."),
