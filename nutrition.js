@@ -1,0 +1,681 @@
+// Nutrition plan: the DST nutrition packet (meal rotation, macro lists, breakfast/snack/shake options, grocery list,
+// blank rotation, accountability chart, meal prep and hydration) built for an athlete from their body composition and
+// a goal. It is the Nutrition tab under Assessments, and can go in the emailed package.
+//
+// Targets
+//   Calories come from the latest body composition. A manual body comp sheet gives its resting rate and activity (or
+//   the training-day calories the coach typed over them); without a newer sheet, the latest Evolt scan is used: the
+//   sheet's resting-rate equations from weight, age and sex, plus 2 hours of training and 30 minutes of sport at the
+//   sheet's 0.075 kcal per kg per minute. The goal moves them as the sheet does: +10% to gain lean muscle, -15% to lose
+//   body fat, none for recomp. Thermogenesis is a tenth of what is eaten, so a day's calories are
+//   k x (resting + activity) / (1 - 0.1k).
+//   Protein, fat and carbohydrate follow Andy Galpin's periodized nutrition ranges (after Louise Burke), in grams per
+//   kilogram of body weight, with his own adjustments for a long baseball season (protein at 2.2 or more, never cut):
+//   protein and fat are set from the goal, and carbohydrate takes the calories left on a training day, flagged when
+//   that falls outside the goal's range. A rest day keeps protein and fat and takes carbohydrate from the goal's
+//   rest-day range. Fat loss works protein off the goal weight when the sheet has one.
+// Meals
+//   The day is spread over six meals (five on a rest day, without the post-workout shake). Each example meal is a
+//   template (protein, starch, vegetable and fruit for lunch and dinner, as on the DST meal rotation) whose portions
+//   are solved to that meal's targets and rounded to kitchen amounts. The examples are picked at random from the food
+//   lists (Shuffle picks again); the macro lists and the blank rotation are for the athlete to build their own meals.
+// Food values are USDA figures (cooked weights for meat, fish, rice and pasta; oats dry).
+// Saved in the assessments table with kind "nutrition", one per athlete: the goal and the shuffle.
+(function () {
+  const { useState, useEffect } = React;
+
+  // ---- food lists ------------------------------------------------------------------------------------
+  // per one unit: kcal, carbohydrate, protein, fat (g). step: the smallest portion; max: the largest in one meal.
+  const FOODS = {};
+  const food = (key, cat, name, unit, step, kcal, c, p, f, more) => { FOODS[key] = Object.assign({ key, cat, name, unit, step, kcal, c, p, f, max: 99 }, more || {}); };
+  // protein (cooked)
+  food("chicken", "protein", "Chicken Breast", "oz", 0.5, 47, 0, 8.8, 1.0, { min: 3, max: 12 });
+  food("turkey", "protein", "Turkey Breast", "oz", 0.5, 42, 0, 8.5, 0.7, { min: 3, max: 12 });
+  food("gturkey", "protein", "93% Lean Ground Turkey", "oz", 0.5, 57, 0, 7.7, 3.0, { min: 3, max: 10 });
+  food("gbeef", "protein", "90% Lean Ground Beef", "oz", 0.5, 61, 0, 7.4, 3.3, { min: 3, max: 9 });
+  food("sirloin", "protein", "Sirloin Steak", "oz", 0.5, 55, 0, 8.4, 2.2, { min: 3, max: 10 });
+  food("tenderloin", "protein", "Tenderloin Steak", "oz", 0.5, 58, 0, 8.0, 2.7, { min: 3, max: 9 });
+  food("pork", "protein", "Pork Tenderloin", "oz", 0.5, 41, 0, 7.4, 1.0, { min: 3, max: 12 });
+  food("salmon", "protein", "Salmon", "oz", 0.5, 58, 0, 7.3, 3.0, { min: 3, max: 9 });
+  food("tilapia", "protein", "Tilapia", "oz", 0.5, 36, 0, 7.4, 0.8, { min: 3, max: 12 });
+  food("cod", "protein", "Cod", "oz", 0.5, 30, 0, 6.5, 0.2, { min: 3, max: 12 });
+  food("mahi", "protein", "Mahi Mahi", "oz", 0.5, 31, 0, 6.7, 0.3, { min: 3, max: 12 });
+  food("shrimp", "protein", "Shrimp", "oz", 0.5, 28, 0.1, 6.8, 0.1, { min: 3, max: 12 });
+  food("tuna", "protein", "Tuna (canned in water)", "oz", 0.5, 33, 0, 7.2, 0.3, { min: 3, max: 10 });
+  // deli and breakfast protein
+  food("ham", "deli", "Deli Ham", "oz", 1, 31, 0.8, 5.0, 1.0, { max: 8 });
+  food("dturkey", "deli", "Deli Turkey", "oz", 1, 30, 1.0, 5.0, 0.5, { max: 8 });
+  food("roastbeef", "deli", "Deli Roast Beef", "oz", 1, 35, 0.5, 6.0, 1.0, { max: 8 });
+  food("jerky", "deli", "Beef Jerky", "oz", 1, 80, 6, 11, 1, { max: 3 });
+  food("eggs", "dairy", "Egg", "item", 1, 72, 0.4, 6.3, 4.8, { pl: "Eggs", min: 2, max: 6 });
+  food("whites", "dairy", "Liquid Egg Whites", "cup", 0.25, 126, 1.8, 26.3, 0.4, { max: 1.5 });
+  food("greek", "dairy", "Nonfat Greek Yogurt", "cup", 0.25, 133, 8.0, 23.6, 0.9, { min: 0.5, max: 2 });
+  food("cottage", "dairy", "2% Cottage Cheese", "cup", 0.25, 183, 9.5, 23.5, 5.1, { min: 0.5, max: 1.5 });
+  food("milk", "dairy", "2% Milk", "cup", 0.5, 122, 12, 8, 4.8, { max: 2 });
+  food("almondmilk", "dairy", "Almond Milk", "cup", 0.5, 59, 8, 1, 2.5, { max: 2 });
+  food("cheese", "dairy", "Cheddar Cheese", "oz", 0.5, 114, 0.4, 7.1, 9.4, { max: 2 });
+  food("stringcheese", "dairy", "String Cheese", "item", 1, 80, 1, 7, 6, { pl: "String Cheese", max: 2 });
+  food("whey", "dairy", "Whey Protein", "scoop", 0.5, 120, 3, 24, 1.5, { min: 1, max: 2.5 });
+  // starch (cooked unless noted)
+  food("rice", "starch", "White Rice", "cup", 0.25, 206, 44.6, 4.3, 0.4, { max: 2.5 });
+  food("brownrice", "starch", "Brown Rice", "cup", 0.25, 216, 44.8, 5.0, 1.8, { max: 2.5 });
+  food("pasta", "starch", "Pasta", "cup", 0.25, 220, 43, 8.1, 1.3, { max: 2.5 });
+  food("wwpasta", "starch", "Whole Wheat Pasta", "cup", 0.25, 174, 37.2, 7.5, 0.8, { max: 2.5 });
+  food("quinoa", "starch", "Quinoa", "cup", 0.25, 222, 39.4, 8.1, 3.6, { max: 2.5 });
+  food("couscous", "starch", "Couscous", "cup", 0.25, 176, 36.5, 6.0, 0.3, { max: 2.5 });
+  food("sweetpotato", "starch", "Sweet Potato (medium)", "item", 0.5, 103, 23.6, 2.3, 0.2, { pl: "Sweet Potatoes (medium)", max: 3 });
+  food("redpotato", "starch", "Red Potato (small)", "item", 0.5, 123, 27.1, 3.2, 0.2, { pl: "Red Potatoes (small)", max: 3 });
+  food("blackbeans", "starch", "Black Beans", "cup", 0.25, 227, 40.8, 15.2, 0.9, { max: 1.5 });
+  food("oats", "starch", "Old Fashioned Oats (dry)", "cup", 0.25, 300, 54, 10, 5, { min: 0.25, max: 1.5 });
+  food("bread", "starch", "Whole Wheat Bread", "slice", 1, 80, 14, 4, 1.1, { max: 4 });
+  food("bagel", "starch", "Whole Wheat Bagel", "item", 0.5, 245, 48, 10, 1.7, { pl: "Whole Wheat Bagels", max: 1.5 });
+  food("granola", "starch", "Granola", "cup", 0.25, 440, 80, 10, 8, { max: 1 });
+  food("ricecakes", "starch", "Rice Cake", "item", 1, 35, 7.3, 0.7, 0.3, { pl: "Rice Cakes", max: 4 });
+  food("honey", "starch", "Honey", "tbsp", 0.5, 64, 17.3, 0.1, 0, { max: 2 });
+  // fruit
+  food("apple", "fruit", "Apple", "item", 0.5, 95, 25.1, 0.5, 0.3, { pl: "Apples", max: 2 });
+  food("banana", "fruit", "Banana", "item", 0.5, 105, 27, 1.3, 0.4, { pl: "Bananas", max: 2 });
+  food("orange", "fruit", "Orange", "item", 0.5, 62, 15.4, 1.2, 0.2, { pl: "Oranges", max: 2 });
+  food("pear", "fruit", "Pear", "item", 0.5, 101, 27, 0.6, 0.2, { pl: "Pears", max: 2 });
+  food("strawberries", "fruit", "Strawberries", "cup", 0.5, 49, 11.7, 1.0, 0.5, { max: 2 });
+  food("blueberries", "fruit", "Blueberries", "cup", 0.5, 84, 21.4, 1.1, 0.5, { max: 2 });
+  food("blackberries", "fruit", "Blackberries", "cup", 0.5, 62, 13.8, 2.0, 0.7, { max: 2 });
+  food("raspberries", "fruit", "Raspberries", "cup", 0.5, 64, 14.7, 1.5, 0.8, { max: 2 });
+  food("pineapple", "fruit", "Pineapple", "cup", 0.5, 82, 21.6, 0.9, 0.2, { max: 2 });
+  food("grapes", "fruit", "Grapes", "cup", 0.5, 104, 27.3, 1.1, 0.2, { max: 2 });
+  food("cantaloupe", "fruit", "Cantaloupe", "cup", 0.5, 54, 13, 1.3, 0.3, { max: 2 });
+  food("mango", "fruit", "Mango", "cup", 0.5, 99, 24.7, 1.4, 0.6, { max: 2 });
+  // vegetables (cooked unless noted)
+  food("broccoli", "veg", "Broccoli", "cup", 0.5, 55, 11.2, 3.7, 0.6);
+  food("greenbeans", "veg", "Green Beans", "cup", 0.5, 44, 9.9, 2.4, 0.4);
+  food("carrots", "veg", "Carrots", "cup", 0.5, 54, 12.8, 1.2, 0.3);
+  food("asparagus", "veg", "Asparagus", "cup", 0.5, 40, 7.4, 4.3, 0.4);
+  food("cauliflower", "veg", "Cauliflower", "cup", 0.5, 29, 5.1, 2.3, 0.6);
+  food("spinach", "veg", "Spinach", "cup", 0.5, 41, 6.8, 5.3, 0.5);
+  food("brussels", "veg", "Brussels Sprouts", "cup", 0.5, 56, 11.1, 4.0, 0.8);
+  food("zucchini", "veg", "Zucchini", "cup", 0.5, 27, 4.8, 2.1, 0.6);
+  food("peas", "veg", "Peas", "cup", 0.5, 134, 25, 8.6, 0.4, { max: 1 });
+  food("greens", "veg", "Mixed Salad Greens (raw)", "cup", 1, 9, 1.7, 0.7, 0.1);
+  food("bellpepper", "veg", "Bell Pepper", "item", 0.5, 37, 7.2, 1.2, 0.4, { pl: "Bell Peppers", max: 2 });
+  // fats
+  food("oliveoil", "fat", "Olive Oil", "tsp", 1, 40, 0, 0, 4.5, { max: 3 });
+  food("avocado", "fat", "Avocado", "item", 0.25, 320, 17, 4, 29.5, { pl: "Avocados", max: 0.5 });
+  food("pb", "fat", "Peanut Butter (all natural)", "tbsp", 0.5, 95, 3.5, 3.6, 8.2, { max: 2 });
+  food("almondbutter", "fat", "Almond Butter", "tbsp", 0.5, 98, 3.0, 3.4, 8.9, { max: 2 });
+  food("almonds", "fat", "Almonds", "oz", 0.5, 164, 6.1, 6.0, 14.2, { max: 1.5 });
+  food("nuts", "fat", "Mixed Nuts", "oz", 0.5, 172, 6.0, 5.0, 15.0, { max: 1.5 });
+  food("dressing", "fat", "Italian Dressing", "tbsp", 0.5, 70, 1.5, 0.1, 7.1, { max: 2 });
+  // bars
+  food("zone", "bar", "Zone Perfect Bar", "item", 1, 210, 22, 16, 7, { pl: "Zone Perfect Bars", max: 2 });
+
+  const MAIN_PROTEINS = ["chicken", "turkey", "gturkey", "gbeef", "sirloin", "tenderloin", "pork", "salmon", "tilapia", "cod", "mahi", "shrimp"];
+  const MAIN_STARCHES = ["rice", "brownrice", "pasta", "wwpasta", "quinoa", "couscous", "sweetpotato", "redpotato"];
+  const MAIN_VEG = ["broccoli", "greenbeans", "carrots", "asparagus", "cauliflower", "spinach", "brussels", "zucchini"];
+  const MAIN_FRUIT = ["apple", "banana", "orange", "pear", "strawberries", "blueberries", "blackberries", "raspberries", "pineapple", "grapes", "cantaloupe", "mango"];
+  const BERRIES = ["strawberries", "blueberries", "blackberries", "raspberries"];
+
+  // ---- goals (Galpin's ranges, g/kg body weight) ------------------------------------------------------
+  const GOALS = {
+    gain: { label: "Gain lean muscle", pct: 10, protein: 2.2, fat: 0.9, train: [5, 7], rest: [4, 5] },
+    lose: { label: "Lose body fat", pct: -15, protein: 2.3, fat: 0.8, train: [3, 4], rest: [3, 3.5] },
+    recomp: { label: "Recomp / performance", pct: 0, protein: 2.1, fat: 0.9, train: [4, 5], rest: [3, 4] },
+  };
+  const GOAL_KEYS = ["gain", "lose", "recomp"];
+
+  // the day spread over the meals: each meal's share of the day's carbohydrate, protein and fat (each column adds to 1).
+  // Lunch and dinner carry the most protein (the protein-centered plates of the DST rotation); carbohydrate is weighted to
+  // breakfast, the snacks and the post-workout shake, which is kept low in fat so it absorbs fast.
+  const SLOTS = [
+    { key: "breakfast", name: "Breakfast", time: "6:00a" },
+    { key: "snack1", name: "Mid-Morning Snack", time: "10:00a" },
+    { key: "lunch", name: "Lunch", time: "12:00p" },
+    { key: "snack2", name: "Mid-Afternoon Snack", time: "3:00p" },
+    { key: "dinner", name: "Dinner", time: "6:00p" },
+    { key: "post", name: "Post-Workout Shake", time: "After training" },
+  ];
+  const SPLIT = {
+    train: { breakfast: [0.22, 0.20, 0.25], snack1: [0.12, 0.08, 0.15], lunch: [0.18, 0.27, 0.20], snack2: [0.12, 0.08, 0.15], dinner: [0.16, 0.27, 0.22], post: [0.20, 0.10, 0.03] },
+    rest: { breakfast: [0.24, 0.20, 0.25], snack1: [0.14, 0.10, 0.15], lunch: [0.22, 0.30, 0.22], snack2: [0.14, 0.10, 0.16], dinner: [0.26, 0.30, 0.22] },
+  };
+
+  // ---- small helpers ---------------------------------------------------------------------------------
+  const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
+  const round = (v) => Math.round(v);
+  const kcalOf = (m) => m.c * 4 + m.p * 4 + m.f * 9;
+  // seeded random numbers, so a plan shows the same examples until Shuffle is pressed
+  const rngOf = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const pick = (rng, list) => list[Math.floor(rng() * list.length)];
+  const shuffled = (rng, list) => { const a = list.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+  // a list handed out in a random order, reshuffled each time round, never the same twice in a row
+  const cycler = (rng, list) => {
+    let order = [], last = null;
+    return () => {
+      if (!order.length) { order = shuffled(rng, list); if (order[0] === last && order.length > 1) order.push(order.shift()); }
+      last = order.shift();
+      return last;
+    };
+  };
+
+  const FRAC = { 0: "", 0.25: "¼", 0.5: "½", 0.75: "¾" };
+  const qty = (a) => { const w = Math.floor(a + 1e-9), r = Math.round((a - w) * 4) / 4; const s = (w ? String(w) : "") + (FRAC[r] || ""); return s || "0"; };
+  const plural = (f, a) => (a > 1 ? f.pl || `${f.name}s` : f.name);
+  function itemText(it) {
+    const f = it.food, a = it.amt, q = qty(a);
+    if (f.unit === "oz") return `${q} oz ${f.name}`;
+    if (f.unit === "cup") return `${q} C. ${f.name}`;
+    if (f.unit === "tsp" && a >= 3 && a % 3 === 0) return `${qty(a / 3)} tbsp ${f.name}`;
+    if (f.unit === "tbsp" || f.unit === "tsp") return `${q} ${f.unit} ${f.name}`;
+    if (f.unit === "scoop") return `${q} ${a > 1 ? "Scoops" : "Scoop"} ${f.name}`;
+    if (f.unit === "slice") return `${q} ${a > 1 ? "Slices" : "Slice"} ${f.name}`;
+    return `${q} ${plural(f, a)}`;
+  }
+  const totalsOf = (items) => items.reduce((t, it) => ({ kcal: t.kcal + it.food.kcal * it.amt, c: t.c + it.food.c * it.amt, p: t.p + it.food.p * it.amt, f: t.f + it.food.f * it.amt }), { kcal: 0, c: 0, p: 0, f: 0 });
+
+  // ---- portions --------------------------------------------------------------------------------------
+  // A meal is a list of parts. "fixed" parts have a set amount; a "protein", "carb" or "fat" part is sized to the
+  // meal's target for that macro, after whatever the other parts bring (worked over a few rounds, since chicken has a
+  // little fat and rice a little protein). Amounts are then rounded to the food's step; an optional part that comes to
+  // nothing is left out.
+  const MACRO = { protein: "p", carb: "c", fat: "f" };
+  function solve(target, parts) {
+    const amt = parts.map((x) => (x.role === "fixed" ? x.amt : 0));
+    for (let round_ = 0; round_ < 6; round_++) {
+      ["protein", "carb", "fat"].forEach((role) => {
+        const m = MACRO[role];
+        const mine = parts.map((x, i) => (x.role === role ? i : -1)).filter((i) => i >= 0);
+        if (!mine.length) return;
+        let need = target[m] - parts.reduce((s, x, i) => s + (mine.includes(i) ? 0 : amt[i] * x.food[m]), 0);
+        mine.forEach((i) => {
+          const x = parts[i], per = x.food[m] || 0.0001;
+          const a = Math.max(0, Math.min(x.max != null ? x.max : x.food.max, need / per));
+          amt[i] = a;
+          need -= a * per;
+        });
+      });
+    }
+    const items = parts.map((x, i) => {
+      const step = x.food.step;
+      if (x.role === "fixed") return { food: x.food, amt: x.amt };
+      let a = Math.round(amt[i] / step) * step;
+      const min = x.min != null ? x.min : x.opt ? 0 : x.food.min || step;
+      if (a < min) a = x.opt && amt[i] < min / 2 ? 0 : min;
+      return { food: x.food, amt: a };
+    }).filter((it) => it.amt > 0);
+    return { items, tot: totalsOf(items) };
+  }
+  const part = (key, role, more) => Object.assign({ food: FOODS[key], role }, more || {});
+
+  // lunch and dinner, as on the DST rotation: a protein, a starch, a vegetable and a fruit (a little oil when the
+  // protein is lean and the meal still needs fat). Bigger meals get more vegetables and a whole fruit.
+  function mainMeal(target, keys) {
+    const kcal = kcalOf(target);
+    const veg = kcal < 600 ? 1 : kcal < 850 ? 1.5 : 2;
+    const fruitFood = FOODS[keys.fruit];
+    const fruit = kcal < 650 ? (fruitFood.unit === "cup" ? 0.5 : 0.5) : 1;
+    return solve(target, [
+      part(keys.protein, "protein"), part(keys.starch, "carb"),
+      part(keys.veg, "fixed", { amt: veg }), part(keys.fruit, "fixed", { amt: fruit }),
+      part(keys.fat || "oliveoil", "fat", { opt: true }),
+    ]);
+  }
+  const BREAKFASTS = [
+    { name: "DST Shake", parts: (rng) => [part("whey", "protein"), part("oats", "carb"), part("banana", "fixed", { amt: 0.5 }), part("pb", "fat", { opt: true }), part(pick(rng, ["milk", "almondmilk"]), "fixed", { amt: 1 })], note: "Blend with 1½ C. ice" },
+    { name: "Egg Scramble", parts: (rng) => [part("eggs", "fat"), part(pick(rng, ["ham", "dturkey"]), "protein", { opt: true }), part(pick(rng, ["bellpepper", "spinach"]), "fixed", { amt: 1 }), part(pick(rng, ["bread", "oats", "bagel"]), "carb"), part(pick(rng, BERRIES), "carb", { min: 0.5 })] },
+    { name: "Yogurt Bowl", parts: (rng) => [part("greek", "protein"), part("granola", "carb"), part(pick(rng, BERRIES), "fixed", { amt: 1 }), part("almonds", "fat", { opt: true })] },
+    { name: "Protein Oatmeal", parts: (rng) => [part("oats", "carb"), part("whey", "protein"), part("banana", "fixed", { amt: 0.5 }), part(pick(rng, ["pb", "almondbutter"]), "fat", { opt: true })] },
+  ];
+  const SNACKS = [
+    { name: "Bar & Fruit", parts: (rng) => [part("zone", "fixed", { amt: 1 }), part(pick(rng, ["orange", "apple", "banana"]), "carb", { min: 0.5 })] },
+    { name: "Fruit & Nuts", parts: (rng) => [part("apple", "carb", { min: 0.5 }), part(pick(rng, ["almonds", "nuts"]), "fat", { min: 0.5 }), part("jerky", "protein", { opt: true })] },
+    { name: "Turkey Sandwich", parts: (rng) => [part("bread", "carb", { min: 2 }), part(pick(rng, ["dturkey", "ham", "roastbeef"]), "protein", { min: 2 }), part("cheese", "fat", { opt: true })] },
+    { name: "Yogurt & Berries", parts: (rng) => [part("greek", "protein"), part(pick(rng, ["blueberries", "strawberries", "raspberries"]), "carb", { min: 0.5, max: 1.5 }), part("granola", "carb", { opt: true }), part("almonds", "fat", { opt: true })] },
+    { name: "Cottage Cheese & Pineapple", parts: () => [part("cottage", "protein"), part("pineapple", "carb"), part("almonds", "fat", { opt: true })] },
+    { name: "Eggs & Fruit", parts: (rng) => [part("eggs", "protein", { max: 4 }), part(pick(rng, ["orange", "apple", "banana", "grapes"]), "carb", { min: 0.5 }), part("ricecakes", "carb", { opt: true })] },
+  ];
+  const POST = { name: "Post-Workout Shake", parts: () => [part("whey", "protein"), part("banana", "carb", { min: 0.5 }), part("oats", "carb", { opt: true, max: 0.75 }), part("honey", "carb", { opt: true }), part("milk", "fixed", { amt: 1 })] };
+  const templated = (target, tpl, rng) => Object.assign({ name: tpl.name, note: tpl.note }, solve(target, tpl.parts(rng)));
+
+  // ---- targets ---------------------------------------------------------------------------------------
+  const rmrOf = (kg, age, male) => (male
+    ? (age < 18 ? 17.5 * kg + 651 : age < 30 ? 15.3 * kg + 679 : age < 60 ? 11.6 * kg + 879 : 13.5 * kg + 487)
+    : (age < 18 ? 12.2 * kg + 746 : age < 30 ? 14.7 * kg + 496 : age < 60 ? 8.7 * kg + 829 : 10.5 * kg + 596));
+  const ageOf = (athlete) => (typeof computeAge === "function" ? computeAge(athlete.dob) : null);
+
+  // the body composition the plan is worked from: the latest complete manual sheet or Evolt scan, whichever is newer
+  function basisFor(athlete) {
+    const store = window.AthleteStore;
+    const sheets = (store.getBodyCompSheets(athlete.id) || []).filter((s) => s.inputs && s.summary && !s.summary.incomplete);
+    const sheet = sheets[sheets.length - 1];
+    const scans = (store.getBodyComp(athlete.id) || []).filter((s) => s.date && (s.weightLb != null || s.weightKg != null)).sort((a, b) => a.date.localeCompare(b.date));
+    const scan = scans[scans.length - 1];
+    if (sheet && window.BodyCompCalc && (!scan || sheet.date >= scan.date)) {
+      const inputs = Object.assign({}, sheet.inputs);
+      if (!num(inputs.age)) inputs.age = String(ageOf(athlete) || 25);
+      const c = window.BodyCompCalc(inputs);
+      return {
+        source: "sheet", date: sheet.date, weightLb: c.cur.weight, kg: c.cur.massKg, pctFat: c.cur.pctFat, age: num(inputs.age), male: c.male,
+        rmr: c.rmr, activity: c.dstEE + c.sportEE, trainMin: num(inputs.trainMin) || 0, sportMin: num(inputs.sportMin) || 0,
+        typedCal: num(inputs.oTrainCal), goalKg: c.goalSet ? c.goal.massKg : null,
+        wakeUp: inputs.wakeUp, lunchTime: inputs.lunchTime,
+      };
+    }
+    if (scan) {
+      const lb = scan.weightLb != null ? scan.weightLb : scan.weightKg * 2.20462;
+      const kg = lb / 2.2, age = num(scan.age) || ageOf(athlete) || 25;
+      const male = !/^f/i.test(String(scan.gender || athlete.sex || "M"));
+      return {
+        source: "evolt", date: scan.date, weightLb: lb, kg, pctFat: num(scan.bodyFatPct), age, male,
+        rmr: rmrOf(kg, age, male), activity: (120 + 30) * kg * 0.075, trainMin: 120, sportMin: 30, typedCal: null, goalKg: null,
+      };
+    }
+    return null;
+  }
+
+  function targetsFor(basis, goalKey) {
+    const g = GOALS[goalKey];
+    const k = 1 + g.pct / 100;
+    const trainCal = basis.typedCal || (k * (basis.rmr + basis.activity)) / (1 - 0.1 * k);
+    const kg = basis.kg;
+    const proteinKg = goalKey === "lose" && basis.goalKg ? basis.goalKg : kg; // fat loss: protein off the goal weight
+    const p = g.protein * proteinKg, f = g.fat * kg;
+    const trainC = Math.max(0, (trainCal - p * 4 - f * 9) / 4);
+    const train = { c: trainC, p, f };
+    // rest day: the goal's rest-day carbohydrate (the middle of its range), never above a training day's
+    const restC = Math.min(trainC, ((g.rest[0] + g.rest[1]) / 2) * kg);
+    const rest = { c: restC, p, f };
+    const flags = [];
+    const cKg = trainC / kg;
+    if (cKg > g.train[1] + 0.05) flags.push(`Carbohydrate comes to ${cKg.toFixed(1)} g/kg on a training day, above the ${g.train[0]}–${g.train[1]} g/kg range for this goal. The calories are high for this goal: check the training minutes, or raise fat.`);
+    if (cKg < g.train[0] - 0.05) flags.push(`Carbohydrate comes to ${cKg.toFixed(1)} g/kg on a training day, below the ${g.train[0]}–${g.train[1]} g/kg range for this goal. The calories are tight for it.`);
+    const meals = (day, split) => SLOTS.filter((s) => split[s.key]).map((s) => {
+      const [sc, sp, sf] = split[s.key];
+      return Object.assign({}, s, { target: { c: day.c * sc, p: day.p * sp, f: day.f * sf } });
+    });
+    return { goal: g, goalKey, kg, proteinKg, train, rest, trainMeals: meals(train, SPLIT.train), restMeals: meals(rest, SPLIT.rest), flags };
+  }
+
+  // ---- the plan --------------------------------------------------------------------------------------
+  function buildPlan(T, seed) {
+    const rng = rngOf(seed);
+    const mealT = (key) => T.trainMeals.find((m) => m.key === key).target;
+    const weeks = [0, 1].map((w) => {
+      // like the DST rotation, each week works through a few foods (three proteins, three starches, three vegetables,
+      // four fruits) so its grocery list stays short; the second week draws its own
+      const few = (list, count) => cycler(rng, shuffled(rng, list).slice(0, count));
+      const next = { protein: few(MAIN_PROTEINS, 3), starch: few(MAIN_STARCHES, 3), veg: few(MAIN_VEG, 3), fruit: few(MAIN_FRUIT, 4) };
+      let lastBreakfast = null;
+      return [0, 1, 2, 3, 4, 5, 6].map((d) => {
+        let bi = Math.floor(rng() * BREAKFASTS.length);
+        if (bi === lastBreakfast) bi = (bi + 1) % BREAKFASTS.length;
+        lastBreakfast = bi;
+        const s1 = Math.floor(rng() * SNACKS.length);
+        let s2 = Math.floor(rng() * SNACKS.length);
+        if (s2 === s1) s2 = (s2 + 1) % SNACKS.length;
+        const main = (key) => Object.assign({ name: key === "lunch" ? "Lunch" : "Dinner" }, mainMeal(mealT(key), { protein: next.protein(), starch: next.starch(), veg: next.veg(), fruit: next.fruit() }));
+        const day = {
+          breakfast: templated(mealT("breakfast"), BREAKFASTS[bi], rng),
+          snack1: templated(mealT("snack1"), SNACKS[s1], rng),
+          lunch: main("lunch"),
+          snack2: templated(mealT("snack2"), SNACKS[s2], rng),
+          dinner: d === 5 ? { cheat: true, name: "Cheat Meal", items: [], tot: Object.assign({ kcal: kcalOf(mealT("dinner")) }, mealT("dinner")) } : main("dinner"),
+          post: templated(mealT("post"), POST, rng),
+        };
+        day.tot = SLOTS.reduce((t, s) => { const m = day[s.key].tot; return { kcal: t.kcal + m.kcal, c: t.c + m.c, p: t.p + m.p, f: t.f + m.f }; }, { kcal: 0, c: 0, p: 0, f: 0 });
+        return day;
+      });
+    });
+    // one of each breakfast, snack and shake, sized to this athlete (the options pages)
+    const options = {
+      breakfast: BREAKFASTS.map((tpl) => templated(mealT("breakfast"), tpl, rng)),
+      snack: SNACKS.map((tpl) => templated(mealT("snack1"), tpl, rng)),
+      post: templated(mealT("post"), POST, rng),
+    };
+    return { weeks, options };
+  }
+
+  // the macro lists: for a lunch or dinner, the portion of each food that fills its place in the meal (the protein
+  // with the meal's protein, the starch with what carbohydrate is left after a fruit and the vegetables), so the
+  // athlete can build their own meals by picking one of each
+  function macroLists(T) {
+    const avg = (meals) => { const l = meals.find((m) => m.key === "lunch").target, d = meals.find((m) => m.key === "dinner").target; return { c: (l.c + d.c) / 2, p: (l.p + d.p) / 2, f: (l.f + d.f) / 2 }; };
+    const sizes = (t) => {
+      const kcal = kcalOf(t);
+      const veg = kcal < 600 ? 1 : kcal < 850 ? 1.5 : 2;
+      const fruitC = kcal < 650 ? 12 : 22; // about half a fruit, or a whole one
+      const proteinNeed = Math.max(10, t.p - veg * 3 - 4); // the starch and vegetables bring a little protein
+      const carbNeed = Math.max(10, t.c - veg * 9 - fruitC);
+      return { veg, fruitC, proteinNeed, carbNeed };
+    };
+    const train = sizes(avg(T.trainMeals)), rest = sizes(avg(T.restMeals));
+    const portion = (f, grams, macro) => { const a = Math.round(grams / f[macro] / f.step) * f.step; return Math.max(f.step, Math.min(f.max, a)); };
+    const row = (key, macro, tg, rg) => { const f = FOODS[key]; return { food: f, train: portion(f, tg, macro), rest: portion(f, rg, macro) }; };
+    return {
+      protein: MAIN_PROTEINS.concat(["tuna"]).map((k) => row(k, "p", train.proteinNeed, rest.proteinNeed)),
+      starch: MAIN_STARCHES.concat(["blackbeans", "bread", "oats"]).map((k) => row(k, "c", train.carbNeed, rest.carbNeed)),
+      fruit: MAIN_FRUIT.map((k) => row(k, "c", train.fruitC, rest.fruitC)),
+      veg: MAIN_VEG.concat(["peas", "greens", "bellpepper"]).map((k) => { const f = FOODS[k]; const a = k === "peas" ? 0.5 : k === "greens" ? 2 : k === "bellpepper" ? 1 : null; return { food: f, train: a || train.veg, rest: a || rest.veg }; }),
+      fat: ["oliveoil", "avocado", "pb", "almondbutter", "almonds", "nuts", "cheese", "dressing"].map((k) => { const f = FOODS[k]; const a = Math.max(f.step, Math.round(9 / f.f / f.step) * f.step); return { food: f, train: a, rest: a }; }),
+    };
+  }
+
+  // the week's shopping, from the example rotation
+  const CAT_GROUP = { protein: "Protein", deli: "Protein", starch: "Carbohydrate", fruit: "Fruit", veg: "Vegetable", dairy: "Dairy & Misc", fat: "Dairy & Misc", bar: "Dairy & Misc" };
+  const GROUPS = ["Protein", "Carbohydrate", "Fruit", "Vegetable", "Dairy & Misc"];
+  function groceryList(week) {
+    const byFood = {};
+    week.forEach((day) => SLOTS.forEach((s) => (day[s.key].items || []).forEach((it) => {
+      const g = byFood[it.food.key] || (byFood[it.food.key] = { food: it.food, total: 0, amts: {} });
+      g.total += it.amt;
+      g.amts[it.amt] = (g.amts[it.amt] || 0) + 1;
+    })));
+    const list = Object.values(byFood).map((g) => {
+      const serving = Number(Object.keys(g.amts).sort((a, b) => g.amts[b] - g.amts[a])[0]);
+      return Object.assign(g, { serving, group: CAT_GROUP[g.food.cat] || "Dairy & Misc" });
+    });
+    return GROUPS.map((name) => ({ name, items: list.filter((g) => g.group === name).sort((a, b) => a.food.name.localeCompare(b.food.name)) })).filter((g) => g.items.length);
+  }
+  // an amount on its own, for the lists that name the food in a column beside it
+  const amountText = (food, a) => {
+    const q = qty(a);
+    if (food.unit === "oz") return `${q} oz`;
+    if (food.unit === "cup") return `${q} C.`;
+    if (food.unit === "tsp" && a >= 3 && a % 3 === 0) return `${qty(a / 3)} tbsp`;
+    if (food.unit === "tbsp" || food.unit === "tsp") return `${q} ${food.unit}`;
+    if (food.unit === "scoop") return `${q} ${a > 1 ? "scoops" : "scoop"}`;
+    if (food.unit === "slice") return `${q} ${a > 1 ? "slices" : "slice"}`;
+    return q;
+  };
+
+  // ---- saved plan ------------------------------------------------------------------------------------
+  const planOf = (athleteId) => (window.AthleteStore.getNutritionPlan ? window.AthleteStore.getNutritionPlan(athleteId) : null);
+  function savePlan(athlete, patch) {
+    const prev = planOf(athlete.id);
+    const record = Object.assign({ id: `nutrition-${athlete.id}`, athleteId: athlete.id, kind: "nutrition", seed: Math.floor(Math.random() * 1e9) }, prev || {}, patch, { date: new Date().toISOString().slice(0, 10) });
+    if (prev && prev._activity) record._activity = prev._activity;
+    window.AthleteStore.saveAssessment(record);
+    window.dispatchEvent(new Event("dst-nutrition-changed"));
+    return record;
+  }
+  // redraw when the plan or the body composition changes anywhere on the page
+  function useRefresh() {
+    const [, bump] = useState(0);
+    useEffect(() => {
+      const on = () => bump((x) => x + 1);
+      window.addEventListener("dst-nutrition-changed", on);
+      window.addEventListener("dst-bodycomp-changed", on);
+      return () => { window.removeEventListener("dst-nutrition-changed", on); window.removeEventListener("dst-bodycomp-changed", on); };
+    }, []);
+  }
+
+  // The goal, set here or on the Body Composition tab: choosing one is what builds the plan
+  function NutritionGoalPicker({ athlete, onOpen }) {
+    useRefresh();
+    const rec = planOf(athlete.id);
+    const goal = (rec && rec.goal) || "";
+    return (
+      <div className="nut-goal no-print">
+        <label>
+          <span>Nutrition goal</span>
+          <select value={goal} onChange={(e) => savePlan(athlete, { goal: e.target.value })}>
+            <option value="">Choose a goal…</option>
+            {GOAL_KEYS.map((k) => <option key={k} value={k}>{GOALS[k].label}</option>)}
+          </select>
+        </label>
+        {onOpen && goal && <button type="button" className="btn btn-secondary" onClick={onOpen}>Open nutrition plan</button>}
+        {onOpen && !goal && <span className="nut-hint">Choosing a goal builds this athlete’s nutrition plan from their latest body composition.</span>}
+      </div>
+    );
+  }
+
+  // ---- the tab ---------------------------------------------------------------------------------------
+  const g0 = (v) => String(round(v));
+  const macroLine = (t) => `${g0(t.kcal != null ? t.kcal : kcalOf(t))} kcal · C ${g0(t.c)} · P ${g0(t.p)} · F ${g0(t.f)}`;
+  const shareLine = (t) => { const k = kcalOf(t) || 1; return `${round((t.c * 4 * 100) / k)}% / ${round((t.p * 4 * 100) / k)}% / ${round((t.f * 9 * 100) / k)}%`; };
+  const DAYS = ["MON", "TUE", "WED", "THUR", "FRI", "SAT", "SUN"];
+  const shortDate = (k) => { const [y, m, d] = (k || "").split("-"); return y ? `${Number(m)}/${Number(d)}/${y.slice(2)}` : ""; };
+
+  function MealCell({ meal }) {
+    if (meal.cheat) return <div className="nut-cell nut-cheat">Cheat Meal</div>;
+    return (
+      <div className="nut-cell">
+        {meal.items.map((it, i) => <div key={i}>{itemText(it)}</div>)}
+        {meal.note && <div className="nut-note">{meal.note}</div>}
+        <small>{round(meal.tot.kcal)} kcal</small>
+      </div>
+    );
+  }
+  function OptionCard({ title, meal }) {
+    return (
+      <div className="nut-card">
+        <h4>{title}</h4>
+        {meal.items.map((it, i) => <div key={i}>{itemText(it)}</div>)}
+        {meal.note && <div className="nut-note">{meal.note}</div>}
+        <div className="nut-card-tot">{macroLine(meal.tot)}<br /><span>C / P / F {shareLine(meal.tot)}</span></div>
+      </div>
+    );
+  }
+
+  function NutritionTab({ athlete }) {
+    useRefresh();
+    const rec = planOf(athlete.id);
+    const goalKey = rec && GOALS[rec.goal] ? rec.goal : "";
+    const basis = basisFor(athlete);
+    const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
+
+    if (!basis || !goalKey) {
+      return (
+        <div className="panel nut">
+          <h2>Nutrition Plan</h2>
+          <NutritionGoalPicker athlete={athlete} />
+          <div className="empty-state">
+            {!basis
+              ? "There’s no body composition on file for this athlete yet. Import an Evolt scan or fill in a body comp sheet on the Body Composition tab, then choose a goal."
+              : "Choose a goal above to build this athlete’s nutrition plan from their latest body composition."}
+          </div>
+        </div>
+      );
+    }
+
+    const T = targetsFor(basis, goalKey);
+    const seed = rec.seed || 1;
+    const plan = buildPlan(T, seed);
+    const lists = macroLists(T);
+    const g = T.goal;
+    const perKg = (v) => (v / T.kg).toFixed(1);
+    const times = SLOTS.map((s) => (s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
+    const slotsPerDay = SLOTS.length;
+    const weekly = slotsPerDay * 7;
+
+    return (
+      <div className="nut">
+        <div className="panel">
+          <h2>
+            Nutrition Plan <small>{first} · {g.label} · from the {basis.source === "sheet" ? "body comp sheet" : "Evolt scan"} of {shortDate(basis.date)}</small>
+          </h2>
+          <div className="nut-top no-print">
+            <NutritionGoalPicker athlete={athlete} />
+            <button type="button" className="btn btn-secondary" title="Pick new example meals" onClick={() => savePlan(athlete, { seed: Math.floor(Math.random() * 1e9) })}>Shuffle examples</button>
+          </div>
+          <div className="nut-basis">
+            {round(basis.weightLb)} lb ({basis.kg.toFixed(1)} kg){basis.pctFat != null ? ` · ${basis.pctFat.toFixed(1)}% body fat` : ""} ·
+            resting {round(basis.rmr)} kcal · training {basis.trainMin} min + sport {basis.sportMin} min ≈ {round(basis.activity)} kcal ·
+            {basis.typedCal ? " training-day calories as typed on the sheet" : ` ${g.pct > 0 ? "+" : ""}${g.pct}% for the goal`}
+            {T.proteinKg !== T.kg ? ` · protein worked off the goal weight (${(T.proteinKg * 2.2).toFixed(0)} lb)` : ""}
+          </div>
+          <table className="nut-table nut-targets">
+            <thead><tr><th></th><th>Calories</th><th>Protein</th><th>Carbohydrate</th><th>Fat</th><th>C / P / F</th></tr></thead>
+            <tbody>
+              {[["Training day", T.train], ["Rest day", T.rest]].map(([label, d]) => (
+                <tr key={label}>
+                  <td><b>{label}</b></td>
+                  <td>{g0(kcalOf(d))}</td>
+                  <td>{g0(d.p)} g <em>{perKg(d.p)} g/kg</em></td>
+                  <td>{g0(d.c)} g <em>{perKg(d.c)} g/kg</em></td>
+                  <td>{g0(d.f)} g <em>{perKg(d.f)} g/kg</em></td>
+                  <td>{shareLine(d)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="nut-hint">
+            Ranges for {g.label.toLowerCase()} (g/kg): protein {g.protein}, fat {g.fat}, carbohydrate {g.train[0]}–{g.train[1]} on a training day and {g.rest[0]}–{g.rest[1]} on a rest day, after Andy Galpin’s periodized nutrition.
+          </p>
+          {T.flags.map((f, i) => <div key={i} className="nut-flag">{f}</div>)}
+          <h3>Daily meal targets</h3>
+          <table className="nut-table">
+            <thead><tr><th>Meal</th><th>Time</th><th>Training day</th><th>Rest day</th></tr></thead>
+            <tbody>
+              {SLOTS.map((s, i) => {
+                const t = T.trainMeals.find((m) => m.key === s.key), r = T.restMeals.find((m) => m.key === s.key);
+                return (
+                  <tr key={s.key}>
+                    <td><b>{s.name}</b></td><td>{times[i]}</td>
+                    <td>{macroLine(t.target)}</td>
+                    <td>{r ? macroLine(r.target) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {plan.weeks.map((week, w) => (
+          <div className="panel" key={w}>
+            <h2>Example Meal Rotation <small>Week {w + 1} · training days (on a rest day, skip the post-workout shake and use the rest-day portions in the macro lists)</small></h2>
+            <div className="nut-scroll">
+              <table className="nut-table nut-rotation">
+                <thead><tr><th></th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
+                <tbody>
+                  {SLOTS.map((s) => (
+                    <tr key={s.key}><td className="nut-slot">{s.name}</td>{week.map((day, d) => <td key={d}><MealCell meal={day[s.key]} /></td>)}</tr>
+                  ))}
+                  <tr className="nut-total"><td className="nut-slot">Day total</td>{week.map((day, d) => <td key={d}>{round(day.tot.kcal)} kcal<br />C {g0(day.tot.c)} · P {g0(day.tot.p)} · F {g0(day.tot.f)}</td>)}</tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+
+        <div className="panel">
+          <h2>Macro Lists <small>build your own lunch and dinner: one protein, one carbohydrate, one fruit and the vegetables, in these amounts</small></h2>
+          <div className="nut-lists">
+            {[["Protein", lists.protein], ["Carbohydrate", lists.starch], ["Fruit", lists.fruit], ["Vegetables", lists.veg], ["Add a fat (when a meal is low)", lists.fat]].map(([title, rows]) => {
+              const same = rows.every((r) => r.train === r.rest); // one column when rest days are no different
+              return (
+                <table className="nut-table nut-list" key={title}>
+                  <thead><tr><th>{title}</th>{same ? <th>Amount</th> : <React.Fragment><th>Training</th><th>Rest</th></React.Fragment>}</tr></thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.food.key}><td>{r.food.name}</td><td>{amountText(r.food, r.train)}</td>{!same && <td>{amountText(r.food, r.rest)}</td>}</tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Breakfast, Snack &amp; Shake Options <small>each sized to {first}’s meal targets on a training day</small></h2>
+          <h3>Breakfast</h3>
+          <div className="nut-cards">{plan.options.breakfast.map((m, i) => <OptionCard key={i} title={m.name} meal={m} />)}</div>
+          <h3>Snacks</h3>
+          <div className="nut-cards">{plan.options.snack.map((m, i) => <OptionCard key={i} title={m.name} meal={m} />)}</div>
+          <h3>Post-workout</h3>
+          <div className="nut-cards"><OptionCard title={plan.options.post.name} meal={plan.options.post} /></div>
+        </div>
+
+        <div className="panel">
+          <h2>Grocery List <small>for the example rotation</small></h2>
+          <div className="nut-lists">
+            {plan.weeks.map((week, w) => (
+              <table className="nut-table nut-list nut-grocery" key={w}>
+                <thead><tr><th colSpan={3}>Week {w + 1}</th></tr><tr><th>Food</th><th>Serving</th><th>Week</th></tr></thead>
+                <tbody>
+                  {groceryList(week).map((grp) => (
+                    <React.Fragment key={grp.name}>
+                      <tr className="nut-group"><td colSpan={3}>{grp.name}</td></tr>
+                      {grp.items.map((it) => <tr key={it.food.key}><td>{it.food.name}</td><td>{amountText(it.food, it.serving)}</td><td>{amountText(it.food, it.total)}</td></tr>)}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Your Meal Rotation <small>fill in your own meals from the macro lists and options</small></h2>
+          {[1, 2].map((w) => (
+            <div className="nut-scroll" key={w}>
+              <table className="nut-table nut-rotation nut-blank">
+                <thead><tr><th>Week {w}</th>{DAYS.map((d) => <th key={d}>{d}</th>)}</tr></thead>
+                <tbody>{SLOTS.map((s) => <tr key={s.key}><td className="nut-slot">{s.name}</td>{DAYS.map((d) => <td key={d}></td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel">
+          <h2>Accountability Chart <small>check off each meal eaten as planned</small></h2>
+          <div className="nut-scroll">
+            {[0, 1, 2, 3].map((w) => (
+              <table className="nut-table nut-check" key={w}>
+                <thead><tr><th></th>{DAYS.map((d, i) => <th key={d}>Day {w * 7 + i + 1}</th>)}</tr></thead>
+                <tbody>
+                  {SLOTS.map((s) => <tr key={s.key}><td className="nut-slot">{s.name}</td>{DAYS.map((d) => <td key={d}></td>)}</tr>)}
+                  <tr><td className="nut-slot">Hydration</td>{DAYS.map((d) => <td key={d}></td>)}</tr>
+                </tbody>
+              </table>
+            ))}
+          </div>
+          <p className="nut-hint">
+            To achieve 90% you must be successful {Math.ceil(weekly * 0.9)} out of {weekly} each week; to achieve 80%, {Math.ceil(weekly * 0.8)} out of {weekly}.
+          </p>
+        </div>
+
+        <div className="panel">
+          <h2>Daily Meal Preparation</h2>
+          <div className="nut-guides">
+            <div>
+              <h3>Daily schedule</h3>
+              <table className="nut-table">
+                <tbody>{SLOTS.map((s, i) => <tr key={s.key}><td>{times[i]}</td><td><b>{s.name}</b></td></tr>)}</tbody>
+              </table>
+              <p className="nut-hint">The last snack and dinner are interchangeable.</p>
+            </div>
+            <div>
+              <h3>Hydration</h3>
+              <p className="nut-hint">A 2–3% loss of body weight can mean a 15–20% drop in performance.</p>
+              <ul>
+                <li>Weigh before and after practice</li>
+                <li>Drink 16 oz of water for every pound lost</li>
+                <li>The body absorbs about 16–20 oz of water an hour</li>
+                <li>About 128 oz (1 gallon) through the day: two 32 oz bottles in the morning, two in the afternoon</li>
+              </ul>
+              <h3>Supplements</h3>
+              <p className="nut-hint">NSF Certified for Sport only (nsfsport.com).</p>
+              <ul>
+                <li>Fish oil</li><li>Multi-vitamin</li><li>Electrolytes</li><li>Whey protein</li><li>Creatine, beta-alanine, leucine</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Failing to plan is planning to fail</h3>
+              <ol>
+                <li><b>Get the tools:</b> food containers, a small food scale, zip-lock bags, a food chopper, a small container for dressings, a thermos, a lunch cooler, a grill, a single-serving blender and a rice cooker</li>
+                <li><b>Buy your bars and shakes</b></li>
+                <li><b>Shop only from the grocery list</b></li>
+                <li><b>Post the meal rotation and accountability chart on the fridge</b></li>
+                <li><b>Add accountability:</b> a food-tracking app, phone reminders, a training partner and a sleep app</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  window.NutritionTab = NutritionTab;
+  window.NutritionGoalPicker = NutritionGoalPicker;
+  window.NutritionPlan = { FOODS, GOALS, basisFor, targetsFor, buildPlan, macroLists, solve }; // for checking the sums
+})();

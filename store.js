@@ -675,6 +675,11 @@
   function getReassessments(athleteId) {
     return assessmentsOf(athleteId, "reassess");
   }
+  // the nutrition plan (nutrition.js), kind "nutrition": one per athlete, its goal and its shuffle
+  function getNutritionPlan(athleteId) {
+    const plans = assessmentsOf(athleteId, "nutrition");
+    return plans[plans.length - 1] || null;
+  }
   function getBodyCompSheets(athleteId) {
     return assessmentsOf(athleteId, "bodycomp");
   }
@@ -1216,6 +1221,7 @@
     getAssessments,
     getPitchingAssessments,
     getBodyCompSheets,
+    getNutritionPlan,
     getReassessments,
     saveAssessment,
     deleteAssessment,

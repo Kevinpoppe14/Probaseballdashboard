@@ -3751,3 +3751,57 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .bcs-list-row .badge { margin-left: 6px; }
 .bodycomp-edit-row input { width: 100%; min-width: 64px; box-sizing: border-box; padding: 3px 5px; font-size: 12px; }
 .bodycomp-edit-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+
+/* ---- Nutrition plan (nutrition.js) ---- */
+.nut-goal { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.nut-goal label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.nut-goal select { height: 32px; padding: 0 8px; font: inherit; font-size: 13px; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; }
+.nut-top { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 10px; }
+.nut-hint { margin: 6px 0; font-size: 12px; color: var(--text-dim); }
+.nut-basis { margin: 4px 0 10px; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+.nut-flag { margin: 8px 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--badge-warn-bg); color: var(--text); border: 1px solid var(--warn); }
+.nut h3 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--dst-red); }
+.nut-table { display: table; width: 100%; overflow: visible; border-collapse: collapse; font-size: 12.5px; }
+/* the site-wide table style scrolls tables sideways and keeps cells on one line; these wrap, and their rows are not links */
+.nut-table th, .nut-table td { white-space: normal; }
+.nut-table tbody tr { cursor: default; }
+.nut-table tbody tr:hover { background: none; }
+.nut-table th { text-align: left; padding: 6px 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+.nut-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.nut-table em { font-style: normal; font-size: 11px; color: var(--text-dim); margin-left: 4px; }
+.nut-targets td { font-size: 13.5px; }
+.nut-scroll { overflow-x: auto; }
+.nut-rotation { table-layout: fixed; min-width: 980px; }
+.nut-rotation th:first-child, .nut-rotation td.nut-slot { width: 112px; }
+.nut-rotation th { text-align: center; background: var(--dst-black); color: #fff; }
+.nut-slot { font-weight: 700; font-size: 12px; color: var(--dst-red); }
+.nut-cell { font-size: 11.5px; line-height: 1.35; }
+.nut-cell small { display: block; margin-top: 3px; color: var(--text-dim); font-size: 10.5px; }
+.nut-cheat { font-weight: 700; color: var(--text-dim); text-align: center; padding-top: 8px; }
+.nut-note { font-style: italic; color: var(--text-dim); }
+.nut-total td { font-size: 11px; font-weight: 700; background: var(--surface-muted); }
+.nut-blank td { height: 54px; }
+.nut-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px 18px; align-items: start; }
+.nut-list th:first-child { color: var(--dst-red); }
+.nut-group td { font-weight: 700; font-size: 11.5px; text-transform: uppercase; color: var(--dst-red); background: var(--surface-muted); }
+.nut-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.nut-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.45; background: var(--panel-2); }
+.nut-card h4 { margin: 0 0 6px; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.3px; }
+.nut-card-tot { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-weight: 700; font-size: 12px; }
+.nut-card-tot span { font-weight: 400; color: var(--text-dim); }
+.nut-check { table-layout: fixed; min-width: 760px; margin-bottom: 12px; }
+.nut-check th:first-child, .nut-check td.nut-slot { width: 150px; }
+.nut-check td { height: 24px; border: 1px solid var(--border); }
+.nut-guides { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px 26px; font-size: 13px; }
+.nut-guides ul, .nut-guides ol { margin: 4px 0 8px; padding-left: 18px; line-height: 1.5; }
+@media print {
+  .nut-table th, .nut-table td { color: #000 !important; border-color: #ccc !important; }
+  .nut-rotation th { background: #1a1a1a !important; color: #fff !important; }
+  .nut-slot, .nut h3, .nut-list th:first-child, .nut-group td { color: #a52a34 !important; }
+  .nut-total td, .nut-group td { background: #f1f1f1 !important; }
+  .nut-card { background: #fff !important; border-color: #ccc !important; color: #000 !important; }
+  .nut-hint, .nut-basis, .nut-cell small, .nut-note, .nut-card-tot span, .nut-table em { color: #555 !important; }
+  .nut-flag { background: #fff7e0 !important; color: #000 !important; }
+  .nut-guides { color: #000 !important; }
+  .nut-scroll { overflow: visible !important; }
+}

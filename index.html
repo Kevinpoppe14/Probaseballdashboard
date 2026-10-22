@@ -63,6 +63,7 @@
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
+<script type="text/babel" data-presets="react" src="nutrition.js"></script>
 <script type="text/babel" data-presets="react" src="evolt_import.js"></script>
 <script type="text/babel" data-presets="react" src="ovr_import.js"></script>
 <script type="text/babel" data-presets="react" src="speed_builder.js"></script>
@@ -3665,24 +3666,30 @@ async function withTabShown(name, fn) {
 const PACKAGE_PARTS = [
   { key: "assessment", label: "Biomechanical Assessment", short: "biomechanical assessment" },
   { key: "bodycomp", label: "Body Composition", short: "body composition" },
+  { key: "nutrition", label: "Nutrition Plan", short: "nutrition plan" },
   { key: "performance", label: "Performance Metrics", short: "performance metrics" },
   { key: "statcast", label: "Statcast Metrics", short: "Statcast metrics" },
 ];
 
-// The email can carry about 4.5 MB, so the package is compressed more than a single tab, and again if it's still too big.
-async function renderAssessmentPackageToPdf(keys) {
+// The email can carry about 4.5 MB: a PDF is rendered at each quality in turn, compressed harder each time, until it
+// fits. (The package starts lower than a single tab, being several tabs in one.)
+async function renderWithinEmailLimit(render, qualities, tooBig) {
   const LIMIT = 3.9 * 1024 * 1024; // of base64, leaving room for the message
   const saved = pdfJpegQuality;
   try {
-    for (const q of [0.8, 0.6, 0.45]) {
+    for (const q of qualities) {
       pdfJpegQuality = q;
-      const b64 = await buildAssessmentPackage(keys);
+      const b64 = await render();
       if (b64.length <= LIMIT) return b64;
     }
   } finally {
     pdfJpegQuality = saved;
   }
-  throw new Error("That package is too large to email in one go. Untick a part (Statcast is usually the biggest) and send it separately.");
+  throw new Error(tooBig);
+}
+function renderAssessmentPackageToPdf(keys) {
+  return renderWithinEmailLimit(() => buildAssessmentPackage(keys), [0.8, 0.6, 0.45],
+    "That package is too large to email in one go. Untick a part (Statcast is usually the biggest) and send it separately.");
 }
 
 // The package, one landscape PDF of the parts chosen: the biomechanical assessment as it's emailed on its own, the
@@ -3819,10 +3826,12 @@ async function renderElementToPdf(selector, { width, orientation }) {
 
 async function renderTabToPdf(tab) {
   if (tab === "assessment") return renderAssessmentToPdf();
-  if (tab === "plan") return renderElementToPdf(".period-wrap", { width: 1000, orientation: "portrait" });
+  // a long tab (the nutrition plan runs to ten pages) is compressed until it fits in an email
+  const tooBig = "This tab is too large to email as one PDF.";
+  if (tab === "plan") return renderWithinEmailLimit(() => renderElementToPdf(".period-wrap", { width: 1000, orientation: "portrait" }), [0.92, 0.75, 0.6], tooBig);
   // Statcast/Performance are chart grids with no fixed page design of their own to match — wide
   // landscape gives their side-by-side charts more room than a portrait page would.
-  return renderElementToPdf(`[data-tab-content="${tab}"]`, { width: 1300, orientation: "landscape" });
+  return renderWithinEmailLimit(() => renderElementToPdf(`[data-tab-content="${tab}"]`, { width: 1300, orientation: "landscape" }), [0.92, 0.75, 0.6], tooBig);
 }
 
 // The team report is one ".report-sheet" per athlete (same markup "Print / Save PDF" uses,
@@ -6655,7 +6664,7 @@ function ActivitySignature({ activity, className }) {
 }
 
 // the tabs grouped under Assessments on a player profile
-const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "pitching"];
+const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "nutrition", "pitching"];
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
   // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
@@ -6747,6 +6756,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical</button>
           <button className={`pill-tab ${activeTab === "reassess" ? "active" : ""}`} data-tab="reassess" onClick={() => setActiveTab("reassess")}>Re-Assessment</button>
           <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
+          <button className={`pill-tab ${activeTab === "nutrition" ? "active" : ""}`} data-tab="nutrition" onClick={() => setActiveTab("nutrition")}>Nutrition</button>
           {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching</button>}
         </div>
       )}
@@ -6796,11 +6806,24 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
 
       <div className={activeTab === "bodycomp" ? "" : "tab-hidden"} data-tab-content="bodycomp">
         <div className="no-print" style={{ marginBottom: 10 }}><EmailPackageButton athlete={athlete} /></div>
+        {/* the nutrition goal: choosing one builds the Nutrition tab's plan from this body composition */}
+        {window.NutritionGoalPicker && <div className="panel no-print"><window.NutritionGoalPicker athlete={athlete} onOpen={() => setActiveTab("nutrition")} /></div>}
         {/* one graph of the Evolt scans, the manual sheets, or both together (just drawn together: they stay separate records) */}
         <BodyCompTrends athleteId={athlete.id} />
         <BodyCompPanel athleteId={athlete.id} />
         {/* the manual skinfold and girth sheet, beside the Evolt scans */}
         {window.BodyCompSheet && <window.BodyCompSheet athlete={athlete} />}
+      </div>
+
+      {/* the nutrition plan, from the body composition and the goal (nutrition.js) */}
+      <div className={activeTab === "nutrition" ? "" : "tab-hidden"} data-tab-content="nutrition">
+        <div className="no-print" style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <EmailToAthleteButton athlete={athlete} tab="nutrition" tabLabel="Nutrition Plan" />
+          <EmailPackageButton athlete={athlete} />
+        </div>
+        {window.NutritionTab
+          ? <window.NutritionTab athlete={athlete} />
+          : <div className="panel"><div className="empty-state">The Nutrition tab didn't load. Reload the page.</div></div>}
       </div>
 
       {/* the monthly re-assessment: only built while open, so it reads the latest assessments each time */}
