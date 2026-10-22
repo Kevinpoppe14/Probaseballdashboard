@@ -3759,6 +3759,11 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .nut-top { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 10px; }
 .nut-hint { margin: 6px 0; font-size: 12px; color: var(--text-dim); }
 .nut-basis { margin: 4px 0 10px; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+.nut-manual { margin: 6px 0 12px; }
+.nut-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 16px; margin: 10px 0 12px; }
+.nut-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.nut-field input, .nut-field select { height: 34px; padding: 0 8px; font: inherit; font-size: 14px; font-weight: 400; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; }
+.nut-field em { font-style: normal; font-weight: 400; font-size: 11px; }
 .nut-flag { margin: 8px 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--badge-warn-bg); color: var(--text); border: 1px solid var(--warn); }
 .nut h3 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--dst-red); }
 .nut-table { display: table; width: 100%; overflow: visible; border-collapse: collapse; font-size: 12.5px; }

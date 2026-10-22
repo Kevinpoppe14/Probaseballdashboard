@@ -111,6 +111,13 @@
       const { data, error } = await sb.from("athlete_logs").select("program_id,key,updated_at").eq("athlete_id", String(coachId)).neq("value", "").limit(20000);
       return error ? [] : (data || []).map((r) => ({ programId: r.program_id, key: r.key, at: r.updated_at }));
     },
+    // the nutrition plan's copy for the phone, as athlete_portal_nutrition hands it back
+    async nutrition() {
+      const { data, error } = await sb.from("assessments").select("data").eq("athlete_id", String(coachId)).eq("data->>kind", "nutrition").limit(10);
+      if (error) return null;
+      const plans = (data || []).map((r) => r.data || {}).filter((d) => d.goal && d.snapshot).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+      return plans.length ? plans[0].snapshot : null;
+    },
     // force plate tests, the same figures athlete_portal_cmj hands back
     async cmj() {
       const { data, error } = await sb.from("force_tests").select("data").eq("athlete_id", String(coachId)).limit(5000);
@@ -153,6 +160,11 @@
     async cmj() {
       const res = await sb.rpc("athlete_portal_cmj", { p_token: token });
       return !res.error && Array.isArray(res.data) ? res.data : [];
+    },
+    // the nutrition plan (supabase/migration_022_athlete_portal_nutrition.sql); none until that has been run
+    async nutrition() {
+      const res = await sb.rpc("athlete_portal_nutrition", { p_token: token });
+      return !res.error && res.data && typeof res.data === "object" ? res.data : null;
     },
   };
   // Links for Cubs-only players carry ?team=cubs, which changes the logo and colors, and the name the page gets
@@ -224,6 +236,8 @@
   let cmjTests = []; // their force plate (CMJ) tests, for the Progress tab's jump graphs, loaded the same way
   let logTimes = {}; // "<program id>|<key>" -> when it was entered, for the Plan tab's Training Log calendar
   let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
+  let nutrition = null; // the nutrition plan as the dashboard wrote it out for the phone (nutrition.js), loaded the same way
+  let nutRest = false, nutWeek = null, nutDay = null; // the Nutrition tab: rest-day targets, and the example week and day shown
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -880,9 +894,11 @@
     plan: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
     equipment: '<path d="M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/>',
     coach: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
+    nutrition: '<path d="M12 8c-1.6-1.6-5.2-1.7-6.6 1.2-1.3 2.7-.6 6.9 1.9 9.7 1.3 1.4 2.8 1.6 4.7.8 1.9.8 3.4.6 4.7-.8 2.5-2.8 3.2-7 1.9-9.7C17.2 6.3 13.6 6.4 12 8z"/><path d="M12 8c0-2.2 1-3.8 3-4.6"/>',
   };
+  // Nutrition shows once the athlete has a nutrition plan (and always for a coach, who can see where it will be)
   const menu = () => el("nav", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach"]] : []).map(([id, text]) => {
+    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(nutrition || staff || coachId ? [["nutrition", "Nutrition"]] : [], remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach"]] : []).map(([id, text]) => {
       const icon = el("span", { class: "menu-icon", "aria-hidden": "true" });
       icon.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[id]}</svg>`;
       // the coach button offers Coach Mode or the dashboard, each its own page with a way back here
@@ -1431,6 +1447,91 @@
       el("button", { class: "sum-more", onclick: goToProgress }, "See my progress ›"));
   }
 
+  // ---- Nutrition: the plan the coach built on the dashboard (nutrition.js), as it wrote it out for the phone ------
+  // The day's targets (training or rest day), each meal's targets, the example meals for a day of the two-week
+  // rotation (this week's half of it and today, to start with), then the lists for building their own meals, the
+  // breakfast, snack and shake options, the grocery list and the hydration and supplement notes, each folded away.
+  function nutritionView() {
+    const main = el("main");
+    const n = nutrition;
+    if (!n) {
+      main.append(el("div", { class: "card" },
+        el("div", { class: "card-title" }, "No nutrition plan yet"),
+        el("div", { class: "card-sub" }, staff || coachId
+          ? "An athlete’s nutrition plan shows here once a goal is set on their Nutrition tab on the dashboard (under Assessments)."
+          : "Your coach hasn’t set up your nutrition plan yet. It shows here as soon as they do.")));
+      return main;
+    }
+    const redraw = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    const chip = (text, on, onclick) => el("button", { class: `chip${on ? " on" : ""}`, onclick }, text);
+    const macros = (t) => `P ${t.p} · C ${t.c} · F ${t.f}`;
+    const day = nutRest ? n.rest : n.train;
+    main.append(el("div", { class: "card nut-head" },
+      el("div", { class: "card-title" }, n.goal),
+      el("div", { class: "chips nut-chips" }, chip("Training day", !nutRest, () => { nutRest = false; redraw(); }), chip("Rest day", nutRest, () => { nutRest = true; redraw(); })),
+      el("div", { class: "sum-stats" },
+        el("div", null, el("b", null, day.kcal.toLocaleString()), el("span", null, "calories")),
+        el("div", null, el("b", null, `${day.p}g`), el("span", null, "protein")),
+        el("div", null, el("b", null, `${day.c}g`), el("span", null, "carbs")),
+        el("div", null, el("b", null, `${day.f}g`), el("span", null, "fat"))),
+      nutRest ? el("div", { class: "card-sub" }, "Rest day: the same protein and fat with less carbohydrate, and no post-workout shake.") : null));
+
+    main.append(el("h2", { class: "section" }, "Your meals", el("small", null, nutRest ? "rest day" : "training day")));
+    main.append(el("div", { class: "card nut-meals" }, n.meals.filter((m) => !nutRest || m.rest).map((m) => {
+      const t = nutRest ? m.rest : m.train;
+      return el("div", { class: "nut-meal-row" },
+        el("div", null, el("b", null, m.name), el("small", null, m.time)),
+        el("div", { class: "nut-meal-fig" }, el("b", null, `${t.kcal} cal`), el("small", null, macros(t))));
+    })));
+
+    // the example meals: one day of the two-week rotation, starting on today in this week's half of it
+    const weeks = n.weeks || [];
+    if (weeks.length) {
+      if (nutWeek == null) nutWeek = Math.floor(Date.now() / (7 * 86400000)) % weeks.length;
+      if (nutDay == null) nutDay = (new Date().getDay() + 6) % 7;
+      const shown = (weeks[nutWeek] || weeks[0])[nutDay];
+      main.append(el("h2", { class: "section" }, "Example meals", el("small", null, "or build your own below")));
+      main.append(el("div", { class: "chips nut-chips" }, weeks.map((w, i) => chip(`Week ${i + 1}`, i === nutWeek, () => { nutWeek = i; redraw(); }))));
+      main.append(el("div", { class: "chips days nut-chips" }, (weeks[0] || []).map((d, i) => chip(d.day.slice(0, 3), i === nutDay, () => { nutDay = i; redraw(); }))));
+      if (nutRest) main.append(el("div", { class: "card-sub nut-note" }, "These are training-day amounts. On a rest day, skip the post-workout shake and use the rest-day amounts in the lists below."));
+      shown.meals.forEach((m) => main.append(el("div", { class: `card nut-meal${m.cheat ? " cheat" : ""}` },
+        el("div", { class: "nut-meal-top" }, el("b", null, m.slot), el("small", null, m.cheat ? "your pick" : `${m.tot.kcal} cal`)),
+        m.cheat ? el("div", { class: "card-sub" }, "Cheat meal: enjoy it, then back on plan.") : el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
+        m.note ? el("div", { class: "card-sub" }, m.note) : null)));
+      main.append(el("div", { class: "card-sub nut-note" }, `Day total: ${shown.tot.kcal.toLocaleString()} cal · ${macros(shown.tot)}`));
+    }
+
+    // folded sections
+    const fold = (title, ...body) => el("details", { class: "card nut-fold" }, el("summary", null, title), ...body);
+    const table = (rows, heads) => el("table", { class: "nut-table" },
+      el("thead", null, el("tr", null, heads.map((h) => el("th", null, h)))),
+      el("tbody", null, rows.map((r) => el("tr", null, r.map((c) => el("td", null, c))))));
+    main.append(el("h2", { class: "section" }, "Build your own"));
+    main.append(el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."));
+    (n.lists || []).forEach((l) => main.append(fold(l.title,
+      l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"]))));
+    (n.options || []).forEach((o) => main.append(fold(`${o.group} options`, o.meals.map((m) => el("div", { class: "nut-option" },
+      el("div", { class: "nut-meal-top" }, el("b", null, m.name), el("small", null, `${m.tot.kcal} cal`)),
+      el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
+      m.note ? el("div", { class: "card-sub" }, m.note) : null,
+      el("div", { class: "card-sub" }, macros(m.tot)))))));
+    main.append(el("h2", { class: "section" }, "Shopping & habits"));
+    (n.grocery || []).forEach((wk, i) => main.append(fold(`Grocery list · week ${i + 1}`, wk.map((g) => [
+      el("div", { class: "nut-group" }, g.group),
+      table(g.rows, ["Food", "Serving", "Week"]),
+    ]))));
+    main.append(fold("Hydration",
+      el("ul", { class: "nut-items" },
+        el("li", null, "Weigh before and after practice"),
+        el("li", null, "Drink 16 oz of water for every pound lost"),
+        el("li", null, "About 128 oz (1 gallon) through the day: two 32 oz bottles in the morning, two in the afternoon")),
+      el("div", { class: "card-sub" }, "Losing 2–3% of your body weight in water can cost 15–20% of your performance.")));
+    main.append(fold("Supplements",
+      el("ul", { class: "nut-items" }, ["Fish oil", "Multi-vitamin", "Electrolytes", "Whey protein", "Creatine, beta-alanine, leucine"].map((s) => el("li", null, s))),
+      el("div", { class: "card-sub" }, "NSF Certified for Sport products only (nsfsport.com).")));
+    return main;
+  }
+
   // ---- My Progress: sessions week by week, estimated maxes, top weights and Group Testing results ----------
   function progressView() {
     const main = el("main");
@@ -1537,7 +1638,7 @@
     { sel: "main .swap", optional: true, title: "Change an exercise", text: "Tap ⇄ to swap an exercise for another or change its sets and reps (no equipment for it, say). Your coach sees what you changed." },
     { sel: "main .film.check", optional: true, title: "Send your coach a clip", text: "Film a set and send it to your coach for a form check. Their reply shows under the exercise." },
     { sel: "main .session-end", optional: true, title: "Log the session", text: "When you finish, tap Log session. The day gets its ✓ and you’ll see a summary of what you did." },
-    { sel: ".menu", title: "Everything else", text: "Program is this page. Progress shows your numbers and testing over time, and Plan shows where you are in your plan and your goals." },
+    { sel: ".menu", title: "Everything else", text: "Program is this page. Progress shows your numbers and testing over time, Plan shows where you are in your plan and your goals, and Nutrition (once your coach sets it up) has your meal plan." },
     { sel: ".tour-help", title: "That’s it", text: "Tap ? any time to see this again. The sun and moon on the right switch between light and dark." },
   ];
   let tourTried = false;
@@ -1555,6 +1656,10 @@
     }
     if (view === "progress") {
       app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Progress"))), progressView(), menu());
+      return;
+    }
+    if (view === "nutrition") {
+      app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Nutrition"))), nutritionView(), menu());
       return;
     }
     // nothing on the plan yet: the program page says so, and a coach gets their tools right there to put
@@ -1783,6 +1888,12 @@
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
     api.bodyComp().catch(() => null).then((b) => { bodyComp = b; if (view === "progress" && b) render(); });
     api.cmj().catch(() => []).then((c) => { cmjTests = Array.isArray(c) ? c : []; if (view === "progress" && cmjTests.length) render(); });
+    // the nutrition plan: once it's in, the menu gets its Nutrition button (not redrawn mid-entry or with a sheet open)
+    api.nutrition().catch(() => null).then((nu) => {
+      nutrition = nu || null;
+      const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+      if ((nutrition || view === "nutrition") && !typing && !overlay.className.includes("show")) { const y = window.scrollY; render(); window.scrollTo(0, y); }
+    });
     api.logTimes().catch(() => []).then((t) => {
       logTimes = {};
       (Array.isArray(t) ? t : []).forEach((r) => { logTimes[`${r.programId}|${r.key}`] = r.at; });

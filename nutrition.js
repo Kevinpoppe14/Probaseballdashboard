@@ -241,8 +241,9 @@
     : (age < 18 ? 12.2 * kg + 746 : age < 30 ? 14.7 * kg + 496 : age < 60 ? 8.7 * kg + 829 : 10.5 * kg + 596));
   const ageOf = (athlete) => (typeof computeAge === "function" ? computeAge(athlete.dob) : null);
 
-  // the body composition the plan is worked from: the latest complete manual sheet or Evolt scan, whichever is newer
-  function basisFor(athlete) {
+  // the body composition the plan is worked from: the latest complete manual sheet or Evolt scan, whichever is newer,
+  // or without either, the details entered with the plan
+  function basisFor(athlete, rec) {
     const store = window.AthleteStore;
     const sheets = (store.getBodyCompSheets(athlete.id) || []).filter((s) => s.inputs && s.summary && !s.summary.incomplete);
     const sheet = sheets[sheets.length - 1];
@@ -262,13 +263,68 @@
     if (scan) {
       const lb = scan.weightLb != null ? scan.weightLb : scan.weightKg * 2.20462;
       const kg = lb / 2.2, age = num(scan.age) || ageOf(athlete) || 25;
-      const male = !/^f/i.test(String(scan.gender || athlete.sex || "M"));
+      const male = !/^f/i.test(String(scan.gender || athlete.gender || "M"));
       return {
         source: "evolt", date: scan.date, weightLb: lb, kg, pctFat: num(scan.bodyFatPct), age, male,
         rmr: rmrOf(kg, age, male), activity: (120 + 30) * kg * 0.075, trainMin: 120, sportMin: 30, typedCal: null, goalKg: null,
       };
     }
+    // no body composition on file: the details the coach entered on the Nutrition tab (weight, age, sex, training),
+    // worked out the same way as an Evolt scan. A scan or sheet added later takes over.
+    const m = rec && rec.manual;
+    if (m && num(m.weightLb)) {
+      const lb = num(m.weightLb), kg = lb / 2.2, age = num(m.age) || ageOf(athlete) || 25;
+      const male = !/^f/i.test(String(m.sex || athlete.gender || "M"));
+      const trainMin = num(m.trainMin) != null ? num(m.trainMin) : 120, sportMin = num(m.sportMin) != null ? num(m.sportMin) : 30;
+      return {
+        source: "manual", date: m.date, weightLb: lb, kg, pctFat: num(m.bodyFatPct), age, male,
+        rmr: rmrOf(kg, age, male), activity: (trainMin + sportMin) * kg * 0.075, trainMin, sportMin, typedCal: null, goalKg: null,
+      };
+    }
     return null;
+  }
+  const SOURCE_TEXT = { sheet: "body comp sheet", evolt: "Evolt scan" };
+
+  // Without a body composition, the coach enters the basics here and the plan is built from them (saved with the plan)
+  function ManualBasisForm({ athlete, rec, onDone }) {
+    const m = (rec && rec.manual) || {};
+    const [f, setF] = useState(() => ({
+      weightLb: m.weightLb || "", age: m.age || String(ageOf(athlete) || ""), sex: m.sex || (/^f/i.test(athlete.gender || "") ? "F" : "M"),
+      bodyFatPct: m.bodyFatPct || "", trainMin: m.trainMin != null ? m.trainMin : "120", sportMin: m.sportMin != null ? m.sportMin : "30",
+      goal: (rec && rec.goal) || "",
+    }));
+    const set = (k) => (e) => { const v = e.target.value; setF((p) => Object.assign({}, p, { [k]: v })); };
+    const box = (label, k, unit, extra) => (
+      <label className="nut-field"><span>{label}</span><input type="number" step="any" inputMode="decimal" value={f[k]} onChange={set(k)} {...(extra || {})} />{unit ? <em>{unit}</em> : null}</label>
+    );
+    const ok = num(f.weightLb) > 0 && f.goal;
+    const save = () => {
+      savePlan(athlete, { goal: f.goal, manual: { weightLb: f.weightLb, age: f.age, sex: f.sex, bodyFatPct: f.bodyFatPct, trainMin: f.trainMin, sportMin: f.sportMin, date: new Date().toISOString().slice(0, 10) } });
+      if (onDone) onDone();
+    };
+    return (
+      <div className="nut-manual no-print">
+        <p className="nut-hint">No body composition on file? Enter the basics and the plan is built from them, the same way as from an Evolt scan. Once a scan or body comp sheet is on file, the plan uses that instead.</p>
+        <div className="nut-fields">
+          {box("Body weight", "weightLb", "lb", { autoFocus: !m.weightLb })}
+          {box("Age", "age", "yrs")}
+          <label className="nut-field"><span>Sex</span><select value={f.sex} onChange={set("sex")}><option value="M">Male</option><option value="F">Female</option></select></label>
+          {box("Body fat (optional)", "bodyFatPct", "%")}
+          {box("Training", "trainMin", "min/day")}
+          {box("Sport", "sportMin", "min/day")}
+          <label className="nut-field"><span>Goal</span>
+            <select value={f.goal} onChange={set("goal")}>
+              <option value="">Choose a goal…</option>
+              {GOAL_KEYS.map((k) => <option key={k} value={k}>{GOALS[k].label}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="nut-top">
+          <button type="button" className="btn btn-assign" disabled={!ok} onClick={save}>{rec && rec.manual ? "Save details" : "Build nutrition plan"}</button>
+          {onDone && <button type="button" className="btn btn-secondary" onClick={onDone}>Cancel</button>}
+        </div>
+      </div>
+    );
   }
 
   function targetsFor(basis, goalKey) {
@@ -455,34 +511,69 @@
     );
   }
 
+  // The plan as the athlete's phone shows it (athlete.js, Nutrition): every figure worked out and every food written
+  // out, so the app needs none of the sums or food lists. It is kept with the saved plan and handed to the athlete's
+  // link by athlete_portal_nutrition (supabase/migration_022_athlete_portal_nutrition.sql).
+  const sortedJson = (v) => (Array.isArray(v) ? `[${v.map(sortedJson).join(",")}]`
+    : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${sortedJson(v[k])}`).join(",")}}` : JSON.stringify(v));
+  const r0 = (t) => ({ kcal: round(t.kcal != null ? t.kcal : kcalOf(t)), c: round(t.c), p: round(t.p), f: round(t.f) });
+  function snapshotOf(basis, T, plan, lists, times) {
+    const mealOut = (m) => (m.cheat ? { title: "Cheat Meal", cheat: true, items: [], tot: r0(m.tot) } : { title: m.name, items: m.items.map(itemText), note: m.note || "", tot: r0(m.tot) });
+    return {
+      v: 1, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
+      train: r0(T.train), rest: r0(T.rest),
+      meals: SLOTS.map((s, i) => {
+        const t = T.trainMeals.find((m) => m.key === s.key), r = T.restMeals.find((m) => m.key === s.key);
+        return { name: s.name, time: times[i], train: r0(t.target), rest: r ? r0(r.target) : null };
+      }),
+      weeks: plan.weeks.map((week) => week.map((day, d) => ({ day: DAYS[d], meals: SLOTS.map((s) => Object.assign({ slot: s.name }, mealOut(day[s.key]))), tot: r0(day.tot) }))),
+      lists: [["Protein", lists.protein], ["Carbohydrate", lists.starch], ["Fruit", lists.fruit], ["Vegetables", lists.veg], ["Add a fat (when a meal is low)", lists.fat]].map(([title, rows]) => ({
+        title, same: rows.every((r) => r.train === r.rest), rows: rows.map((r) => [r.food.name, amountText(r.food, r.train), amountText(r.food, r.rest)]),
+      })),
+      options: [["Breakfast", plan.options.breakfast], ["Snacks", plan.options.snack], ["Post-workout", [plan.options.post]]].map(([group, meals]) => ({
+        group, meals: meals.map((m) => ({ name: m.name, items: m.items.map(itemText), note: m.note || "", tot: r0(m.tot) })),
+      })),
+      grocery: plan.weeks.map((week) => groceryList(week).map((grp) => ({ group: grp.name, rows: grp.items.map((it) => [it.food.name, amountText(it.food, it.serving), amountText(it.food, it.total)]) }))),
+    };
+  }
+
   function NutritionTab({ athlete }) {
     useRefresh();
     const rec = planOf(athlete.id);
     const goalKey = rec && GOALS[rec.goal] ? rec.goal : "";
-    const basis = basisFor(athlete);
+    const basis = basisFor(athlete, rec);
+    const [editing, setEditing] = useState(false); // the entered details open for changing (a plan built without a body composition)
     const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
+    const ready = !!(basis && goalKey);
+    const T = ready ? targetsFor(basis, goalKey) : null;
+    const plan = ready ? buildPlan(T, rec.seed || 1) : null;
+    const lists = ready ? macroLists(T) : null;
+    const times = SLOTS.map((s) => (basis && s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : basis && s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
+    // the athlete's copy is saved again whenever the plan comes out differently (a new scan, a new goal, a shuffle);
+    // this tab is drawn whenever a profile is open, so opening one keeps that athlete's phone up to date
+    const snapJson = ready ? JSON.stringify(snapshotOf(basis, T, plan, lists, times)) : "";
+    useEffect(() => {
+      if (!snapJson || !rec) return;
+      // compared with the keys in order, since the database hands a saved object back with its keys reordered
+      if (sortedJson(rec.snapshot || null) !== sortedJson(JSON.parse(snapJson))) savePlan(athlete, { snapshot: JSON.parse(snapJson) });
+    }, [snapJson]);
 
-    if (!basis || !goalKey) {
+    if (!ready) {
       return (
         <div className="panel nut">
           <h2>Nutrition Plan</h2>
-          <NutritionGoalPicker athlete={athlete} />
-          <div className="empty-state">
-            {!basis
-              ? "There’s no body composition on file for this athlete yet. Import an Evolt scan or fill in a body comp sheet on the Body Composition tab, then choose a goal."
-              : "Choose a goal above to build this athlete’s nutrition plan from their latest body composition."}
-          </div>
+          {basis ? (
+            <React.Fragment>
+              <NutritionGoalPicker athlete={athlete} />
+              <div className="empty-state">Choose a goal above to build this athlete’s nutrition plan from their latest body composition.</div>
+            </React.Fragment>
+          ) : <ManualBasisForm athlete={athlete} rec={rec} />}
         </div>
       );
     }
 
-    const T = targetsFor(basis, goalKey);
-    const seed = rec.seed || 1;
-    const plan = buildPlan(T, seed);
-    const lists = macroLists(T);
     const g = T.goal;
     const perKg = (v) => (v / T.kg).toFixed(1);
-    const times = SLOTS.map((s) => (s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
     const slotsPerDay = SLOTS.length;
     const weekly = slotsPerDay * 7;
 
@@ -490,12 +581,14 @@
       <div className="nut">
         <div className="panel">
           <h2>
-            Nutrition Plan <small>{first} · {g.label} · from the {basis.source === "sheet" ? "body comp sheet" : "Evolt scan"} of {shortDate(basis.date)}</small>
+            Nutrition Plan <small>{first} · {g.label} · {basis.source === "manual" ? `from details entered ${shortDate(basis.date)}` : `from the ${SOURCE_TEXT[basis.source]} of ${shortDate(basis.date)}`}</small>
           </h2>
           <div className="nut-top no-print">
             <NutritionGoalPicker athlete={athlete} />
             <button type="button" className="btn btn-secondary" title="Pick new example meals" onClick={() => savePlan(athlete, { seed: Math.floor(Math.random() * 1e9) })}>Shuffle examples</button>
+            {basis.source === "manual" && !editing && <button type="button" className="btn btn-secondary" onClick={() => setEditing(true)}>Edit details</button>}
           </div>
+          {basis.source === "manual" && editing && <ManualBasisForm athlete={athlete} rec={rec} onDone={() => setEditing(false)} />}
           <div className="nut-basis">
             {round(basis.weightLb)} lb ({basis.kg.toFixed(1)} kg){basis.pctFat != null ? ` · ${basis.pctFat.toFixed(1)}% body fat` : ""} ·
             resting {round(basis.rmr)} kcal · training {basis.trainMin} min + sport {basis.sportMin} min ≈ {round(basis.activity)} kcal ·
@@ -677,5 +770,5 @@
 
   window.NutritionTab = NutritionTab;
   window.NutritionGoalPicker = NutritionGoalPicker;
-  window.NutritionPlan = { FOODS, GOALS, basisFor, targetsFor, buildPlan, macroLists, solve }; // for checking the sums
+  window.NutritionPlan = { FOODS, GOALS, basisFor, targetsFor, buildPlan, macroLists, solve, snapshotOf, SLOTS }; // for checking the sums
 })();

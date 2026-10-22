@@ -277,6 +277,33 @@
   /* Progress: the body composition graph and its pickers */
   .bc-chips { padding: 0 0 8px; gap: 6px; flex-wrap: wrap; overflow: visible; }
   .bc-chips .chip { min-height: 34px; padding: 6px 12px; font-size: 13px; }
+  /* Nutrition tab: the plan built on the dashboard */
+  .nut-chips { padding: 0; margin: 10px 0 0; }
+  .nut-head .sum-stats { gap: 6px; }
+  .nut-head .sum-stats > div { flex: 1 1 0; min-width: 0; padding: 8px 2px; text-align: center; }
+  .nut-head .sum-stats b { font-size: 16px; white-space: nowrap; }
+  .nut-head .sum-stats span { font-size: 11px; }
+  .nut-meal-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .nut-meal-row:last-child { border-bottom: none; }
+  .nut-meal-row small { display: block; font-size: 12px; color: var(--dim); }
+  .nut-meal-fig { text-align: right; white-space: nowrap; }
+  .nut-meal-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .nut-meal-top small { color: var(--dim); font-size: 12px; }
+  .nut-meal.cheat { border-style: dashed; }
+  .nut-items { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.55; }
+  .nut-note { margin: 8px 2px 12px; }
+  .nut-fold summary { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 15px; cursor: pointer; list-style: none; }
+  .nut-fold summary::-webkit-details-marker { display: none; }
+  .nut-fold summary::after { content: "+"; font-size: 18px; color: var(--dim); }
+  .nut-fold[open] summary { margin-bottom: 8px; }
+  .nut-fold[open] summary::after { content: "–"; }
+  .nut-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .nut-table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .nut-table td { padding: 6px; border-bottom: 1px solid var(--border); }
+  .nut-table td + td { white-space: nowrap; }
+  .nut-group { margin: 10px 0 4px; font-size: 12px; font-weight: 800; text-transform: uppercase; color: var(--label, var(--accent)); }
+  .nut-option { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .nut-option:last-child { border-bottom: none; }
   .bc-graph svg { display: block; width: 100%; height: auto; margin: 4px 0 6px; }
   .bc-grid { stroke: var(--border); stroke-width: 1; }
   .bc-axis { fill: var(--dim); font-size: 10px; }
