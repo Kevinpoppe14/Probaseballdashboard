@@ -516,11 +516,15 @@
   // link by athlete_portal_nutrition (supabase/migration_022_athlete_portal_nutrition.sql).
   const sortedJson = (v) => (Array.isArray(v) ? `[${v.map(sortedJson).join(",")}]`
     : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${sortedJson(v[k])}`).join(",")}}` : JSON.stringify(v));
+  // for the phone's food log: the food lists ([name, unit, step, kcal, carbohydrate, protein, fat, plural] by key),
+  // and each meal's foods as [key, amount], so "Log this meal" can add them one by one
+  const FOOD_TABLE = Object.fromEntries(Object.values(FOODS).map((f) => [f.key, [f.name, f.unit, f.step, f.kcal, f.c, f.p, f.f, f.pl || ""]]));
+  const partsOf = (m) => m.items.map((it) => [it.food.key, it.amt]);
   const r0 = (t) => ({ kcal: round(t.kcal != null ? t.kcal : kcalOf(t)), c: round(t.c), p: round(t.p), f: round(t.f) });
   function snapshotOf(basis, T, plan, lists, times) {
-    const mealOut = (m) => (m.cheat ? { title: "Cheat Meal", cheat: true, items: [], tot: r0(m.tot) } : { title: m.name, items: m.items.map(itemText), note: m.note || "", tot: r0(m.tot) });
+    const mealOut = (m) => (m.cheat ? { title: "Cheat Meal", cheat: true, items: [], tot: r0(m.tot) } : { title: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) });
     return {
-      v: 1, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
+      v: 2, foods: FOOD_TABLE, goal: T.goal.label, source: basis.source, date: basis.date, kg: Math.round(T.kg * 10) / 10,
       train: r0(T.train), rest: r0(T.rest),
       meals: SLOTS.map((s, i) => {
         const t = T.trainMeals.find((m) => m.key === s.key), r = T.restMeals.find((m) => m.key === s.key);
@@ -531,7 +535,7 @@
         title, same: rows.every((r) => r.train === r.rest), rows: rows.map((r) => [r.food.name, amountText(r.food, r.train), amountText(r.food, r.rest)]),
       })),
       options: [["Breakfast", plan.options.breakfast], ["Snacks", plan.options.snack], ["Post-workout", [plan.options.post]]].map(([group, meals]) => ({
-        group, meals: meals.map((m) => ({ name: m.name, items: m.items.map(itemText), note: m.note || "", tot: r0(m.tot) })),
+        group, meals: meals.map((m) => ({ name: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) })),
       })),
       grocery: plan.weeks.map((week) => groceryList(week).map((grp) => ({ group: grp.name, rows: grp.items.map((it) => [it.food.name, amountText(it.food, it.serving), amountText(it.food, it.total)]) }))),
     };

@@ -111,6 +111,15 @@
       const { data, error } = await sb.from("athlete_logs").select("program_id,key,updated_at").eq("athlete_id", String(coachId)).neq("value", "").limit(20000);
       return error ? [] : (data || []).map((r) => ({ programId: r.program_id, key: r.key, at: r.updated_at }));
     },
+    // the food log, as athlete_portal_food_get / _save read and write it
+    async foodLog(from) {
+      const { data, error } = await sb.from("food_logs").select("day,entries").eq("athlete_id", String(coachId)).gte("day", from).limit(100);
+      return error ? null : (data || []).map((r) => ({ day: r.day, entries: r.entries || [] }));
+    },
+    async foodSave(day, entries) {
+      const { error } = await sb.from("food_logs").upsert({ athlete_id: String(coachId), day, entries, source: "coach", updated_at: new Date().toISOString() });
+      return !error;
+    },
     // the nutrition plan's copy for the phone, as athlete_portal_nutrition hands it back
     async nutrition() {
       const { data, error } = await sb.from("assessments").select("data").eq("athlete_id", String(coachId)).eq("data->>kind", "nutrition").limit(10);
@@ -160,6 +169,15 @@
     async cmj() {
       const res = await sb.rpc("athlete_portal_cmj", { p_token: token });
       return !res.error && Array.isArray(res.data) ? res.data : [];
+    },
+    // the food log (supabase/migration_023_food_log.sql); null (no log) until that has been run
+    async foodLog(from) {
+      const res = await sb.rpc("athlete_portal_food_get", { p_token: token, p_from: from });
+      return !res.error && Array.isArray(res.data) ? res.data : null;
+    },
+    async foodSave(day, entries) {
+      const res = await sb.rpc("athlete_portal_food_save", { p_token: token, p_day: day, p_entries: entries });
+      return !res.error && res.data === true;
     },
     // the nutrition plan (supabase/migration_022_athlete_portal_nutrition.sql); none until that has been run
     async nutrition() {
@@ -238,6 +256,8 @@
   let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
   let nutrition = null; // the nutrition plan as the dashboard wrote it out for the phone (nutrition.js), loaded the same way
   let nutRest = false, nutWeek = null, nutDay = null; // the Nutrition tab: rest-day targets, and the example week and day shown
+  let foodDays = null; // the food log: "YYYY-MM-DD" -> that day's entries (null until loaded, or with no food log in the database)
+  let foodDay = null; // the day the food log is showing ("YYYY-MM-DD"), today to start with
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -1447,6 +1467,153 @@
       el("button", { class: "sum-more", onclick: goToProgress }, "See my progress ›"));
   }
 
+  // ---- food log: what was eaten, counted down against the day's targets ------------------------------------------
+  // Each entry keeps its own calories and macros (worked out when it was added), so a later change to the food lists
+  // doesn't change what was logged. A day is saved whole each time it changes (athlete_portal_food_save).
+  const redrawKeep = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+  const dayKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayKey = () => dayKeyOf(new Date());
+  const shiftDay = (key, by) => { const [y, m, d] = key.split("-").map(Number); return dayKeyOf(new Date(y, m - 1, d + by)); };
+  const FRAC = { 0: "", 0.25: "¼", 0.5: "½", 0.75: "¾" };
+  const qtyText = (a) => { const w = Math.floor(a + 1e-9), r = Math.round((a - w) * 4) / 4; return ((w ? String(w) : "") + (FRAC[r] || "")) || "0"; };
+  // a food from the plan's food lists: [name, unit, step, kcal, carbohydrate, protein, fat, plural] by key
+  const foodOf = (key) => { const x = nutrition && nutrition.foods && nutrition.foods[key]; return x ? { key, name: x[0], unit: x[1], step: x[2], kcal: x[3], c: x[4], p: x[5], f: x[6], pl: x[7] } : null; };
+  const amountLabel = (f, a) => {
+    const q = qtyText(a);
+    if (f.unit === "oz") return `${q} oz`;
+    if (f.unit === "cup") return `${q} C.`;
+    if (f.unit === "tsp" && a >= 3 && a % 3 === 0) return `${qtyText(a / 3)} tbsp`;
+    if (f.unit === "tbsp" || f.unit === "tsp") return `${q} ${f.unit}`;
+    if (f.unit === "scoop") return `${q} ${a > 1 ? "scoops" : "scoop"}`;
+    if (f.unit === "slice") return `${q} ${a > 1 ? "slices" : "slice"}`;
+    return q;
+  };
+  const defaultAmount = (f) => (f.unit === "oz" ? (f.step < 1 ? 4 : 2) : 1); // a first guess at a serving, changed with − and +
+  const newEntryId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const entryOf = (f, a, meal) => ({ id: newEntryId(), meal, name: f.name, amount: amountLabel(f, a), kcal: Math.round(f.kcal * a), c: r1(f.c * a), p: r1(f.p * a), f: r1(f.f * a) });
+  const sumOf = (entries) => entries.reduce((t, e) => ({ kcal: t.kcal + (+e.kcal || 0), c: t.c + (+e.c || 0), p: t.p + (+e.p || 0), f: t.f + (+e.f || 0) }), { kcal: 0, c: 0, p: 0, f: 0 });
+  const mealNames = () => ((nutrition && nutrition.meals) || []).map((m) => m.name).concat(["Other"]);
+  const mealNow = () => { const d = new Date(), h = d.getHours() + d.getMinutes() / 60; return h < 9.5 ? "Breakfast" : h < 11.5 ? "Mid-Morning Snack" : h < 14 ? "Lunch" : h < 16.5 ? "Mid-Afternoon Snack" : "Dinner"; };
+  let foodSaving = Promise.resolve(); // saves go one after another, each sending the day as it is by then
+  function setFoodDay(key, entries) {
+    foodDays[key] = entries;
+    foodSaving = foodSaving.then(async () => {
+      let ok = false;
+      try { ok = await api.foodSave(key, foodDays[key] || []); } catch (e) { ok = false; }
+      showStatus(ok ? "Saved" : "Not saved. Check your connection and try again.", !ok);
+    });
+  }
+  const addFood = (entries) => { if (!foodDay) foodDay = todayKey(); setFoodDay(foodDay, (foodDays[foodDay] || []).concat(entries)); redrawKeep(); };
+  // foods logged in the last two weeks, newest first, one of each, for adding again in a tap
+  const recentFoods = () => {
+    const seen = new Set(), out = [];
+    Object.keys(foodDays || {}).sort().reverse().forEach((k) => (foodDays[k] || []).slice().reverse().forEach((e) => {
+      const id = `${e.name}|${e.amount}`;
+      if (!seen.has(id)) { seen.add(id); out.push(e); }
+    }));
+    return out;
+  };
+
+  function foodLogCard(target) {
+    if (!foodDay) foodDay = todayKey();
+    const today = todayKey();
+    const entries = foodDays[foodDay] || [];
+    const eaten = sumOf(entries);
+    const label = foodDay === today ? "Today" : foodDay === shiftDay(today, -1) ? "Yesterday" : new Date(`${foodDay}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const go = (by) => { const k = shiftDay(foodDay, by); if (k > today || k < shiftDay(today, -7)) return; foodDay = k; redrawKeep(); };
+    const kLeft = Math.round(target.kcal - eaten.kcal);
+    const bar = (name, ate, goal) => {
+      const over = ate > goal + 0.5;
+      return el("div", { class: "food-bar" },
+        el("div", { class: "food-bar-top" }, el("b", null, name), el("small", null, over ? `${Math.round(ate - goal)}g over` : `${Math.round(goal - ate)}g left`)),
+        el("div", { class: `food-track${over ? " over" : ""}` }, el("span", { style: `width:${goal ? Math.min(100, (ate / goal) * 100) : 0}%` })),
+        el("small", { class: "food-bar-sub" }, `${Math.round(ate)} of ${goal}g`));
+    };
+    // entries by meal, in the plan's meal order
+    const order = mealNames();
+    const byMeal = order.map((m) => ({ m, list: entries.filter((e) => (order.includes(e.meal) ? e.meal : "Other") === m) })).filter((x) => x.list.length);
+    const remove = (id) => { setFoodDay(foodDay, entries.filter((e) => e.id !== id)); redrawKeep(); };
+    return el("div", { class: "card food-log" },
+      el("div", { class: "food-day" },
+        el("button", { class: "nav", "aria-label": "Previous day", disabled: foodDay <= shiftDay(today, -7), onclick: () => go(-1) }, "‹"),
+        el("b", null, label),
+        el("button", { class: "nav", "aria-label": "Next day", disabled: foodDay >= today, onclick: () => go(1) }, "›")),
+      el("div", { class: `food-left${kLeft < 0 ? " over" : ""}` },
+        el("b", null, Math.abs(kLeft).toLocaleString()),
+        el("span", null, kLeft < 0 ? "calories over" : "calories left"),
+        el("small", null, `${target.kcal.toLocaleString()} goal − ${Math.round(eaten.kcal).toLocaleString()} eaten`)),
+      bar("Protein", eaten.p, target.p), bar("Carbs", eaten.c, target.c), bar("Fat", eaten.f, target.f),
+      el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: () => openFoodPicker() }, "+ Log food")),
+      byMeal.map(({ m, list }) => el("div", { class: "food-meal" },
+        el("div", { class: "food-meal-top" }, el("b", null, m), el("small", null, `${Math.round(sumOf(list).kcal)} cal`)),
+        list.map((e) => el("div", { class: "food-entry" },
+          el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null),
+          el("small", null, `${e.kcal} cal`),
+          el("button", { class: "food-x", "aria-label": `Remove ${e.name}`, onclick: () => remove(e.id) }, "×"))))));
+  }
+
+  // the Log food sheet: search the food lists (or a recent food) and set the amount, or enter a food of their own
+  function openFoodPicker(meal) {
+    let q = "", chosen = null, amt = 1, mealSel = meal || mealNow(), custom = false;
+    const cf = { name: "", kcal: "", p: "", c: "", f: "" };
+    const sheet = el("div", { class: "sheet food-sheet" });
+    const close = () => el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×");
+    const mealPick = () => el("label", { class: "food-label" }, "Meal",
+      el("select", { class: "food-select", onchange: (e) => { mealSel = e.target.value; } }, mealNames().map((m) => { const o = el("option", { value: m }, m); if (m === mealSel) o.selected = true; return o; })));
+    const draw = () => {
+      if (chosen) {
+        const f = chosen, t = { kcal: Math.round(f.kcal * amt), p: r1(f.p * amt), c: r1(f.c * amt), f: r1(f.f * amt) };
+        const step = (by) => () => { amt = Math.max(f.step, Math.round((amt + by * f.step) * 100) / 100); draw(); };
+        sheet.replaceChildren(close(), el("h2", null, f.name),
+          el("div", { class: "food-amt" }, el("button", { class: "food-step", "aria-label": "Less", onclick: step(-1) }, "−"), el("b", null, amountLabel(f, amt)), el("button", { class: "food-step", "aria-label": "More", onclick: step(1) }, "+")),
+          el("div", { class: "food-amt-tot" }, `${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`),
+          mealPick(),
+          el("div", { class: "swap-actions" }, el("button", { onclick: () => { chosen = null; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => { closeVideo(); addFood([entryOf(f, amt, mealSel)]); } }, "Add")));
+        return;
+      }
+      if (custom) {
+        const box = (k, label, mode) => el("label", { class: "food-label" }, label, el("input", { class: "food-input", value: cf[k], inputmode: mode || "decimal", type: mode === "text" ? "text" : "number", step: "any", oninput: (e) => { cf[k] = e.target.value; } }));
+        sheet.replaceChildren(close(), el("h2", null, "Custom food"),
+          box("name", "Food", "text"), box("kcal", "Calories"), box("p", "Protein (g)"), box("c", "Carbs (g)"), box("f", "Fat (g)"), mealPick(),
+          el("div", { class: "swap-actions" }, el("button", { onclick: () => { custom = false; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => {
+            const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) && x >= 0 ? x : 0; };
+            if (!cf.name.trim()) { showStatus("Give the food a name.", true); return; }
+            const kcal = num(cf.kcal) || Math.round(num(cf.p) * 4 + num(cf.c) * 4 + num(cf.f) * 9); // calories from the macros when left blank
+            closeVideo();
+            addFood([{ id: newEntryId(), meal: mealSel, name: cf.name.trim().slice(0, 60), amount: "", kcal: Math.round(kcal), c: r1(num(cf.c)), p: r1(num(cf.p)), f: r1(num(cf.f)) }]);
+          } }, "Add")));
+        return;
+      }
+      const list = el("div", { class: "food-list" });
+      const drawList = () => {
+        const words = q.toLowerCase().trim();
+        const match = (name) => !words || words.split(/\s+/).every((w) => name.toLowerCase().includes(w));
+        const foods = Object.keys((nutrition && nutrition.foods) || {}).map(foodOf).filter((f) => f && match(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+        const recent = recentFoods().filter((e) => match(e.name)).slice(0, 8);
+        list.replaceChildren(
+          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "type in its calories and macros")),
+          recent.length ? el("div", { class: "nut-group" }, "Recent") : "",
+          ...recent.map((e) => el("button", { class: "food-row", onclick: () => { closeVideo(); addFood([Object.assign({}, e, { id: newEntryId(), meal: mealSel })]); } },
+            el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null), el("small", null, `${e.kcal} cal`))),
+          foods.length ? el("div", { class: "nut-group" }, "Foods") : "",
+          ...foods.map((f) => el("button", { class: "food-row", onclick: () => { chosen = f; amt = defaultAmount(f); draw(); } },
+            el("span", null, f.name), el("small", null, `${Math.round(f.kcal * defaultAmount(f))} cal · ${amountLabel(f, defaultAmount(f))}`))));
+      };
+      const search = el("input", { type: "search", class: "food-input", placeholder: "Search foods: chicken, rice, eggs…", value: q, oninput: (e) => { q = e.target.value; drawList(); } });
+      sheet.replaceChildren(close(), el("h2", null, "Log food"), mealPick(), search, list);
+      drawList();
+    };
+    draw();
+    overlay.replaceChildren(sheet);
+    overlay.className = "overlay show";
+  }
+  // "Log this meal": every food in an example meal or option, added at its amount
+  const logMeal = (parts, meal) => {
+    const entries = (parts || []).map(([key, a]) => { const f = foodOf(key); return f ? entryOf(f, a, meal) : null; }).filter(Boolean);
+    if (entries.length) { addFood(entries); showStatus(`Logged ${entries.length} food${entries.length === 1 ? "" : "s"}`); }
+  };
+
   // ---- Nutrition: the plan the coach built on the dashboard (nutrition.js), as it wrote it out for the phone ------
   // The day's targets (training or rest day), each meal's targets, the example meals for a day of the two-week
   // rotation (this week's half of it and today, to start with), then the lists for building their own meals, the
@@ -1462,7 +1629,7 @@
           : "Your coach hasn’t set up your nutrition plan yet. It shows here as soon as they do.")));
       return main;
     }
-    const redraw = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    const redraw = redrawKeep;
     const chip = (text, on, onclick) => el("button", { class: `chip${on ? " on" : ""}`, onclick }, text);
     const macros = (t) => `P ${t.p} · C ${t.c} · F ${t.f}`;
     const day = nutRest ? n.rest : n.train;
@@ -1475,6 +1642,9 @@
         el("div", null, el("b", null, `${day.c}g`), el("span", null, "carbs")),
         el("div", null, el("b", null, `${day.f}g`), el("span", null, "fat"))),
       nutRest ? el("div", { class: "card-sub" }, "Rest day: the same protein and fat with less carbohydrate, and no post-workout shake.") : null));
+
+    // the food log (once it has loaded; there is none until migration_023 has been run)
+    if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, "counts down to your targets")), foodLogCard(day));
 
     main.append(el("h2", { class: "section" }, "Your meals", el("small", null, nutRest ? "rest day" : "training day")));
     main.append(el("div", { class: "card nut-meals" }, n.meals.filter((m) => !nutRest || m.rest).map((m) => {
@@ -1497,7 +1667,8 @@
       shown.meals.forEach((m) => main.append(el("div", { class: `card nut-meal${m.cheat ? " cheat" : ""}` },
         el("div", { class: "nut-meal-top" }, el("b", null, m.slot), el("small", null, m.cheat ? "your pick" : `${m.tot.kcal} cal`)),
         m.cheat ? el("div", { class: "card-sub" }, "Cheat meal: enjoy it, then back on plan.") : el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
-        m.note ? el("div", { class: "card-sub" }, m.note) : null)));
+        m.note ? el("div", { class: "card-sub" }, m.note) : null,
+        foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => logMeal(m.parts, m.slot) }, "+ Log this meal") : null)));
       main.append(el("div", { class: "card-sub nut-note" }, `Day total: ${shown.tot.kcal.toLocaleString()} cal · ${macros(shown.tot)}`));
     }
 
@@ -1510,13 +1681,17 @@
     main.append(el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."));
     (n.lists || []).forEach((l) => main.append(fold(l.title,
       l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"]))));
+    // an option is logged to its own meal (breakfast, the shake), or a snack to whichever snack it's nearest to
+    const optionMeal = (group) => (group === "Breakfast" ? "Breakfast" : group === "Post-workout" ? "Post-Workout Shake" : new Date().getHours() < 13 ? "Mid-Morning Snack" : "Mid-Afternoon Snack");
     (n.options || []).forEach((o) => main.append(fold(`${o.group} options`, o.meals.map((m) => el("div", { class: "nut-option" },
       el("div", { class: "nut-meal-top" }, el("b", null, m.name), el("small", null, `${m.tot.kcal} cal`)),
       el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
       m.note ? el("div", { class: "card-sub" }, m.note) : null,
-      el("div", { class: "card-sub" }, macros(m.tot)))))));
+      el("div", { class: "card-sub" }, macros(m.tot)),
+      foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => logMeal(m.parts, optionMeal(o.group)) }, "+ Log this") : null)))));
     main.append(el("h2", { class: "section" }, "Shopping & habits"));
-    (n.grocery || []).forEach((wk, i) => main.append(fold(`Grocery list · week ${i + 1}`, wk.map((g) => [
+    // (flatMap: the page builder only flattens one level of lists, which is what left these empty)
+    (n.grocery || []).forEach((wk, i) => main.append(fold(`Grocery list · week ${i + 1}`, wk.flatMap((g) => [
       el("div", { class: "nut-group" }, g.group),
       table(g.rows, ["Food", "Serving", "Week"]),
     ]))));
@@ -1888,6 +2063,13 @@
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
     api.bodyComp().catch(() => null).then((b) => { bodyComp = b; if (view === "progress" && b) render(); });
     api.cmj().catch(() => []).then((c) => { cmjTests = Array.isArray(c) ? c : []; if (view === "progress" && cmjTests.length) render(); });
+    // the last two weeks of the food log (none until migration_023 has been run)
+    api.foodLog(shiftDay(todayKey(), -14)).catch(() => null).then((rows) => {
+      if (!Array.isArray(rows)) return;
+      foodDays = {};
+      rows.forEach((r) => { foodDays[String(r.day).slice(0, 10)] = Array.isArray(r.entries) ? r.entries : []; });
+      if (view === "nutrition" && !overlay.className.includes("show")) redrawKeep();
+    });
     // the nutrition plan: once it's in, the menu gets its Nutrition button (not redrawn mid-entry or with a sheet open)
     api.nutrition().catch(() => null).then((nu) => {
       nutrition = nu || null;

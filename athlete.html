@@ -304,6 +304,40 @@
   .nut-group { margin: 10px 0 4px; font-size: 12px; font-weight: 800; text-transform: uppercase; color: var(--label, var(--accent)); }
   .nut-option { padding: 10px 0; border-bottom: 1px solid var(--border); }
   .nut-option:last-child { border-bottom: none; }
+  /* Food log (Nutrition tab) */
+  .food-day { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 15px; }
+  .food-left { text-align: center; margin: 4px 0 10px; }
+  .food-left b { display: block; font-size: 34px; font-weight: 800; line-height: 1.1; color: var(--good); }
+  .food-left.over b { color: var(--accent); }
+  .food-left span { display: block; font-size: 13px; font-weight: 700; }
+  .food-left small { display: block; font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .food-bar { margin: 8px 0; }
+  .food-bar-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+  .food-bar-top small, .food-bar-sub { font-size: 12px; color: var(--dim); }
+  .food-track { height: 8px; margin: 4px 0 2px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+  .food-track span { display: block; height: 100%; border-radius: 4px; background: var(--good); }
+  .food-track.over span { background: var(--accent); }
+  .food-log .swap-actions { margin: 12px 0 4px; }
+  .food-meal { margin-top: 12px; }
+  .food-meal-top { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 4px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .food-meal-top small { color: var(--dim); font-size: 12px; }
+  .food-entry { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .food-entry > span { flex: 1; min-width: 0; }
+  .food-entry span small, .food-entry > small { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .food-x { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 15px; border: 1px solid var(--border); background: var(--panel-2); color: var(--dim); font-size: 16px; line-height: 1; padding: 0; }
+  .food-logmeal { margin-top: 8px; min-height: 36px; padding: 6px 12px; border-radius: 18px; border: 1px solid var(--label, var(--accent)); background: none; color: var(--label, var(--accent)); font-size: 13px; font-weight: 700; }
+  .food-sheet h2 { margin: 0 44px 10px 0; font-size: 18px; }
+  .food-label { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--dim); }
+  .food-select, .food-input { width: 100%; height: 44px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; box-sizing: border-box; }
+  .food-sheet input[type="search"].food-input { margin-bottom: 8px; }
+  .food-list { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
+  .food-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 46px; padding: 8px 4px; border: none; border-bottom: 1px solid var(--border); background: none; color: var(--text); font-size: 15px; text-align: left; }
+  .food-row small { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .food-custom span { font-weight: 700; color: var(--label, var(--accent)); }
+  .food-amt { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 14px 0 6px; }
+  .food-amt b { min-width: 110px; text-align: center; font-size: 24px; }
+  .food-step { width: 52px; height: 52px; border-radius: 26px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 26px; line-height: 1; padding: 0; }
+  .food-amt-tot { text-align: center; font-size: 14px; color: var(--dim); margin-bottom: 14px; }
   .bc-graph svg { display: block; width: 100%; height: auto; margin: 4px 0 6px; }
   .bc-grid { stroke: var(--border); stroke-width: 1; }
   .bc-axis { fill: var(--dim); font-size: 10px; }
