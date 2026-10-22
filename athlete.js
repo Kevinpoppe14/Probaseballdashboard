@@ -987,7 +987,7 @@
   };
   // Nutrition shows once the athlete has a nutrition plan (and always for a coach, who can see where it will be)
   const menu = () => el("nav", { class: "menu", role: "tablist" },
-    [["program", "Program"], ["progress", "Progress"], ["plan", "Plan"]].concat(nutrition || staff || coachId ? [["nutrition", "Nutrition"]] : [], remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach"]] : []).map(([id, text]) => {
+    [["program", "Program"], ["progress", "Progress"]].concat(nutrition || staff || coachId ? [["nutrition", "Nutrition"]] : [], remote ? [["equipment", "Equipment"]] : [], staff ? [["coach", "Coach"]] : []).map(([id, text]) => {
       const icon = el("span", { class: "menu-icon", "aria-hidden": "true" });
       icon.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[id]}</svg>`;
       // the coach button offers Coach Mode or the dashboard, each its own page with a way back here
@@ -2369,7 +2369,7 @@
     { sel: "main .swap", optional: true, title: "Change an exercise", text: "Tap ⇄ to swap an exercise for another or change its sets and reps (no equipment for it, say). Your coach sees what you changed." },
     { sel: "main .film.check", optional: true, title: "Send your coach a clip", text: "Film a set and send it to your coach for a form check. Their reply shows under the exercise." },
     { sel: "main .session-end", optional: true, title: "Log the session", text: "When you finish, tap Log session. The day gets its ✓ and you’ll see a summary of what you did." },
-    { sel: ".menu", title: "Everything else", text: "Program is this page. Progress shows your numbers and testing over time, Plan shows where you are in your plan and your goals, and Nutrition (once your coach sets it up) has your meal plan." },
+    { sel: ".menu", title: "Everything else", text: "Program is this page. Progress shows your numbers and testing over time, and Nutrition (once your coach sets it up) has your meal plan." },
     { sel: ".tour-help", title: "That’s it", text: "Tap ? any time to see this again. The sun and moon on the right switch between light and dark." },
   ];
   let tourTried = false;
@@ -2405,7 +2405,7 @@
         el("div", { class: "card-title" }, "No program yet"),
         staff
           ? el("div", { class: "card-sub" }, "Nothing is on your plan yet. Build a session for today, or put a saved program on your plan, and it shows here. The same tools put a program on an athlete’s plan.")
-          : el("div", { class: "card-sub" }, "Your coach hasn’t put a program on your plan yet. It shows up here as soon as they do. Until then, Progress has your testing results and Plan has your goals."),
+          : el("div", { class: "card-sub" }, "Your coach hasn’t put a program on your plan yet. It shows up here as soon as they do. Until then, Progress has your testing results."),
         staff ? el("div", { class: "swap-actions" }, quickTools()) : null)));
       parts.push(menu());
       app.replaceChildren(...parts);
