@@ -1505,6 +1505,19 @@
     });
   }
   const addFood = (entries) => { if (!foodDay) foodDay = todayKey(); setFoodDay(foodDay, (foodDays[foodDay] || []).concat(entries)); redrawKeep(); };
+  // units for a custom food: [family, size in that family's base unit]; an amount converts within its family
+  // (grams and ounces by weight; cups, spoons and fluid ounces by volume)
+  const CUSTOM_UNITS = { serving: ["count", 1], piece: ["count", 1], g: ["weight", 1], oz: ["weight", 28.35], cup: ["volume", 48], "fl oz": ["volume", 6], tbsp: ["volume", 3], tsp: ["volume", 1] };
+  // their own foods (custom foods logged with their label figures), newest first, one of each by name
+  const myFoods = () => {
+    const seen = new Set(), out = [];
+    Object.keys(foodDays || {}).sort().reverse().forEach((k) => (foodDays[k] || []).slice().reverse().forEach((e) => {
+      if (!e.def || !CUSTOM_UNITS[e.def.sUnit]) return;
+      const id = e.def.name.toLowerCase();
+      if (!seen.has(id)) { seen.add(id); out.push(e.def); }
+    }));
+    return out;
+  };
   // foods logged in the last two weeks, newest first, one of each, for adding again in a tap
   const recentFoods = () => {
     const seen = new Set(), out = [];
@@ -1556,7 +1569,9 @@
   // the Log food sheet: search the food lists (or a recent food) and set the amount, or enter a food of their own
   function openFoodPicker(meal) {
     let q = "", chosen = null, amt = 1, mealSel = meal || mealNow(), custom = false;
-    const cf = { name: "", kcal: "", p: "", c: "", f: "" };
+    const cf = { name: "", sAmt: "1", sUnit: "serving", kcal: "", p: "", c: "", f: "", eAmt: "1", eUnit: "servings" };
+    // a food of their own from before, ready for a new amount
+    const openMine = (d) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit }); custom = true; draw(); };
     const sheet = el("div", { class: "sheet food-sheet" });
     const close = () => el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×");
     const mealPick = () => el("label", { class: "food-label" }, "Meal",
@@ -1573,16 +1588,41 @@
         return;
       }
       if (custom) {
-        const box = (k, label, mode) => el("label", { class: "food-label" }, label, el("input", { class: "food-input", value: cf[k], inputmode: mode || "decimal", type: mode === "text" ? "text" : "number", step: "any", oninput: (e) => { cf[k] = e.target.value; } }));
+        // From the nutrition label: what one serving is and what's in it, then how much was eaten, in a unit that
+        // converts to the serving's (grams and ounces, cups and spoons) or in servings. The label figures are kept with
+        // the entry, so it comes back under My foods for any amount.
+        const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) && x >= 0 ? x : 0; };
+        const family = (u) => (CUSTOM_UNITS[u] || CUSTOM_UNITS.serving)[0];
+        const eatUnits = ["servings"].concat(Object.keys(CUSTOM_UNITS).filter((u) => family(u) === family(cf.sUnit) && family(u) !== "count"));
+        if (!eatUnits.includes(cf.eUnit)) cf.eUnit = "servings";
+        const ratio = () => (cf.eUnit === "servings" ? num(cf.eAmt) : (num(cf.eAmt) * CUSTOM_UNITS[cf.eUnit][1]) / ((num(cf.sAmt) || 1) * CUSTOM_UNITS[cf.sUnit][1]));
+        const per = () => ({ kcal: num(cf.kcal) || num(cf.p) * 4 + num(cf.c) * 4 + num(cf.f) * 9, p: num(cf.p), c: num(cf.c), f: num(cf.f) }); // calories from the macros when left blank
+        const totalEl = el("div", { class: "food-amt-tot" });
+        const showTotal = () => { const k = ratio(), x = per(); totalEl.textContent = `You ate: ${Math.round(x.kcal * k)} cal · P ${r1(x.p * k)} · C ${r1(x.c * k)} · F ${r1(x.f * k)}`; };
+        const box = (k, label, mode) => el("label", { class: "food-label" }, label, el("input", { class: "food-input", value: cf[k], inputmode: mode || "decimal", type: mode === "text" ? "text" : "number", step: "any", min: "0", oninput: (e) => { cf[k] = e.target.value; showTotal(); } }));
+        const unitPick = (k, units, label) => el("select", { class: "food-select", "aria-label": label, onchange: (e) => { cf[k] = e.target.value; draw(); } },
+          units.map((u) => { const o = el("option", { value: u }, u); if (u === cf[k]) o.selected = true; return o; }));
+        const pair = (amtKey, unitKey, units, label) => el("label", { class: "food-label" }, label, el("div", { class: "food-pair" },
+          el("input", { class: "food-input", value: cf[amtKey], inputmode: "decimal", type: "number", step: "any", min: "0", oninput: (e) => { cf[amtKey] = e.target.value; showTotal(); } }),
+          unitPick(unitKey, units, label)));
         sheet.replaceChildren(close(), el("h2", null, "Custom food"),
-          box("name", "Food", "text"), box("kcal", "Calories"), box("p", "Protein (g)"), box("c", "Carbs (g)"), box("f", "Fat (g)"), mealPick(),
+          box("name", "Food", "text"),
+          el("div", { class: "nut-group" }, "From the label"),
+          pair("sAmt", "sUnit", Object.keys(CUSTOM_UNITS), "Serving size"),
+          el("div", { class: "food-grid" }, box("kcal", "Calories"), box("p", "Protein (g)"), box("c", "Carbs (g)"), box("f", "Fat (g)")),
+          el("div", { class: "nut-group" }, "What you ate"),
+          pair("eAmt", "eUnit", eatUnits, "Amount"),
+          totalEl, mealPick(),
           el("div", { class: "swap-actions" }, el("button", { onclick: () => { custom = false; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => {
-            const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) && x >= 0 ? x : 0; };
             if (!cf.name.trim()) { showStatus("Give the food a name.", true); return; }
-            const kcal = num(cf.kcal) || Math.round(num(cf.p) * 4 + num(cf.c) * 4 + num(cf.f) * 9); // calories from the macros when left blank
+            if (!(ratio() > 0)) { showStatus("Enter how much you ate.", true); return; }
+            const k = ratio(), x = per(), eAmt = num(cf.eAmt);
+            const amount = cf.eUnit === "servings" ? `${eAmt} serving${eAmt === 1 ? "" : "s"}` : `${eAmt} ${cf.eUnit}`;
+            const def = { name: cf.name.trim().slice(0, 60), sAmt: num(cf.sAmt) || 1, sUnit: cf.sUnit, kcal: Math.round(x.kcal), p: r1(x.p), c: r1(x.c), f: r1(x.f) };
             closeVideo();
-            addFood([{ id: newEntryId(), meal: mealSel, name: cf.name.trim().slice(0, 60), amount: "", kcal: Math.round(kcal), c: r1(num(cf.c)), p: r1(num(cf.p)), f: r1(num(cf.f)) }]);
+            addFood([{ id: newEntryId(), meal: mealSel, name: def.name, amount, kcal: Math.round(x.kcal * k), c: r1(x.c * k), p: r1(x.p * k), f: r1(x.f * k), def }]);
           } }, "Add")));
+        showTotal();
         return;
       }
       const list = el("div", { class: "food-list" });
@@ -1590,9 +1630,13 @@
         const words = q.toLowerCase().trim();
         const match = (name) => !words || words.split(/\s+/).every((w) => name.toLowerCase().includes(w));
         const foods = Object.keys((nutrition && nutrition.foods) || {}).map(foodOf).filter((f) => f && match(f.name)).sort((a, b) => a.name.localeCompare(b.name));
-        const recent = recentFoods().filter((e) => match(e.name)).slice(0, 8);
+        const mine = myFoods().filter((d) => match(d.name));
+        const recent = recentFoods().filter((e) => !e.def && match(e.name)).slice(0, 8);
         list.replaceChildren(
-          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "type in its calories and macros")),
+          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
+          mine.length ? el("div", { class: "nut-group" }, "My foods") : "",
+          ...mine.map((d) => el("button", { class: "food-row", onclick: () => openMine(d) },
+            el("span", null, d.name), el("small", null, `${d.kcal} cal / ${d.sAmt} ${d.sUnit}`))),
           recent.length ? el("div", { class: "nut-group" }, "Recent") : "",
           ...recent.map((e) => el("button", { class: "food-row", onclick: () => { closeVideo(); addFood([Object.assign({}, e, { id: newEntryId(), meal: mealSel })]); } },
             el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null), el("small", null, `${e.kcal} cal`))),
