@@ -467,7 +467,9 @@
     );
   }
 
-  function targetsFor(basis, goalKey) {
+  // override: the targets a coach set on the Nutrition tab ({ train: { p, c, f }, rest: { p, c, f } } in grams), used in
+  // place of the worked-out ones; the meals follow them like any other targets
+  function targetsFor(basis, goalKey, override) {
     const g = GOALS[goalKey];
     const k = 1 + g.pct / 100;
     const trainCal = basis.typedCal || (k * (basis.rmr + basis.activity)) / (1 - 0.1 * k);
@@ -475,10 +477,15 @@
     const proteinKg = goalKey === "lose" && basis.goalKg ? basis.goalKg : kg; // fat loss: protein off the goal weight
     const p = g.protein * proteinKg, f = g.fat * kg;
     const trainC = Math.max(0, (trainCal - p * 4 - f * 9) / 4);
-    const train = { c: trainC, p, f };
+    let train = { c: trainC, p, f };
     // rest day: the goal's rest-day carbohydrate (the middle of its range), never above a training day's
     const restC = Math.min(trainC, ((g.rest[0] + g.rest[1]) / 2) * kg);
-    const rest = { c: restC, p, f };
+    let rest = { c: restC, p, f };
+    const recommended = { train: Object.assign({}, train), rest: Object.assign({}, rest) };
+    const set = (o) => (o && [o.p, o.c, o.f].every((v) => Number.isFinite(+v) && +v >= 0) ? { p: +o.p, c: +o.c, f: +o.f } : null);
+    const custom = { train: set(override && override.train), rest: set(override && override.rest) };
+    if (custom.train) Object.assign(train, custom.train);
+    if (custom.rest) rest = custom.rest;
     const flags = [];
     const cKg = trainC / kg;
     if (cKg > g.train[1] + 0.05) flags.push(`Carbohydrate comes to ${cKg.toFixed(1)} g/kg on a training day, above the ${g.train[0]}–${g.train[1]} g/kg range for this goal. The calories are high for this goal: check the training minutes, or raise fat.`);
@@ -487,7 +494,7 @@
       const [sc, sp, sf] = split[s.key];
       return Object.assign({}, s, { target: { c: day.c * sc, p: day.p * sp, f: day.f * sf } });
     });
-    return { goal: g, goalKey, kg, proteinKg, train, rest, trainMeals: meals(train, SPLIT.train), restMeals: meals(rest, SPLIT.rest), flags };
+    return { goal: g, goalKey, kg, proteinKg, train, rest, recommended, custom: !!(custom.train || custom.rest), trainMeals: meals(train, SPLIT.train), restMeals: meals(rest, SPLIT.rest), flags: custom.train ? [] : flags };
   }
 
   // ---- the plan --------------------------------------------------------------------------------------
@@ -675,9 +682,100 @@
   // ---- the tab ---------------------------------------------------------------------------------------
   const g0 = (v) => String(round(v));
   const macroLine = (t) => `${g0(t.kcal != null ? t.kcal : kcalOf(t))} kcal · C ${g0(t.c)} · P ${g0(t.p)} · F ${g0(t.f)}`;
-  const shareLine = (t) => { const k = kcalOf(t) || 1; return `${round((t.c * 4 * 100) / k)}% / ${round((t.p * 4 * 100) / k)}% / ${round((t.f * 9 * 100) / k)}%`; };
+  const shareLine = (t) => { const r = wholeShares(t); return `${r.c}% / ${r.p}% / ${r.f}%`; }; // carbohydrate / protein / fat, adding to 100
   const DAYS = ["MON", "TUE", "WED", "THUR", "FRI", "SAT", "SUN"];
   const shortDate = (k) => { const [y, m, d] = (k || "").split("-"); return y ? `${Number(m)}/${Number(d)}/${y.slice(2)}` : ""; };
+
+  // ---- the day's targets, which a coach can change. Calories are always 4 x protein + 4 x carbohydrate + 9 x fat:
+  // changing calories scales all three macros (keeping their shares), changing a macro's grams changes the calories,
+  // and changing a macro's share keeps the calories and splits what's left between the other two as they were. Grams
+  // are kept whole. Saved, they replace the worked-out targets, and every meal, option and list resizes to them.
+  const PER_G = { p: 4, c: 4, f: 9 };
+  const kcalOfG = (d) => d.p * 4 + d.c * 4 + d.f * 9;
+  const wholeG = (d) => ({ p: Math.max(0, Math.round(d.p)), c: Math.max(0, Math.round(d.c)), f: Math.max(0, Math.round(d.f)) });
+  const sharesOf = (d) => { const k = kcalOfG(d) || 1; return { p: (d.p * 4 * 100) / k, c: (d.c * 4 * 100) / k, f: (d.f * 9 * 100) / k }; };
+  // the shares as whole percents that add to exactly 100 (the leftover from rounding goes to the largest)
+  const wholeShares = (d) => { const s = sharesOf(d), r = { p: Math.round(s.p), c: Math.round(s.c), f: Math.round(s.f) }; const off = 100 - r.p - r.c - r.f; if (off && kcalOfG(d)) { const big = ["p", "c", "f"].sort((a, b) => s[b] - s[a])[0]; r[big] += off; } return r; };
+  const withKcal = (d, kcal, fallback) => {
+    const k = kcalOfG(d);
+    if (!k) { const s = sharesOf(fallback); return wholeG({ p: (kcal * s.p) / 100 / 4, c: (kcal * s.c) / 100 / 4, f: (kcal * s.f) / 100 / 9 }); }
+    const x = kcal / k;
+    return wholeG({ p: d.p * x, c: d.c * x, f: d.f * x });
+  };
+  const withShare = (d, m, pct) => {
+    pct = Math.max(0, Math.min(100, pct));
+    const k = kcalOfG(d), s = sharesOf(d), others = ["p", "c", "f"].filter((x) => x !== m);
+    const left = 100 - pct, had = s[others[0]] + s[others[1]];
+    const out = { [m]: (k * pct) / 100 / PER_G[m] };
+    others.forEach((o) => { out[o] = (k * (had ? (left * s[o]) / had : left / 2)) / 100 / PER_G[o]; });
+    return wholeG(out);
+  };
+  // a number box that takes effect when they leave it or press Enter, so typing isn't fought mid-number
+  function NumBox({ value, onCommit, width }) {
+    const [text, setText] = useState(String(value));
+    useEffect(() => { setText(String(value)); }, [value]);
+    const commit = () => { const v = parseFloat(text); if (Number.isFinite(v) && v >= 0 && v !== value) onCommit(v); else setText(String(value)); };
+    return <input className="nut-num" style={width ? { width } : null} inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />;
+  }
+  function TargetEditor({ athlete, T }) {
+    const [draft, setDraft] = useState(null); // { train: {p,c,f}, rest: {p,c,f} } while being changed
+    const perKg = (v) => (v / T.kg).toFixed(1);
+    const rows = [["train", "Training day"], ["rest", "Rest day"]];
+    if (!draft) {
+      return (
+        <React.Fragment>
+          <table className="nut-table nut-targets">
+            <thead><tr><th></th><th>Calories</th><th>Protein</th><th>Carbohydrate</th><th>Fat</th><th>C / P / F</th></tr></thead>
+            <tbody>
+              {rows.map(([key, label]) => { const d = T[key]; return (
+                <tr key={key}>
+                  <td><b>{label}</b></td>
+                  <td>{g0(kcalOf(d))}</td>
+                  <td>{g0(d.p)} g <em>{perKg(d.p)} g/kg</em></td>
+                  <td>{g0(d.c)} g <em>{perKg(d.c)} g/kg</em></td>
+                  <td>{g0(d.f)} g <em>{perKg(d.f)} g/kg</em></td>
+                  <td>{shareLine(d)}</td>
+                </tr>
+              ); })}
+            </tbody>
+          </table>
+          <div className="nut-target-acts no-print">
+            {T.custom && <span className="nut-custom-tag">Coach-set targets</span>}
+            {T.custom && <span className="nut-hint">recommended: {g0(kcalOf(T.recommended.train))} cal training · {g0(kcalOf(T.recommended.rest))} cal rest</span>}
+            <button type="button" className="btn btn-secondary" onClick={() => setDraft({ train: wholeG(T.train), rest: wholeG(T.rest) })}>Adjust calories &amp; macros</button>
+            {T.custom && <button type="button" className="btn-link" onClick={() => savePlan(athlete, { targets: null })}>Back to recommended</button>}
+          </div>
+        </React.Fragment>
+      );
+    }
+    const change = (key, d) => setDraft((x) => Object.assign({}, x, { [key]: d }));
+    return (
+      <div className="nut-target-edit no-print">
+        <table className="nut-table nut-targets">
+          <thead><tr><th></th><th>Calories</th><th>Protein (g)</th><th>Carbs (g)</th><th>Fat (g)</th><th>Protein %</th><th>Carbs %</th><th>Fat %</th></tr></thead>
+          <tbody>
+            {rows.map(([key, label]) => {
+              const d = draft[key], s = wholeShares(d);
+              return (
+                <tr key={key}>
+                  <td><b>{label}</b></td>
+                  <td><NumBox value={Math.round(kcalOfG(d))} width={80} onCommit={(v) => change(key, withKcal(d, v, T.recommended[key]))} /></td>
+                  {["p", "c", "f"].map((m) => <td key={m}><NumBox value={d[m]} width={64} onCommit={(v) => change(key, wholeG(Object.assign({}, d, { [m]: v })))} /> <em>{perKg(d[m])} g/kg</em></td>)}
+                  {["p", "c", "f"].map((m) => <td key={`s${m}`}><NumBox value={s[m]} width={52} onCommit={(v) => change(key, withShare(d, m, v))} />%</td>)}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="nut-hint">Calories always equal 4 × protein + 4 × carbs + 9 × fat. Change calories and the macros keep their shares; change grams and the calories follow; change a share and the other two macros split what’s left. Every meal resizes when you save.</p>
+        <div className="nut-top">
+          <button type="button" className="btn btn-assign" onClick={() => { savePlan(athlete, { targets: { train: draft.train, rest: draft.rest } }); setDraft(null); }}>Save targets</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setDraft({ train: wholeG(T.recommended.train), rest: wholeG(T.recommended.rest) })}>Fill in the recommended</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setDraft(null)}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
 
   function MealCell({ meal }) {
     if (meal.cheat) return <div className="nut-cell nut-cheat">Cheat Meal</div>;
@@ -741,7 +839,7 @@
     const [editing, setEditing] = useState(false); // the entered details open for changing (a plan built without a body composition)
     const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
     const ready = !!(basis && goalKey);
-    const T = ready ? targetsFor(basis, goalKey) : null;
+    const T = ready ? targetsFor(basis, goalKey, rec.targets) : null;
     const allergies = allergiesOf(athlete.id);
     const plan = ready ? buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch, allergies }) : null;
     const lists = ready ? macroLists(T, { allergies }) : null;
@@ -798,21 +896,7 @@
             {T.proteinKg !== T.kg ? ` · protein worked off the goal weight (${(T.proteinKg * 2.2).toFixed(0)} lb)` : ""}
           </div>
           <AllergyLine athlete={athlete} />
-          <table className="nut-table nut-targets">
-            <thead><tr><th></th><th>Calories</th><th>Protein</th><th>Carbohydrate</th><th>Fat</th><th>C / P / F</th></tr></thead>
-            <tbody>
-              {[["Training day", T.train], ["Rest day", T.rest]].map(([label, d]) => (
-                <tr key={label}>
-                  <td><b>{label}</b></td>
-                  <td>{g0(kcalOf(d))}</td>
-                  <td>{g0(d.p)} g <em>{perKg(d.p)} g/kg</em></td>
-                  <td>{g0(d.c)} g <em>{perKg(d.c)} g/kg</em></td>
-                  <td>{g0(d.f)} g <em>{perKg(d.f)} g/kg</em></td>
-                  <td>{shareLine(d)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <TargetEditor athlete={athlete} T={T} />
           <p className="nut-hint">
             Ranges for {g.label.toLowerCase()} (g/kg): protein {g.protein}, fat {g.fat}, carbohydrate {g.train[0]}–{g.train[1]} on a training day and {g.rest[0]}–{g.rest[1]} on a rest day, after Andy Galpin’s periodized nutrition.
           </p>
@@ -1061,6 +1145,106 @@
     );
   }
 
+  // ---- the Meal Log: what the athlete logged on their phone (food_logs, migration_023), a week at a time. Each day: a
+  // training or rest day, what was eaten against that day's targets, which meals were logged, and a missed day marked;
+  // a day opens to its foods, meal by meal.
+  const MEAL_KEYS = ["Breakfast", "Mid-Morning Snack", "Lunch", "Mid-Afternoon Snack", "Dinner", "Post-Workout Shake"];
+  const dayKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function MealLog({ athlete }) {
+    const [weekStart, setWeekStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayKeyOf(d); }); // Monday
+    const [days, setDays] = useState(null); // "YYYY-MM-DD" -> entries; null while loading, "missing" without the table
+    const [openDay, setOpenDay] = useState(null);
+    const rec = planOf(athlete.id);
+    const snap = rec && rec.snapshot;
+    const dates = Array.from({ length: 7 }, (_, i) => { const [y, m, d] = weekStart.split("-").map(Number); return dayKeyOf(new Date(y, m - 1, d + i)); });
+    useEffect(() => {
+      let live = true;
+      setDays(null);
+      window.supabaseClient.from("food_logs").select("day,entries").eq("athlete_id", String(athlete.id)).gte("day", dates[0]).lte("day", dates[6]).then(({ data, error }) => {
+        if (!live) return;
+        if (error) { setDays("missing"); return; }
+        const out = {};
+        (data || []).forEach((r) => { out[String(r.day).slice(0, 10)] = Array.isArray(r.entries) ? r.entries : []; });
+        setDays(out);
+      });
+      return () => { live = false; };
+    }, [athlete.id, weekStart]);
+    const shift = (n) => { const [y, m, d] = weekStart.split("-").map(Number); setWeekStart(dayKeyOf(new Date(y, m - 1, d + n * 7))); setOpenDay(null); };
+    const today = dayKeyOf(new Date());
+    const label = (k) => new Date(`${k}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" });
+    const sum = (list) => list.reduce((t, e) => ({ kcal: t.kcal + (+e.kcal || 0), p: t.p + (+e.p || 0), c: t.c + (+e.c || 0), f: t.f + (+e.f || 0) }), { kcal: 0, p: 0, c: 0, f: 0 });
+    const info = (k) => {
+      const all = (days && days !== "missing" && days[k]) || [];
+      const tag = all.find((e) => e.id === "daytype");
+      const foods = all.filter((e) => e.name);
+      const eaten = foods.filter((e) => !e.planned), planned = foods.filter((e) => e.planned);
+      const rest = tag ? tag.dayType === "rest" : null;
+      const target = snap ? (rest ? snap.rest : snap.train) : null;
+      const meals = MEAL_KEYS.filter((mk) => !(rest && mk === "Post-Workout Shake")).map((mk) => ({ name: mk, eaten: eaten.filter((e) => e.meal === mk), planned: planned.filter((e) => e.meal === mk) }));
+      const status = eaten.length ? "logged" : k > today ? (planned.length ? "planned" : "upcoming") : k === today ? (planned.length ? "planned" : "today") : "missed";
+      return { k, eaten, planned, rest, target, meals, status, tot: sum(eaten) };
+    };
+    const week = dates.map(info);
+    const past = week.filter((d) => d.k <= today);
+    const loggedDays = past.filter((d) => d.status === "logged");
+    const avg = (key) => (loggedDays.length ? Math.round(loggedDays.reduce((s, d) => s + d.tot[key], 0) / loggedDays.length) : null);
+    const pct = (a, b) => (b ? Math.round((a / b) * 100) : null);
+    const cls = (a, b) => { const p = pct(a, b); return p == null ? "" : p >= 90 && p <= 110 ? "ok" : p >= 75 && p <= 125 ? "near" : "off"; };
+    const sel = openDay ? info(openDay) : null;
+    return (
+      <div className="panel meal-log">
+        <h2>Meal Log <small>what {(athlete.name || "").split(/\s+/)[0] || "the athlete"} logged in the app, a week at a time</small></h2>
+        <div className="ml-week">
+          <button type="button" className="btn btn-secondary" onClick={() => shift(-1)}>‹ Previous week</button>
+          <b>Week of {new Date(`${dates[0]}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" })}</b>
+          <button type="button" className="btn btn-secondary" onClick={() => shift(1)}>Next week ›</button>
+        </div>
+        {days === null && <p className="nut-hint">Loading…</p>}
+        {days === "missing" && <p className="nut-hint">The meal log isn’t set up yet: run supabase/migration_023_food_log.sql in the Supabase SQL Editor.</p>}
+        {days && days !== "missing" && (
+          <React.Fragment>
+            <div className="ml-summary">
+              <span><b>{loggedDays.length}</b> of {past.length} day{past.length === 1 ? "" : "s"} logged</span>
+              {past.length - loggedDays.length > 0 && <span className="ml-missed-count"><b>{past.length - loggedDays.length}</b> missed</span>}
+              {avg("kcal") != null && <span>Average <b>{avg("kcal").toLocaleString()}</b> cal · P {avg("p")} · C {avg("c")} · F {avg("f")}</span>}
+              {!snap && <span className="nut-hint">No nutrition plan yet, so there are no targets to compare against.</span>}
+            </div>
+            <div className="nut-scroll">
+              <table className="nut-table ml-grid">
+                <thead><tr><th></th>{week.map((d) => <th key={d.k} className={d.k === today ? "ml-today" : ""}>{label(d.k)}</th>)}</tr></thead>
+                <tbody>
+                  <tr><td className="nut-slot">Day</td>{week.map((d) => <td key={d.k}><span className={`ml-badge ml-${d.status}`}>{d.status}</span>{d.rest != null && <span className={`ml-type ${d.rest ? "rest" : "train"}`}>{d.rest ? "Rest day" : "Training day"}</span>}</td>)}</tr>
+                  <tr><td className="nut-slot">Calories</td>{week.map((d) => <td key={d.k} className={d.eaten.length && d.target ? `ml-${cls(d.tot.kcal, d.target.kcal)}` : ""}>{d.eaten.length ? <React.Fragment><b>{Math.round(d.tot.kcal).toLocaleString()}</b>{d.target ? <small> / {d.target.kcal.toLocaleString()} ({pct(d.tot.kcal, d.target.kcal)}%)</small> : null}</React.Fragment> : "—"}</td>)}</tr>
+                  {[["p", "Protein"], ["c", "Carbs"], ["f", "Fat"]].map(([mk, name]) => (
+                    <tr key={mk}><td className="nut-slot">{name}</td>{week.map((d) => <td key={d.k} className={d.eaten.length && d.target ? `ml-${cls(d.tot[mk], d.target[mk])}` : ""}>{d.eaten.length ? <React.Fragment>{Math.round(d.tot[mk])}g{d.target ? <small> / {d.target[mk]}g</small> : null}</React.Fragment> : "—"}</td>)}</tr>
+                  ))}
+                  {MEAL_KEYS.map((mk) => (
+                    <tr key={mk}><td className="nut-slot">{mk}</td>{week.map((d) => { const m = d.meals.find((x) => x.name === mk); return <td key={d.k} className="ml-meal">{!m ? "" : m.eaten.length ? <span className="ml-yes">✓ {Math.round(sum(m.eaten).kcal)}</span> : m.planned.length ? <span className="ml-plan">planned</span> : d.k < today || (d.k === today && d.eaten.length) ? <span className="ml-no">✗</span> : ""}</td>; })}</tr>
+                  ))}
+                  <tr><td className="nut-slot"></td>{week.map((d) => <td key={d.k}>{(d.eaten.length || d.planned.length) ? <button type="button" className="btn-link" onClick={() => setOpenDay(openDay === d.k ? null : d.k)}>{openDay === d.k ? "Hide" : "See foods"}</button> : null}</td>)}</tr>
+                </tbody>
+              </table>
+            </div>
+            {sel && (
+              <div className="ml-detail">
+                <h3>{new Date(`${sel.k}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}{sel.rest != null ? ` · ${sel.rest ? "Rest day" : "Training day"}` : ""}</h3>
+                {sel.meals.filter((m) => m.eaten.length || m.planned.length).map((m) => (
+                  <div key={m.name} className="ml-detail-meal">
+                    <b>{m.name}</b> <small>{Math.round(sum(m.eaten).kcal)} cal logged{m.planned.length ? ` · ${Math.round(sum(m.planned).kcal)} planned` : ""}</small>
+                    <ul>
+                      {m.eaten.map((e, i) => <li key={`e${i}`}>{e.amount ? `${e.amount} ` : ""}{e.name} <small>{e.kcal} cal · P {e.p} · C {e.c} · F {e.f}</small></li>)}
+                      {m.planned.map((e, i) => <li key={`p${i}`} className="ml-planned">{e.amount ? `${e.amount} ` : ""}{e.name} <small>planned</small></li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </React.Fragment>
+        )}
+      </div>
+    );
+  }
+
   // Every athlete's phone copy of their plan, brought up to date when the dashboard opens: a new body comp scan, or a
   // change to the plan's meals and options here, reaches their phone without their profile having to be opened first.
   // Only plans whose copy comes out differently are saved.
@@ -1072,7 +1256,7 @@
         if (!rec || !GOALS[rec.goal]) return;
         const basis = basisFor(a, rec);
         if (!basis) return;
-        const T = targetsFor(basis, rec.goal);
+        const T = targetsFor(basis, rec.goal, rec.targets);
         const times = SLOTS.map((s) => (s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
         const allergies = allergiesOf(a.id);
         const snap = snapshotOf(basis, T, buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch, allergies }), macroLists(T, { allergies }), times);
@@ -1083,5 +1267,6 @@
 
   window.NutritionTab = NutritionTab;
   window.NutritionGoalPicker = NutritionGoalPicker;
+  window.MealLog = MealLog;
   window.NutritionPlan = { FOODS, GOALS, basisFor, targetsFor, buildPlan, macroLists, solve, snapshotOf, SLOTS, refreshAll }; // refreshAll on load; the rest for checking the sums
 })();

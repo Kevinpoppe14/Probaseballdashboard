@@ -6671,7 +6671,8 @@ function ActivitySignature({ activity, className }) {
 }
 
 // the tabs grouped under Assessments on a player profile
-const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "nutrition", "pitching"];
+const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "pitching"];
+const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan, and the meal log
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
   // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
@@ -6753,6 +6754,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         {/* Assessments: the biomechanical assessment, body composition and (for pitchers) the pitching assessment,
             each a tab of its own in the row underneath; it opens on whichever of them was open last */}
         <button className={`pill-tab ${ASSESSMENT_TABS.includes(activeTab) ? "active" : ""}`} data-tab="assessments" onClick={() => setActiveTab(ASSESSMENT_TABS.includes(lastAssessTab) && (lastAssessTab !== "pitching" || isPitcher) ? lastAssessTab : "assessment")}>Assessments</button>
+        {/* Nutrition: the plan, and the meal log from the athlete's phone */}
+        <button className={`pill-tab ${NUTRITION_TABS.includes(activeTab) ? "active" : ""}`} data-tab="nutrition-group" onClick={() => setActiveTab(NUTRITION_TABS.includes(activeTab) ? activeTab : "nutrition")}>Nutrition</button>
         <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
         {/* remote athletes only: what they have to train with, which their programs are checked against */}
@@ -6763,8 +6766,13 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical</button>
           <button className={`pill-tab ${activeTab === "reassess" ? "active" : ""}`} data-tab="reassess" onClick={() => setActiveTab("reassess")}>Re-Assessment</button>
           <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
-          <button className={`pill-tab ${activeTab === "nutrition" ? "active" : ""}`} data-tab="nutrition" onClick={() => setActiveTab("nutrition")}>Nutrition</button>
           {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching</button>}
+        </div>
+      )}
+      {NUTRITION_TABS.includes(activeTab) && (
+        <div className="pill-tabs profile-subtabs no-print">
+          <button className={`pill-tab ${activeTab === "nutrition" ? "active" : ""}`} data-tab="nutrition" onClick={() => setActiveTab("nutrition")}>Nutrition Plan</button>
+          <button className={`pill-tab ${activeTab === "meallog" ? "active" : ""}`} data-tab="meallog" onClick={() => setActiveTab("meallog")}>Meal Log</button>
         </div>
       )}
 
@@ -6832,6 +6840,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           ? <window.NutritionTab athlete={athlete} />
           : <div className="panel"><div className="empty-state">The Nutrition tab didn't load. Reload the page.</div></div>}
       </div>
+      {/* the meal log: what the athlete logged on their phone, a week at a time (nutrition.js); only built while open */}
+      {activeTab === "meallog" && window.MealLog && <window.MealLog athlete={athlete} />}
 
       {/* the monthly re-assessment: only built while open, so it reads the latest assessments each time */}
       {activeTab === "reassess" && window.ReassessmentTab && <window.ReassessmentTab athlete={athlete} onOpenTab={setActiveTab} />}

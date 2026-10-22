@@ -3820,3 +3820,35 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
   .nut-guides { color: #000 !important; }
   .nut-scroll { overflow: visible !important; }
 }
+/* Meal Log (nutrition.js) */
+.ml-week { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0 12px; }
+.ml-summary { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-bottom: 10px; font-size: 13px; }
+.ml-missed-count b { color: var(--danger); }
+.ml-grid { table-layout: fixed; min-width: 900px; }
+.ml-grid th:first-child, .ml-grid td.nut-slot { width: 150px; }
+.ml-grid th.ml-today { color: var(--text); }
+.ml-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; border: 1px solid var(--border); color: var(--text-dim); }
+.ml-badge.ml-logged { background: var(--good); border-color: var(--good); color: #0a0a0a; }
+.ml-badge.ml-missed { border-color: var(--danger); color: var(--danger); }
+.ml-badge.ml-planned { border-color: var(--good); color: var(--good); }
+.ml-type { display: block; margin-top: 4px; font-size: 11px; font-weight: 700; }
+.ml-type.train { color: var(--dst-red); }
+.ml-type.rest { color: var(--info); }
+.ml-grid td small { color: var(--text-dim); }
+.ml-grid td.ml-ok b, .ml-grid td.ml-ok { color: var(--good); }
+.ml-grid td.ml-near b, .ml-grid td.ml-near { color: var(--warn); }
+.ml-grid td.ml-off b, .ml-grid td.ml-off { color: var(--danger); }
+.ml-meal { font-size: 12px; }
+.ml-yes { color: var(--good); font-weight: 700; }
+.ml-no { color: var(--danger); font-weight: 700; }
+.ml-plan { color: var(--text-dim); font-style: italic; }
+.ml-detail { margin-top: 12px; padding-top: 6px; border-top: 1px solid var(--border); }
+.ml-detail-meal { margin: 8px 0; font-size: 13px; }
+.ml-detail-meal ul { margin: 4px 0; padding-left: 18px; line-height: 1.5; }
+.ml-detail-meal small { color: var(--text-dim); }
+.ml-planned { color: var(--text-dim); }
+/* the coach's calorie and macro targets (nutrition.js) */
+.nut-target-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 8px 0 4px; }
+.nut-custom-tag { padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: var(--badge-warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+.nut-num { height: 30px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 5px; text-align: right; }
+.nut-target-edit .nut-targets td { vertical-align: middle; }
