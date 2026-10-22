@@ -3470,6 +3470,12 @@ function extractPrintCss() {
 // Blank space kept around every emailed PDF's content, on every page — plain full-bleed pages
 // looked cramped right up against the edges.
 const PDF_MARGIN_IN = 0.35;
+// How hard each page's snapshot is compressed. The package lowers it: the email goes through a function that takes
+// about 4.5 MB at most, and a four-part package at full quality comes close to that.
+let pdfJpegQuality = 0.92;
+// Pieces a page break shouldn't cut through (a chart with its title, a panel, a table row): their spans are kept on
+// each snapshot (see captureElement) and addCanvasAsPages moves a break up above any one that fits on a page.
+const PDF_KEEP_TOGETHER = ".panel, .panel > *, .recharts-wrapper, svg, img, canvas, tr, .kpi-card, .metric-strip";
 
 // Slices a (probably page-taller-than-one-page) canvas into a multi-page PDF, one page-height's
 // worth of pixels at a time, instead of squashing everything onto a single page. isFirstPage
@@ -3483,14 +3489,28 @@ function addCanvasAsPages(pdf, canvas, pageW, pageH, isFirstPage = true) {
   let renderedPx = 0;
   let first = true;
   while (renderedPx < canvas.height) {
-    const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+    let cut = Math.min(renderedPx + pageHeightPx, canvas.height);
+    // the break moves up above anything it would cut through that fits on one page (a chart, a panel), as long as
+    // that still leaves a fair amount on this page
+    if (cut < canvas.height && canvas.keepTogether) {
+      let moved = true;
+      while (moved) {
+        moved = false;
+        for (const [a, b] of canvas.keepTogether) {
+          const top = Math.floor(a) - 8;
+          if (top > renderedPx && top < cut && b > cut && b - top <= pageHeightPx) { cut = top; moved = true; }
+        }
+      }
+      if (cut - renderedPx < pageHeightPx * 0.15) cut = Math.min(renderedPx + pageHeightPx, canvas.height);
+    }
+    const sliceHeightPx = cut - renderedPx;
     const slice = document.createElement("canvas");
     slice.width = canvas.width;
     slice.height = sliceHeightPx;
     slice.getContext("2d").drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
     const sliceHeightIn = (sliceHeightPx * usableW) / canvas.width;
     if (!(first && isFirstPage)) pdf.addPage();
-    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", PDF_MARGIN_IN, PDF_MARGIN_IN, usableW, sliceHeightIn);
+    pdf.addImage(slice.toDataURL("image/jpeg", pdfJpegQuality), "JPEG", PDF_MARGIN_IN, PDF_MARGIN_IN, usableW, sliceHeightIn);
     renderedPx += sliceHeightPx;
     first = false;
   }
@@ -3546,13 +3566,26 @@ async function captureElement(el, printCss, width) {
   const captureWidth = Math.max(width, el.scrollWidth);
   el.style.width = `${captureWidth}px`;
   await new Promise((r) => setTimeout(r, 30));
+  const scale = 2;
+  let keepTogether = [];
   try {
-    return await window.html2canvas(el, {
+    const canvas = await window.html2canvas(el, {
       backgroundColor: "#ffffff",
-      scale: 2,
+      scale,
       useCORS: true,
       windowWidth: captureWidth,
-      onclone: (clonedDoc) => {
+      onclone: (clonedDoc, clonedEl) => {
+        // once the clone is laid out as it'll be drawn (after the swaps below), where each piece a page break
+        // shouldn't cut sits
+        const measure = () => {
+          if (!clonedEl) return;
+          const top = clonedEl.getBoundingClientRect().top;
+          keepTogether = Array.from(clonedEl.querySelectorAll(PDF_KEEP_TOGETHER))
+            .map((n) => n.getBoundingClientRect())
+            .filter((r) => r.height > 0)
+            .map((r) => [(r.top - top) * scale, (r.bottom - top) * scale]);
+        };
+
         const style = clonedDoc.createElement("style");
         style.textContent = printCss;
         clonedDoc.head.appendChild(style);
@@ -3581,8 +3614,11 @@ async function captureElement(el, printCss, width) {
           Object.assign(replacement.style, { display: "block", height: "auto", minHeight: "1.4em", overflow: "visible", whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", resize: "none" });
           ta.replaceWith(replacement);
         });
+        measure();
       },
     });
+    canvas.keepTogether = keepTogether;
+    return canvas;
   } finally {
     el.style.width = savedWidth;
     el.style.zoom = savedZoom;
@@ -3598,7 +3634,7 @@ function addImageFitted(pdf, canvas, x, y, boxW, boxH) {
   const boxRatio = boxW / boxH;
   const w = ratio > boxRatio ? boxW : boxH * ratio;
   const h = ratio > boxRatio ? boxW / ratio : boxH;
-  pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", x + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
+  pdf.addImage(canvas.toDataURL("image/jpeg", pdfJpegQuality), "JPEG", x + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
 }
 
 // The assessment's own "Print / Save PDF" lays out its header full-width, then its two columns
@@ -3633,10 +3669,26 @@ const PACKAGE_PARTS = [
   { key: "statcast", label: "Statcast Metrics", short: "Statcast metrics" },
 ];
 
+// The email can carry about 4.5 MB, so the package is compressed more than a single tab, and again if it's still too big.
+async function renderAssessmentPackageToPdf(keys) {
+  const LIMIT = 3.9 * 1024 * 1024; // of base64, leaving room for the message
+  const saved = pdfJpegQuality;
+  try {
+    for (const q of [0.8, 0.6, 0.45]) {
+      pdfJpegQuality = q;
+      const b64 = await buildAssessmentPackage(keys);
+      if (b64.length <= LIMIT) return b64;
+    }
+  } finally {
+    pdfJpegQuality = saved;
+  }
+  throw new Error("That package is too large to email in one go. Untick a part (Statcast is usually the biggest) and send it separately.");
+}
+
 // The package, one landscape PDF of the parts chosen: the biomechanical assessment as it's emailed on its own, the
 // Body Composition tab fitted to one page (the trends graph, the Evolt scans and the manual sheets), and the
-// Performance and Statcast tabs at full width over as many pages as they need.
-async function renderAssessmentPackageToPdf(keys) {
+// Performance and Statcast tabs at full width over as many pages as they need, broken between charts.
+async function buildAssessmentPackage(keys) {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: "letter" });
   const m = PDF_MARGIN_IN;
@@ -3835,6 +3887,7 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
         body: JSON.stringify({ to: toList.join(", "), cc: ccList.join(", "), subject: subject.trim(), body, filename, pdfBase64, ...(logContext || {}) }),
       });
       const json = await res.json().catch(() => ({}));
+      if (res.status === 413) throw new Error("The PDF is too large to email. Send fewer parts at a time.");
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`);
       setSent(true);
     } catch (e) {

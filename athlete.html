@@ -31,7 +31,7 @@
   /* the sun/moon button, top right */
   .theme-toggle { position: absolute; right: 10px; top: calc(8px + env(safe-area-inset-top)); width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 17px; border: 1px solid var(--border); background: var(--panel); color: var(--dim); }
   /* a speed day: sections as cards with their time, series as headings, each drill with its sets x distance */
-  .group.spd .spd-sec { display: flex; justify-content: center; gap: 8px; text-align: center; align-items: baseline; padding: 2px 0 8px; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label, var(--accent)); }
+  .group.spd .spd-sec { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0 8px; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label, var(--accent)); }
   .group.spd .spd-sec small { font-weight: 700; color: var(--dim); letter-spacing: 0; }
   .spd-sec-desc { margin: -2px 0 8px; font-size: 13px; line-height: 1.4; color: var(--dim); white-space: pre-wrap; }
   /* the week's programs (Strength, Speed, ...) as a tab bar across the screen, where the program buttons were */
@@ -44,9 +44,9 @@
   .spd-drill .name { font-size: 13px; }
   /* a finished speed section folds to its title alone, greyed, inside the green done border */
   .group.spd.folded > .spd-sec, .group.spd.folded > .spd-sec-desc, .group.spd.folded > .spd-ser, .group.spd.folded .blk-names { display: none; }
-  .group.spd.folded .blk-letter { flex: 1; text-align: center; text-transform: uppercase; letter-spacing: 0.06em; font-size: 13px; font-weight: 800; color: var(--dim); }
+  .group.spd.folded .blk-letter { flex: 1; text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 13px; font-weight: 800; color: var(--dim); }
   .spd-rx { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--pct); white-space: nowrap; }
-  :root[data-theme="light"] .spd-rx { color: var(--text); }
+  :root[data-theme="light"] .spd-rx { color: var(--label, var(--accent)); }
   .spd-boxes { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 6px; }
   .spd-box { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: var(--dim); }
   .spd-box small { font-weight: 400; }
