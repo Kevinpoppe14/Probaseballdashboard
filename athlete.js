@@ -1614,6 +1614,35 @@
     if (entries.length) { addFood(entries); showStatus(`Logged ${entries.length} food${entries.length === 1 ? "" : "s"}`); }
   };
 
+  // the options for one meal (shakes, whole foods, bowls...), each sized to that meal's targets, closest first
+  function openMealOptions(mealName) {
+    const choices = (nutrition && nutrition.choices && nutrition.choices[mealName]) || null;
+    const meal = ((nutrition && nutrition.meals) || []).find((m) => m.name === mealName);
+    if (!choices || !meal) return;
+    let rest = nutRest && !!choices.rest && !!meal.rest;
+    const sheet = el("div", { class: "sheet food-sheet" });
+    const draw = () => {
+      const t = rest ? meal.rest : meal.train;
+      const list = (rest ? choices.rest : choices.train) || [];
+      sheet.replaceChildren(
+        el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+        el("h2", null, `${mealName} options`),
+        meal.rest ? el("div", { class: "chips nut-chips" },
+          el("button", { class: `chip${!rest ? " on" : ""}`, onclick: () => { rest = false; draw(); } }, "Training day"),
+          el("button", { class: `chip${rest ? " on" : ""}`, onclick: () => { rest = true; draw(); } }, "Rest day")) : "",
+        el("div", { class: "card-sub nut-note" }, `Each one fits your ${mealName.toLowerCase()}: about ${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`),
+        ...list.map((m) => el("div", { class: "nut-option" },
+          el("div", { class: "nut-meal-top" }, el("b", null, m.name), el("small", null, `${m.tot.kcal} cal`)),
+          el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
+          m.note ? el("div", { class: "card-sub" }, m.note) : null,
+          el("div", { class: "card-sub" }, `P ${m.tot.p} · C ${m.tot.c} · F ${m.tot.f}`),
+          foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => { closeVideo(); logMeal(m.parts, mealName); } }, "+ Log this") : null)));
+    };
+    draw();
+    overlay.replaceChildren(sheet);
+    overlay.className = "overlay show";
+  }
+
   // ---- Nutrition: the plan the coach built on the dashboard (nutrition.js), as it wrote it out for the phone ------
   // The day's targets (training or rest day), each meal's targets, the example meals for a day of the two-week
   // rotation (this week's half of it and today, to start with), then the lists for building their own meals, the
@@ -1647,11 +1676,19 @@
     if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, "counts down to your targets")), foodLogCard(day));
 
     main.append(el("h2", { class: "section" }, "Your meals", el("small", null, nutRest ? "rest day" : "training day")));
+    // a meal with options opens them with a tap
+    const hasChoices = (name) => !!(n.choices && n.choices[name]);
+    if (n.choices) main.append(el("div", { class: "card-sub nut-note" }, "Tap a meal for options that fit it: shakes, whole foods, bowls and more."));
     main.append(el("div", { class: "card nut-meals" }, n.meals.filter((m) => !nutRest || m.rest).map((m) => {
       const t = nutRest ? m.rest : m.train;
-      return el("div", { class: "nut-meal-row" },
-        el("div", null, el("b", null, m.name), el("small", null, m.time)),
-        el("div", { class: "nut-meal-fig" }, el("b", null, `${t.kcal} cal`), el("small", null, macros(t))));
+      const inner = [
+        el("div", { class: "nut-meal-name" }, el("b", null, m.name), el("small", null, m.time)),
+        el("div", { class: "nut-meal-fig" }, el("b", null, `${t.kcal} cal`), el("small", null, macros(t))),
+        hasChoices(m.name) ? el("span", { class: "nut-chev", "aria-hidden": "true" }, "›") : null,
+      ];
+      return hasChoices(m.name)
+        ? el("button", { class: "nut-meal-row nut-meal-btn", "aria-label": `${m.name} options`, onclick: () => openMealOptions(m.name) }, inner)
+        : el("div", { class: "nut-meal-row" }, inner);
     })));
 
     // the example meals: one day of the two-week rotation, starting on today in this week's half of it
@@ -1668,7 +1705,9 @@
         el("div", { class: "nut-meal-top" }, el("b", null, m.slot), el("small", null, m.cheat ? "your pick" : `${m.tot.kcal} cal`)),
         m.cheat ? el("div", { class: "card-sub" }, "Cheat meal: enjoy it, then back on plan.") : el("ul", { class: "nut-items" }, m.items.map((it) => el("li", null, it))),
         m.note ? el("div", { class: "card-sub" }, m.note) : null,
-        foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => logMeal(m.parts, m.slot) }, "+ Log this meal") : null)));
+        el("div", { class: "nut-meal-acts" },
+          foodDays && m.parts && m.parts.length ? el("button", { class: "food-logmeal", onclick: () => logMeal(m.parts, m.slot) }, "+ Log this meal") : null,
+          hasChoices(m.slot) ? el("button", { class: "food-logmeal nut-other", onclick: () => openMealOptions(m.slot) }, "Other options") : null))));
       main.append(el("div", { class: "card-sub nut-note" }, `Day total: ${shown.tot.kcal.toLocaleString()} cal · ${macros(shown.tot)}`));
     }
 

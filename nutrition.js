@@ -107,6 +107,14 @@
   food("dressing", "fat", "Italian Dressing", "tbsp", 0.5, 70, 1.5, 0.1, 7.1, { max: 2 });
   // bars
   food("zone", "bar", "Zone Perfect Bar", "item", 1, 210, 22, 16, 7, { pl: "Zone Perfect Bars", max: 2 });
+  // for the meal options (salad bowl, wraps, pasta, chocolate milk, as on the DST salad and grocery lists)
+  food("chickpeas", "starch", "Chickpeas", "cup", 0.25, 269, 45, 14.5, 4.2, { max: 1 });
+  food("tortilla", "starch", "Whole Wheat Tortilla", "item", 1, 130, 22, 4, 3.5, { pl: "Whole Wheat Tortillas", max: 3 });
+  food("marinara", "starch", "Marinara Sauce", "cup", 0.25, 132, 20, 3.5, 4, { max: 1 });
+  food("chocmilk", "dairy", "Low-Fat Chocolate Milk", "cup", 0.5, 158, 26, 8.5, 2.5, { max: 3 });
+  food("cucumber", "veg", "Cucumber", "cup", 0.5, 16, 3.8, 0.7, 0.1);
+  food("onion", "veg", "Red Onion", "cup", 0.25, 64, 15, 1.8, 0.2, { max: 0.5 });
+  food("mushrooms", "veg", "Mushrooms", "cup", 0.5, 15, 2.3, 2.2, 0.2);
 
   const MAIN_PROTEINS = ["chicken", "turkey", "gturkey", "gbeef", "sirloin", "tenderloin", "pork", "salmon", "tilapia", "cod", "mahi", "shrimp"];
   const MAIN_STARCHES = ["rice", "brownrice", "pasta", "wwpasta", "quinoa", "couscous", "sweetpotato", "redpotato"];
@@ -225,15 +233,78 @@
     { name: "Protein Oatmeal", parts: (rng) => [part("oats", "carb"), part("whey", "protein"), part("banana", "fixed", { amt: 0.5 }), part(pick(rng, ["pb", "almondbutter"]), "fat", { opt: true })] },
   ];
   const SNACKS = [
-    { name: "Bar & Fruit", parts: (rng) => [part("zone", "fixed", { amt: 1 }), part(pick(rng, ["orange", "apple", "banana"]), "carb", { min: 0.5 })] },
+    { name: "Bar & Fruit", parts: (rng) => [part("zone", "fixed", { amt: 1 }), part(pick(rng, ["orange", "apple", "banana"]), "carb", { min: 0.5 }), part("ricecakes", "carb", { opt: true })] },
     { name: "Fruit & Nuts", parts: (rng) => [part("apple", "carb", { min: 0.5 }), part(pick(rng, ["almonds", "nuts"]), "fat", { min: 0.5 }), part("jerky", "protein", { opt: true })] },
     { name: "Turkey Sandwich", parts: (rng) => [part("bread", "carb", { min: 2 }), part(pick(rng, ["dturkey", "ham", "roastbeef"]), "protein", { min: 2 }), part("cheese", "fat", { opt: true })] },
     { name: "Yogurt & Berries", parts: (rng) => [part("greek", "protein"), part(pick(rng, ["blueberries", "strawberries", "raspberries"]), "carb", { min: 0.5, max: 1.5 }), part("granola", "carb", { opt: true }), part("almonds", "fat", { opt: true })] },
-    { name: "Cottage Cheese & Pineapple", parts: () => [part("cottage", "protein"), part("pineapple", "carb"), part("almonds", "fat", { opt: true })] },
+    { name: "Cottage Cheese & Pineapple", parts: () => [part("cottage", "protein"), part("pineapple", "carb"), part("granola", "carb", { opt: true }), part("almonds", "fat", { opt: true })] },
     { name: "Eggs & Fruit", parts: (rng) => [part("eggs", "protein", { max: 4 }), part(pick(rng, ["orange", "apple", "banana", "grapes"]), "carb", { min: 0.5 }), part("ricecakes", "carb", { opt: true })] },
   ];
   const POST = { name: "Post-Workout Shake", parts: () => [part("whey", "protein"), part("banana", "carb", { min: 0.5 }), part("oats", "carb", { opt: true, max: 0.75 }), part("honey", "carb", { opt: true }), part("milk", "fixed", { amt: 1 })] };
   const templated = (target, tpl, rng) => Object.assign({ name: tpl.name, note: tpl.note }, solve(target, tpl.parts(rng)));
+
+  // ---- meal options: alternatives for each meal, sized to that meal's targets ----------------------------
+  // The athlete taps a meal in the app and picks from these (shakes and whole-food breakfasts; bars, fruit and nuts,
+  // yogurt and sandwiches for snacks; plates, bowls, wraps, pasta and stir fry for lunch and dinner). The templates
+  // above are among them; these are added to them, so the example rotation itself is unchanged.
+  const MORE_BREAKFASTS = [
+    { name: "Breakfast Sandwich", parts: (rng) => [part("bagel", "carb", { min: 0.5 }), part("eggs", "fat"), part(pick(rng, ["ham", "dturkey"]), "protein", { opt: true }), part(pick(rng, ["orange", "apple", "banana"]), "carb", { opt: true })] },
+    { name: "Overnight Oats", parts: (rng) => [part("oats", "carb"), part("greek", "protein"), part("milk", "fixed", { amt: 0.5 }), part(pick(rng, BERRIES), "carb", { min: 0.5 }), part("almonds", "fat", { opt: true })], note: "Mix the night before and refrigerate" },
+    { name: "Sweet Potato Hash", parts: () => [part("sweetpotato", "carb"), part("eggs", "fat"), part("gturkey", "protein", { opt: true }), part("bellpepper", "fixed", { amt: 1 }), part("onion", "fixed", { amt: 0.25 }), part("bread", "carb", { opt: true })] },
+    { name: "Bagel, PB & Chocolate Milk", parts: () => [part("bagel", "carb", { min: 0.5 }), part("chocmilk", "protein", { min: 1, max: 2 }), part("pb", "fat", { opt: true })] },
+  ];
+  const MORE_SNACKS = [
+    { name: "Chocolate Milk & Banana", parts: () => [part("chocmilk", "protein", { min: 1, max: 2 }), part("banana", "carb", { opt: true })] },
+    { name: "PB & Banana Toast", parts: () => [part("bread", "carb", { min: 1, max: 3 }), part("pb", "fat", { min: 0.5 }), part("banana", "fixed", { amt: 0.5 }), part("stringcheese", "protein", { opt: true })] },
+    { name: "Jerky & Mixed Nuts", parts: (rng) => [part("jerky", "protein"), part("nuts", "fat", { min: 0.5 }), part(pick(rng, ["apple", "orange"]), "carb", { opt: true }), part("ricecakes", "carb", { opt: true })] },
+    { name: "Tuna & Rice Cakes", parts: (rng) => [part("tuna", "protein"), part("ricecakes", "carb"), part(pick(rng, ["apple", "grapes", "orange"]), "carb", { opt: true }), part("cucumber", "fixed", { amt: 0.5 }), part("avocado", "fat", { opt: true })] },
+  ];
+  const MORE_POST = [
+    { name: "Chocolate Milk", parts: () => [part("chocmilk", "carb", { min: 1, max: 2 }), part("banana", "carb", { opt: true }), part("whey", "protein", { opt: true })] },
+    { name: "Recovery Smoothie", parts: (rng) => [part("whey", "protein"), part("banana", "carb", { min: 0.5, max: 1 }), part(pick(rng, ["strawberries", "blueberries", "pineapple"]), "carb", { opt: true }), part("almondmilk", "fixed", { amt: 1 }), part("honey", "carb", { opt: true })], note: "Blend with ice" },
+    { name: "Yogurt & Fruit", parts: (rng) => [part("greek", "protein"), part(pick(rng, ["banana", "pineapple", "mango"]), "carb", { min: 0.5 }), part("honey", "carb", { opt: true }), part("granola", "carb", { opt: true })] },
+  ];
+  // lunch and dinner beyond the plate: the DST salad, and bowls, wraps, pasta and stir fry
+  const MAIN_CHOICES = [
+    { name: "Salad Bowl", parts: (rng) => [part("greens", "fixed", { amt: 2 }), part(pick(rng, ["salmon", "chicken", "tuna", "shrimp"]), "protein"), part("chickpeas", "carb"), part("cucumber", "fixed", { amt: 0.5 }), part("carrots", "fixed", { amt: 0.5 }), part("onion", "fixed", { amt: 0.25 }), part("eggs", "fixed", { amt: 1 }), part("dressing", "fat", { opt: true }), part("bread", "carb", { opt: true })] },
+    { name: "Burrito Bowl", parts: (rng) => [part(pick(rng, ["rice", "brownrice"]), "carb"), part("blackbeans", "fixed", { amt: 0.5 }), part(pick(rng, ["chicken", "gturkey", "gbeef", "sirloin"]), "protein"), part("bellpepper", "fixed", { amt: 1 }), part("avocado", "fat", { opt: true })] },
+    { name: "Wrap", parts: (rng) => [part("tortilla", "carb", { min: 1, max: 3 }), part(pick(rng, ["chicken", "dturkey", "turkey"]), "protein"), part("greens", "fixed", { amt: 1 }), part("cheese", "fat", { opt: true }), part(pick(rng, ["apple", "orange", "grapes"]), "carb", { opt: true })] },
+    { name: "Pasta Bowl", parts: (rng) => [part(pick(rng, ["pasta", "wwpasta"]), "carb"), part("marinara", "fixed", { amt: 0.5 }), part(pick(rng, ["gturkey", "gbeef", "chicken"]), "protein"), part(pick(rng, ["spinach", "zucchini", "mushrooms"]), "fixed", { amt: 1 }), part("oliveoil", "fat", { opt: true })] },
+    { name: "Stir Fry", parts: (rng) => [part(pick(rng, ["rice", "brownrice", "quinoa"]), "carb"), part(pick(rng, ["chicken", "shrimp", "sirloin", "pork"]), "protein"), part("broccoli", "fixed", { amt: 1 }), part("bellpepper", "fixed", { amt: 1 }), part("oliveoil", "fat", { opt: true })] },
+  ];
+  // how far a meal is from its targets: calories counted once, and the three macros between them once more
+  const missBy = (t, target) => {
+    const tk = kcalOf(target) || 1;
+    return Math.abs(t.kcal - tk) / tk + (Math.abs(t.p - target.p) / Math.max(target.p, 1) + Math.abs(t.c - target.c) / Math.max(target.c, 1) + Math.abs(t.f - target.f) / Math.max(target.f, 1)) / 3;
+  };
+  const hashOf = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
+  // every meal's options, training and rest day, closest to the meal's targets first
+  function mealChoices(T, seed) {
+    const out = {};
+    const build = (meals, dayKey) => meals.forEach((m) => {
+      const rng = rngOf((seed + hashOf(`${m.key}|${dayKey}`)) >>> 0);
+      let list;
+      if (m.key === "lunch" || m.key === "dinner") {
+        // four plates with different proteins, starches, vegetables and fruit, then the bowls, wrap, pasta and stir fry
+        const proteins = shuffled(rng, MAIN_PROTEINS), starches = shuffled(rng, MAIN_STARCHES), veg = shuffled(rng, MAIN_VEG), fruit = shuffled(rng, MAIN_FRUIT);
+        const plates = [0, 1, 2, 3].map((i) => Object.assign({ name: `${FOODS[proteins[i]].name} Plate` }, mainMeal(m.target, { protein: proteins[i], starch: starches[i], veg: veg[i], fruit: fruit[i] })));
+        list = plates.concat(MAIN_CHOICES.map((tpl) => templated(m.target, tpl, rng)));
+      } else {
+        const tpls = m.key === "breakfast" ? BREAKFASTS.concat(MORE_BREAKFASTS) : m.key === "post" ? [POST].concat(MORE_POST) : SNACKS.concat(MORE_SNACKS);
+        list = tpls.map((tpl) => templated(m.target, tpl, rng));
+      }
+      list = list.filter((x) => x.items.length).sort((a, b) => missBy(a.tot, m.target) - missBy(b.tot, m.target));
+      // only those within 15% of the meal's calories (kitchen-sized steps throw a small snack further off), and
+      // never fewer than five
+      const tk = kcalOf(m.target) || 1;
+      const close = list.filter((x) => Math.abs(x.tot.kcal / tk - 1) <= 0.15);
+      list = close.length >= 5 ? close : list.slice(0, 5);
+      (out[m.name] = out[m.name] || {})[dayKey] = list;
+    });
+    build(T.trainMeals, "train");
+    build(T.restMeals, "rest");
+    return out;
+  }
 
   // ---- targets ---------------------------------------------------------------------------------------
   const rmrOf = (kg, age, male) => (male
@@ -386,7 +457,7 @@
       snack: SNACKS.map((tpl) => templated(mealT("snack1"), tpl, rng)),
       post: templated(mealT("post"), POST, rng),
     };
-    return { weeks, options };
+    return { weeks, options, choices: mealChoices(T, seed) };
   }
 
   // the macro lists: for a lunch or dinner, the portion of each food that fills its place in the meal (the protein
@@ -537,6 +608,9 @@
       options: [["Breakfast", plan.options.breakfast], ["Snacks", plan.options.snack], ["Post-workout", [plan.options.post]]].map(([group, meals]) => ({
         group, meals: meals.map((m) => ({ name: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) })),
       })),
+      // each meal's options by meal name, for a training day and a rest day
+      choices: Object.fromEntries(Object.entries(plan.choices).map(([name, days]) => [name, Object.fromEntries(Object.entries(days).map(([d, list]) => [d,
+        list.map((m) => ({ name: m.name, items: m.items.map(itemText), parts: partsOf(m), note: m.note || "", tot: r0(m.tot) }))]))])),
       grocery: plan.weeks.map((week) => groceryList(week).map((grp) => ({ group: grp.name, rows: grp.items.map((it) => [it.food.name, amountText(it.food, it.serving), amountText(it.food, it.total)]) }))),
     };
   }
