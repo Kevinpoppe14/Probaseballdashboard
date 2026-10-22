@@ -1751,6 +1751,85 @@
   // from the plan's lists can be swapped for another of the same group (resized to bring the same protein, carbohydrate
   // or fat), and any food resized, removed or added to; then the whole meal is logged, or planned for the day shown.
   // replaceIds: entries it stands in for (a planned meal being changed), taken out when it's saved.
+  // the sample meal for a meal on a given day: that day of the two-week rotation (the week half by the calendar week)
+  function sampleFor(dayKey, mealName) {
+    const weeks = (nutrition && nutrition.weeks) || [];
+    if (!weeks.length) return null;
+    const [y, m, d] = dayKey.split("-").map(Number);
+    const wk = weeks[Math.floor(Date.UTC(y, m - 1, d) / (7 * 86400000)) % weeks.length] || weeks[0];
+    const day = wk[(new Date(y, m - 1, d).getDay() + 6) % 7];
+    return (day && day.meals.find((x) => x.slot === mealName)) || null;
+  }
+
+  // Plan my week: the next seven days, starting from the example meal rotation. Opening it plans every meal not yet
+  // logged or planned with that day's rotation meal (not the cheat meal, which is theirs to pick); then they tap a day
+  // to adjust, swap or rebuild its meals. Reset puts the rotation back over what's planned; Clear empties the week.
+  // Logged meals are never touched.
+  function openWeekPlanner() {
+    const sheet = el("div", { class: "sheet food-sheet week-planner" });
+    const today = todayKey();
+    const days = Array.from({ length: 7 }, (_, i) => shiftDay(today, i));
+    const meals = ((nutrition && nutrition.meals) || []).filter((m) => !nutRest || m.rest).map((m) => m.name);
+    // each meal still open is planned with the day's rotation meal; with replace, planned meals are replaced too
+    const fillFromRotation = (replace) => {
+      let added = 0;
+      days.forEach((dk) => {
+        let entries = foodDays[dk] || [];
+        if (replace) entries = entries.filter((e) => !e.planned);
+        const more = [];
+        meals.forEach((name) => {
+          if (entries.some((e) => e.meal === name)) return;
+          const s = sampleFor(dk, name);
+          if (!s || s.cheat || !s.parts || !s.parts.length) return;
+          s.parts.forEach(([key, amt]) => { const f = foodOf(key); if (f) more.push(Object.assign(entryOf(f, amt, name), { planned: true })); });
+          added += 1;
+        });
+        if (more.length || (replace && entries.length !== (foodDays[dk] || []).length)) setFoodDay(dk, entries.concat(more));
+      });
+      return added;
+    };
+    const draw = () => {
+      const rows = days.map((dk) => {
+        const entries = foodDays[dk] || [];
+        const pills = meals.map((name) => {
+          const mine = entries.filter((e) => e.meal === name);
+          const state = eatenOf(mine).length ? "eaten" : plannedOf(mine).length ? "planned" : "open";
+          return el("span", { class: `wk-pill ${state}`, title: `${name}: ${state}` }, name.replace("Mid-Morning ", "AM ").replace("Mid-Afternoon ", "PM ").replace("Post-Workout Shake", "Shake"));
+        });
+        const tot = sumOf(entries);
+        return el("button", { class: "wk-day", onclick: () => { foodDay = dk; openMeals = new Set(); closeVideo(); redrawKeep(); } },
+          el("div", { class: "wk-day-top" }, el("b", null, dayLabel(dk)), el("small", null, tot.kcal ? `${Math.round(tot.kcal).toLocaleString()} cal ›` : "nothing yet ›")),
+          el("div", { class: "wk-pills" }, pills));
+      });
+      const reset = () => {
+        if (!window.confirm("Put the example rotation back over every planned meal for the next 7 days? Meals you've logged stay.")) return;
+        fillFromRotation(true);
+        showStatus("Week reset to the rotation");
+        draw();
+      };
+      const clear = () => {
+        if (!window.confirm("Clear every planned meal for the next 7 days? Meals you've logged stay.")) return;
+        days.forEach((dk) => { const entries = foodDays[dk] || []; if (entries.some((e) => e.planned)) setFoodDay(dk, entries.filter((e) => !e.planned)); });
+        showStatus("Planned meals cleared");
+        draw();
+      };
+      sheet.replaceChildren(
+        el("button", { class: "close", "aria-label": "Close", onclick: () => { closeVideo(); redrawKeep(); } }, "×"),
+        el("h2", null, "Plan my week"),
+        el("div", { class: "card-sub nut-note" }, `Your week starts with the example meal rotation (${nutRest ? "rest" : "training"}-day amounts). Tap a day to adjust, swap or build any of its meals; the grocery list follows.`),
+        el("div", { class: "wk-legend" }, el("span", { class: "wk-pill eaten" }, "logged"), el("span", { class: "wk-pill planned" }, "planned"), el("span", { class: "wk-pill open" }, "open")),
+        ...rows,
+        el("div", { class: "swap-actions" },
+          el("button", { onclick: reset }, "Reset to the rotation"),
+          el("button", { onclick: clear }, "Clear planned meals")));
+    };
+    const added = fillFromRotation(false);
+    if (added) showStatus(`Planned ${added} meal${added === 1 ? "" : "s"} from the rotation`);
+    draw();
+    overlay.replaceChildren(sheet);
+    overlay.className = "overlay show";
+  }
+
   const SWAP_MACRO = { protein: "p", deli: "p", dairy: "p", starch: "c", fruit: "c", bar: "c", fat: "f" };
   function openMealEditor(opts) {
     const meal = opts.meal, day = foodDay || todayKey();
@@ -1758,6 +1837,7 @@
     const target = ((nutrition && nutrition.meals) || []).find((m) => m.name === meal);
     const t = target ? (nutRest && target.rest ? target.rest : target.train) : null;
     const sheet = el("div", { class: "sheet food-sheet meal-editor" });
+    const planDays = new Set([day]); // the days Plan it puts this meal on
     const show = () => { draw(); overlay.replaceChildren(sheet); overlay.className = "overlay show"; };
     const swapTo = (it, key) => {
       const cur = foodOf(it.key), nf = foodOf(key);
@@ -1792,15 +1872,27 @@
       }).filter(Boolean);
       const off = t ? Math.round(tot.kcal - t.kcal) : 0;
       const save = (asPlan) => {
-        const entries = items.map((it) => itemToEntry(it, meal)).filter(Boolean).map((e) => Object.assign(e, { planned: !!asPlan }));
-        if (!entries.length) { showStatus("Add a food first.", true); return; }
-        const kept = (foodDays[day] || []).filter((e) => !(opts.replaceIds || []).includes(e.id));
-        setFoodDay(day, kept.concat(entries));
+        const make = () => items.map((it) => itemToEntry(it, meal)).filter(Boolean).map((e) => Object.assign(e, { planned: !!asPlan }));
+        if (!make().length) { showStatus("Add a food first.", true); return; }
+        // planned on more days than the one shown: the same meal on each, in place of what was planned for it there
+        const targets = asPlan ? [...planDays].sort() : [day];
+        targets.forEach((dk) => {
+          const kept = (foodDays[dk] || []).filter((e) => (dk === day ? !(opts.replaceIds || []).includes(e.id) : !(e.planned && e.meal === meal)));
+          setFoodDay(dk, kept.concat(make()));
+        });
         closeVideo();
-        showStatus(`${asPlan ? "Planned" : "Logged"} ${meal.toLowerCase()}`);
+        showStatus(`${asPlan ? "Planned" : "Logged"} ${meal.toLowerCase()}${targets.length > 1 ? ` on ${targets.length} days` : ""}`);
         redrawKeep();
       };
       const today = todayKey();
+      // the days a plan goes on: the day shown, and any others in the coming week they tick
+      const week = Array.from({ length: 7 }, (_, i) => shiftDay(today, i));
+      const dayChips = day >= today ? el("div", { class: "me-days" },
+        el("small", null, "Plan on:"),
+        el("div", { class: "chips nut-chips" }, week.map((dk) => el("button", { class: `chip${planDays.has(dk) ? " on" : ""}`, onclick: () => {
+          if (planDays.has(dk)) { if (planDays.size > 1) planDays.delete(dk); } else planDays.add(dk);
+          draw();
+        } }, dk === today ? "Today" : new Date(`${dk}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" }))))) : null;
       sheet.replaceChildren(
         el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
         el("h2", null, opts.title || meal),
@@ -1810,9 +1902,10 @@
         el("div", { class: `me-tot${t && Math.abs(off) > t.kcal * 0.15 ? " off" : ""}` },
           el("b", null, `${Math.round(tot.kcal)} cal`), ` · P ${r1(tot.p)} · C ${r1(tot.c)} · F ${r1(tot.f)}`,
           t ? el("small", null, `Target: ${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`) : null),
+        dayChips,
         el("div", { class: "swap-actions" },
           day <= today ? el("button", { class: "primary", onclick: () => save(false) }, day === today ? "Log it" : `Log for ${dayLabel(day).toLowerCase()}`) : null,
-          day >= today ? el("button", { class: day > today ? "primary" : "", onclick: () => save(true) }, day === today ? "Plan it for later" : "Plan it") : null),
+          day >= today ? el("button", { class: day > today ? "primary" : "", onclick: () => save(true) }, planDays.size > 1 ? `Plan on ${planDays.size} days` : day === today ? "Plan it for later" : "Plan it") : null),
         // My meals (once they've loaded; there are none until migration_025 has been run)
         savedMeals ? el("button", { class: "food-logmeal nut-other me-save", onclick: saveMine }, opts.savedId ? "Update in My meals" : "Save to My meals") : null);
     };
@@ -1855,9 +1948,11 @@
     const day = nutRest ? n.rest : n.train;
     if (!foodDay) foodDay = todayKey();
     const today = todayKey();
+    // training or rest day, as a tab bar across the top (like Strength / Speed on the Program page)
+    main.append(el("div", { class: "lane-tabs nut-lanes", role: "tablist" },
+      [["Training day", false], ["Rest day", true]].map(([text, rest]) => el("button", { class: `lane-tab${nutRest === rest ? " on" : ""}`, role: "tab", "aria-selected": nutRest === rest ? "true" : "false", onclick: () => { nutRest = rest; redraw(); } }, text))));
     main.append(el("div", { class: "card nut-head" },
       el("div", { class: "card-title" }, n.goal),
-      el("div", { class: "chips nut-chips" }, chip("Training day", !nutRest, () => { nutRest = false; redraw(); }), chip("Rest day", nutRest, () => { nutRest = true; redraw(); })),
       el("div", { class: "sum-stats" },
         el("div", null, el("b", null, day.kcal.toLocaleString()), el("span", null, "calories")),
         el("div", null, el("b", null, `${day.p}g`), el("span", null, "protein")),
@@ -1878,6 +1973,8 @@
     main.append(el("div", { class: "card-sub nut-note" }, foodDays
       ? (foodDay > today ? "Tap a meal to plan it: the sample, an option, or your own." : "Tap a meal to log it: the sample, an option, your own, or a single food.")
       : "Tap a meal for its sample and options."));
+    if (foodDays) main.append(el("button", { class: "meal-act week-act", onclick: openWeekPlanner },
+      el("b", null, "Plan my week"), el("small", null, "See the next 7 days, fill them with sample meals, or jump to a day"), el("span", { class: "nut-chev", "aria-hidden": "true" }, "›")));
     const cells = n.meals.filter((m) => !nutRest || m.rest).map((m) => {
       const t = nutRest ? m.rest : m.train;
       const mine = entries.filter((e) => e.meal === m.name);
@@ -2016,8 +2113,8 @@
   }
   const THORNE_URL = "https://s.thorne.com/WFei3"; // the DST dispensary on Thorne
 
-  // The grocery list for what's planned over the next seven days (from today), each food added up across the meals
-  // it's in; with nothing planned yet, the example rotation's lists, as on the printed plan.
+  // The grocery list: one list, for what's planned over the next seven days (from today), each food added up across
+  // the meals it's in. With nothing planned there's no list, just the way to plan the week.
   const GROCERY_GROUP = { protein: "Protein", deli: "Protein", starch: "Carbohydrate", fruit: "Fruit", veg: "Vegetable", dairy: "Dairy & Misc", fat: "Dairy & Misc", bar: "Dairy & Misc" };
   function groceryFold(fold, table) {
     const today = todayKey();
@@ -2035,14 +2132,13 @@
       const groups = ["Protein", "Carbohydrate", "Fruit", "Vegetable", "Dairy & Misc", "Other"];
       const rows = (name) => [...byFood.values()].filter((g) => g.group === name).sort((a, b) => a.name.localeCompare(b.name))
         .map((g) => [g.name, g.f ? amountLabel(g.f, g.qty) : g.qty ? `${r1(g.qty)} ${g.unit === "servings" ? "servings" : g.unit}` : `${g.times}×`, `${g.times} meal${g.times === 1 ? "" : "s"}`]);
-      return fold("Grocery list · your planned meals",
-        el("div", { class: "card-sub" }, "Everything planned for the next 7 days. Plan more meals and this list follows."),
+      return fold("Grocery list",
+        el("div", { class: "card-sub" }, "Everything planned for the next 7 days. Change your meals and this list follows."),
         ...groups.filter((g) => rows(g).length).flatMap((g) => [el("div", { class: "nut-group" }, g), table(rows(g), ["Food", "Total", "In"])]));
     }
-    // nothing planned: the example rotation's two weeks (flatMap: the page builder flattens only one level of lists)
-    return fold("Grocery list · example rotation",
-      el("div", { class: "card-sub" }, "For the sample meals. Plan your own meals above and this list follows them instead."),
-      ...((nutrition && nutrition.grocery) || []).flatMap((wk, i) => [el("div", { class: "nut-group" }, `Week ${i + 1}`)].concat(wk.flatMap((g) => [el("div", { class: "card-sub grocery-sub" }, g.group), table(g.rows, ["Food", "Serving", "Week"])]))));
+    return fold("Grocery list",
+      el("div", { class: "card-sub" }, "Your grocery list appears once your week is planned."),
+      foodDays ? el("button", { class: "food-logmeal", onclick: openWeekPlanner }, "Plan my week") : null);
   }
 
   // ---- My Progress: sessions week by week, estimated maxes, top weights and Group Testing results ----------
