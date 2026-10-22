@@ -646,6 +646,7 @@
               <div className="empty-state">Choose a goal above to build this athlete’s nutrition plan from their latest body composition.</div>
             </React.Fragment>
           ) : <ManualBasisForm athlete={athlete} rec={rec} />}
+          <FoodLibraryPanel />
         </div>
       );
     }
@@ -842,7 +843,93 @@
             </div>
           </div>
         </div>
+        <FoodLibraryPanel />
       </div>
+    );
+  }
+
+  // ---- the shared food library (migration_024): custom foods athletes and coaches have entered from labels, which
+  // everyone's food log searches beside the built-in food database. Coaches correct, add or delete them here.
+  const LIB_UNITS = ["serving", "piece", "g", "oz", "cup", "fl oz", "tbsp", "tsp"];
+  const blankFood = () => ({ name: "", sAmt: "1", sUnit: "serving", kcal: "", p: "", c: "", f: "" });
+  function FoodLibraryPanel() {
+    const [rows, setRows] = useState(null); // null until opened and loaded; "missing" without the table
+    const [edit, setEdit] = useState(null); // { id (null for a new one), form }
+    const [q, setQ] = useState("");
+    const sb = window.supabaseClient;
+    const load = async () => {
+      const { data, error } = await sb.from("food_library").select("id,data,updated_at").order("updated_at", { ascending: false }).limit(5000);
+      setRows(error ? "missing" : (data || []).map((r) => Object.assign({ id: r.id }, r.data || {})));
+    };
+    const save = async () => {
+      const f = edit.form, n = (v) => { const x = parseFloat(v); return Number.isFinite(x) && x >= 0 ? x : 0; };
+      if (!f.name.trim() || !(n(f.sAmt) > 0)) { window.alert("Give the food a name and a serving size."); return; }
+      const prev = edit.id ? rows.find((r) => r.id === edit.id) : null;
+      const { data: s } = await sb.auth.getSession();
+      const me = (s && s.session && s.session.user && s.session.user.email) || "";
+      const data = Object.assign({}, prev || { source: "coach", addedBy: me },
+        { name: f.name.trim().slice(0, 60), sAmt: n(f.sAmt), sUnit: f.sUnit, kcal: Math.round(n(f.kcal) || n(f.p) * 4 + n(f.c) * 4 + n(f.f) * 9), p: n(f.p), c: n(f.c), f: n(f.f) });
+      delete data.id;
+      const id = edit.id || `fl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const { error } = await sb.from("food_library").upsert({ id, data, updated_at: new Date().toISOString() });
+      if (error) { window.alert(`That food couldn’t be saved: ${error.message}`); return; }
+      setEdit(null);
+      load();
+    };
+    const remove = async (r) => {
+      if (!window.confirm(`Delete ${r.name} from the food library? Food logs that already have it keep their figures.`)) return;
+      const { error } = await sb.from("food_library").delete().eq("id", r.id);
+      if (error) { window.alert(`That food couldn’t be deleted: ${error.message}`); return; }
+      load();
+    };
+    const setForm = (k, v) => setEdit((e) => Object.assign({}, e, { form: Object.assign({}, e.form, { [k]: v }) }));
+    const field = (k, label, type) => <label className="nut-field"><span>{label}</span><input type={type || "number"} step="any" value={edit.form[k]} onChange={(e) => setForm(k, e.target.value)} /></label>;
+    const words = q.toLowerCase().trim();
+    const shown = Array.isArray(rows) ? rows.filter((r) => !words || String(r.name || "").toLowerCase().includes(words)) : [];
+    return (
+      <details className="panel nut-library no-print" onToggle={(e) => { if (e.currentTarget.open && rows == null) load(); }}>
+        <summary><b>Food library</b> <small>custom foods athletes and coaches have added, searched by everyone’s food log beside {(window.DSTFoodDB || []).length} built-in foods</small></summary>
+        {rows == null && <p className="nut-hint">Loading…</p>}
+        {rows === "missing" && <p className="nut-hint">The food library isn’t set up yet: run supabase/migration_024_food_library.sql in the Supabase SQL Editor.</p>}
+        {Array.isArray(rows) && (
+          <React.Fragment>
+            <div className="nut-top">
+              <input className="nut-lib-search" type="search" placeholder="Search the library" value={q} onChange={(e) => setQ(e.target.value)} />
+              <button type="button" className="btn btn-secondary" onClick={() => setEdit({ id: null, form: blankFood() })}>+ Add a food</button>
+            </div>
+            {edit && (
+              <div className="nut-manual">
+                <div className="nut-fields">
+                  {field("name", "Food", "text")}
+                  {field("sAmt", "Serving size")}
+                  <label className="nut-field"><span>Unit</span><select value={edit.form.sUnit} onChange={(e) => setForm("sUnit", e.target.value)}>{LIB_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}</select></label>
+                  {field("kcal", "Calories")}{field("p", "Protein (g)")}{field("c", "Carbs (g)")}{field("f", "Fat (g)")}
+                </div>
+                <div className="nut-top">
+                  <button type="button" className="btn btn-assign" onClick={save}>Save food</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setEdit(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {shown.length ? (
+              <table className="nut-table">
+                <thead><tr><th>Food</th><th>Serving</th><th>Calories</th><th>P / C / F</th><th>Added by</th><th></th></tr></thead>
+                <tbody>
+                  {shown.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.name}</td><td>{r.sAmt} {r.sUnit}</td><td>{r.kcal}</td><td>{r.p} / {r.c} / {r.f}</td><td>{r.addedBy || (r.source === "coach" ? "a coach" : "an athlete")}</td>
+                      <td className="nut-lib-acts">
+                        <button type="button" className="btn-link" onClick={() => setEdit({ id: r.id, form: { name: r.name || "", sAmt: String(r.sAmt || 1), sUnit: r.sUnit || "serving", kcal: String(r.kcal || ""), p: String(r.p || ""), c: String(r.c || ""), f: String(r.f || "") } })}>Edit</button>
+                        <button type="button" className="btn-link" style={{ color: "var(--danger)" }} onClick={() => remove(r)}>Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="nut-hint">{rows.length ? "No custom foods match that search." : "No custom foods yet. Athletes’ custom foods from the app show up here, and coaches can add their own."}</p>}
+          </React.Fragment>
+        )}
+      </details>
     );
   }
 

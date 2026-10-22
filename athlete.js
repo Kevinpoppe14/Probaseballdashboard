@@ -120,6 +120,18 @@
       const { error } = await sb.from("food_logs").upsert({ athlete_id: String(coachId), day, entries, source: "coach", updated_at: new Date().toISOString() });
       return !error;
     },
+    // the shared food library, as athlete_portal_food_library / _add read and write it
+    async foodLibrary() {
+      const { data, error } = await sb.from("food_library").select("id,data").limit(5000);
+      return error ? null : (data || []).map((r) => Object.assign({ id: r.id }, r.data || {}, { mine: (r.data || {}).athleteId === String(coachId) }));
+    },
+    async foodLibraryAdd(def) {
+      const { data: s } = await sb.auth.getSession();
+      const id = `fl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const by = (s && s.session && s.session.user && s.session.user.email) || "";
+      const { error } = await sb.from("food_library").insert({ id, data: Object.assign({}, def, { source: "coach", athleteId: String(coachId), addedBy: by }) });
+      return error ? null : id;
+    },
     // the nutrition plan's copy for the phone, as athlete_portal_nutrition hands it back
     async nutrition() {
       const { data, error } = await sb.from("assessments").select("data").eq("athlete_id", String(coachId)).eq("data->>kind", "nutrition").limit(10);
@@ -178,6 +190,15 @@
     async foodSave(day, entries) {
       const res = await sb.rpc("athlete_portal_food_save", { p_token: token, p_day: day, p_entries: entries });
       return !res.error && res.data === true;
+    },
+    // the shared food library (supabase/migration_024_food_library.sql); none until that has been run
+    async foodLibrary() {
+      const res = await sb.rpc("athlete_portal_food_library", { p_token: token });
+      return !res.error && Array.isArray(res.data) ? res.data : null;
+    },
+    async foodLibraryAdd(def) {
+      const res = await sb.rpc("athlete_portal_food_library_add", { p_token: token, p_food: def });
+      return !res.error && res.data ? res.data : null;
     },
     // the nutrition plan (supabase/migration_022_athlete_portal_nutrition.sql); none until that has been run
     async nutrition() {
@@ -258,6 +279,7 @@
   let nutRest = false, nutWeek = null, nutDay = null; // the Nutrition tab: rest-day targets, and the example week and day shown
   let foodDays = null; // the food log: "YYYY-MM-DD" -> that day's entries (null until loaded, or with no food log in the database)
   let foodDay = null; // the day the food log is showing ("YYYY-MM-DD"), today to start with
+  let libraryFoods = []; // the shared food library: custom foods athletes and coaches have added (migration_024)
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -1508,20 +1530,26 @@
   // units for a custom food: [family, size in that family's base unit]; an amount converts within its family
   // (grams and ounces by weight; cups, spoons and fluid ounces by volume)
   const CUSTOM_UNITS = { serving: ["count", 1], piece: ["count", 1], g: ["weight", 1], oz: ["weight", 28.35], cup: ["volume", 48], "fl oz": ["volume", 6], tbsp: ["volume", 3], tsp: ["volume", 1] };
-  // their own foods (custom foods logged with their label figures), newest first, one of each by name
+  // their own foods: custom foods they've logged (with the label figures), newest first, then the ones they added to
+  // the shared library, one of each by name
+  const labelOf = (x) => ({ name: x.name, sAmt: +x.sAmt || 1, sUnit: x.sUnit, kcal: +x.kcal || 0, p: +x.p || 0, c: +x.c || 0, f: +x.f || 0 });
   const myFoods = () => {
     const seen = new Set(), out = [];
+    const keep = (d) => { const id = d.name.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(d); } };
     Object.keys(foodDays || {}).sort().reverse().forEach((k) => (foodDays[k] || []).slice().reverse().forEach((e) => {
-      if (!e.def || !CUSTOM_UNITS[e.def.sUnit]) return;
-      const id = e.def.name.toLowerCase();
-      if (!seen.has(id)) { seen.add(id); out.push(e.def); }
+      if (e.def && !e.def.db && CUSTOM_UNITS[e.def.sUnit]) keep(e.def);
     }));
+    libraryFoods.filter((x) => x.mine && CUSTOM_UNITS[x.sUnit]).forEach((x) => keep(labelOf(x)));
     return out;
   };
+  // the food database: the built-in foods (foods_db.js) and the custom foods others have added to the library
+  const databaseFoods = () => (window.DSTFoodDB || []).map((r) => ({ name: r[0], sAmt: r[1], sUnit: r[2], kcal: r[3], p: r[4], c: r[5], f: r[6], group: r[7] }))
+    .concat(libraryFoods.filter((x) => !x.mine && CUSTOM_UNITS[x.sUnit]).map((x) => Object.assign(labelOf(x), { group: "Added by athletes and coaches" })));
   // foods logged in the last two weeks, newest first, one of each, for adding again in a tap
   const recentFoods = () => {
     const seen = new Set(), out = [];
     Object.keys(foodDays || {}).sort().reverse().forEach((k) => (foodDays[k] || []).slice().reverse().forEach((e) => {
+      if (e.def && !e.def.db) return; // their own foods are under My foods
       const id = `${e.name}|${e.amount}`;
       if (!seen.has(id)) { seen.add(id); out.push(e); }
     }));
@@ -1569,9 +1597,11 @@
   // the Log food sheet: search the food lists (or a recent food) and set the amount, or enter a food of their own
   function openFoodPicker(meal) {
     let q = "", chosen = null, amt = 1, mealSel = meal || mealNow(), custom = false;
+    let fromDb = false; // the label form opened on a food from the database (not added to the library again)
     const cf = { name: "", sAmt: "1", sUnit: "serving", kcal: "", p: "", c: "", f: "", eAmt: "1", eUnit: "servings" };
-    // a food of their own from before, ready for a new amount
-    const openMine = (d) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit }); custom = true; draw(); };
+    // a food of their own, or one from the database, in the label form ready for an amount
+    const openLabel = (d, db) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit }); fromDb = !!db; custom = true; draw(); };
+    const openMine = (d) => openLabel(d, false);
     const sheet = el("div", { class: "sheet food-sheet" });
     const close = () => el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×");
     const mealPick = () => el("label", { class: "food-label" }, "Meal",
@@ -1605,7 +1635,7 @@
         const pair = (amtKey, unitKey, units, label) => el("label", { class: "food-label" }, label, el("div", { class: "food-pair" },
           el("input", { class: "food-input", value: cf[amtKey], inputmode: "decimal", type: "number", step: "any", min: "0", oninput: (e) => { cf[amtKey] = e.target.value; showTotal(); } }),
           unitPick(unitKey, units, label)));
-        sheet.replaceChildren(close(), el("h2", null, "Custom food"),
+        sheet.replaceChildren(close(), el("h2", null, fromDb ? "Log food" : "Custom food"),
           box("name", "Food", "text"),
           el("div", { class: "nut-group" }, "From the label"),
           pair("sAmt", "sUnit", Object.keys(CUSTOM_UNITS), "Serving size"),
@@ -1620,7 +1650,14 @@
             const amount = cf.eUnit === "servings" ? `${eAmt} serving${eAmt === 1 ? "" : "s"}` : `${eAmt} ${cf.eUnit}`;
             const def = { name: cf.name.trim().slice(0, 60), sAmt: num(cf.sAmt) || 1, sUnit: cf.sUnit, kcal: Math.round(x.kcal), p: r1(x.p), c: r1(x.c), f: r1(x.f) };
             closeVideo();
-            addFood([{ id: newEntryId(), meal: mealSel, name: def.name, amount, kcal: Math.round(x.kcal * k), c: r1(x.c * k), p: r1(x.p * k), f: r1(x.f * k), def }]);
+            addFood([{ id: newEntryId(), meal: mealSel, name: def.name, amount, kcal: Math.round(x.kcal * k), c: r1(x.c * k), p: r1(x.p * k), f: r1(x.f * k), def: fromDb ? Object.assign({ db: true }, def) : def }]);
+            // a food of their own goes into the shared library for good (one already there under the same name,
+            // serving and calories is left as it is)
+            if (!fromDb && api.foodLibraryAdd) {
+              api.foodLibraryAdd(def).then((id) => {
+                if (id && !libraryFoods.some((x) => x.id === id)) libraryFoods.push(Object.assign({ id, mine: true }, def));
+              }).catch(() => {});
+            }
           } }, "Add")));
         showTotal();
         return;
@@ -1631,7 +1668,11 @@
         const match = (name) => !words || words.split(/\s+/).every((w) => name.toLowerCase().includes(w));
         const foods = Object.keys((nutrition && nutrition.foods) || {}).map(foodOf).filter((f) => f && match(f.name)).sort((a, b) => a.name.localeCompare(b.name));
         const mine = myFoods().filter((d) => match(d.name));
-        const recent = recentFoods().filter((e) => !e.def && match(e.name)).slice(0, 8);
+        const recent = recentFoods().filter((e) => match(e.name)).slice(0, 8);
+        // the database is searched, not listed whole: the closest 40 names (those starting with the search first)
+        const db = words ? databaseFoods().filter((d) => match(d.name))
+          .sort((a, b) => (b.name.toLowerCase().startsWith(words) ? 1 : 0) - (a.name.toLowerCase().startsWith(words) ? 1 : 0) || a.name.localeCompare(b.name)).slice(0, 40) : [];
+        const dbCount = databaseFoods().length;
         list.replaceChildren(
           el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
           mine.length ? el("div", { class: "nut-group" }, "My foods") : "",
@@ -1640,9 +1681,14 @@
           recent.length ? el("div", { class: "nut-group" }, "Recent") : "",
           ...recent.map((e) => el("button", { class: "food-row", onclick: () => { closeVideo(); addFood([Object.assign({}, e, { id: newEntryId(), meal: mealSel })]); } },
             el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null), el("small", null, `${e.kcal} cal`))),
-          foods.length ? el("div", { class: "nut-group" }, "Foods") : "",
+          foods.length ? el("div", { class: "nut-group" }, "Your plan’s foods") : "",
           ...foods.map((f) => el("button", { class: "food-row", onclick: () => { chosen = f; amt = defaultAmount(f); draw(); } },
-            el("span", null, f.name), el("small", null, `${Math.round(f.kcal * defaultAmount(f))} cal · ${amountLabel(f, defaultAmount(f))}`))));
+            el("span", null, f.name), el("small", null, `${Math.round(f.kcal * defaultAmount(f))} cal · ${amountLabel(f, defaultAmount(f))}`))),
+          db.length ? el("div", { class: "nut-group" }, "Food database") : "",
+          ...db.map((d) => el("button", { class: "food-row", onclick: () => openLabel(d, true) },
+            el("span", null, d.name), el("small", null, `${d.kcal} cal / ${d.sAmt} ${d.sUnit}`))),
+          !words ? el("div", { class: "card-sub nut-note" }, `Type to search ${dbCount} more foods: whole foods, groceries, bars and shakes, restaurant meals, and foods other athletes have added.`)
+            : !mine.length && !recent.length && !foods.length && !db.length ? el("div", { class: "card-sub nut-note" }, "Nothing found. Add it as a custom food from its label.") : "");
       };
       const search = el("input", { type: "search", class: "food-input", placeholder: "Search foods: chicken, rice, eggs…", value: q, oninput: (e) => { q = e.target.value; drawList(); } });
       sheet.replaceChildren(close(), el("h2", null, "Log food"), mealPick(), search, list);
@@ -2153,6 +2199,8 @@
       rows.forEach((r) => { foodDays[String(r.day).slice(0, 10)] = Array.isArray(r.entries) ? r.entries : []; });
       if (view === "nutrition" && !overlay.className.includes("show")) redrawKeep();
     });
+    // the shared food library (none until migration_024 has been run); only searched, so nothing to redraw
+    if (api.foodLibrary) api.foodLibrary().catch(() => null).then((rows) => { if (Array.isArray(rows)) libraryFoods = rows; });
     // the nutrition plan: once it's in, the menu gets its Nutrition button (not redrawn mid-entry or with a sheet open)
     api.nutrition().catch(() => null).then((nu) => {
       nutrition = nu || null;
