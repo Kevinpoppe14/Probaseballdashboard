@@ -295,8 +295,11 @@
   .nut-fold summary { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 15px; cursor: pointer; list-style: none; }
   .nut-fold summary::-webkit-details-marker { display: none; }
   .nut-fold summary::after { content: "+"; font-size: 18px; color: var(--dim); }
-  .nut-fold[open] summary { margin-bottom: 8px; }
-  .nut-fold[open] summary::after { content: "–"; }
+  .nut-fold[open] > summary { margin-bottom: 8px; }
+  .nut-fold[open] > summary::after { content: "–"; }
+  .nut-subfold { padding: 10px 0; border-top: 1px solid var(--border); }
+  .nut-subfold summary { font-size: 14px; }
+  .exchange-menu > .nut-note { margin-top: 0; }
   .nut-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .nut-table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; padding: 4px 6px; border-bottom: 1px solid var(--border); }
   .nut-table td { padding: 6px; border-bottom: 1px solid var(--border); }

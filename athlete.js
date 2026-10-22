@@ -2207,10 +2207,12 @@
     const table = (rows, heads) => el("table", { class: "nut-table" },
       el("thead", null, el("tr", null, heads.map((h) => el("th", null, h)))),
       el("tbody", null, rows.map((r) => el("tr", null, r.map((c) => el("td", null, c))))));
-    main.append(el("h2", { class: "section" }, "Food Exchange Options"));
-    main.append(el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."));
-    (n.lists || []).forEach((l) => main.append(fold(l.title,
-      l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"]))));
+    // one menu, folded: it opens to the protein, carbohydrate, fruit, vegetable and fat lists, each folded again
+    main.append(el("details", { class: "card nut-fold exchange-menu" },
+      el("summary", null, "Food Exchange Options"),
+      el("div", { class: "card-sub nut-note" }, "For lunch and dinner, pick one protein, one carbohydrate and one fruit, plus the vegetables, in these amounts."),
+      ...(n.lists || []).map((l) => el("details", { class: "nut-fold nut-subfold" }, el("summary", null, l.title),
+        l.same ? table(l.rows.map((r) => [r[0], r[1]]), ["Food", "Amount"]) : table(l.rows, ["Food", "Training", "Rest"])))));
 
     // ---- shopping and habits: the grocery list follows what's planned for the coming week
     main.append(el("h2", { class: "section" }, "Shopping & habits"));
