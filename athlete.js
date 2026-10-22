@@ -132,6 +132,17 @@
       const { error } = await sb.from("food_library").insert({ id, data: Object.assign({}, def, { source: "coach", athleteId: String(coachId), addedBy: by }) });
       return error ? null : id;
     },
+    // the athlete's saved meals, as athlete_portal_saved_meals / _save read and write them
+    async savedMeals() {
+      const { data, error } = await sb.from("saved_meals").select("id,data,updated_at").eq("athlete_id", String(coachId)).order("updated_at", { ascending: false }).limit(500);
+      return error ? null : (data || []).map((r) => ({ id: r.id, data: r.data }));
+    },
+    async savedMealSave(id, data) {
+      const { error } = data
+        ? await sb.from("saved_meals").upsert({ id, athlete_id: String(coachId), data, updated_at: new Date().toISOString() })
+        : await sb.from("saved_meals").delete().eq("id", id).eq("athlete_id", String(coachId));
+      return !error;
+    },
     // the nutrition plan's copy for the phone, as athlete_portal_nutrition hands it back
     async nutrition() {
       const { data, error } = await sb.from("assessments").select("data").eq("athlete_id", String(coachId)).eq("data->>kind", "nutrition").limit(10);
@@ -195,6 +206,15 @@
     async foodLibrary() {
       const res = await sb.rpc("athlete_portal_food_library", { p_token: token });
       return !res.error && Array.isArray(res.data) ? res.data : null;
+    },
+    // the athlete's saved meals (supabase/migration_025_saved_meals.sql); none until that has been run
+    async savedMeals() {
+      const res = await sb.rpc("athlete_portal_saved_meals", { p_token: token });
+      return !res.error && Array.isArray(res.data) ? res.data : null;
+    },
+    async savedMealSave(id, data) {
+      const res = await sb.rpc("athlete_portal_saved_meal_save", { p_token: token, p_id: id, p_data: data });
+      return !res.error && res.data === true;
     },
     async foodLibraryAdd(def) {
       const res = await sb.rpc("athlete_portal_food_library_add", { p_token: token, p_food: def });
@@ -280,6 +300,7 @@
   let foodDays = null; // the food log: "YYYY-MM-DD" -> that day's entries (null until loaded, or with no food log in the database)
   let foodDay = null; // the day the food log is showing ("YYYY-MM-DD"), today to start with
   let libraryFoods = []; // the shared food library: custom foods athletes and coaches have added (migration_024)
+  let savedMeals = null; // My meals: [{ id, data: { name, meal, items } }] (null until loaded, or without migration_025)
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -1791,7 +1812,22 @@
           t ? el("small", null, `Target: ${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`) : null),
         el("div", { class: "swap-actions" },
           day <= today ? el("button", { class: "primary", onclick: () => save(false) }, day === today ? "Log it" : `Log for ${dayLabel(day).toLowerCase()}`) : null,
-          day >= today ? el("button", { class: day > today ? "primary" : "", onclick: () => save(true) }, day === today ? "Plan it for later" : "Plan it") : null));
+          day >= today ? el("button", { class: day > today ? "primary" : "", onclick: () => save(true) }, day === today ? "Plan it for later" : "Plan it") : null),
+        // My meals (once they've loaded; there are none until migration_025 has been run)
+        savedMeals ? el("button", { class: "food-logmeal nut-other me-save", onclick: saveMine }, opts.savedId ? "Update in My meals" : "Save to My meals") : null);
+    };
+    // the meal as it stands, kept under a name in My meals (a saved meal opened here is updated, or saved as a new one
+    // under a new name)
+    const saveMine = () => {
+      if (!items.length) { showStatus("Add a food first.", true); return; }
+      const name = (window.prompt("Name this meal", opts.savedName || (opts.title && !/^Custom /.test(opts.title) ? opts.title : "")) || "").trim().slice(0, 60);
+      if (!name) return;
+      const id = opts.savedId && name === opts.savedName ? opts.savedId : `sm-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const data = { name, meal, items: items.map((it) => JSON.parse(JSON.stringify(it))) };
+      savedMeals = [{ id, data }].concat((savedMeals || []).filter((x) => x.id !== id));
+      opts.savedId = id; opts.savedName = name;
+      api.savedMealSave(id, data).then((ok) => showStatus(ok ? `Saved ${name} to My meals` : "Not saved. Check your connection and try again.", !ok));
+      draw();
     };
     show();
   }
@@ -1879,6 +1915,12 @@
           ? el("div", { class: "meal-opt" }, el("div", { class: "meal-opt-top" }, el("b", null, "Cheat meal"), el("small", null, "your pick")), el("div", { class: "card-sub" }, "Enjoy it, then back on plan. Log what you have with + Add a food."))
           : mealOption(sample.title || m.name, sample, m.name));
       }
+      // their saved meals: those saved from this meal first, then the rest
+      if (foodDays && savedMeals && savedMeals.length) {
+        const list = savedMeals.slice().sort((a, b) => (b.data.meal === m.name ? 1 : 0) - (a.data.meal === m.name ? 1 : 0));
+        body.push(el("div", { class: "nut-group" }, "My meals"));
+        list.forEach((s) => body.push(savedOption(s, m.name)));
+      }
       // the options sized to this meal
       const choices = n.choices && n.choices[m.name] ? (nutRest && n.choices[m.name].rest ? n.choices[m.name].rest : n.choices[m.name].train) || [] : [];
       if (choices.length) {
@@ -1893,6 +1935,25 @@
       return el("div", { class: "meal-cell open" }, head, el("div", { class: "meal-body" }, body));
     });
     main.append(el("div", { class: "card nut-meals" }, cells));
+    // a saved meal: its foods and figures worked out again from what was saved, Choose, and × to delete it
+    function savedOption(s, mealName) {
+      const items = (s.data.items || []).filter((it) => it && (it.kind !== "plan" || foodOf(it.key)));
+      const tot = items.map(itemTotals).reduce((a, x) => ({ kcal: a.kcal + x.kcal, p: a.p + x.p, c: a.c + x.c, f: a.f + x.f }), { kcal: 0, p: 0, c: 0, f: 0 });
+      const names = items.map((it) => { const e = itemToEntry(it, ""); return e ? `${e.amount ? `${e.amount} ` : ""}${e.name}` : ""; }).filter(Boolean);
+      const remove = () => {
+        if (!window.confirm(`Delete ${s.data.name} from My meals?`)) return;
+        savedMeals = savedMeals.filter((x) => x.id !== s.id);
+        api.savedMealSave(s.id, null).then((ok) => { if (!ok) showStatus("Not deleted. Check your connection and try again.", true); });
+        redraw();
+      };
+      return el("div", { class: "meal-opt" },
+        el("div", { class: "meal-opt-top" }, el("b", null, s.data.name, s.data.meal && s.data.meal !== mealName ? el("em", { class: "food-plan-tag" }, ` ${s.data.meal.toLowerCase()}`) : null),
+          el("small", null, `${Math.round(tot.kcal)} cal · P ${Math.round(tot.p)} · C ${Math.round(tot.c)} · F ${Math.round(tot.f)}`)),
+        el("div", { class: "meal-opt-items" }, names.join(" · ")),
+        el("div", { class: "nut-meal-acts" },
+          el("button", { class: "food-logmeal", onclick: () => openMealEditor({ meal: mealName, title: s.data.name, items: items.map((it) => JSON.parse(JSON.stringify(it))), savedId: s.id, savedName: s.data.name }) }, "Choose"),
+          el("button", { class: "food-logmeal nut-other", onclick: remove }, "Delete")));
+    }
     // one meal to choose: its foods and figures, and Choose (opens it in the meal editor to change, log or plan)
     function mealOption(title, o, mealName, tag) {
       const canEdit = foodDays && o.parts && o.parts.length;
@@ -2324,6 +2385,12 @@
     });
     // the shared food library (none until migration_024 has been run); only searched, so nothing to redraw
     if (api.foodLibrary) api.foodLibrary().catch(() => null).then((rows) => { if (Array.isArray(rows)) libraryFoods = rows; });
+    // My meals (none until migration_025 has been run)
+    if (api.savedMeals) api.savedMeals().catch(() => null).then((rows) => {
+      if (!Array.isArray(rows)) return;
+      savedMeals = rows.filter((r) => r && r.data && Array.isArray(r.data.items));
+      if (view === "nutrition" && savedMeals.length && !overlay.className.includes("show")) redrawKeep();
+    });
     // the nutrition plan: once it's in, the menu gets its Nutrition button (not redrawn mid-entry or with a sheet open)
     api.nutrition().catch(() => null).then((nu) => {
       nutrition = nu || null;
