@@ -326,6 +326,7 @@
   let savedMeals = null; // My meals: [{ id, data: { name, meal, items } }] (null until loaded, or without migration_025)
   let allergyInfo = null; // their food allergies { allergies, other, asked } (null until loaded, or without migration_026)
   let allergyAsked = false; // the allergy question has been put to them this visit
+  let allergyLoaded = false; // their answer has been looked up (whether or not there is one)
   let remote = false; // trains remotely: gets the equipment survey
   let equipment = { access: null, custom: [], surveyedAt: null };
   let derived = []; // refreshers for the filled-in weights and 1RM estimates currently on screen
@@ -1649,31 +1650,37 @@
   };
   const partsOk = (parts) => !(parts || []).some(([key]) => foodBanned(key));
 
-  // the allergy question: asked the first time they open Nutrition, and from the link on it after that
-  function openAllergySheet() {
-    allergyAsked = true;
+  // The allergy question. Until they've answered it once (allergies, or "No food allergies"), it's all the Nutrition tab
+  // shows (gate); after that it opens from the "change" link on the tab, as a sheet.
+  function allergyForm(gate) {
     const pick = new Set(myAllergies());
     let other = (allergyInfo && allergyInfo.other) || "";
-    const sheet = el("div", { class: "sheet food-sheet" });
+    const box = el("div", { class: gate ? "card allergy-gate" : "sheet food-sheet" });
     const save = async (list) => {
       const ok = await api.setAllergies(list, other.trim());
       if (!ok) { showStatus("Not saved. Check your connection and try again.", true); return; }
       allergyInfo = { allergies: list, other: other.trim(), asked: true };
-      closeVideo();
+      if (!gate) closeVideo();
       showStatus(list.length ? "Saved: your meals leave those foods out" : "Saved: no food allergies");
       redrawKeep();
     };
-    const draw = () => sheet.replaceChildren(
-      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
-      el("h2", null, "Any food allergies?"),
-      el("div", { class: "card-sub nut-note" }, "Tap any that apply. Your sample meals, meal options and food search will leave those foods out. Always check labels too."),
+    const draw = () => box.replaceChildren(
+      gate ? "" : el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el(gate ? "div" : "h2", { class: gate ? "card-title" : null }, "Any food allergies?"),
+      el("div", { class: "card-sub nut-note" }, gate
+        ? "Before your nutrition plan opens: tap any food allergies you have, or tap No food allergies. You only answer this once; your sample meals, options and food search will leave those foods out."
+        : "Tap any that apply. Your sample meals, meal options and food search will leave those foods out. Always check labels too."),
       el("div", { class: "chips nut-chips allergy-chips" }, Object.keys(ALLERGY_LABELS).map((a) => el("button", { class: `chip${pick.has(a) ? " on" : ""}`, onclick: () => { if (pick.has(a)) pick.delete(a); else pick.add(a); draw(); } }, ALLERGY_LABELS[a]))),
       el("label", { class: "food-label" }, "Anything else (your coach will see it)", el("input", { class: "food-input", value: other, placeholder: "e.g. strawberries", oninput: (e) => { other = e.target.value; } })),
       el("div", { class: "swap-actions" },
-        el("button", { class: "primary", onclick: () => save([...pick]) }, pick.size ? `Save ${pick.size} allerg${pick.size === 1 ? "y" : "ies"}` : "Save"),
+        el("button", { class: "primary", disabled: gate && !pick.size, onclick: () => save([...pick]) }, pick.size ? `Save ${pick.size} allerg${pick.size === 1 ? "y" : "ies"}` : gate ? "Tap your allergies above" : "Save"),
         el("button", { onclick: () => { pick.clear(); save([]); } }, "No food allergies")));
     draw();
-    overlay.replaceChildren(sheet);
+    return box;
+  }
+  function openAllergySheet() {
+    allergyAsked = true;
+    overlay.replaceChildren(allergyForm(false));
     overlay.className = "overlay show";
   }
 
@@ -2041,6 +2048,9 @@
           : "Your coach hasn’t set up your nutrition plan yet. It shows here as soon as they do.")));
       return main;
     }
+    // the allergy question comes first, once: nothing else opens until it's answered (or they say they have none)
+    if (api.allergies && !allergyLoaded) { main.append(el("div", { class: "card" }, el("div", { class: "card-sub" }, "Loading your nutrition plan…"))); return main; }
+    if (allergyInfo && !allergyInfo.asked) { main.append(allergyForm(true)); return main; }
     const redraw = redrawKeep;
     const macros = (t) => `P ${t.p} · C ${t.c} · F ${t.f}`;
     if (!foodDay) foodDay = todayKey();
@@ -2378,8 +2388,6 @@
     }
     if (view === "nutrition") {
       app.replaceChildren(el("div", { class: "top" }, el("div", { class: "brand" }, logo(), el("div", { class: "who" }, data.athlete.name || "My Nutrition"))), nutritionView(), menu());
-      // the first time they open it, the allergy question (until they've answered it once)
-      if (nutrition && allergyInfo && !allergyInfo.asked && !allergyAsked) setTimeout(() => { if (view === "nutrition" && !overlay.className.includes("show")) openAllergySheet(); }, 400);
       return;
     }
     // nothing on the plan yet: the program page says so, and a coach gets their tools right there to put
@@ -2619,6 +2627,8 @@
     if (api.foodLibrary) api.foodLibrary().catch(() => null).then((rows) => { if (Array.isArray(rows)) libraryFoods = rows; });
     // their food allergies (none until migration_026 has been run): the Nutrition tab asks the first time
     if (api.allergies) api.allergies().catch(() => null).then((a) => {
+      allergyLoaded = true;
+      if (!a && view === "nutrition" && !overlay.className.includes("show")) redrawKeep(); // no answer to look up (migration_026 not run): the plan opens
       if (!a) return;
       allergyInfo = a;
       if (view === "nutrition" && !overlay.className.includes("show")) redrawKeep();
