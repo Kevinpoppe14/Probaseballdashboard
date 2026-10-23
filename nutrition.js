@@ -597,6 +597,13 @@
 
   // ---- saved plan ------------------------------------------------------------------------------------
   const planOf = (athleteId) => (window.AthleteStore.getNutritionPlan ? window.AthleteStore.getNutritionPlan(athleteId) : null);
+  // each meal's time of day: as the coach set it on Daily meal targets, or else breakfast at the wake-up and lunch at
+  // the lunch time on the body comp sheet, or else the plan's usual times
+  function mealTimes(basis, rec) {
+    const set = (rec && rec.times) || {};
+    return SLOTS.map((s) => (String(set[s.key] || "").trim()
+      || (basis && s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : basis && s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time)));
+  }
   // the athlete's food allergies (their own record, kind "nutrition_prefs": answered on their phone, or set here)
   const prefsOf = (athleteId) => (window.AthleteStore.getNutritionPrefs ? window.AthleteStore.getNutritionPrefs(athleteId) : null);
   const allergiesOf = (athleteId) => { const p = prefsOf(athleteId); return p && Array.isArray(p.allergies) ? p.allergies.filter((a) => ALLERGIES[a]) : []; };
@@ -843,7 +850,8 @@
     const allergies = allergiesOf(athlete.id);
     const plan = ready ? buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch, allergies }) : null;
     const lists = ready ? macroLists(T, { allergies }) : null;
-    const times = SLOTS.map((s) => (basis && s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : basis && s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
+    const times = mealTimes(basis, rec);
+    const [timesDraft, setTimesDraft] = useState(null); // the meal times being changed on Daily meal targets
     // the athlete's copy is saved again whenever the plan comes out differently (a new scan, a new goal, a shuffle);
     // this tab is drawn whenever a profile is open, so opening one keeps that athlete's phone up to date
     const snapJson = ready ? JSON.stringify(snapshotOf(basis, T, plan, lists, times)) : "";
@@ -909,7 +917,10 @@
                 const t = T.trainMeals.find((m) => m.key === s.key), r = T.restMeals.find((m) => m.key === s.key);
                 return (
                   <tr key={s.key}>
-                    <td><b>{s.name}</b></td><td>{times[i]}</td>
+                    <td><b>{s.name}</b></td>
+                    <td>{timesDraft
+                      ? <input className="nut-num nut-time" value={timesDraft[s.key]} placeholder={s.time} maxLength={20} onChange={(e) => { const v = e.target.value; setTimesDraft((x) => Object.assign({}, x, { [s.key]: v })); }} />
+                      : times[i]}</td>
                     <td>{macroLine(t.target)}</td>
                     <td>{r ? macroLine(r.target) : "—"}</td>
                   </tr>
@@ -917,6 +928,23 @@
               })}
             </tbody>
           </table>
+          {/* the times of day: typed as they should read ("6:30a", "After practice"), and shown on the athlete's phone */}
+          <div className="nut-target-acts no-print">
+            {timesDraft ? (
+              <React.Fragment>
+                <button type="button" className="btn btn-assign" onClick={() => {
+                  const clean = Object.fromEntries(Object.entries(timesDraft).map(([k, v]) => [k, String(v || "").trim().slice(0, 20)]).filter(([, v]) => v));
+                  savePlan(athlete, { times: Object.keys(clean).length ? clean : null });
+                  setTimesDraft(null);
+                }}>Save times</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setTimesDraft(Object.fromEntries(SLOTS.map((s) => [s.key, ""])))}>Use the usual times</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setTimesDraft(null)}>Cancel</button>
+                <span className="nut-hint">Type each time as it should read, e.g. 6:30a or After practice. Left blank, a meal uses its usual time.</span>
+              </React.Fragment>
+            ) : (
+              <button type="button" className="btn btn-secondary" onClick={() => setTimesDraft(Object.fromEntries(SLOTS.map((s, i) => [s.key, (rec.times && rec.times[s.key]) || times[i]])))}>Edit meal times</button>
+            )}
+          </div>
         </div>
 
         {plan.weeks.map((week, w) => (
@@ -1257,7 +1285,7 @@
         const basis = basisFor(a, rec);
         if (!basis) return;
         const T = targetsFor(basis, rec.goal, rec.targets);
-        const times = SLOTS.map((s) => (s.key === "breakfast" && basis.wakeUp ? basis.wakeUp : s.key === "lunch" && basis.lunchTime ? basis.lunchTime : s.time));
+        const times = mealTimes(basis, rec);
         const allergies = allergiesOf(a.id);
         const snap = snapshotOf(basis, T, buildPlan(T, rec.seed || 1, { school: !!rec.schoolLunch, allergies }), macroLists(T, { allergies }), times);
         if (sortedJson(rec.snapshot || null) !== sortedJson(JSON.parse(JSON.stringify(snap)))) savePlan(a, { snapshot: snap });

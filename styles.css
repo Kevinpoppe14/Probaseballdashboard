@@ -3852,3 +3852,4 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .nut-custom-tag { padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: var(--badge-warn-bg); color: var(--warn); border: 1px solid var(--warn); }
 .nut-num { height: 30px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 5px; text-align: right; }
 .nut-target-edit .nut-targets td { vertical-align: middle; }
+.nut-time { width: 130px; text-align: left; }
