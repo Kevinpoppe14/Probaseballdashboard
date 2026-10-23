@@ -6489,6 +6489,7 @@ const BODYCOMP_RANGES = [
   { key: "all", label: "All time", days: 0 },
 ];
 const BODYCOMP_SHEET_COLOR = "#f59e0b";
+const BODYCOMP_WEIGH_COLOR = "#3b82f6";
 function BodyCompTrends({ athleteId }) {
   const { grid, axis } = useChartColors();
   const theme = useTheme();
@@ -6509,15 +6510,20 @@ function BodyCompTrends({ athleteId }) {
 
   const scans = bodyCompScansLb(athleteId);
   const sheets = window.AthleteStore.getBodyCompSheets(athleteId).filter((s) => s.date && s.summary);
-  if (!scans.length && !sheets.length) return null;
+  // the pre-lift weigh-ins the athlete (or a coach) logs on the phone's Program page, drawn with Weight
+  const weighs = window.AthleteStore.bodyweightLog ? window.AthleteStore.bodyweightLog(athleteId) : [];
+  if (!scans.length && !sheets.length && !weighs.length) return null;
   const has = { evolt: scans.length > 0, sheet: sheets.length > 0 };
   const source = has.evolt && has.sheet ? (BODYCOMP_SOURCES[view.source] ? view.source : "evolt") : has.evolt ? "evolt" : "sheet";
-  const metric = BODYCOMP_METRICS.find((m) => m.key === view.metric) || BODYCOMP_METRICS[0];
+  const metrics = has.evolt || has.sheet ? BODYCOMP_METRICS : BODYCOMP_METRICS.filter((m) => m.key === "weight"); // weigh-ins alone: just Weight
+  const metric = metrics.find((m) => m.key === view.metric) || metrics[0];
   const num = (v) => (typeof v === "number" && isFinite(v) ? Math.round(v * 10) / 10 : null);
   const at = (date, time) => new Date(`${date}T${time || "12:00"}:00`).getTime();
   const rows = [];
   if (source !== "sheet") scans.forEach((s) => { const v = num(metric.evolt(s)); if (v != null) rows.push({ t: at(s.date, s.time), evolt: v }); });
   if (source !== "evolt") sheets.forEach((s) => { const v = num(metric.sheet(s.summary)); if (v != null) rows.push({ t: at(s.date), sheet: v }); });
+  const withWeighs = metric.key === "weight" && weighs.length > 0;
+  if (withWeighs) weighs.forEach((w) => rows.push({ t: at(w.date), weigh: num(w.lb) }));
   rows.sort((a, b) => a.t - b.t);
   // the time window, counted back from today
   const range = BODYCOMP_RANGES.find((r) => r.key === view.range) || BODYCOMP_RANGES[BODYCOMP_RANGES.length - 1];
@@ -6528,16 +6534,27 @@ function BodyCompTrends({ athleteId }) {
   // Together: every measurement, Evolt or sheet, as one series in date order (just for the graph)
   const both = source === "both";
   if (both) rows.forEach((r) => { r.all = r.evolt != null ? r.evolt : r.sheet; });
-  // a straight-line trend, spaced by date: through the one source, or through every point together
-  const along = both ? "all" : source;
-  if (rows.length >= 2) {
-    const mx = rows.reduce((n, r) => n + r.t, 0) / rows.length, my = rows.reduce((n, r) => n + r[along], 0) / rows.length;
-    const den = rows.reduce((n, r) => n + (r.t - mx) ** 2, 0);
-    const slope = den ? rows.reduce((n, r) => n + (r.t - mx) * (r[along] - my), 0) / den : 0;
+  // a straight-line trend, spaced by date: through the one source, or through every point together (weigh-ins alone:
+  // through them)
+  const along = both ? "all" : has.evolt || has.sheet ? source : "weigh";
+  const fit = rows.filter((r) => r[along] != null);
+  if (fit.length >= 2) {
+    const mx = fit.reduce((n, r) => n + r.t, 0) / fit.length, my = fit.reduce((n, r) => n + r[along], 0) / fit.length;
+    const den = fit.reduce((n, r) => n + (r.t - mx) ** 2, 0);
+    const slope = den ? fit.reduce((n, r) => n + (r.t - mx) * (r[along] - my), 0) / den : 0;
     rows.forEach((r) => { r.trend = Math.round((my + slope * (r.t - mx)) * 10) / 10; });
   }
   const day = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
-  const counts = [has.evolt && `${scans.length} Evolt scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} manual sheet${sheets.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  const counts = [has.evolt && `${scans.length} Evolt scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} manual sheet${sheets.length === 1 ? "" : "s"}`, weighs.length > 0 && `${weighs.length} weigh-in${weighs.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  // the weigh-ins in brief: the latest, this week's average, and the change from the week before
+  const weighText = (() => {
+    if (!weighs.length) return "";
+    const z = weighs[weighs.length - 1], dayMs = 86400000, end = at(z.date);
+    const avg = (list) => (list.length ? Math.round((list.reduce((n, w) => n + w.lb, 0) / list.length) * 10) / 10 : null);
+    const wk = weighs.filter((w) => at(w.date) > end - 7 * dayMs), prev = weighs.filter((w) => at(w.date) <= end - 7 * dayMs && at(w.date) > end - 14 * dayMs);
+    const a = avg(wk), b = avg(prev), d = b != null ? Math.round((a - b) * 10) / 10 : null;
+    return `Pre-lift weigh-ins: latest ${z.lb} lb (${shortDate(z.date)}) · 7-day average ${a} lb (${wk.length} weigh-in${wk.length === 1 ? "" : "s"})${d != null ? ` · ${d > 0 ? "+" : ""}${d} lb from the week before` : ""}`;
+  })();
 
   return (
     <div className="panel">
@@ -6548,9 +6565,11 @@ function BodyCompTrends({ athleteId }) {
             {Object.entries(BODYCOMP_SOURCES).map(([k, label]) => <button key={k} className={`pill-tab ${source === k ? "active" : ""}`} onClick={() => setView({ source: k })}>{label}</button>)}
           </div>
         )}
-        <div className="pill-tabs bc-pills" role="group" aria-label="Which figure">
-          {BODYCOMP_METRICS.map((m) => <button key={m.key} className={`pill-tab ${metric.key === m.key ? "active" : ""}`} onClick={() => setView({ metric: m.key })}>{m.label}</button>)}
-        </div>
+        {metrics.length > 1 && (
+          <div className="pill-tabs bc-pills" role="group" aria-label="Which figure">
+            {metrics.map((m) => <button key={m.key} className={`pill-tab ${metric.key === m.key ? "active" : ""}`} onClick={() => setView({ metric: m.key })}>{m.label}</button>)}
+          </div>
+        )}
         <div className="pill-tabs bc-pills" role="group" aria-label="Time window">
           {BODYCOMP_RANGES.map((r) => <button key={r.key} className={`pill-tab ${range.key === r.key ? "active" : ""}`} onClick={() => setView({ range: r.key })}>{r.label}</button>)}
         </div>
@@ -6560,19 +6579,21 @@ function BodyCompTrends({ athleteId }) {
           <LineChart data={rows}>
             <CartesianGrid strokeDasharray="3 3" stroke={grid} />
             <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} stroke={axis} fontSize={12} minTickGap={36} />
-            <YAxis stroke={axis} fontSize={12} domain={paddedDomain(rows, ["evolt", "sheet", "trend"])} unit={metric.unit === "%" ? "%" : ""} />
+            <YAxis stroke={axis} fontSize={12} domain={paddedDomain(rows, ["evolt", "sheet", "weigh", "trend"])} unit={metric.unit === "%" ? "%" : ""} />
             <Tooltip contentStyle={tooltipStyle} labelFormatter={day} formatter={(v, name) => [`${v}${metric.unit === "%" ? "%" : ` ${metric.unit}`}`, name]} />
             <Legend />
             {/* Together: one line through every point, with each point in its source's color */}
             {both && <Line type="monotone" dataKey="all" name="All measurements" stroke={axis} strokeWidth={2} dot={false} activeDot={false} connectNulls legendType="line" tooltipType="none" />}
             {source !== "sheet" && <Line type="monotone" dataKey="evolt" name={`Evolt ${metric.label.toLowerCase()} (${metric.unit})`} stroke={both ? "none" : evoltColor} strokeWidth={2} dot={{ r: both ? 4 : 3, fill: evoltColor, stroke: evoltColor }} connectNulls legendType="circle" />}
             {source !== "evolt" && <Line type="monotone" dataKey="sheet" name={`Manual sheet ${metric.label.toLowerCase()} (${metric.unit})`} stroke={both ? "none" : BODYCOMP_SHEET_COLOR} strokeWidth={2} dot={{ r: 4, fill: BODYCOMP_SHEET_COLOR, stroke: BODYCOMP_SHEET_COLOR }} connectNulls legendType="circle" />}
-            {rows.length >= 2 && <Line type="linear" dataKey="trend" name={both ? "Trend (all)" : "Trend"} stroke="#6b7280" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={false} />}
+            {withWeighs && <Line type="monotone" dataKey="weigh" name="Pre-lift weigh-ins (lb)" stroke={BODYCOMP_WEIGH_COLOR} strokeWidth={1.5} dot={{ r: 2, fill: BODYCOMP_WEIGH_COLOR, stroke: BODYCOMP_WEIGH_COLOR }} connectNulls legendType="circle" />}
+            {fit.length >= 2 && <Line type="linear" dataKey="trend" name={both ? "Trend (all)" : along === "weigh" ? "Trend (weigh-ins)" : "Trend"} stroke="#6b7280" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={false} />}
           </LineChart>
         </ResponsiveContainer>
       ) : (
         <div className="empty-state">No {metric.label.toLowerCase()} recorded on the {source === "sheet" ? "manual sheets" : source === "evolt" ? "Evolt scans" : "scans or sheets"}{range.days ? ` in the last ${range.label.toLowerCase()}. All time shows everything on file` : ""}.</div>
       )}
+      {weighText && <p className="bc-note bc-weigh">{weighText}. The nutrition plan follows the weigh-ins between scans.</p>}
       {source === "both" && (
         <p className="bc-note">The line runs through every measurement in date order, Evolt and manual sheet alike, with the dashed trend through all of them. This is only how they're drawn: the Evolt scans and the manual sheets stay separate records. The two measure differently (a scan against skinfolds, and Evolt's skeletal muscle against the sheet's girth-based muscle estimate), so the line can step up or down where it changes from one to the other.</p>
       )}

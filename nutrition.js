@@ -383,7 +383,29 @@
 
   // the body composition the plan is worked from: the latest complete manual sheet or Evolt scan, whichever is newer,
   // or without either, the details entered with the plan
+  // Pre-lift weigh-ins logged on the phone's Program page (store.bodyweightLog) after the body composition move the
+  // plan with them: the average of the weigh-ins in the week up to the latest one stands in for the scan's weight,
+  // at the same body fat, so calories, protein and fat follow the athlete's weight between scans. `bw` on the basis
+  // says so: { lb, n, first, last, fromLb }.
+  const BW_DAYS = 7;
+  function bodyweightSince(athleteId, since) {
+    const S = window.AthleteStore;
+    const log = (S && S.bodyweightLog ? S.bodyweightLog(athleteId) : []).filter((w) => !since || w.date >= since);
+    if (!log.length) return null;
+    const last = log[log.length - 1].date, from = new Date(`${last}T12:00:00`);
+    from.setDate(from.getDate() - (BW_DAYS - 1));
+    const start = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
+    const week = log.filter((w) => w.date >= start);
+    return { lb: Math.round((week.reduce((t, w) => t + w.lb, 0) / week.length) * 10) / 10, n: week.length, first: week[0].date, last };
+  }
   function basisFor(athlete, rec) {
+    const b = scanBasis(athlete, rec, null);
+    const bw = b ? bodyweightSince(athlete.id, b.date) : null;
+    if (!bw) return b;
+    const moved = scanBasis(athlete, rec, bw.lb);
+    return moved ? Object.assign(moved, { bw: Object.assign({ fromLb: b.weightLb }, bw) }) : b;
+  }
+  function scanBasis(athlete, rec, lbNow) {
     const store = window.AthleteStore;
     const sheets = (store.getBodyCompSheets(athlete.id) || []).filter((s) => s.inputs && s.summary && !s.summary.incomplete);
     const sheet = sheets[sheets.length - 1];
@@ -392,6 +414,7 @@
     if (sheet && window.BodyCompCalc && (!scan || sheet.date >= scan.date)) {
       const inputs = Object.assign({}, sheet.inputs);
       if (!num(inputs.age)) inputs.age = String(ageOf(athlete) || 25);
+      if (lbNow) inputs.weightLb = String(lbNow); // the same skinfolds (body fat), at the weight weighed in
       const c = window.BodyCompCalc(inputs);
       return {
         source: "sheet", date: sheet.date, weightLb: c.cur.weight, kg: c.cur.massKg, pctFat: c.cur.pctFat, age: num(inputs.age), male: c.male,
@@ -401,7 +424,7 @@
       };
     }
     if (scan) {
-      const lb = scan.weightLb != null ? scan.weightLb : scan.weightKg * 2.20462;
+      const lb = lbNow || (scan.weightLb != null ? scan.weightLb : scan.weightKg * 2.20462);
       const kg = lb / 2.2, age = num(scan.age) || ageOf(athlete) || 25;
       const male = !/^f/i.test(String(scan.gender || athlete.gender || "M"));
       return {
@@ -413,7 +436,7 @@
     // worked out the same way as an Evolt scan. A scan or sheet added later takes over.
     const m = rec && rec.manual;
     if (m && num(m.weightLb)) {
-      const lb = num(m.weightLb), kg = lb / 2.2, age = num(m.age) || ageOf(athlete) || 25;
+      const lb = lbNow || num(m.weightLb), kg = lb / 2.2, age = num(m.age) || ageOf(athlete) || 25;
       const male = !/^f/i.test(String(m.sex || athlete.gender || "M"));
       const trainMin = num(m.trainMin) != null ? num(m.trainMin) : 120, sportMin = num(m.sportMin) != null ? num(m.sportMin) : 30;
       return {
@@ -903,6 +926,13 @@
             {basis.typedCal ? " training-day calories as typed on the sheet" : ` ${g.pct > 0 ? "+" : ""}${g.pct}% for the goal`}
             {T.proteinKg !== T.kg ? ` · protein worked off the goal weight (${(T.proteinKg * 2.2).toFixed(0)} lb)` : ""}
           </div>
+          {basis.bw && (
+            <div className="nut-basis nut-bw">
+              Following {first}’s pre-lift weigh-ins: {basis.bw.lb.toFixed(1)} lb, the average of {basis.bw.n} {basis.bw.n === 1 ? "weigh-in" : "weigh-ins"} ({shortDate(basis.bw.first)}{basis.bw.first !== basis.bw.last ? ` – ${shortDate(basis.bw.last)}` : ""}),
+              {" "}{basis.bw.lb >= basis.bw.fromLb ? "up" : "down"} {Math.abs(basis.bw.lb - basis.bw.fromLb).toFixed(1)} lb from {basis.bw.fromLb.toFixed(1)} lb on the {basis.source === "manual" ? "details entered" : SOURCE_TEXT[basis.source]}{basis.pctFat != null ? ", at the same body fat" : ""}.
+              {rec.targets && (rec.targets.train || rec.targets.rest) ? " The targets you set by hand stay as they are." : " Calories and macros move with it."}
+            </div>
+          )}
           <AllergyLine athlete={athlete} />
           <TargetEditor athlete={athlete} T={T} />
           <p className="nut-hint">

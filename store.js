@@ -1154,6 +1154,19 @@
     Object.keys(out).forEach((pid) => Object.keys(out[pid]).forEach((k) => { if (!out[pid][k]) delete out[pid][k]; }));
     return out;
   }
+  // Pre-lift bodyweights from the phone's Program page (athlete.js), kept in athlete_logs under the program shown
+  // that day as "bw-YYYYMMDD|0": [{ date: "2026-10-22", lb, at, source }], oldest first, one per day (the newest
+  // entry if two programs have one). The nutrition plan and the body composition charts follow them.
+  function bodyweightLog(athleteId) {
+    const id = String(athleteId), vals = athleteLogs[id] || {}, meta = athleteLogMeta[id] || {}, byDay = {};
+    Object.keys(vals).forEach((pid) => Object.keys(vals[pid]).forEach((key) => {
+      const m = /^bw-(\d{4})(\d{2})(\d{2})\|0$/.exec(key), lb = parseFloat(vals[pid][key]);
+      if (!m || !(lb > 0)) return;
+      const date = `${m[1]}-${m[2]}-${m[3]}`, info = (meta[pid] || {})[key] || {}, prev = byDay[date];
+      if (!prev || (info.at || "") > (prev.at || "")) byDay[date] = { date, lb, at: info.at || null, source: info.source || "" };
+    }));
+    return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+  }
   function setAthleteLog(athleteId, programId, key, value) {
     const row = { athlete_id: String(athleteId), program_id: String(programId), key, value: value || "", source: "coach", updated_at: new Date().toISOString() };
     putLogRow(row);
@@ -1250,6 +1263,7 @@
     createAthleteLink,
     removeAthleteLink,
     programLogFor,
+    bodyweightLog,
     setAthleteLog,
     carryAthleteRecords,
     refreshAthleteLogs,

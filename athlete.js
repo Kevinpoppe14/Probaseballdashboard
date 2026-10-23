@@ -967,6 +967,63 @@
         el("label", { class: "edt-box" }, el("span", null, "Sets done"), box))));
   }
 
+  // ---- pre / post weight ------------------------------------------------------------------------------
+  // Today's pre-lift weight is kept as their bodyweight: the nutrition plan follows it (nutrition.js) and it's charted
+  // on Progress here and on the dashboard. It goes in the log of the program shown, under today's date as
+  // "bw-YYYYMMDD|0" (a key the phone link's check takes: migration_007); whichever program holds a day's entry, it
+  // counts. The post-lift weight is never saved: it only works out the water to drink back, 16 oz per pound lost.
+  const postWeights = {}; // today's post-lift weight, on this page only
+  const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  // every pre-lift weight logged: [{ date: "2026-10-22", lb, key, pid }], oldest first, one per day
+  const weighIns = () => {
+    const byDay = {};
+    Object.keys(plan.programLog || {}).forEach((pid) => Object.keys(plan.programLog[pid] || {}).forEach((key) => {
+      const m = /^bw-(\d{4})(\d{2})(\d{2})\|0$/.exec(key), lb = parseFloat(plan.programLog[pid][key]);
+      if (m && lb > 0) byDay[`${m[1]}-${m[2]}-${m[3]}`] = { date: `${m[1]}-${m[2]}-${m[3]}`, lb, key, pid };
+    }));
+    return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+  };
+  function weighIn(item) {
+    const key = `bw-${ymd(new Date())}|0`;
+    const onPlan = new Set((plan.blocks || []).map((b) => String(b.programId)));
+    // today's entry stays in the program that already holds it, if that one is still on the plan
+    const owner = () => (Object.keys(plan.programLog || {}).find((pid) => (plan.programLog[pid] || {})[key] && onPlan.has(String(pid))) || item.program.id);
+    const now = () => { const w = weighIns().find((x) => x.key === key); return w ? String(w.lb) : ""; };
+    const box = (label, value) => el("input", { type: "text", inputmode: "decimal", placeholder: "lb", "aria-label": label, autocomplete: "off", value });
+    const pre = box("Pre weight in pounds", now()), post = box("Post weight in pounds (not saved)", postWeights[key] || "");
+    const out = el("div", { class: "bw-out" });
+    const before = weighIns().filter((x) => x.key !== key).pop();
+    const draw = () => {
+      const a = parseFloat(pre.value), b = parseFloat(post.value);
+      out.className = "bw-out";
+      if (b > 0 && !(a > 0)) { out.textContent = "Add your pre weight to see how much water to drink back."; return; }
+      if (!(a > 0) || !(b > 0)) { out.textContent = before && !(a > 0) ? `Last pre weight: ${before.lb} lb (${new Date(`${before.date}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })})` : ""; return; }
+      const lost = Math.round((a - b) * 10) / 10;
+      if (lost <= 0) { out.textContent = "No weight lost. Keep sipping water as normal."; return; }
+      const oz = Math.round(lost * 16);
+      out.className = "bw-out drink";
+      out.replaceChildren(el("strong", null, `Drink ${oz} oz of water`), ` · down ${lost.toFixed(1)} lb (16 oz for each pound lost), over the next couple of hours`);
+    };
+    pre.addEventListener("focus", () => pre.select());
+    pre.addEventListener("input", draw);
+    pre.addEventListener("blur", () => {
+      const v = parseFloat(pre.value.replace(/[^\d.]/g, ""));
+      const ok = v >= 50 && v <= 500 ? String(Math.round(v * 10) / 10) : "";
+      if (pre.value.trim() && !ok) showStatus("That weight doesn't look right", true);
+      pre.value = ok;
+      save(owner(), key, ok);
+      draw();
+    });
+    post.addEventListener("focus", () => post.select());
+    post.addEventListener("input", () => { postWeights[key] = post.value; draw(); });
+    draw();
+    return el("div", { class: "bw-card" },
+      el("div", { class: "bw-row" },
+        el("label", { class: "bw-box" }, el("span", null, "Pre Weight"), pre),
+        el("label", { class: "bw-box" }, el("span", null, "Post Weight"), post)),
+      out);
+  }
+
   // ---- one set group -----------------------------------------------------------------------------
   // ---- a finished block folds up ---------------------------------------------------------------------
   // Each card of the day (A, B, ...: one exercise, or the exercises of a superset) shrinks to a single line once
@@ -1502,12 +1559,17 @@
     box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${label || "Body composition graph"}">${grid}${joined}${lines}<text x="${l}" y="${h - 6}" class="bc-axis">${bcDay(t0)}</text><text x="${w - r}" y="${h - 6}" text-anchor="end" class="bc-axis">${bcDay(t1)}</text></svg>`;
     return box;
   }
+  // the pre-lift weigh-ins from the Program page, drawn with Weight
+  const BC_WEIGH_COLOR = "#3b82f6";
   function bodyCompSection() {
     const scans = (bodyComp && bodyComp.scans) || [], sheets = ((bodyComp && bodyComp.sheets) || []).filter((s) => s.date && s.summary);
-    if (!scans.length && !sheets.length) return null;
+    const weighs = weighIns();
+    if (!scans.length && !sheets.length && !weighs.length) return null;
     const has = { evolt: scans.length > 0, sheet: sheets.length > 0 };
     const source = has.evolt && has.sheet ? (BC_SOURCES[bcView.source] ? bcView.source : "evolt") : has.evolt ? "evolt" : "sheet";
-    const metric = BC_METRICS.find((m) => m.key === bcView.metric) || BC_METRICS[0];
+    // weigh-ins alone (no scan or sheet yet): just Weight
+    const metrics = has.evolt || has.sheet ? BC_METRICS : BC_METRICS.filter((m) => m.key === "weight");
+    const metric = metrics.find((m) => m.key === bcView.metric) || metrics[0];
     const range = BC_RANGES.find((x) => x.key === bcView.range) || BC_RANGES[BC_RANGES.length - 1];
     const from = range.days ? Date.now() - range.days * 86400000 : -Infinity;
     const at = (d, time) => new Date(`${d}T${time || "12:00"}:00`).getTime();
@@ -1517,13 +1579,14 @@
     const series = [];
     if (source !== "sheet") series.push({ name: "Evolt", color: "var(--label, var(--accent))", points: scans.map((s) => ({ t: at(s.date, s.time), v: num(metric.evolt({ ...s, weightLb: lb(s, "weightLb", "weightKg"), smmLb: lb(s, "smmLb", "skeletalMuscleKg") })) })) });
     if (source !== "evolt") series.push({ name: "Manual sheet", color: BC_SHEET_COLOR, points: sheets.map((s) => ({ t: at(s.date), v: num(metric.sheet(s.summary)) })) });
+    if (metric.key === "weight") series.push({ name: "Pre-lift weigh-ins", color: BC_WEIGH_COLOR, points: weighs.map((w) => ({ t: at(w.date), v: num(w.lb) })) });
     series.forEach((s) => { s.points = s.points.filter((p) => p.v != null && p.t >= from).sort((a, b) => a.t - b.t); });
     const shown = series.filter((s) => s.points.length);
     const chips = (items, on, pick) => el("div", { class: "chips bc-chips" }, items.map(([k, label]) => el("button", { class: `chip${on === k ? " on" : ""}`, onclick: () => pick(k) }, label)));
     const unitText = (v) => `${nice(v)}${metric.unit === "%" ? "%" : " lb"}`;
     const card = el("div", { class: "card" },
       has.evolt && has.sheet ? chips(Object.entries(BC_SOURCES), source, (k) => setBcView({ source: k })) : null,
-      chips(BC_METRICS.map((m) => [m.key, m.label]), metric.key, (k) => setBcView({ metric: k })),
+      metrics.length > 1 ? chips(metrics.map((m) => [m.key, m.label]), metric.key, (k) => setBcView({ metric: k })) : null,
       chips(BC_RANGES.map((x) => [x.key, x.label]), range.key, (k) => setBcView({ range: k })),
       shown.length ? bcGraph(shown, metric.unit, source === "both") : el("div", { class: "card-sub" }, `No ${metric.label.toLowerCase()} in the last ${range.label.toLowerCase()}. All time shows everything.`),
       // the latest of each, and the change across the window
@@ -1532,7 +1595,7 @@
         return el("div", { class: "bc-latest" }, el("span", { class: "bc-key", style: `background:${s.color}` }), el("span", null, `${s.name}: `, el("b", null, unitText(z.v)), s.points.length > 1 ? el("small", null, ` ${d > 0 ? "+" : ""}${unitText(d)} since ${bcDay(a.t)}`) : el("small", null, ` ${bcDay(z.t)}`)));
       }),
       source === "both" ? el("div", { class: "card-sub" }, "One line through every measurement in date order, scans and sheets alike, with the dashed trend through all of them. A scan and a skinfold sheet measure a little differently, so the line can step where it changes from one to the other.") : null);
-    return [el("h2", { class: "section" }, "Body composition", el("small", null, [has.evolt && `${scans.length} scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "))), card];
+    return [el("h2", { class: "section" }, has.evolt || has.sheet ? "Body composition" : "Body weight", el("small", null, [has.evolt && `${scans.length} scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}`, weighs.length && `${weighs.length} weigh-in${weighs.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "))), card];
   }
 
   // ---- countermovement jump on the Progress tab ----------------------------------------------------------
@@ -2578,6 +2641,7 @@
         : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`,
         canChange ? el("button", { class: "program-change", title: "Start it another week, swap it, or take it off", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, manage: item.block.id, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Change") : null));
       const rows = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
+      if (s && weekIdx === currentWeek()) main.append(weighIn(item));
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
       const labels = window.exerciseLabels(rows);
