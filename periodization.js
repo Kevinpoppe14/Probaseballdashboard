@@ -264,7 +264,7 @@
                             {ProgramRx.groups(e).length === 0 && "—"}
                           </div>
                         </td>
-                        <td>{[e.rest, ProgramRx.extrasText(e)].filter(Boolean).join(" · ") || "—"}</td>
+                        <td>{[e.rest, ProgramRx.extrasText(e), ProgramRx.tagText(e)].filter(Boolean).join(" · ") || "—"}</td>
                         <td>{e.notes || ""}</td>
                       </tr>
                     ))}

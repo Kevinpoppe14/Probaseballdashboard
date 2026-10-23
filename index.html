@@ -1301,7 +1301,7 @@ async function buildProgramPdf(program, athleteName, cubsLogo = false, into = nu
           const noteLines = (e.notes || "").trim() ? pdf.splitTextToSize(e.notes.trim(), nameW) : [];
           pdf.setFontSize(fs);
           // rest goes at the bottom right, under the exercise's sets and reps
-          const rest = [(e.rest || "").trim() ? `Rest ${e.rest.trim()}` : "", window.ProgramRx.extrasText(e)].filter(Boolean).join(" · "); // with any extra boxes (Time, Distance…)
+          const rest = [(e.rest || "").trim() ? `Rest ${e.rest.trim()}` : "", window.ProgramRx.extrasText(e), window.ProgramRx.tagText(e)].filter(Boolean).join(" · "); // with any extra boxes (Time, Distance…)
           const restH = rest ? fs * 1.05 + 2 : 0;
           const bodyH = Math.max(lines.length * nameLH + noteLines.length * noteLH, rxLines.length * rxH + restH) + 1;
           return { label: labels[i], lines, noteLines, rxLines, rxH, bodyH, hasInt, rest, newGroup: i > 0 && !e.linked };
@@ -2129,7 +2129,17 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                             const label = (window.prompt("Name the new box (for example Height, Load, Distance, Holds):") || "").trim().slice(0, 20);
                             if (label) addExtra(label);
                           } else if (what.startsWith("x:")) addExtra(what.slice(2));
+                          else if (what === "edt") setEx(ei, "edt", "");
+                          else if (what === "acc") setEx(ei, "accumulate", true);
                         };
+                        // EDT (on a block's first exercise: the whole block is done back to back for so many minutes,
+                        // the athlete logs the sets) and Accumulate (the reps box is a time built up in as many sets as
+                        // it takes). Both give the athlete a timer on their phone (program_rx.js, athlete.js). An EDT
+                        // or iso written into the notes / name the old way shows here too, and ✕ turns it off.
+                        const blockFirst = !(ei > 0 && ex.linked);
+                        const edtSet = ex.edt !== undefined && ex.edt !== 0;
+                        const showEdt = blockFirst && (edtSet || !!window.ProgramRx.edtMinutes(ex));
+                        const accOn = ex.groups.some((g) => window.ProgramRx.accumulated(ex, g)) || ex.accumulate === true;
                         return (
                           <React.Fragment>
                             {ex.groups.map((g, gi) => {
@@ -2154,6 +2164,20 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                       {input(x.value, (v) => setExtra(xi, v), { placeholder: x.label, className: "pe-num pe-wide", autoFocus: !`${x.value || ""}`.trim(), title: x.label, onBlur: () => dropIfEmpty(xi) })}
                                     </React.Fragment>
                                   ))}
+                                  {gi === 0 && showEdt && (
+                                    <span className="pe-tag" title={`EDT: ${labels[ei].replace(/\d+\.$/, "")}1, ${labels[ei].replace(/\d+\.$/, "")}2… done back to back for this many minutes. The athlete gets a countdown and logs how many sets (times through) they got.`}>
+                                      EDT
+                                      {input(edtSet ? `${ex.edt}` : `${window.ProgramRx.edtMinutes(ex)}`, (v) => setEx(ei, "edt", v.replace(/[^\d.]/g, "")), { placeholder: "min", className: "pe-num pe-tag-min", autoFocus: ex.edt === "", "aria-label": "EDT minutes" })}
+                                      min
+                                      <button className="btn-link pe-x" title="Not an EDT block" onClick={() => setEx(ei, "edt", 0)}>✕</button>
+                                    </span>
+                                  )}
+                                  {gi === 0 && accOn && (
+                                    <span className="pe-tag" title={`Accumulate: the time in Reps (${ex.groups.map((g) => g.reps).filter(Boolean).join(", ") || "for example 3 MIN, or 3 MIN E for each side"}) is built up in as many sets as it takes. The athlete gets a timer that counts the sets, and logs them (left and right on a sided one).${ex.accumulate === true ? "" : " On by itself because this is an iso longer than a minute."}`}>
+                                      ⏱ Accumulate{ex.accumulate === true ? "" : " (auto)"}
+                                      <button className="btn-link pe-x" title="Not accumulated time" onClick={() => setEx(ei, "accumulate", false)}>✕</button>
+                                    </span>
+                                  )}
                                   {/* "+" at the end of the first line: a menu of what can be added (only what isn't showing yet) */}
                                   {gi === 0 && (
                                     <select className="pe-more" value="" title="Add another line of sets, an intensity, tempo, rest, time, distance, speed, a box you name, or notes" onChange={(e) => addField(e.target.value)}>
@@ -2168,6 +2192,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                       {!hasExtra("Distance") && <option value="x:Distance">Distance</option>}
                                       {!hasExtra("Speed") && <option value="x:Speed">Speed</option>}
                                       <option value="custom">Custom…</option>
+                                      {blockFirst && !showEdt && <option value="edt">EDT block (timed, log sets)</option>}
+                                      {!accOn && <option value="acc">Accumulate time (log sets)</option>}
                                       {!showNotes && <option value="notes">Notes/cues</option>}
                                     </select>
                                   )}

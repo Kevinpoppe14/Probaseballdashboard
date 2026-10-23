@@ -78,21 +78,39 @@
     },
     // done each side: "8E", "30 SEC E", "5-E", "each", "/side"
     sided: (text) => /(?:-\s*E\b|\dE\b|\sE\s*$|\beach\b|\/\s*side\b|\bper side\b)/i.test(`${text || ""}`.trim()),
-    // EDT: "EDT 10 min" or "EDT - 15 MIN" in a superset's notes means its exercises (A1, A2...) are done back to
-    // back for that long, and the athlete logs how many times through they got. The minutes, or null.
+    // EDT: the block's exercises (A1, A2...) are done back to back for a set time, and the athlete logs how many
+    // times through they got. Set in the program builder on the block's first exercise (`e.edt`, minutes; 0 turns
+    // it off), or written in its notes as "EDT 10 min" / "EDT - 15 MIN". The minutes, or null.
     edtMinutes(e) {
-      const m = /\bEDT\b\s*[-–—:]?\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes)\b/i.exec(`${(e || {}).name || ""} ${(e || {}).notes || ""}`);
+      const x = e || {};
+      if (x.edt === 0) return null;
+      const n = parseFloat(x.edt);
+      if (n > 0) return n;
+      const m = /\bEDT\b\s*[-–—:]?\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes)\b/i.exec(`${x.name || ""} ${x.notes || ""}`);
       return m ? Number(m[1]) : null;
+    },
+    // what the builder's EDT / Accumulate settings add to a printed or listed exercise, when its notes don't
+    // already say it: "EDT 10 min", "Accumulate time"
+    tagText(e) {
+      const x = e || {}, notes = `${x.notes || ""}`;
+      return [
+        parseFloat(x.edt) > 0 && !/\bEDT\b/i.test(notes) ? `EDT ${parseFloat(x.edt)} min` : "",
+        x.accumulate === true && !/accumulat/i.test(notes) ? "Accumulate time" : "",
+      ].filter(Boolean).join(" · ");
     },
     // where the sets for an EDT block are logged, on the exercise with the EDT note: a set group slot no exercise
     // has, so it passes the phone link's key check (migration_007)
     edtKey: (e) => `${e.id}|99|r`,
-    // An isometric longer than a minute ("Push-Up Extreme Iso 1x3 MIN") is accumulated time: hold, rest when the
-    // hold breaks, go again until the time is used up, and log the sets it took (each side, on a sided one). Its
-    // seconds, or null. The sets go in the group's reps slot: "4", or "L3 R4".
+    // Accumulated time: hold, rest when the hold breaks, go again until the time is used up, and log the sets it
+    // took (each side, on a sided one). Set in the program builder (`e.accumulate`: true, or false to turn it off),
+    // and on by itself for an isometric longer than a minute ("Push-Up Extreme Iso 1x3 MIN"). The time is the
+    // reps box. Its seconds, or null. The sets go in the group's reps slot: "4", or "L3 R4".
     accumulated(e, g) {
-      if (!/\biso(?:metric)?s?\b/i.test((e || {}).name || "")) return null;
+      const x = e || {};
+      if (x.accumulate === false) return null;
       const s = ProgramRx.seconds((g || {}).reps);
+      if (x.accumulate === true) return s || null;
+      if (!/\biso(?:metric)?s?\b/i.test(x.name || "")) return null;
       return s && s > 60 ? s : null;
     },
     accSets(value) {

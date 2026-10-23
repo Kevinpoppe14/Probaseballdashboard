@@ -2594,7 +2594,7 @@
           rows: rows.map((e, ei) => ({
             label: labels[ei] || "", name: e.name.trim(), first: !(ei > 0 && e.linked),
             rx: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
-            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", Rx.extrasText(e)].filter(Boolean).join(" · "),
+            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", Rx.extrasText(e), Rx.tagText(e)].filter(Boolean).join(" · "),
             notes: e.notes || "",
           })),
         }, window.location.origin);
