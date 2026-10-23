@@ -701,12 +701,40 @@
 
   // What was logged for this set the last time it came up: the same exercise (by name) on the same day of an
   // earlier week of this block, looking back from last week. Returns { week, when, text } or null.
-  // when a past set was done, for that line: the day, for a quick session (it has one), else the week it was in
-  const loggedWhen = (wk, date) => {
+  // when a past set was done, for that line: the day it was typed in (when the log says), the day of a quick session
+  // (it has one), else the week it was in
+  const loggedWhen = (wk, date, pid, keys) => {
     const f = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const at = (keys || []).map((k) => logTimes[`${pid}|${k}`]).filter(Boolean).sort().pop();
+    if (at && !isNaN(new Date(at))) return f(new Date(at));
     if (date) return f(parseISO(date));
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + wk * 7);
     return `Wk of ${f(a)}`;
+  };
+  // Which of an earlier time's set groups goes beside this one. When both are prescribed in %, the one at the same %
+  // (else the nearest below it, else the heaviest): a deload week of 40 / 50 / 60% before a week of 60 / 70 / 80%
+  // shows the 60% set's weight beside all three, not the 40% warm-up's. Otherwise the same set, or past the last
+  // set it had, its last (top) set.
+  function pairGroup(prev, e, gi) {
+    const pg = Rx.groups(prev), g = Rx.groups(e)[gi];
+    if (!pg.length) return { gi };
+    const pct = (x, grp) => (grp && Rx.normalize(x).intensityUnit === "%" ? parseFloat(grp.intensity) : NaN);
+    const mine = pct(e, g);
+    if (Number.isFinite(mine)) {
+      const had = pg.map((x, i) => ({ i, v: pct(prev, x) })).filter((x) => Number.isFinite(x.v));
+      if (had.length) {
+        const pick = had.find((x) => x.v === mine) || had.filter((x) => x.v < mine).sort((a, b) => b.v - a.v)[0] || had.sort((a, b) => b.v - a.v)[0];
+        return { gi: pick.i, pct: pick.v === mine ? null : pick.v };
+      }
+    }
+    return { gi: gi < pg.length ? gi : pg.length - 1 };
+  }
+  // a logged set as that line reads it, or null when there's nothing to show: a weight of 0 (typed on a bodyweight
+  // exercise) counts as no weight
+  const lastText = (w, r, pct) => {
+    const wt = parseFloat(w) > 0 ? w : "";
+    if (!wt && !r) return null;
+    return { w: wt, r, text: `${r ? `${wt || "BW"} x ${r}` : wt}${pct != null ? ` @ ${pct}%` : ""}` };
   };
   function lastLogged(item, si, e, gi) {
     const pid = item.program.id, name = Rx.liftKey(e.name);
@@ -717,14 +745,15 @@
       const week = item.program.weeks[(wk - item.block.start) % item.program.weeks.length];
       const prev = ((((week || {}).sessions || [])[si] || {}).exercises || []).filter(same)[Math.max(0, nth)];
       if (!prev || prev.id === e.id) continue;
-      const w = logged(pid, Rx.logKey(prev, gi)), r = logged(pid, Rx.repsLogKey(prev, gi));
-      if (w || r) return { week: wk + 1, when: loggedWhen(wk), text: r ? `${w || "?"} x ${r}` : w, w, r };
+      const p = pairGroup(prev, e, gi), keys = [Rx.logKey(prev, p.gi), Rx.repsLogKey(prev, p.gi)];
+      const t = lastText(logged(pid, keys[0]), logged(pid, keys[1]), p.pct);
+      if (t) return { week: wk + 1, when: loggedWhen(wk, null, pid, keys), ...t };
     }
     return lastLoggedAnywhere(e, gi, weekIdx * 100 + si);
   }
   // Otherwise the last time the exercise (by name) was logged anywhere on the plan before this day: in another
-  // program, or a quick strength session (and a quick session finds it in the regular program). The same set
-  // group if it has one, else its first.
+  // program, a quick strength session (and a quick session finds it in the regular program), or earlier this week.
+  // Its set group paired as above.
   function lastLoggedAnywhere(e, gi, pos) {
     const name = Rx.liftKey(e.name);
     let best = null;
@@ -734,9 +763,9 @@
       (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((x) => {
         const at = (b.start + wi) * 100 + si;
         if (x.id === e.id || at >= pos || (best && at <= best.at) || Rx.liftKey(x.name) !== name) return;
-        const g = Rx.groups(x)[gi] ? gi : 0;
-        const wt = logged(program.id, Rx.logKey(x, g)), r = logged(program.id, Rx.repsLogKey(x, g));
-        if (wt || r) best = { at, week: b.start + wi + 1, when: loggedWhen(b.start + wi, s.date), text: r ? `${wt || "?"} x ${r}` : wt, w: wt, r };
+        const p = pairGroup(x, e, gi), keys = [Rx.logKey(x, p.gi), Rx.repsLogKey(x, p.gi)];
+        const t = lastText(logged(program.id, keys[0]), logged(program.id, keys[1]), p.pct);
+        if (t) best = { at, week: b.start + wi + 1, when: loggedWhen(b.start + wi, s.date, program.id, keys), ...t };
       })));
     });
     return best;
@@ -2835,7 +2864,9 @@
     api.logTimes().catch(() => []).then((t) => {
       logTimes = {};
       (Array.isArray(t) ? t : []).forEach((r) => { logTimes[`${r.programId}|${r.key}`] = r.at; });
-      if (view === "plan") render();
+      // the program's "last time" lines say the day each was done (not redrawn mid-entry or with a sheet open)
+      const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+      if (view === "plan" || (view === "program" && !typing && !overlay.className.includes("show"))) { const y = window.scrollY; render(); window.scrollTo(0, y); }
     });
     // a remote athlete's form checks from the past week and the coach's replies (shown under each exercise)
     if (canSendChecks()) {
