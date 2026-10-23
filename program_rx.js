@@ -177,8 +177,12 @@
   // new failure set re-works the weights from the next session on, and leaves the earlier ones alone. `all` is
   // every estimate in that order ({ key, name, value, weight, reps, pos }, pos = plan week * 100 + day).
   // `programById` looks a program up by id; `plan.programLog[programId][key]` holds what has been logged.
+  // Until a lift has a failure set, its % sets are filled from a training max instead: the weight logged on the
+  // heaviest % set of the latest earlier day, divided by its % (60 lb at 60% is a training max of 100, so a 65% set
+  // gets 65). `before` hands that back with `tm: true` ({ key, name, value, weight, pct, pos, tm }) when there is no
+  // failure-set estimate yet; `tms` is every one of them.
   function planMaxes(plan, programById) {
-    const sets = [];
+    const sets = [], pctSets = {};
     ((plan || {}).blocks || []).filter((b) => b.programId).forEach((b) => {
       const program = programById(b.programId);
       const log = ((plan.programLog || {})[b.programId]) || {};
@@ -186,14 +190,26 @@
       (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e) => {
         const name = (e.name || "").trim();
         if (!name) return;
+        const pctUnit = ProgramRx.normalize(e).intensityUnit === "%";
         ProgramRx.groups(e).forEach((g, gi) => {
-          const reps = log[ProgramRx.repsLogKey(e, gi)];
+          const reps = log[ProgramRx.repsLogKey(e, gi)], pos = (b.start + wi) * 100 + si, key = ProgramRx.liftKey(name);
+          const w = parseFloat(log[ProgramRx.logKey(e, gi)]), pct = pctUnit ? parseFloat(g.intensity) : NaN;
+          if (!ProgramRx.failure(g) && w > 0 && pct > 0 && pct <= 100) { // a % set's weight, toward a training max
+            const id = `${key}@${pos}`, had = pctSets[id];
+            if (!had || pct > had.pct || (pct === had.pct && w > had.weight)) pctSets[id] = { key, name, value: Math.round(w / (pct / 100)), weight: w, pct, pos, tm: true };
+          }
           if (!ProgramRx.failure(g) || !reps) return;
-          sets.push({ key: ProgramRx.liftKey(name), name, e, g, weight: log[ProgramRx.logKey(e, gi)], reps, pos: (b.start + wi) * 100 + si });
+          sets.push({ key, name, e, g, weight: log[ProgramRx.logKey(e, gi)], reps, pos });
         });
       })));
     });
     sets.sort((a, b) => a.pos - b.pos);
+    const tms = Object.values(pctSets).sort((a, b) => a.pos - b.pos);
+    const findTm = (key, pos) => {
+      let found = null;
+      tms.forEach((m) => { if (m.key === key && m.pos < pos) found = m; });
+      return found;
+    };
     const all = [];
     const find = (key, pos) => {
       let found = null;
@@ -202,7 +218,7 @@
     };
     // A failure set done at its filled-in weight (only the reps typed) counts at that weight.
     sets.forEach((s) => {
-      const prev = find(s.key, s.pos);
+      const prev = find(s.key, s.pos) || findTm(s.key, s.pos);
       const auto = prev && ProgramRx.normalize(s.e).intensityUnit === "%" ? ProgramRx.weightAt(prev.value, s.g) : null;
       const weight = s.weight || (auto ? `${auto}` : "");
       const value = ProgramRx.estimate1RM(weight, s.reps);
@@ -210,8 +226,8 @@
     });
     const latest = {};
     all.forEach((m) => { latest[m.key] = m; });
-    const before = (name, week, day) => find(ProgramRx.liftKey(name), week * 100 + day);
-    return { latest, before, all };
+    const before = (name, week, day) => { const k = ProgramRx.liftKey(name), p = week * 100 + day; return find(k, p) || findTm(k, p); };
+    return { latest, before, all, tms };
   }
   window.planMaxes = planMaxes;
 
@@ -244,7 +260,8 @@
   window.isSentProgram = (id) => /^g(speed|strength)-/.test(String(id || ""));
 
   // The plan row a program goes in when it's assigned, which is also the label the athlete's app shows for it:
-  // a speed-layout program, or one in a Speed folder, goes in Speed; a Throwing folder in Throwing; a Re-Ed or
+  // a speed-layout program, or one in a Speed folder, goes in Speed; an arm care program (an Arm Care folder, or
+  // "Arm Care" in its name) in Arm Care; a Throwing folder in Throwing; a Re-Ed or
   // Correctives folder in the plan's own Re-Ed / Correctives row if it has one (else "Re-Education"); anything else
   // in Strength. `laneNames` are the rows already on the plan, so an existing row is used rather than a near copy.
   window.programLaneName = (program, laneNames) => {
@@ -252,6 +269,7 @@
     const top = String(p.folder || "").split("/")[0];
     const kinds = [
       { name: "Speed", is: () => (window.isSpeedProgram && window.isSpeedProgram(p)) || /speed|sprint/i.test(top), row: /^speed/i },
+      { name: "Arm Care", is: () => /arm\s*care/i.test(`${p.folder || ""} ${p.name || ""}`), row: /arm\s*care/i },
       { name: "Throwing", is: () => /throw/i.test(top), row: /throw/i },
       { name: "Re-Education", is: () => /re-?ed|correct|rehab/i.test(top), row: /re-?ed|correct/i },
       { name: "Strength", is: () => true, row: /^strength$/i },

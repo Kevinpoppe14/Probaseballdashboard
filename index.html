@@ -2489,7 +2489,7 @@ function ProgramGroupAssign({ program, startDate }) {
 function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
   const lib = window.PeriodizationLib;
   const [startDate, setStartDate] = useState(() => initialStart || lib.mondayOfToday());
-  // the row follows the program (Speed, Throwing, Re-Education, Strength); changed here, every athlete gets that row,
+  // the row follows the program (Speed, Arm Care, Throwing, Re-Education, Strength); changed here, every athlete gets that row,
   // and left alone, each athlete's own matching row is used (their Correctives row for a Re-Ed program, say)
   const suggested = window.programLaneName(program, []);
   const [laneName, setLaneNameState] = useState(suggested);
@@ -2546,7 +2546,7 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
         <label className="facility-field"><span>Row on the periodization chart</span>
           <input list="program-assign-lanes" value={laneName} onChange={(e) => setLaneName(e.target.value)} />
           <datalist id="program-assign-lanes">
-            {["Strength", "Speed", "Throwing", "Re-Education", "Correctives", "Running", "Phase"].map((n) => <option key={n} value={n} />)}
+            {["Strength", "Speed", "Re-Education", "Arm Care", "Throwing", "Running", "Phase"].map((n) => <option key={n} value={n} />)}
           </datalist>
         </label>
       </div>
@@ -4053,7 +4053,7 @@ const HELP_SECTIONS = [
   {
     title: "The periodization timeline",
     items: [
-      "Each row is a kind of training (Strength, Speed, Correctives, Throwing…); rows stacked above each other run at the same time. Add rows with + Add row.",
+      "Each row is a kind of training (Strength, Speed, Re-Education, Arm Care, Throwing…); rows stacked above each other run at the same time. Add rows with + Add row.",
       "Drag in a row to make a bubble (a phase), drag its edges to change its length, and drag it to move it. Click a bubble to name it, color it or set its weeks.",
       "Select bubbles (click, Shift-click) to copy, cut, paste or duplicate them (Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+D), and undo with Ctrl+Z.",
       "Start a plan from a saved template, or copy another athlete's plan: their programs come along as this athlete's own copies, ready to edit.",

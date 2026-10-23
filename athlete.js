@@ -771,6 +771,56 @@
     return best;
   }
 
+  // ---- suggested weights -------------------------------------------------------------------------------
+  // What a set's weight box is filled in with (in grey, until it's typed over), with a note saying where it's from:
+  //  - a % set: its % of the lift's estimated max from a BM / TF set, or until there is one, of the initial training
+  //    max from last time's % sets (planMaxes in program_rx.js): "TM 100"
+  //  - an accessory lift (no %, in a strength row, not arm care, re-education, throwing or speed): a dumbbell lift
+  //    gets 5 lb more than the last week of this phase it was logged, a barbell lift 10 ("+5 from Oct 22"). Other
+  //    implements (kettlebells, cables, bands, machines) get no suggestion. On a deload week, week 1's weight from
+  //    this phase instead; the weeks after a deload build on the week before it (a deload that opens the phase counts).
+  const isDeload = (week) => /deload/i.test((week || {}).name || "");
+  const NOT_STEPPED = /\bkb\b|kettlebell|cable|band|machine|landmine|sled|keiser|vest|plate/i;
+  const DB_LIFT = /\bdb\b|dumbbell/i;
+  const BB_LIFT = /\bbb\b|barbell|trap bar|hex bar|safety bar|\bssb\b|squat|bench press|deadlift|\brdl\b|bent over row|overhead press|\bohp\b|good morning|hip thrust|clean|snatch|jerk/i;
+  const stepFor = (name) => (NOT_STEPPED.test(name) ? null : DB_LIFT.test(name) ? 5 : BB_LIFT.test(name) ? 10 : null);
+  function accessorySuggestion(item, si, e, g, gi) {
+    if (/arm\s*care|re-?ed|correct|rehab|throw|speed|sprint|run/i.test((item.lane || {}).name || "")) return null;
+    if (unloaded(item, e) || Rx.accumulated(e, g)) return null;
+    const step = stepFor(e.name || "");
+    if (!step) return null;
+    const pid = item.program.id, name = Rx.liftKey(e.name), len = item.program.weeks.length;
+    const weekAt = (wk) => item.program.weeks[(wk - item.block.start) % len] || {};
+    const same = (x) => Rx.liftKey(x.name) === name;
+    const nth = ((((item.week.sessions || [])[si] || {}).exercises) || []).filter(same).indexOf(e);
+    // the weight logged for this set on that week's same day (the same exercise, its set paired as for "last time")
+    const on = (wk) => {
+      const prev = ((((weekAt(wk).sessions || [])[si] || {}).exercises) || []).filter(same)[Math.max(0, nth)];
+      if (!prev || prev.id === e.id) return null;
+      const keys = [Rx.logKey(prev, pairGroup(prev, e, gi).gi)];
+      const w = parseFloat(logged(pid, keys[0]));
+      return w > 0 ? { w, when: loggedWhen(wk, null, pid, keys) } : null;
+    };
+    if (isDeload(weekAt(weekIdx))) {
+      const first = weekIdx > item.block.start ? on(item.block.start) : null;
+      return first ? { value: first.w, note: "Week 1 wt (deload)" } : null;
+    }
+    for (let wk = weekIdx - 1; wk >= item.block.start; wk -= 1) {
+      if (isDeload(weekAt(wk)) && wk !== item.block.start) continue;
+      const last = on(wk);
+      if (last) return { value: last.w + step, note: `+${step} from ${last.when}` };
+    }
+    return null;
+  }
+  function suggestFor(item, si, e, g, gi, maxes) {
+    if (Rx.normalize(e).intensityUnit === "%" && parseFloat(g.intensity) > 0) {
+      const max = maxes.before(e.name, weekIdx, si);
+      const v = max ? Rx.weightAt(max.value, g) : null;
+      return v ? { value: v, note: max.tm ? `TM ${max.value}` : "" } : null;
+    }
+    return accessorySuggestion(item, si, e, g, gi);
+  }
+
   // ---- "add to home screen" tip ------------------------------------------------------------------------
   // Until the athlete has put the page on their home screen, a small tip above the program says how. On Android
   // (and desktop Chrome) the browser offers to install it, so the tip has an Install button that brings that up;
@@ -1118,15 +1168,14 @@
     let auto = null;
     // works out the filled-in weight and the estimate again; never touches a box the athlete is typing in
     const refresh = () => {
-      const max = window.planMaxes(plan, programById).before(e.name, weekIdx, si);
-      const suggest = max && Rx.normalize(e).intensityUnit === "%" ? Rx.weightAt(max.value, g) : null;
+      const sug = suggestFor(item, si, e, g, gi, window.planMaxes(plan, programById));
       const has = logged(pid, wKey);
-      auto = suggest && !has ? suggest : null;
+      auto = sug && !has ? sug.value : null;
       if (document.activeElement !== weight) { weight.value = has || (auto ? `${auto}` : ""); weight.className = auto ? "auto" : ""; }
       if (reps && document.activeElement !== reps) reps.value = logged(pid, rKey);
       const used = has || (auto ? `${auto}` : "");
       const value = fail ? Rx.estimate1RM(used, logged(pid, rKey)) : null;
-      est.textContent = value ? `Est. 1RM ${value}` : "";
+      est.textContent = value ? `Est. 1RM ${value}` : auto && sug.note ? sug.note : ""; // where a filled-in weight came from
     };
     weight.addEventListener("focus", () => { weight.className = ""; weight.select(); });
     weight.addEventListener("blur", () => {
@@ -1386,8 +1435,8 @@
         if (unloaded(item, e) && !Rx.failure(g)) return; // nothing to weigh on a sprint or a mobility drill
         const fail = Rx.failure(g);
         if (logged(pid, Rx.logKey(e, gi)) && (!fail || logged(pid, Rx.repsLogKey(e, gi)))) return;
-        const max = maxes.before(e.name, weekIdx, si);
-        sets.push({ g, gi, fail, suggest: max && Rx.normalize(e).intensityUnit === "%" ? Rx.weightAt(max.value, g) : null });
+        const sug = suggestFor(item, si, e, g, gi, maxes);
+        sets.push({ g, gi, fail, suggest: sug ? sug.value : null });
       });
       if (sets.length) missing.push({ e, sets });
     });

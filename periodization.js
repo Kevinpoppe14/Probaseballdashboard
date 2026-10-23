@@ -1,6 +1,6 @@
 // Periodization planner — an interactive week-by-week offseason planner for one athlete at a time.
 // Lives on the Player Plans page (Periodization tab). Rows ("lanes") are training categories
-// (Phase, Running, Strength, Correctives, Throwing, ...) and each block is a labelled bar that
+// (Strength, Speed, Re-Education, Arm Care, Throwing, ...) and each block is a labelled bar that
 // spans one or more weeks. Loaded as its own <script type="text/babel"> before the main app and
 // exposes window.PeriodizationPlanner.
 //
@@ -37,10 +37,10 @@
   // `start` is a 0-based week index, `len` is a number of weeks (>= 1).
   function defaultLanes() {
     return [
-      { id: uid(), name: "Phase", color: PALETTE[4] },
-      { id: uid(), name: "Running", color: PALETTE[3] },
       { id: uid(), name: "Strength", color: PALETTE[0] },
-      { id: uid(), name: "Correctives", color: PALETTE[5] },
+      { id: uid(), name: "Speed", color: PALETTE[3] },
+      { id: uid(), name: "Re-Education", color: PALETTE[5] },
+      { id: uid(), name: "Arm Care", color: PALETTE[4] },
       { id: uid(), name: "Throwing", color: PALETTE[1] },
     ];
   }
@@ -237,7 +237,7 @@
                                         key={logged(wKey) || `a${auto || ""}`}
                                         defaultValue={logged(wKey) || (auto ? `${auto}` : "")}
                                         placeholder="wt"
-                                        title={suggest ? `${suggest} is ${ProgramRx.intensityText(e, g)} of an estimated ${max.value} max (${max.weight} x ${max.reps}). Type over it to change.` : undefined}
+                                        title={suggest ? (max.tm ? `${suggest} is ${ProgramRx.intensityText(e, g)} of an initial training max of ${max.value} (${max.weight} at ${max.pct}%), until a BM or TF set gives an estimated max. Type over it to change.` : `${suggest} is ${ProgramRx.intensityText(e, g)} of an estimated ${max.value} max (${max.weight} x ${max.reps}). Type over it to change.`) : undefined}
                                         aria-label="Weight used"
                                         onKeyDown={(ev) => ev.stopPropagation()}
                                         onBlur={save(wKey, auto)}
