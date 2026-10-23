@@ -241,6 +241,25 @@
   .timer-sheet .swap-actions button { font-size: 17px; min-height: 52px; }
   body.cubs .set button.last b { color: var(--label); }
   .set.noload .reps { padding-bottom: 2px; }
+  /* an accumulated iso (longer than a minute): sets boxes (L / R on a sided one), the accumulate timer, a line saying what to log */
+  .set.acc { flex-basis: calc((100% - 10px) / 2); min-width: 150px; }
+  .set .acc-hint { font-size: 11px; color: var(--dim); padding-top: 4px; line-height: 1.3; }
+  .timer-hint { font-size: 13px; color: var(--dim); line-height: 1.4; margin: -4px 0 4px; }
+  .timer-count { font-size: 16px; font-weight: 700; min-height: 22px; margin: -6px 0 12px; }
+  .timer-sets { display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; }
+  .timer-sets button { min-height: 64px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-weight: 800; }
+  .timer-sets .timer-plus { flex: 1; max-width: 240px; font-size: 22px; border-color: var(--label, var(--accent)); }
+  .timer-sets .timer-minus { width: 64px; font-size: 26px; color: var(--dim); }
+  .timer-sheet .swap-actions button:disabled { opacity: 0.45; }
+  /* an EDT block: its countdown and the sets done, at the top of the card */
+  .edt-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
+  .edt-title { flex: 1 1 200px; font-size: 13px; color: var(--dim); line-height: 1.35; }
+  .edt-title strong { display: block; font-size: 15px; color: var(--label, var(--accent)); letter-spacing: 0.02em; }
+  .edt-log { display: flex; align-items: center; gap: 10px; }
+  .edt-log .timer-btn { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--label, var(--accent)); background: transparent; color: var(--text); font: inherit; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .edt-box { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--dim); gap: 2px; }
+  .edt-box input { width: 64px; height: 40px; font-size: 16px; text-align: center; color: var(--text); background: var(--panel); border: 1px solid var(--line); }
+  .group.folded > .edt-bar { display: none; }
   /* "add to home screen" tip */
   .install-tip { display: flex; align-items: flex-start; gap: 10px; margin: 10px 16px 0; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel); font-size: 13px; line-height: 1.35; }
   .install-tip strong { display: block; margin-bottom: 2px; }

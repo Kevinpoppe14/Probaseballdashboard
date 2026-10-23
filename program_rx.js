@@ -65,6 +65,50 @@
       return m ? { kind: m[1].toUpperCase(), each: !!m[2] } : null;
     },
     repsLogKey: (e, gi) => `${e.id}|${gi}|r`,
+    // ---- EDT blocks and accumulated isometrics ----
+    // a time in a reps box or a note, in seconds: "3 MIN", "3:00 total", "45 SEC", "3 x 10 SEC" (10); else null
+    seconds(text) {
+      const t = `${text || ""}`;
+      let m = /(\d+):(\d{2})/.exec(t);
+      if (m) return Number(m[1]) * 60 + Number(m[2]);
+      m = /(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i.exec(t);
+      if (m) return Math.round(Number(m[1]));
+      m = /(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b/i.exec(t);
+      return m ? Math.round(Number(m[1]) * 60) : null;
+    },
+    // done each side: "8E", "30 SEC E", "5-E", "each", "/side"
+    sided: (text) => /(?:-\s*E\b|\dE\b|\sE\s*$|\beach\b|\/\s*side\b|\bper side\b)/i.test(`${text || ""}`.trim()),
+    // EDT: "EDT 10 min" or "EDT - 15 MIN" in a superset's notes means its exercises (A1, A2...) are done back to
+    // back for that long, and the athlete logs how many times through they got. The minutes, or null.
+    edtMinutes(e) {
+      const m = /\bEDT\b\s*[-–—:]?\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes)\b/i.exec(`${(e || {}).name || ""} ${(e || {}).notes || ""}`);
+      return m ? Number(m[1]) : null;
+    },
+    // where the sets for an EDT block are logged, on the exercise with the EDT note: a set group slot no exercise
+    // has, so it passes the phone link's key check (migration_007)
+    edtKey: (e) => `${e.id}|99|r`,
+    // An isometric longer than a minute ("Push-Up Extreme Iso 1x3 MIN") is accumulated time: hold, rest when the
+    // hold breaks, go again until the time is used up, and log the sets it took (each side, on a sided one). Its
+    // seconds, or null. The sets go in the group's reps slot: "4", or "L3 R4".
+    accumulated(e, g) {
+      if (!/\biso(?:metric)?s?\b/i.test((e || {}).name || "")) return null;
+      const s = ProgramRx.seconds((g || {}).reps);
+      return s && s > 60 ? s : null;
+    },
+    accSets(value) {
+      const t = `${value || ""}`, l = /L\s*(\d+)/i.exec(t), r = /R\s*(\d+)/i.exec(t);
+      return l || r ? { l: l ? l[1] : "", r: r ? r[1] : "" } : { one: (/\d+/.exec(t) || [""])[0] };
+    },
+    accValue: (sets) => (sets.one != null ? `${sets.one || ""}` : [sets.l ? `L${sets.l}` : "", sets.r ? `R${sets.r}` : ""].filter(Boolean).join(" ")),
+    // how a logged set reads in a summary: "135 x 5", or "4 sets" / "L 3 · R 4 sets" for an accumulated iso
+    loggedText(e, g, weight, reps) {
+      if (ProgramRx.accumulated(e, g) && reps) {
+        const s = ProgramRx.accSets(reps);
+        const sets = s.one != null ? `${s.one} sets` : `${[s.l ? `L ${s.l}` : "", s.r ? `R ${s.r}` : ""].filter(Boolean).join(" · ")} sets`;
+        return weight ? `${weight} · ${sets}` : sets;
+      }
+      return weight || reps ? `${weight || "?"}${reps ? ` x ${reps}` : ""}` : "";
+    },
     // The reps-to-failure -> % of 1RM chart. The dashboard reads it from the store; the phone page replaces
     // this with the chart it was sent.
     chart: () => (window.AthleteStore && window.AthleteStore.getRmChart ? window.AthleteStore.getRmChart() : {}),

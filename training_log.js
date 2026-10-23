@@ -48,8 +48,15 @@
               weight: w8 ? w8.value : "", reps: reps ? reps.value : "", at,
               source: (w8 && w8.source) || (reps && reps.source) || "",
               est: Rx.failure(g) && w8 && reps ? Rx.estimate1RM(w8.value, reps.value) : null,
+              text: Rx.loggedText(e, g, w8 ? w8.value : "", reps ? reps.value : ""), // "135 x 5", or "4 sets" on an accumulated iso
             };
           });
+          // an EDT block's sets, kept on the exercise with the EDT note, show as a line of their own
+          const edt = Rx.edtMinutes(e) ? logged[Rx.edtKey(e)] : null;
+          if (Rx.edtMinutes(e)) {
+            if (edt) seen(edt.at);
+            groups.unshift({ rx: `EDT ${Rx.edtMinutes(e)} min`, fail: false, weight: "", reps: edt ? edt.value : "", at: edt ? edt.at : null, source: edt ? edt.source || "" : "", est: null, text: edt ? `${edt.value} sets` : "" });
+          }
           if (e._coach) seen(e._coach.at);
           return { label: labels[ei], name: e.name, coach: e._coach || null, groups, done: groups.some((g) => g.weight || g.reps) };
         });
@@ -192,7 +199,7 @@
                     <td>{g ? g.rx : "—"}</td>
                     <td className="tl-done">
                       {g && (g.weight || g.reps)
-                        ? <span>{g.weight || "?"}{g.reps ? ` x ${g.reps}` : ""}{g.est ? <em> (est. 1RM {g.est})</em> : null}</span>
+                        ? <span>{g.text}{g.est ? <em> (est. 1RM {g.est})</em> : null}</span>
                         : <span className="tl-none">not logged</span>}
                     </td>
                     <td className="tl-when">{g && (g.weight || g.reps) ? `${fmtWhen(g.at) || "time not recorded"}${SOURCES[g.source] ? ` · ${SOURCES[g.source]}` : ""}` : ""}</td>

@@ -794,7 +794,7 @@
     if (m) return Math.round(Number(m[1]) * 60);
     return null;
   };
-  const eachSide = (text) => /(?:-\s*E\b|\beach\b|\/side\b|\bper side\b)/i.test(`${text || ""}`);
+  const eachSide = Rx.sided; // "8E", "30 SEC E", "5-E", "each"
   const clock = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
   const beep = () => {
     try {
@@ -809,52 +809,163 @@
     } catch (err) { /* no sound */ }
     try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch (err) { /* no buzz */ }
   };
-  function openTimer(name, seconds, sides) {
-    let left = seconds, running = false, tick = null, round = 1, last = 0;
+  // Two more ways it runs (opts.mode):
+  //  "acc": an accumulated iso (Rx.accumulated). The clock only runs while they hold: each Start is a set, Stop
+  //    when the hold breaks, until the time is used up. A sided one runs the left side, then the right.
+  //  "edt": an EDT block. One countdown for the block, and a +1 button for each time through (a set).
+  // Closing it hands the counts ([left or only, right]) to opts.onDone, which fills in the log boxes. The screen
+  // is kept awake while it runs, where the phone allows it.
+  function openTimer(name, seconds, sides, opts) {
+    const o = opts || {}, acc = o.mode === "acc", edt = o.mode === "edt";
+    let left = seconds, running = false, tick = null, round = 1, last = 0, lock = null;
+    const counts = [0, 0];
     const rounds = sides ? 2 : 1;
+    const sideName = () => (!sides ? "" : acc ? (round === 1 ? "Left side" : "Right side") : (round === 1 ? "First side" : "Second side"));
     const face = el("div", { class: "timer-face" }, clock(left));
-    const label = el("div", { class: "timer-round" }, sides ? "First side" : "");
+    const label = el("div", { class: "timer-round" }, sideName());
+    const count = el("div", { class: "timer-count" });
     const go = el("button", { class: "primary" }, "Start");
     const reset = el("button", null, "Reset");
+    const plus = edt ? el("button", { class: "timer-plus", onclick: () => { counts[0] += 1; draw(); } }, "+1 set") : null;
+    const minus = edt ? el("button", { class: "timer-minus", "aria-label": "One set less", onclick: () => { counts[0] = Math.max(0, counts[0] - 1); draw(); } }, "−") : null;
+    const awake = async (on) => {
+      try {
+        if (on && !lock && navigator.wakeLock) lock = await navigator.wakeLock.request("screen");
+        if (!on && lock) { lock.release(); lock = null; }
+      } catch (err) { /* the screen may sleep */ }
+    };
     const stop = () => { running = false; clearInterval(tick); tick = null; };
     const draw = () => {
       face.textContent = clock(left);
       face.className = `timer-face${left <= 3 && running ? " ending" : ""}${left <= 0 ? " done" : ""}`;
-      go.textContent = running ? "Pause" : left <= 0 ? (round < rounds ? "Other side" : "Again") : left < seconds ? "Resume" : "Start";
+      label.textContent = sideName();
+      go.disabled = false;
+      if (acc) {
+        const n = counts[round - 1];
+        go.textContent = running ? "Stop (hold broke)" : left <= 0 ? (round < rounds ? "Start right side" : "Finished") : n ? `Start set ${n + 1}` : "Start set 1";
+        go.disabled = !running && left <= 0 && round >= rounds;
+        count.textContent = [n ? `Set ${n}` : "", sides && round === 2 ? `Left took ${counts[0]} set${counts[0] === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
+      } else {
+        go.textContent = running ? "Pause" : left <= 0 ? (round < rounds ? "Other side" : "Again") : left < seconds ? "Resume" : "Start";
+        if (edt) count.textContent = `${counts[0]} set${counts[0] === 1 ? "" : "s"} done`;
+      }
     };
     const run = () => {
       if (running) { stop(); draw(); return; }
       if (left <= 0) {
-        if (round < rounds) { round += 1; label.textContent = "Second side"; } else { round = 1; label.textContent = sides ? "First side" : ""; }
+        if (round < rounds) round += 1;
+        else if (acc) return;
+        else { round = 1; if (edt) counts[0] = 0; }
         left = seconds;
       }
-      running = true; last = Date.now();
+      if (acc) counts[round - 1] += 1;
+      running = true; last = Date.now(); awake(true);
       tick = setInterval(() => {
-        if (Date.now() - last < 1000) return;
-        last += 1000; left -= 1;
-        if (left <= 0) { left = 0; stop(); beep(); }
+        while (running && Date.now() - last >= 1000) { // catches up after the phone held the page back
+          last += 1000; left -= 1;
+          if (left <= 0) { left = 0; stop(); beep(); }
+        }
         draw();
       }, 100);
       draw();
     };
     go.addEventListener("click", run);
-    reset.addEventListener("click", () => { stop(); left = seconds; round = 1; label.textContent = sides ? "First side" : ""; draw(); });
-    const close = () => { stop(); closeVideo(); };
+    reset.addEventListener("click", () => { stop(); left = seconds; round = 1; counts[0] = 0; counts[1] = 0; draw(); });
+    const close = () => {
+      stop(); awake(false);
+      if (o.onDone && (counts[0] || counts[1])) o.onDone(counts.slice());
+      closeVideo();
+    };
+    draw();
     overlay.replaceChildren(el("div", { class: "sheet timer-sheet" },
       el("button", { class: "close", "aria-label": "Close", onclick: close }, "×"),
       el("h2", null, name),
-      label, face,
-      el("div", { class: "swap-actions" }, go, reset, el("button", { onclick: close }, "Done"))));
+      o.hint ? el("div", { class: "timer-hint" }, o.hint) : null,
+      label, face, (acc || edt) ? count : null,
+      edt ? el("div", { class: "timer-sets" }, minus, plus) : null,
+      el("div", { class: "swap-actions" }, go, reset, el("button", { onclick: close }, (acc || edt) ? "Done · log it" : "Done"))));
     overlay.className = "overlay show";
   }
   // the timer button for a set group, when its reps (or the exercise's Time box) are a time
   const timerFor = (e, g) => {
+    if (Rx.accumulated(e, g)) return null; // it has its own (accBox)
     const timeBox = (Rx.extras(e).find((x) => /^time$/i.test((x.label || "").trim())) || {}).value;
     const secs = secondsIn(g.reps) || secondsIn(timeBox);
     if (!secs || secs > 3600) return null;
     const sides = eachSide(g.reps);
     return el("button", { class: "timer-btn", title: `Time this set: ${clock(secs)}${sides ? " each side" : ""}`, onclick: () => openTimer(e.name, secs, sides) }, `⏱ ${clock(secs)}`);
   };
+
+  // ---- accumulated isos and EDT blocks ----------------------------------------------------------------
+  // An iso held longer than a minute (Rx.accumulated) is built up in as many sets as it takes: its row has a box
+  // for the sets (L and R on a sided one) and the accumulate timer, which counts them and fills the boxes in. A
+  // weight box too, but only when it names an implement (a bodyweight extreme iso has nothing to weigh).
+  const ACC_LOADED = /barbell|dumbbell|\bdb\b|\bbb\b|kettlebell|\bkb\b|keiser|cable|weighted|vest|plate|trap bar|safety bar|\bssb\b|landmine|machine/i;
+  const accWeighed = (e) => ACC_LOADED.test(e.name || "");
+  function accBox(item, si, e, g, gi) {
+    const pid = item.program.id, key = Rx.repsLogKey(e, gi), wKey = Rx.logKey(e, gi);
+    const secs = Rx.accumulated(e, g), sides = Rx.sided(g.reps);
+    const box = (ph, label) => el("input", { type: "text", inputmode: "numeric", placeholder: ph, "aria-label": label, autocomplete: "off" });
+    const one = sides ? null : box("sets", `Sets it took for ${e.name}`);
+    const L = sides ? box("L sets", `Sets it took on the left for ${e.name}`) : null;
+    const R = sides ? box("R sets", `Sets it took on the right for ${e.name}`) : null;
+    const weight = accWeighed(e) ? box("wt", "Weight used") : null;
+    if (weight) weight.setAttribute("inputmode", "decimal");
+    const inputs = [weight, one, L, R].filter(Boolean);
+    const refresh = () => {
+      const s = Rx.accSets(logged(pid, key));
+      const put = (i, v) => { if (i && document.activeElement !== i) i.value = v || ""; };
+      put(one, s.one != null ? s.one : s.l || s.r); put(L, s.l != null ? s.l : s.one); put(R, s.r);
+      put(weight, logged(pid, wKey));
+    };
+    const digits = (i) => (i ? i.value.replace(/[^\d]/g, "") : "");
+    const store = () => save(pid, key, sides ? Rx.accValue({ l: digits(L), r: digits(R) }) : Rx.accValue({ one: digits(one) }));
+    [one, L, R].filter(Boolean).forEach((i) => { i.addEventListener("focus", () => i.select()); i.addEventListener("blur", () => { store(); refresh(); }); });
+    if (weight) { weight.addEventListener("focus", () => weight.select()); weight.addEventListener("blur", () => save(pid, wKey, weight.value.trim())); }
+    inputs.forEach((i) => i.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      const all = [...document.querySelectorAll("main .boxes input")];
+      const next = all[all.indexOf(i) + 1];
+      if (next) next.focus(); else i.blur();
+    }));
+    derived.push(refresh);
+    refresh();
+    const each = sides ? " each side" : "";
+    const onDone = (c) => {
+      const s = Rx.accSets(logged(pid, key));
+      save(pid, key, sides
+        ? Rx.accValue({ l: c[0] ? String(c[0]) : s.l || s.one || "", r: c[1] ? String(c[1]) : s.r || "" })
+        : Rx.accValue({ one: String(c[0]) }));
+      refresh();
+      showStatus("Sets logged");
+    };
+    const last = lastLogged(item, si, e, gi);
+    return el("div", { class: "set acc" },
+      el("span", { class: "reps" }, Rx.repsText(g)),
+      el("div", { class: "boxes" }, ...inputs),
+      el("button", { class: "timer-btn", title: `Accumulate ${clock(secs)}${each}`, onclick: () => openTimer(e.name, secs, sides, { mode: "acc", onDone, hint: `Build up ${clock(secs)}${each}. Start when you set the hold, Stop when it breaks, rest, and go again until the time runs out.` }) }, `⏱ ${clock(secs)}${sides ? " ×2" : ""}`),
+      last && last.r ? el("span", { class: "last" }, `${last.when}: ${Rx.loggedText(e, g, last.w, last.r)}`) : null,
+      el("div", { class: "acc-hint" }, `Accumulate ${clock(secs)}${each}: log how many sets it took.`));
+  }
+  // An EDT block (Rx.edtMinutes on one of its exercises): a bar at the top of the card with the block's
+  // countdown and a box for the sets done (times through A1, A2...). Its sets finish the block.
+  function edtBar(item, b) {
+    const first = b.rows.find((e) => Rx.edtMinutes(e));
+    if (!first) return;
+    b.edt = first;
+    const pid = item.program.id, key = Rx.edtKey(first), mins = Rx.edtMinutes(first), secs = Math.round(mins * 60);
+    const box = el("input", { type: "text", inputmode: "numeric", placeholder: "sets", "aria-label": `Sets of ${b.letter} done in ${mins} minutes`, autocomplete: "off", value: logged(pid, key) });
+    box.addEventListener("focus", () => box.select());
+    box.addEventListener("blur", () => { box.value = box.value.replace(/[^\d]/g, ""); save(pid, key, box.value); });
+    const span = b.rows.length > 1 ? `${b.letter}1–${b.letter}${b.rows.length}` : `${b.letter}1`;
+    const onDone = (c) => { box.value = String(c[0]); save(pid, key, box.value); showStatus("Sets logged"); };
+    b.card.prepend(el("div", { class: "edt-bar" },
+      el("div", { class: "edt-title" }, el("strong", null, `EDT · ${mins} min`), el("span", null, `Go through ${span} back to back for ${mins} minutes. Each time through is one set.`)),
+      el("div", { class: "edt-log" },
+        el("button", { class: "timer-btn", onclick: () => openTimer(`${b.letter} · EDT ${mins} min`, secs, false, { mode: "edt", onDone, hint: `${b.rows.map((e) => e.name.trim()).join(" → ")}. Tap +1 set each time you finish ${b.letter}${b.rows.length}.` }) }, `⏱ Start ${clock(secs)}`),
+        el("label", { class: "edt-box" }, el("span", null, "Sets done"), box))));
+  }
 
   // ---- one set group -----------------------------------------------------------------------------
   // ---- a finished block folds up ---------------------------------------------------------------------
@@ -869,11 +980,13 @@
   function foldable(item, si, b) {
     const pid = item.program.id, id = `${pid}|${item.weekNo}|${si}|${b.letter}`;
     // the sets in the block that take something written in
-    const sets = b.rows.flatMap((e) => Rx.groups(e).map((g, gi) => ({ e, g, gi }))).filter((x) => !unloaded(item, x.e) || Rx.failure(x.g));
-    const filled = ({ e, g, gi }) => (unloaded(item, e)
-      ? !!logged(pid, Rx.repsLogKey(e, gi))
-      : !!logged(pid, Rx.logKey(e, gi)) && (!Rx.failure(g) || !!logged(pid, Rx.repsLogKey(e, gi))));
-    const isDone = () => !!logged(pid, sessionKey(item, si)) || tappedDone(item, si).includes(b.letter) || (sets.length > 0 && sets.every(filled));
+    const sets = b.rows.flatMap((e) => Rx.groups(e).map((g, gi) => ({ e, g, gi }))).filter((x) => !unloaded(item, x.e) || Rx.failure(x.g) || Rx.accumulated(x.e, x.g));
+    const filled = ({ e, g, gi }) => (Rx.accumulated(e, g) // its sets (and its weight, if it takes one)
+      ? !!logged(pid, Rx.repsLogKey(e, gi)) && (!accWeighed(e) || !!logged(pid, Rx.logKey(e, gi)))
+      : unloaded(item, e)
+        ? !!logged(pid, Rx.repsLogKey(e, gi))
+        : !!logged(pid, Rx.logKey(e, gi)) && (!Rx.failure(g) || !!logged(pid, Rx.repsLogKey(e, gi))));
+    const isDone = () => !!logged(pid, sessionKey(item, si)) || tappedDone(item, si).includes(b.letter) || (b.edt && !!logged(pid, Rx.edtKey(b.edt))) || (sets.length > 0 && sets.every(filled));
     const summary = el("button", { class: "blk-sum", onclick: () => { openBlocks.add(id); update(); } },
       el("span", { class: "blk-check", "aria-hidden": "true" }, "✓"),
       el("span", { class: "blk-letter" }, b.letter),
@@ -903,6 +1016,7 @@
     const fail = Rx.failure(g);
     const wKey = Rx.logKey(e, gi), rKey = Rx.repsLogKey(e, gi);
     const int = Rx.intensityText(e, g);
+    if (Rx.accumulated(e, g)) return accBox(item, si, e, g, gi);
     if (unloaded(item, e)) {
       // reps only, plus a reps box on a set taken to failure (a max-rep push-up, say)
       const repsOnly = fail ? el("input", { type: "text", inputmode: "numeric", placeholder: "reps", "aria-label": `Reps reached${fail.each ? " each side" : ""}`, autocomplete: "off", value: logged(pid, rKey) }) : null;
@@ -1044,8 +1158,13 @@
           const sets = Rx.groups(e).map((g, gi) => {
             const wk = Rx.logKey(e, gi), rk = Rx.repsLogKey(e, gi), wt = log[wk], rp = log[rk];
             [wk, rk].forEach((k) => { const at = logTimes[`${b.programId}|${k}`]; if (log[k] && at && at > latest) latest = at; });
-            return wt || rp ? `${wt || "?"}${rp ? ` × ${rp}` : ""}` : null;
+            return wt || rp ? Rx.loggedText(e, g, wt, rp).replace(" x ", " × ") : null;
           }).filter(Boolean);
+          const ek = Rx.edtMinutes(e) ? Rx.edtKey(e) : null; // an EDT block's sets, on the exercise with its note
+          if (ek && log[ek]) {
+            sets.unshift(`EDT ${Rx.edtMinutes(e)} min: ${log[ek]} sets`);
+            const at = logTimes[`${b.programId}|${ek}`]; if (at && at > latest) latest = at;
+          }
           return { label: labels[ei] || "", name: e.name.trim(), sets };
         });
         const markKey = `session-${wi}-${si}|0`, marked = !!log[markKey];
@@ -1177,6 +1296,7 @@
     rows.forEach((e) => {
       const sets = [];
       Rx.groups(e).forEach((g, gi) => {
+        if (Rx.accumulated(e, g) && !accWeighed(e)) return; // a bodyweight extreme iso: its sets are in its own boxes
         if (unloaded(item, e) && !Rx.failure(g)) return; // nothing to weigh on a sprint or a mobility drill
         const fail = Rx.failure(g);
         if (logged(pid, Rx.logKey(e, gi)) && (!fail || logged(pid, Rx.repsLogKey(e, gi)))) return;
@@ -2544,7 +2664,7 @@
           canSendChecks() ? checkLine(item, e) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));
       });
-      blocks.forEach((b) => foldable(item, dayIdx, b));
+      blocks.forEach((b) => { if (!b.card.classList.contains("spd")) edtBar(item, b); foldable(item, dayIdx, b); });
       // end of the day: mark the session as done
       if (rows.length) {
         const done = logged(item.program.id, sessionKey(item, dayIdx));
