@@ -2298,6 +2298,118 @@
   // and a custom meal, all logged or planned whole through the meal editor; the food exchange lists; and a grocery list
   // from what's planned, hydration and supplements, folded away.
   let openMeals = new Set(); // the meals opened in Your meals
+  // ---- a coach sets the plan from the app ---------------------------------------------------------------
+  // In Coach Mode (an athlete's app, or their own) and on a coach's own link (?staff=1), a coach can set the goal, and
+  // the weight and details the plan is built from, without the dashboard. The plan is worked out here with the same
+  // engine as the dashboard (nutrition_engine.js) and saved the way the dashboard saves it. Details entered here take
+  // over from a body composition that's older (nutrition.js). Changing only the goal keeps what the plan was worked out
+  // from (the snapshot's `basis`), body comp sheet and all. It needs the coach signed in (Coach Mode's sign-in): the
+  // record is written as staff, and the athlete's own link can't change it.
+  const canPlanNutrition = () => !!(staff || coachId) && !!window.NutritionEngine;
+  async function nutritionContext() {
+    const { data: s } = await sb.auth.getSession();
+    if (!s || !s.session) return { signedOut: true };
+    let aid = coachId ? String(coachId) : null;
+    if (!aid && token) {
+      const r = await sb.from("athlete_links").select("athlete_id").eq("token", token).maybeSingle();
+      aid = r.data ? String(r.data.athlete_id) : null;
+    }
+    if (!aid) return { error: true };
+    const [plan0, prefs, ath] = await Promise.all([
+      sb.from("assessments").select("data").eq("id", `nutrition-${aid}`).maybeSingle(),
+      sb.from("assessments").select("data").eq("id", `nutprefs-${aid}`).maybeSingle(),
+      sb.from("athletes").select("data").eq("id", aid).maybeSingle(),
+    ]);
+    if (plan0.error || ath.error) return { error: true };
+    return { aid, rec: plan0.data ? plan0.data.data : null, prefs: prefs.data ? prefs.data.data : null, athlete: (ath.data && ath.data.data) || {} };
+  }
+  const ageFrom = (dob) => {
+    const d = dob ? new Date(`${String(dob).slice(0, 10)}T12:00:00`) : null;
+    if (!d || isNaN(d)) return "";
+    const now = new Date();
+    return String(now.getFullYear() - d.getFullYear() - (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+  };
+  async function openPlanEditor() {
+    const E = window.NutritionEngine;
+    overlay.replaceChildren(el("div", { class: "sheet" }, el("h2", null, "Nutrition plan"), el("div", { class: "card-sub" }, "Loading…")));
+    overlay.className = "overlay show";
+    const ctx = await nutritionContext().catch(() => ({ error: true }));
+    const shell = (...kids) => overlay.replaceChildren(el("div", { class: "sheet plan-edit" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"), el("h2", null, "Nutrition plan"), ...kids));
+    if (ctx.signedOut) {
+      shell(el("div", { class: "swap-coach" }, "Sign in with your dashboard account to set a nutrition plan from the app."),
+        el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: () => { window.location.href = "coach.html?from=app"; } }, "Sign in (Coach Mode)"), el("button", { onclick: closeVideo }, "Cancel")));
+      return;
+    }
+    if (ctx.error) { shell(el("div", { class: "swap-coach" }, "Couldn't load the plan. Check your connection and try again."), el("div", { class: "swap-actions" }, el("button", { onclick: closeVideo }, "Close"))); return; }
+    const rec = ctx.rec || {}, m = rec.manual || {}, snapBasis = nutrition && nutrition.basis;
+    const lastWeigh = weighIns().pop();
+    // filled in from what's on file: the weight from the latest weigh-in, else the details entered before, else the
+    // body composition the plan uses now
+    const start = {
+      weightLb: lastWeigh ? String(lastWeigh.lb) : m.weightLb || (snapBasis ? String(Math.round(snapBasis.weightLb * 10) / 10) : ""),
+      age: m.age || (snapBasis && snapBasis.age ? String(snapBasis.age) : ageFrom(ctx.athlete.dob)),
+      sex: m.sex || (snapBasis ? (snapBasis.male ? "M" : "F") : /^f/i.test(ctx.athlete.gender || "") ? "F" : "M"),
+      bodyFatPct: m.bodyFatPct || (snapBasis && snapBasis.pctFat != null ? String(Math.round(snapBasis.pctFat * 10) / 10) : ""),
+      trainMin: m.trainMin != null ? String(m.trainMin) : snapBasis && snapBasis.trainMin ? String(snapBasis.trainMin) : "120",
+      sportMin: m.sportMin != null ? String(m.sportMin) : snapBasis && snapBasis.sportMin != null ? String(snapBasis.sportMin) : "30",
+    };
+    const f = Object.assign({}, start, { goal: rec.goal && E.GOALS[rec.goal] ? rec.goal : "" });
+    const field = (label, k, unit, mode) => {
+      const i = el("input", { type: "text", inputmode: mode || "decimal", value: f[k], autocomplete: "off", "aria-label": label });
+      i.addEventListener("input", () => { f[k] = i.value.trim(); });
+      return el("label", { class: "pe-field" }, el("span", null, label), el("div", { class: "pe-in" }, i, unit ? el("em", null, unit) : null));
+    };
+    const sexSel = el("select", { "aria-label": "Sex" }, el("option", { value: "M" }, "Male"), el("option", { value: "F" }, "Female"));
+    sexSel.value = f.sex; sexSel.addEventListener("change", () => { f.sex = sexSel.value; });
+    const goalSel = el("select", { "aria-label": "Goal" }, el("option", { value: "" }, "Choose a goal…"), ...E.GOAL_KEYS.map((k) => el("option", { value: k }, E.GOALS[k].label)));
+    goalSel.value = f.goal; goalSel.addEventListener("change", () => { f.goal = goalSel.value; });
+    const hasTargets = !!(rec.targets && (rec.targets.train || rec.targets.rest));
+    const clearBox = hasTargets ? el("input", { type: "checkbox", checked: true }) : null;
+    const msg = el("div", { class: "pe-msg" });
+    const from = snapBasis && snapBasis.source !== "manual" ? `the ${snapBasis.source === "sheet" ? "body comp sheet" : "Evolt scan"} of ${snapBasis.date}` : null;
+    const save = el("button", { class: "primary" }, nutrition ? "Save plan" : "Build plan");
+    save.addEventListener("click", async () => {
+      const details = ["weightLb", "age", "sex", "bodyFatPct", "trainMin", "sportMin"];
+      const changed = details.some((k) => String(f[k] || "") !== String(start[k] || ""));
+      if (!f.goal) { msg.textContent = "Choose a goal."; return; }
+      const lb = parseFloat(f.weightLb);
+      if (!(lb >= 50 && lb <= 500)) { msg.textContent = "Enter a weight in pounds."; return; }
+      const today = todayKey();
+      // only the goal changed on a plan from a body composition: the same basis, the new goal
+      const keepBasis = !changed && snapBasis && snapBasis.source !== "manual";
+      const manual = keepBasis ? rec.manual : { weightLb: String(lb), age: f.age, sex: f.sex, bodyFatPct: f.bodyFatPct, trainMin: f.trainMin, sportMin: f.sportMin, date: today };
+      const basis = keepBasis ? snapBasis : E.manualBasis(manual, parseFloat(ageFrom(ctx.athlete.dob)) || null, f.sex);
+      const allergies = ctx.prefs && Array.isArray(ctx.prefs.allergies) ? ctx.prefs.allergies.filter((a) => E.ALLERGIES[a]) : [];
+      const seed = rec.seed || Math.floor(Math.random() * 1e9);
+      const targets = hasTargets && !(clearBox && clearBox.checked) ? rec.targets : null;
+      const T = E.targetsFor(basis, f.goal, targets);
+      const snap = E.snapshotOf(basis, T, E.buildPlan(T, seed, { school: !!rec.schoolLunch, allergies }), E.macroLists(T, { allergies }), E.mealTimes(basis, rec));
+      const record = Object.assign({ id: `nutrition-${ctx.aid}`, athleteId: ctx.aid, kind: "nutrition", seed }, rec, { goal: f.goal, snapshot: JSON.parse(JSON.stringify(snap)), date: today, editedIn: "app" });
+      if (manual) record.manual = manual; else delete record.manual;
+      if (targets) record.targets = targets; else delete record.targets;
+      save.disabled = true; msg.textContent = "Saving…";
+      const { error } = await sb.from("assessments").upsert({ id: record.id, athlete_id: String(ctx.aid), data: record });
+      if (error) { save.disabled = false; msg.textContent = "Couldn't save. Check your connection and try again."; return; }
+      nutrition = record.snapshot;
+      closeVideo();
+      view = "nutrition"; render();
+      showStatus("Nutrition plan saved");
+    });
+    shell(
+      el("div", { class: "swap-coach" }, from
+        ? `Built from ${from}. Change only the goal to keep using it, or enter a weight and details to build from them instead (until a newer body comp is on file).`
+        : "Enter the weight and details the plan is built from, and the goal. Pre-lift weigh-ins on the Program page keep it up to date."),
+      el("label", { class: "pe-field" }, el("span", null, "Goal"), goalSel),
+      el("div", { class: "pe-grid" },
+        field("Weight", "weightLb", "lb"), field("Age", "age", "yrs", "numeric"),
+        el("label", { class: "pe-field" }, el("span", null, "Sex"), sexSel), field("Body fat (optional)", "bodyFatPct", "%"),
+        field("Training", "trainMin", "min/day", "numeric"), field("Sport", "sportMin", "min/day", "numeric")),
+      hasTargets ? el("label", { class: "pe-check" }, clearBox, " Use the worked-out calories and macros (clears the ones set by hand on the dashboard)") : null,
+      msg,
+      el("div", { class: "swap-actions" }, save, el("button", { onclick: closeVideo }, "Cancel")));
+  }
+
   function nutritionView() {
     const main = el("main", { class: "nut-main" });
     const n = nutrition;
@@ -2305,8 +2417,9 @@
       main.append(el("div", { class: "card" },
         el("div", { class: "card-title" }, "No nutrition plan yet"),
         el("div", { class: "card-sub" }, staff || coachId
-          ? "An athlete’s nutrition plan shows here once a goal is set on their Nutrition tab on the dashboard (under Assessments)."
-          : "Your coach hasn’t set up your nutrition plan yet. It shows here as soon as they do.")));
+          ? "Set a weight and a goal here to build the plan, or set one up on the dashboard's Nutrition tab."
+          : "Your coach hasn’t set up your nutrition plan yet. It shows here as soon as they do."),
+        canPlanNutrition() ? el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: openPlanEditor }, "Set up a nutrition plan")) : null));
       return main;
     }
     // the allergy question comes first, once: nothing else opens until it's answered (or they say they have none)
@@ -2337,7 +2450,8 @@
         el("div", null, el("b", null, `${day.p}g`), el("span", null, "protein")),
         el("div", null, el("b", null, `${day.c}g`), el("span", null, "carbs")),
         el("div", null, el("b", null, `${day.f}g`), el("span", null, "fat"))),
-      nutRest ? el("div", { class: "card-sub" }, "Rest day: the same protein and fat with less carbohydrate, and no post-workout shake.") : null));
+      nutRest ? el("div", { class: "card-sub" }, "Rest day: the same protein and fat with less carbohydrate, and no post-workout shake.") : null,
+      canPlanNutrition() ? el("button", { class: "nut-coach-edit", onclick: openPlanEditor }, "Coach: change weight or goal") : null));
 
     // the countdown for the day shown (once the food log has loaded; there is none until migration_023 has been run)
     if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, foodDay > today ? "planning ahead" : "counts down to your targets")), foodLogCard(day));

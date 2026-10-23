@@ -271,6 +271,15 @@
   .bw-out:not(:empty) { margin-top: 8px; }
   .bw-out.drink { color: var(--text); }
   .bw-out.drink strong { color: #3b82f6; }
+  /* a coach setting the nutrition plan's weight, details and goal from the app */
+  .nut-coach-edit { margin-top: 10px; width: 100%; min-height: 38px; border-radius: 10px; border: 1px dashed var(--line); background: transparent; color: var(--dim); font: inherit; font-size: 13px; font-weight: 700; }
+  .plan-edit .pe-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 10px; }
+  .plan-edit .pe-field select, .plan-edit .pe-field input { width: 100%; height: 42px; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .plan-edit .pe-in { display: flex; align-items: center; gap: 6px; }
+  .plan-edit .pe-in em { font-style: normal; font-size: 12px; color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 500; white-space: nowrap; }
+  .plan-edit .pe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .plan-edit .pe-check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--dim); margin-top: 12px; line-height: 1.35; }
+  .plan-edit .pe-msg { min-height: 18px; font-size: 13px; color: var(--accent); margin-top: 10px; }
   /* "add to home screen" tip */
   .install-tip { display: flex; align-items: flex-start; gap: 10px; margin: 10px 16px 0; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel); font-size: 13px; line-height: 1.35; }
   .install-tip strong { display: block; margin-bottom: 2px; }
@@ -580,6 +589,7 @@
 <script src="quick_assign.js"></script>
 <script src="tour.js"></script>
 <script src="foods_db.js"></script>
+<script src="nutrition_engine.js"></script>
 <script src="athlete.js"></script>
 </body>
 </html>
