@@ -53,6 +53,7 @@ window.DSTFoodDB = [
   ["Plant protein powder", 1, "serving", 120, 21, 4, 2.5, "Protein"],
   ["Premier Protein shake (11 fl oz)", 1, "piece", 160, 30, 5, 3, "Protein"],
   ["Fairlife Core Power 26g (14 fl oz)", 1, "piece", 170, 26, 8, 4.5, "Protein"],
+  ["Fairlife Core Power 42g (14 fl oz)", 1, "piece", 230, 42, 8, 3.5, "Protein"],
   ["Protein bar (Quest-style)", 1, "piece", 200, 21, 22, 8, "Snack"],
   ["RXBAR", 1, "piece", 210, 12, 23, 9, "Snack"],
   ["Clif Bar", 1, "piece", 250, 10, 44, 5, "Snack"],

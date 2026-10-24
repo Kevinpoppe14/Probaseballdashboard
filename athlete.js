@@ -1867,19 +1867,19 @@
   const CUSTOM_UNITS = { serving: ["count", 1], piece: ["count", 1], g: ["weight", 1], oz: ["weight", 28.35], cup: ["volume", 48], "fl oz": ["volume", 6], tbsp: ["volume", 3], tsp: ["volume", 1] };
   // their own foods: custom foods they've logged (with the label figures), newest first, then the ones they added to
   // the shared library, one of each by name
-  const labelOf = (x) => ({ name: x.name, sAmt: +x.sAmt || 1, sUnit: x.sUnit, kcal: +x.kcal || 0, p: +x.p || 0, c: +x.c || 0, f: +x.f || 0 });
+  const labelOf = (x) => Object.assign({ name: x.name, sAmt: +x.sAmt || 1, sUnit: x.sUnit, kcal: +x.kcal || 0, p: +x.p || 0, c: +x.c || 0, f: +x.f || 0 }, x.barcode ? { barcode: String(x.barcode) } : {});
   const myFoods = () => {
     const seen = new Set(), out = [];
     const keep = (d) => { const id = d.name.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(d); } };
     Object.keys(foodDays || {}).sort().reverse().forEach((k) => (foodDays[k] || []).slice().reverse().forEach((e) => {
       if (e.def && !e.def.db && CUSTOM_UNITS[e.def.sUnit]) keep(e.def);
     }));
-    libraryFoods.filter((x) => x.mine && CUSTOM_UNITS[x.sUnit]).forEach((x) => keep(labelOf(x)));
+    libraryFoods.filter((x) => x.mine && !x.barcode && CUSTOM_UNITS[x.sUnit]).forEach((x) => keep(labelOf(x))); // (a scanned product is in the food database, for everyone)
     return out;
   };
   // the food database: the built-in foods (foods_db.js) and the custom foods others have added to the library
   const databaseFoods = () => (window.DSTFoodDB || []).map((r) => ({ name: r[0], sAmt: r[1], sUnit: r[2], kcal: r[3], p: r[4], c: r[5], f: r[6], group: r[7] }))
-    .concat(libraryFoods.filter((x) => !x.mine && CUSTOM_UNITS[x.sUnit]).map((x) => Object.assign(labelOf(x), { group: "Added by athletes and coaches" })));
+    .concat(libraryFoods.filter((x) => (!x.mine || x.barcode) && CUSTOM_UNITS[x.sUnit]).map((x) => Object.assign(labelOf(x), { group: x.barcode ? "Scanned products" : "Added by athletes and coaches" })));
   // foods logged in the last two weeks, newest first, one of each, for adding again in a tap
   const recentFoods = () => {
     const seen = new Set(), out = [];
@@ -2180,9 +2180,13 @@
     document.head.appendChild(s);
   }));
   // a barcode's food as a label { name, sAmt, sUnit, kcal, p, c, f }, per serving where the database has one (else per
-  // 100 g); null when it isn't in the database or has no calories
+  // 100 g); null when it isn't in the database or has no calories. The database's product names are often bare ("Core
+  // Power", made in 26 g and 42 g versions), so the name is built from the label: brand, product, the protein in a
+  // serving when there's a good amount of it (and the name doesn't already say), and the size ("fairlife Core Power
+  // 42g protein (14 fl oz)"). A drink is measured in fluid ounces.
+  const ML_PER_FL_OZ = 29.5735;
   async function lookUpBarcode(code) {
-    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,brands,serving_size,serving_quantity,nutriments`);
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,product_name_en,brands,quantity,serving_size,serving_quantity,categories,nutriments`);
     if (!r.ok) return null;
     const j = await r.json();
     const p = j && j.status === 1 ? j.product : null;
@@ -2196,12 +2200,22 @@
     let kcal = get("energy-kcal");
     if (kcal == null && get("energy") != null) kcal = get("energy") / 4.184; // kJ
     if (kcal == null) return null;
-    const brand = String(p.brands || "").split(",")[0].trim(), name = String(p.product_name || "").trim();
-    return {
-      name: `${brand && !name.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ` : ""}${name || "Scanned food"}`.slice(0, 60),
-      sAmt: hasServing ? (grams > 0 ? Math.round(grams) : 1) : 100, sUnit: hasServing ? (grams > 0 ? "g" : "serving") : "g",
-      kcal: Math.round(kcal), p: r1(get("proteins") || 0), c: r1(get("carbohydrates") || 0), f: r1(get("fat") || 0),
-    };
+    const protein = r1(get("proteins") || 0);
+    // a drink: the package or the serving is in mL or fl oz, or it's filed as one
+    const mlOf = (s) => { const t = String(s || ""), ml = /(\d+(?:\.\d+)?)\s*ml\b/i.exec(t), oz = /(\d+(?:\.\d+)?)\s*fl\.?\s*oz/i.exec(t); return ml ? +ml[1] : oz ? +oz[1] * ML_PER_FL_OZ : null; };
+    const packMl = mlOf(p.quantity), servingMl = mlOf(p.serving_size) || (packMl && grams > 0 && Math.abs(grams - packMl) / packMl < 0.15 ? grams : null);
+    const drink = !!(servingMl || packMl) || /\b(drinks?|beverages?|milks?|shakes?|juices?|waters?)\b/i.test(p.categories || "");
+    const flOz = (ml) => Math.round((ml / ML_PER_FL_OZ) * 10) / 10;
+    const brand = String(p.brands || "").split(",")[0].trim(), base = String(p.product_name_en || p.product_name || "").trim() || "Scanned food";
+    const size = packMl ? `${flOz(packMl)} fl oz` : String(p.quantity || "").trim();
+    const name = [
+      brand && !base.toLowerCase().includes(brand.toLowerCase()) ? brand : "",
+      base,
+      hasServing && protein >= 10 && !/\d+\s*g\b/i.test(base) ? `${Math.round(protein)}g protein` : "",
+    ].filter(Boolean).join(" ") + (size && size.length <= 14 && !base.includes(size) ? ` (${size})` : "");
+    const serving = hasServing && drink && servingMl ? { sAmt: flOz(servingMl), sUnit: "fl oz" }
+      : hasServing ? { sAmt: grams > 0 ? Math.round(grams) : 1, sUnit: grams > 0 ? "g" : "serving" } : { sAmt: 100, sUnit: "g" };
+    return Object.assign({ name: name.slice(0, 60) }, serving, { kcal: Math.round(kcal), p: protein, c: r1(get("carbohydrates") || 0), f: r1(get("fat") || 0) });
   }
   let activeScanner = null; // the camera while a barcode is being read (stopped whenever the sheet closes)
   const stopScanner = () => { const s = activeScanner; activeScanner = null; if (s) { try { s.stop().catch(() => {}).then(() => { try { s.clear(); } catch (e) { /* gone */ } }); } catch (e) { /* not running */ } } };
@@ -2275,9 +2289,19 @@
   function openFoodPicker(meal, onPick) {
     let q = "", chosen = null, amt = 1, mealSel = meal || mealNow(), custom = false;
     let fromDb = false; // the label form opened on a food from the database (not added to the library again)
+    let count = 1; // how many of the amount (2 bananas, 3 eggs): the amount is multiplied by it when it's added
     const cf = { name: "", sAmt: "1", sUnit: "serving", kcal: "", p: "", c: "", f: "", eAmt: "1", eUnit: "servings" };
     // a food of their own, or one from the database, in the label form ready for an amount
-    const openLabel = (d, db) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit, barcode: d.barcode || "" }); fromDb = !!db; custom = true; draw(); };
+    const openLabel = (d, db) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit, barcode: d.barcode || "" }); fromDb = !!db; custom = true; count = 1; draw(); };
+    // Quantity: − n + under the amount; onChange redraws the totals
+    const qtyRow = (onChange) => {
+      const num = el("b", null, String(count));
+      const set = (n) => () => { count = Math.max(1, Math.min(20, count + n)); num.textContent = String(count); onChange(); };
+      return el("div", { class: "food-qty" }, el("span", null, "Quantity"),
+        el("button", { class: "food-step", "aria-label": "One fewer", onclick: set(-1) }, "−"), num,
+        el("button", { class: "food-step", "aria-label": "One more", onclick: set(1) }, "+"));
+    };
+    const times = (v) => Math.round(numOf(v) * count * 100) / 100;
     const done = (item) => { if (onPick) onPick(item); else { closeVideo(); const e = itemToEntry(item, mealSel); if (e) addFood([e]); } };
     const sheet = el("div", { class: "sheet food-sheet" });
     const close = () => el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×");
@@ -2286,13 +2310,14 @@
     const addText = onPick ? "Add to meal" : "Add";
     const draw = () => {
       if (chosen) {
-        const f = chosen, t = { kcal: Math.round(f.kcal * amt), p: r1(f.p * amt), c: r1(f.c * amt), f: r1(f.f * amt) };
+        const f = chosen, k = amt * count, t = { kcal: Math.round(f.kcal * k), p: r1(f.p * k), c: r1(f.c * k), f: r1(f.f * k) };
         const step = (by) => () => { amt = Math.max(f.step, Math.round((amt + by * f.step) * 100) / 100); draw(); };
         sheet.replaceChildren(close(), el("h2", null, f.name),
           el("div", { class: "food-amt" }, el("button", { class: "food-step", "aria-label": "Less", onclick: step(-1) }, "−"), el("b", null, amountLabel(f, amt)), el("button", { class: "food-step", "aria-label": "More", onclick: step(1) }, "+")),
-          el("div", { class: "food-amt-tot" }, `${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`),
+          qtyRow(draw),
+          el("div", { class: "food-amt-tot" }, `${count > 1 ? `${count} × ${amountLabel(f, amt)} = ` : ""}${t.kcal} cal · P ${t.p} · C ${t.c} · F ${t.f}`),
           mealPick(),
-          el("div", { class: "swap-actions" }, el("button", { onclick: () => { chosen = null; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => done({ kind: "plan", key: f.key, amt }) }, addText)));
+          el("div", { class: "swap-actions" }, el("button", { onclick: () => { chosen = null; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => done({ kind: "plan", key: f.key, amt: Math.round(amt * count * 100) / 100 }) }, addText)));
         return;
       }
       if (custom) {
@@ -2305,7 +2330,7 @@
         const per = () => ({ kcal: numOf(cf.kcal) || numOf(cf.p) * 4 + numOf(cf.c) * 4 + numOf(cf.f) * 9, p: numOf(cf.p), c: numOf(cf.c), f: numOf(cf.f) }); // calories from the macros when left blank
         const ratio = () => labelRatio({ sAmt: cf.sAmt, sUnit: cf.sUnit }, cf.eAmt, cf.eUnit);
         const totalEl = el("div", { class: "food-amt-tot" });
-        const showTotal = () => { const k = ratio(), x = per(); totalEl.textContent = `You ate: ${Math.round(x.kcal * k)} cal · P ${r1(x.p * k)} · C ${r1(x.c * k)} · F ${r1(x.f * k)}`; };
+        const showTotal = () => { const k = ratio() * count, x = per(); totalEl.textContent = `${count > 1 ? `${count} × ${cf.eAmt} ${cf.eUnit} · ` : ""}You ate: ${Math.round(x.kcal * k)} cal · P ${r1(x.p * k)} · C ${r1(x.c * k)} · F ${r1(x.f * k)}`; };
         const box = (k, label, mode) => el("label", { class: "food-label" }, label, el("input", { class: "food-input", value: cf[k], inputmode: mode || "decimal", type: mode === "text" ? "text" : "number", step: "any", min: "0", oninput: (e) => { cf[k] = e.target.value; showTotal(); } }));
         const unitPick = (k, units, label) => el("select", { class: "food-select", "aria-label": label, onchange: (e) => { cf[k] = e.target.value; draw(); } },
           units.map((u) => { const o = el("option", { value: u }, u); if (u === cf[k]) o.selected = true; return o; }));
@@ -2319,6 +2344,7 @@
           el("div", { class: "food-grid" }, box("kcal", "Calories"), box("p", "Protein (g)"), box("c", "Carbs (g)"), box("f", "Fat (g)")),
           el("div", { class: "nut-group" }, "How much"),
           pair("eAmt", "eUnit", eatUnits, "Amount"),
+          qtyRow(showTotal),
           totalEl, mealPick(),
           el("div", { class: "swap-actions" }, el("button", { onclick: () => { custom = false; draw(); } }, "Back"), el("button", { class: "primary", onclick: () => {
             if (!cf.name.trim()) { showStatus("Give the food a name.", true); return; }
@@ -2332,7 +2358,7 @@
                 if (id && !libraryFoods.some((y) => y.id === id)) libraryFoods.push(Object.assign({ id, mine: true }, def));
               }).catch(() => {});
             }
-            done({ kind: "label", def: fromDb ? Object.assign({ db: true }, def) : def, eAmt: cf.eAmt, eUnit: cf.eUnit });
+            done({ kind: "label", def: fromDb ? Object.assign({ db: true }, def) : def, eAmt: String(times(cf.eAmt)), eUnit: cf.eUnit });
           } }, addText)));
         showTotal();
         return;
@@ -2350,15 +2376,21 @@
         const dbCount = databaseFoods().length;
         list.replaceChildren(
           el("button", { class: "food-row food-custom food-scan", onclick: () => openScanner((d, code) => { if (d) openLabel(d, true); else if (d === null) { custom = true; cf.name = ""; cf.barcode = code; draw(); } }, sheet) }, el("span", null, "▦ Scan a barcode"), el("small", null, "packaged foods")),
-          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); cf.barcode = ""; draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
+          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); cf.barcode = ""; count = 1; draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
           mine.length ? el("div", { class: "nut-group" }, "My foods") : "",
           ...mine.map((d) => el("button", { class: "food-row", onclick: () => openLabel(d, false) },
             el("span", null, d.name), el("small", null, `${d.kcal} cal / ${d.sAmt} ${d.sUnit}`))),
           recent.length ? el("div", { class: "nut-group" }, "Recent") : "",
-          ...recent.map((e) => el("button", { class: "food-row", onclick: () => done(entryToItem(e)) },
+          // a recent food opens at the amount it was logged, to set the quantity (or add as it is)
+          ...recent.map((e) => el("button", { class: "food-row", onclick: () => {
+            const it = entryToItem(e);
+            if (it.kind === "plan") { chosen = foodOf(it.key); amt = it.amt; count = 1; draw(); }
+            else if (it.kind === "label") { openLabel(it.def, !!it.def.db); cf.eAmt = it.eAmt; cf.eUnit = it.eUnit; draw(); }
+            else done(it);
+          } },
             el("span", null, e.name, e.amount ? el("small", null, ` ${e.amount}`) : null), el("small", null, `${e.kcal} cal`))),
           foods.length ? el("div", { class: "nut-group" }, "Your plan’s foods") : "",
-          ...foods.map((f) => el("button", { class: "food-row", onclick: () => { chosen = f; amt = defaultAmount(f); draw(); } },
+          ...foods.map((f) => el("button", { class: "food-row", onclick: () => { chosen = f; amt = defaultAmount(f); count = 1; draw(); } },
             el("span", null, f.name), el("small", null, `${Math.round(f.kcal * defaultAmount(f))} cal · ${amountLabel(f, defaultAmount(f))}`))),
           db.length ? el("div", { class: "nut-group" }, "Food database") : "",
           ...db.map((d) => el("button", { class: "food-row", onclick: () => openLabel(d, true) },
