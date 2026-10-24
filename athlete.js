@@ -2571,6 +2571,109 @@
     const now = new Date();
     return String(now.getFullYear() - d.getFullYear() - (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
   };
+  // the training and sport minutes the plan uses: set in the app, else what the basis came with
+  const minutesOf = (rec, b) => {
+    const mm = (rec && rec.minutes) || {}, m = (rec && rec.manual) || {};
+    const pick = (k, d) => [mm[k], b && b[k], m[k]].map((v) => parseFloat(v)).find((v) => Number.isFinite(v)) ?? d;
+    return { trainMin: pick("trainMin", 120), sportMin: pick("sportMin", 30) };
+  };
+  // Works the plan out again and saves it: the goal, the basis (with the minutes applied), the details entered (or
+  // none, keeping the body composition) and any targets kept from the dashboard. Planned meals are resized to it.
+  async function savePlanFromApp(ctx, o) {
+    const E = window.NutritionEngine, rec = ctx.rec || {};
+    const basis = E.withMinutes(o.basis, o.minutes);
+    const allergies = ctx.prefs && Array.isArray(ctx.prefs.allergies) ? ctx.prefs.allergies.filter((a) => E.ALLERGIES[a]) : [];
+    const seed = rec.seed || Math.floor(Math.random() * 1e9);
+    const T = E.targetsFor(basis, o.goal, o.targets);
+    const snap = E.snapshotOf(basis, T, E.buildPlan(T, seed, { school: !!rec.schoolLunch, allergies }), E.macroLists(T, { allergies }), E.mealTimes(basis, rec));
+    const record = Object.assign({ id: `nutrition-${ctx.aid}`, athleteId: ctx.aid, kind: "nutrition", seed }, rec, { goal: o.goal, minutes: o.minutes, snapshot: JSON.parse(JSON.stringify(snap)), date: todayKey(), editedIn: "app" });
+    if (o.manual) record.manual = o.manual; else delete record.manual;
+    if (o.targets) record.targets = o.targets; else delete record.targets;
+    const { error } = await sb.from("assessments").upsert({ id: record.id, athlete_id: String(ctx.aid), data: record });
+    if (error) return false;
+    nutrition = record.snapshot;
+    const resized = fitPlanned();
+    showStatus(resized ? `Plan saved · planned meals resized on ${resized} day${resized === 1 ? "" : "s"}` : "Nutrition plan saved");
+    return true;
+  }
+  // Training and sport minutes on their own, from the Nutrition tab (a coach): the same body composition and goal,
+  // the activity calories (and so the targets) following the new minutes
+  async function openMinutesEditor() {
+    overlay.replaceChildren(el("div", { class: "sheet" }, el("h2", null, "Training & sport time"), el("div", { class: "card-sub" }, "Loading…")));
+    overlay.className = "overlay show";
+    const ctx = await nutritionContext().catch(() => ({ error: true }));
+    if (ctx.signedOut || ctx.error || !ctx.rec || !nutrition || !nutrition.basis) { openPlanEditor(); return; } // signing in, or no plan to keep: the full editor
+    const rec = ctx.rec, cur = minutesOf(rec, nutrition.basis);
+    const box = (label, v) => el("input", { type: "text", inputmode: "numeric", value: String(cur[v]), autocomplete: "off", "aria-label": label });
+    const t = box("Training minutes a day", "trainMin"), s = box("Sport minutes a day", "sportMin");
+    const msg = el("div", { class: "pe-msg" });
+    const save = el("button", { class: "primary" }, "Save");
+    save.addEventListener("click", async () => {
+      const tv = parseFloat(t.value), sv = parseFloat(s.value);
+      if (!(tv >= 0 && tv <= 600) || !(sv >= 0 && sv <= 600)) { msg.textContent = "Enter minutes a day (0 to 600)."; return; }
+      save.disabled = true; msg.textContent = "Saving…";
+      const ok = await savePlanFromApp(ctx, { goal: rec.goal, basis: nutrition.basis, manual: rec.manual, minutes: { trainMin: tv, sportMin: sv }, targets: rec.targets && (rec.targets.train || rec.targets.rest) ? rec.targets : null });
+      if (!ok) { save.disabled = false; msg.textContent = "Couldn't save. Check your connection and try again."; return; }
+      closeVideo(); redrawKeep();
+    });
+    overlay.replaceChildren(el("div", { class: "sheet plan-edit" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Training & sport time"),
+      el("div", { class: "swap-coach" }, "Minutes a day of training (lifting, running, conditioning) and of sport (practice, games). The calories follow them; the rest of the plan stays as it is."),
+      el("div", { class: "pe-grid" },
+        el("label", { class: "pe-field" }, el("span", null, "Training"), el("div", { class: "pe-in" }, t, el("em", null, "min/day"))),
+        el("label", { class: "pe-field" }, el("span", null, "Sport"), el("div", { class: "pe-in" }, s, el("em", null, "min/day")))),
+      rec.targets && (rec.targets.train || rec.targets.rest) ? el("div", { class: "card-sub" }, "Calories and macros were set by hand on the dashboard, so they stay as they are until those are cleared.") : null,
+      msg,
+      el("div", { class: "swap-actions" }, save, el("button", { onclick: closeVideo }, "Cancel"))));
+  }
+
+  // ---- planned meals follow the plan ---------------------------------------------------------------------
+  // A meal planned ahead keeps the foods picked, but once the plan's targets change (a new goal, weight or training
+  // time) its amounts are resized to the meal's target again, so a planned day adds up to the day's calories. Only
+  // today and the days ahead, only meals not eaten yet, and only meals more than 3% off. Returns the days changed.
+  function scaleEntry(e, k) {
+    const f = e.key ? foodOf(e.key) : null;
+    if (f && e.qty) {
+      const q = Math.max(f.step, Math.min(f.max || 99, Math.round((e.qty * k) / f.step) * f.step));
+      return Object.assign(entryOf(f, q, e.meal), { id: e.id, planned: true });
+    }
+    if (e.def && e.qty) {
+      const n = itemToEntry({ kind: "label", def: e.def, eAmt: String(Math.max(0.25, Math.round(e.qty * k * 4) / 4)), eUnit: e.unit || "servings" }, e.meal);
+      return n ? Object.assign(n, { id: e.id, planned: true }) : null;
+    }
+    return null;
+  }
+  function fitPlanned() {
+    if (!foodDays || !nutrition || !nutrition.meals) return 0;
+    const today = todayKey();
+    let days = 0;
+    Object.keys(foodDays).filter((dk) => dk >= today).forEach((dk) => {
+      const set = dayTypeOf(dk), prog = programDayType(dk);
+      const rest = set != null ? set : prog ? prog.rest : false;
+      const out = (foodDays[dk] || []).slice();
+      let dirty = false;
+      nutrition.meals.forEach((m) => {
+        const tg = rest ? m.rest : m.train;
+        if (!tg || !tg.kcal) return;
+        const at = out.map((e, i) => (e.meal === m.name && e.planned && e.name ? i : -1)).filter((i) => i >= 0);
+        const tot = at.reduce((sum, i) => sum + (+out[i].kcal || 0), 0);
+        if (!tot || Math.abs(tot - tg.kcal) / tg.kcal <= 0.03) return;
+        at.forEach((i) => { const n = scaleEntry(out[i], tg.kcal / tot); if (n) { out[i] = n; dirty = true; } });
+      });
+      if (dirty) { setFoodDay(dk, out); days += 1; }
+    });
+    return days;
+  }
+  // once both the plan and the food log are in (each loads on its own), planned meals are checked against the plan
+  let plannedChecked = false;
+  const checkPlanned = () => {
+    if (plannedChecked || !foodDays || !nutrition) return;
+    plannedChecked = true;
+    const n = fitPlanned();
+    if (n) { showStatus(`Planned meals resized to your plan on ${n} day${n === 1 ? "" : "s"}`); if (view === "nutrition" && !overlay.className.includes("show")) redrawKeep(); }
+  };
+
   async function openPlanEditor() {
     const E = window.NutritionEngine;
     overlay.replaceChildren(el("div", { class: "sheet" }, el("h2", null, "Nutrition plan"), el("div", { class: "card-sub" }, "Loading…")));
@@ -2593,8 +2696,8 @@
       age: m.age || (snapBasis && snapBasis.age ? String(snapBasis.age) : ageFrom(ctx.athlete.dob)),
       sex: m.sex || (snapBasis ? (snapBasis.male ? "M" : "F") : /^f/i.test(ctx.athlete.gender || "") ? "F" : "M"),
       bodyFatPct: m.bodyFatPct || (snapBasis && snapBasis.pctFat != null ? String(Math.round(snapBasis.pctFat * 10) / 10) : ""),
-      trainMin: m.trainMin != null ? String(m.trainMin) : snapBasis && snapBasis.trainMin ? String(snapBasis.trainMin) : "120",
-      sportMin: m.sportMin != null ? String(m.sportMin) : snapBasis && snapBasis.sportMin != null ? String(snapBasis.sportMin) : "30",
+      trainMin: String(minutesOf(rec, snapBasis).trainMin),
+      sportMin: String(minutesOf(rec, snapBasis).sportMin),
     };
     const f = Object.assign({}, start, { goal: rec.goal && E.GOALS[rec.goal] ? rec.goal : "" });
     const field = (label, k, unit, mode) => {
@@ -2612,31 +2715,26 @@
     const from = snapBasis && snapBasis.source !== "manual" ? `the ${snapBasis.source === "sheet" ? "body comp sheet" : "Evolt scan"} of ${snapBasis.date}` : null;
     const save = el("button", { class: "primary" }, nutrition ? "Save plan" : "Build plan");
     save.addEventListener("click", async () => {
-      const details = ["weightLb", "age", "sex", "bodyFatPct", "trainMin", "sportMin"];
+      // training and sport minutes are kept on their own (rec.minutes), so changing them keeps the body composition
+      const details = ["weightLb", "age", "sex", "bodyFatPct"];
       const changed = details.some((k) => String(f[k] || "") !== String(start[k] || ""));
       if (!f.goal) { msg.textContent = "Choose a goal."; return; }
       const lb = parseFloat(f.weightLb);
       if (!(lb >= 50 && lb <= 500)) { msg.textContent = "Enter a weight in pounds."; return; }
+      const t = parseFloat(f.trainMin), s = parseFloat(f.sportMin);
+      if (!(t >= 0 && t <= 600) || !(s >= 0 && s <= 600)) { msg.textContent = "Enter the training and sport minutes a day."; return; }
+      const minutes = { trainMin: t, sportMin: s };
       const today = todayKey();
-      // only the goal changed on a plan from a body composition: the same basis, the new goal
+      // only the goal (or the minutes) changed on a plan from a body composition: the same basis
       const keepBasis = !changed && snapBasis && snapBasis.source !== "manual";
-      const manual = keepBasis ? rec.manual : { weightLb: String(lb), age: f.age, sex: f.sex, bodyFatPct: f.bodyFatPct, trainMin: f.trainMin, sportMin: f.sportMin, date: today };
+      const manual = keepBasis ? rec.manual : { weightLb: String(lb), age: f.age, sex: f.sex, bodyFatPct: f.bodyFatPct, trainMin: String(t), sportMin: String(s), date: today };
       const basis = keepBasis ? snapBasis : E.manualBasis(manual, parseFloat(ageFrom(ctx.athlete.dob)) || null, f.sex);
-      const allergies = ctx.prefs && Array.isArray(ctx.prefs.allergies) ? ctx.prefs.allergies.filter((a) => E.ALLERGIES[a]) : [];
-      const seed = rec.seed || Math.floor(Math.random() * 1e9);
       const targets = hasTargets && !(clearBox && clearBox.checked) ? rec.targets : null;
-      const T = E.targetsFor(basis, f.goal, targets);
-      const snap = E.snapshotOf(basis, T, E.buildPlan(T, seed, { school: !!rec.schoolLunch, allergies }), E.macroLists(T, { allergies }), E.mealTimes(basis, rec));
-      const record = Object.assign({ id: `nutrition-${ctx.aid}`, athleteId: ctx.aid, kind: "nutrition", seed }, rec, { goal: f.goal, snapshot: JSON.parse(JSON.stringify(snap)), date: today, editedIn: "app" });
-      if (manual) record.manual = manual; else delete record.manual;
-      if (targets) record.targets = targets; else delete record.targets;
       save.disabled = true; msg.textContent = "Saving…";
-      const { error } = await sb.from("assessments").upsert({ id: record.id, athlete_id: String(ctx.aid), data: record });
-      if (error) { save.disabled = false; msg.textContent = "Couldn't save. Check your connection and try again."; return; }
-      nutrition = record.snapshot;
+      const ok = await savePlanFromApp(ctx, { goal: f.goal, basis, manual, minutes, targets });
+      if (!ok) { save.disabled = false; msg.textContent = "Couldn't save. Check your connection and try again."; return; }
       closeVideo();
       view = "nutrition"; render();
-      showStatus("Nutrition plan saved");
     });
     shell(
       el("div", { class: "swap-coach" }, from
@@ -2698,6 +2796,9 @@
         el("div", null, el("b", null, `${day.c}g`), el("span", null, "carbs")),
         el("div", null, el("b", null, `${day.f}g`), el("span", null, "fat"))),
       nutRest ? el("div", { class: "card-sub" }, "Rest day: the same protein and fat with less carbohydrate, and no post-workout shake.") : null,
+      // the training and sport time the calories are worked out for (a coach can change it here)
+      n.basis ? (() => { const mm = minutesOf(null, n.basis), text = `Training ${mm.trainMin} min · sport ${mm.sportMin} min a day`;
+        return canPlanNutrition() ? el("button", { class: "nut-allergy-line nut-minutes", onclick: openMinutesEditor }, text, el("span", null, " · change")) : el("div", { class: "nut-allergy-line nut-minutes" }, text); })() : null,
       canPlanNutrition() ? el("button", { class: "nut-coach-edit", onclick: openPlanEditor }, "Coach: change weight or goal") : null));
 
     // the countdown for the day shown (once the food log has loaded; there is none until migration_023 has been run)
@@ -3259,6 +3360,7 @@
       if (!Array.isArray(rows)) return;
       foodDays = {};
       rows.forEach((r) => { foodDays[String(r.day).slice(0, 10)] = Array.isArray(r.entries) ? r.entries : []; });
+      checkPlanned();
       if (view === "nutrition" && !overlay.className.includes("show")) redrawKeep();
     });
     // the shared food library (none until migration_024 has been run); only searched, so nothing to redraw
@@ -3280,6 +3382,7 @@
     // the nutrition plan: once it's in, the menu gets its Nutrition button (not redrawn mid-entry or with a sheet open)
     api.nutrition().catch(() => null).then((nu) => {
       nutrition = nu || null;
+      checkPlanned();
       const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if ((nutrition || view === "nutrition") && !typing && !overlay.className.includes("show")) { const y = window.scrollY; render(); window.scrollTo(0, y); }
     });

@@ -547,5 +547,16 @@
     };
   }
 
-  window.NutritionEngine = { manualBasis, ALLERGIES, ALLERGY_KEYS, BANNED, BERRIES, BREAKFASTS, CAT_GROUP, DAYS, FOODS, FOOD_TABLE, FRAC, GOALS, GOAL_KEYS, GRAB_AND_GO, GROUPS, MACRO, MAIN_CHOICES, MAIN_FRUIT, MAIN_PROTEINS, MAIN_STARCHES, MAIN_VEG, MORE_BREAKFASTS, MORE_POST, MORE_SNACKS, PACKED_LUNCHES, PACKED_NOTE, PACKING_TIPS, POST, SLOTS, SNACKS, SPLIT, allergensOf, allowed, amountText, buildPlan, buildPlanWith, cycler, firstMade, food, groceryList, hashOf, itemText, kcalOf, macroLists, macroListsWith, mainMeal, mealChoices, mealTimes, missBy, num, part, partsOf, pick, plural, qty, r0, rmrOf, rngOf, round, shuffled, snapshotOf, solve, sortedJson, targetsFor, templated, totalsOf, withAllergies };
+  // the training and sport minutes a coach set (in the app, kept with the plan as `minutes`) in place of the ones the
+  // basis came with: the activity calories follow them (an Evolt scan or entered details: 0.075 kcal per kg a minute;
+  // a body comp sheet: its own activity figure, in proportion)
+  function withMinutes(b, mins) {
+    const t = num(mins && mins.trainMin), s = num(mins && mins.sportMin);
+    if (!b || t == null || s == null) return b;
+    const before = (num(b.trainMin) || 0) + (num(b.sportMin) || 0);
+    const activity = b.source === "sheet" && before ? (b.activity * (t + s)) / before : (t + s) * b.kg * 0.075;
+    return Object.assign({}, b, { trainMin: t, sportMin: s, activity });
+  }
+
+  window.NutritionEngine = { manualBasis, withMinutes, ALLERGIES, ALLERGY_KEYS, BANNED, BERRIES, BREAKFASTS, CAT_GROUP, DAYS, FOODS, FOOD_TABLE, FRAC, GOALS, GOAL_KEYS, GRAB_AND_GO, GROUPS, MACRO, MAIN_CHOICES, MAIN_FRUIT, MAIN_PROTEINS, MAIN_STARCHES, MAIN_VEG, MORE_BREAKFASTS, MORE_POST, MORE_SNACKS, PACKED_LUNCHES, PACKED_NOTE, PACKING_TIPS, POST, SLOTS, SNACKS, SPLIT, allergensOf, allowed, amountText, buildPlan, buildPlanWith, cycler, firstMade, food, groceryList, hashOf, itemText, kcalOf, macroLists, macroListsWith, mainMeal, mealChoices, mealTimes, missBy, num, part, partsOf, pick, plural, qty, r0, rmrOf, rngOf, round, shuffled, snapshotOf, solve, sortedJson, targetsFor, templated, totalsOf, withAllergies };
 })();

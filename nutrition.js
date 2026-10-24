@@ -24,7 +24,7 @@
 (function () {
   const { useState, useEffect } = React;
   // the plan's sums and food lists (nutrition_engine.js, shared with the phone)
-  const { manualBasis, ALLERGIES, ALLERGY_KEYS, BERRIES, BREAKFASTS, CAT_GROUP, DAYS, FOODS, FOOD_TABLE, FRAC, GOALS, GOAL_KEYS, GRAB_AND_GO, GROUPS, MACRO, MAIN_CHOICES, MAIN_FRUIT, MAIN_PROTEINS, MAIN_STARCHES, MAIN_VEG, MORE_BREAKFASTS, MORE_POST, MORE_SNACKS, PACKED_LUNCHES, PACKED_NOTE, PACKING_TIPS, POST, SLOTS, SNACKS, SPLIT, allergensOf, allowed, amountText, buildPlan, buildPlanWith, cycler, firstMade, food, groceryList, hashOf, itemText, kcalOf, macroLists, macroListsWith, mainMeal, mealChoices, mealTimes, missBy, num, part, partsOf, pick, plural, qty, r0, rmrOf, rngOf, round, shuffled, snapshotOf, solve, sortedJson, targetsFor, templated, totalsOf, withAllergies } = window.NutritionEngine;
+  const { manualBasis, withMinutes, ALLERGIES, ALLERGY_KEYS, BERRIES, BREAKFASTS, CAT_GROUP, DAYS, FOODS, FOOD_TABLE, FRAC, GOALS, GOAL_KEYS, GRAB_AND_GO, GROUPS, MACRO, MAIN_CHOICES, MAIN_FRUIT, MAIN_PROTEINS, MAIN_STARCHES, MAIN_VEG, MORE_BREAKFASTS, MORE_POST, MORE_SNACKS, PACKED_LUNCHES, PACKED_NOTE, PACKING_TIPS, POST, SLOTS, SNACKS, SPLIT, allergensOf, allowed, amountText, buildPlan, buildPlanWith, cycler, firstMade, food, groceryList, hashOf, itemText, kcalOf, macroLists, macroListsWith, mainMeal, mealChoices, mealTimes, missBy, num, part, partsOf, pick, plural, qty, r0, rmrOf, rngOf, round, shuffled, snapshotOf, solve, sortedJson, targetsFor, templated, totalsOf, withAllergies } = window.NutritionEngine;
 
   const ageOf = (athlete) => (typeof computeAge === "function" ? computeAge(athlete.dob) : null);
 
@@ -45,7 +45,11 @@
     const week = log.filter((w) => w.date >= start);
     return { lb: Math.round((week.reduce((t, w) => t + w.lb, 0) / week.length) * 10) / 10, n: week.length, first: week[0].date, last };
   }
+  // training and sport minutes set in the app (rec.minutes) take the place of the basis's own
   function basisFor(athlete, rec) {
+    return withMinutes(weighedBasis(athlete, rec), rec && rec.minutes);
+  }
+  function weighedBasis(athlete, rec) {
     const b = scanBasis(athlete, rec, null);
     const bw = b ? bodyweightSince(athlete.id, b.date) : null;
     if (!bw) return b;
@@ -96,7 +100,7 @@
     const m = (rec && rec.manual) || {};
     const [f, setF] = useState(() => ({
       weightLb: (basis && basis.source !== "manual" ? String(Math.round(basis.weightLb * 10) / 10) : m.weightLb) || "", age: m.age || String((basis && basis.age) || ageOf(athlete) || ""), sex: m.sex || (basis ? (basis.male ? "M" : "F") : /^f/i.test(athlete.gender || "") ? "F" : "M"),
-      bodyFatPct: m.bodyFatPct || (basis && basis.source !== "manual" && basis.pctFat != null ? String(Math.round(basis.pctFat * 10) / 10) : ""), trainMin: m.trainMin != null ? m.trainMin : "120", sportMin: m.sportMin != null ? m.sportMin : "30",
+      bodyFatPct: m.bodyFatPct || (basis && basis.source !== "manual" && basis.pctFat != null ? String(Math.round(basis.pctFat * 10) / 10) : ""), trainMin: String((rec && rec.minutes && rec.minutes.trainMin != null ? rec.minutes.trainMin : m.trainMin) ?? (basis ? basis.trainMin : "120")), sportMin: String((rec && rec.minutes && rec.minutes.sportMin != null ? rec.minutes.sportMin : m.sportMin) ?? (basis ? basis.sportMin : "30")),
       goal: (rec && rec.goal) || "",
     }));
     const set = (k) => (e) => { const v = e.target.value; setF((p) => Object.assign({}, p, { [k]: v })); };
@@ -105,7 +109,7 @@
     );
     const ok = num(f.weightLb) > 0 && f.goal;
     const save = () => {
-      savePlan(athlete, { goal: f.goal, manual: { weightLb: f.weightLb, age: f.age, sex: f.sex, bodyFatPct: f.bodyFatPct, trainMin: f.trainMin, sportMin: f.sportMin, date: new Date().toISOString().slice(0, 10) } });
+      savePlan(athlete, { goal: f.goal, minutes: { trainMin: f.trainMin, sportMin: f.sportMin }, manual: { weightLb: f.weightLb, age: f.age, sex: f.sex, bodyFatPct: f.bodyFatPct, trainMin: f.trainMin, sportMin: f.sportMin, date: new Date().toISOString().slice(0, 10) } });
       if (onDone) onDone();
     };
     return (
