@@ -37,7 +37,7 @@
   function ensureFrame(id) {
     if (frames.has(id)) return frames.get(id);
     const a = byId(id);
-    const frame = el("iframe", { src: `athlete.html?coach=1&aid=${encodeURIComponent(id)}${a && a.cubs ? "&team=cubs" : ""}`, title: a ? a.name : "Athlete", hidden: true });
+    const frame = el("iframe", { src: `athlete.html?coach=1&aid=${encodeURIComponent(id)}${a && a.cubs ? "&team=cubs" : ""}`, title: a ? a.name : "Athlete", hidden: true, allow: "camera" }); // camera: barcode scanning in the food log
     frames.set(id, frame);
     $("stage").append(frame);
     return frame;

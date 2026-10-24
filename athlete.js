@@ -405,6 +405,7 @@
   const nameKey = window.exerciseNameKey; // names match ignoring case, spaces, hyphens and punctuation (program_rx.js)
   const exerciseInfo = (name) => (data.exercises || []).find((x) => nameKey(x.name) === nameKey(name)) || null;
   const closeVideo = () => {
+    if (window.__dstStopScanner) window.__dstStopScanner(); // a barcode scan left open: the camera goes off
     overlay.className = "overlay"; overlay.replaceChildren();
     // the coach's own plan changed in Coach tools (quick_assign.js): reload so the page shows it
     if (window.QuickAssign && window.QuickAssign.takeChange && window.QuickAssign.takeChange()) window.location.reload();
@@ -1082,6 +1083,11 @@
       const oz = Math.round(lost * 16);
       out.className = "bw-out drink";
       out.replaceChildren(el("strong", null, `Drink ${oz} oz of water`), ` · down ${lost.toFixed(1)} lb (16 oz for each pound lost), over the next couple of hours`);
+      // the drink-back goes on today's water goal (the ounces only; the post weight still isn't kept)
+      if (foodDays) {
+        const dk = todayKey(), on = Math.round(+waterOf(dk).extra || 0) === oz;
+        out.append(el("button", { class: "bw-water", disabled: on, onclick: () => { setWater(dk, { extra: oz }); showStatus(`Added ${oz} oz to today's water goal`); draw(); } }, on ? "On today's water goal ✓" : `Add ${oz} oz to today's water goal`));
+      }
     };
     pre.addEventListener("focus", () => pre.select());
     pre.addEventListener("input", draw);
@@ -1882,6 +1888,140 @@
     if (!foodDays) return;
     setFoodDay(dk, (foodDays[dk] || []).filter((x) => x.id !== DAY_TAG).concat([{ id: DAY_TAG, dayType: rest ? "rest" : "train" }]));
   }
+  // A day not set either way takes it from their program: a lift or speed day is a training day. A day has a session
+  // when a quick session is dated that day, a program day is named for that weekday ("Mon", "Thu - Scap + Elbow"),
+  // something was logged for the program that day, or (for programs of "Day 1", "Day 2"...) the week's days fall on
+  // it, spread the usual way (3 days: Mon / Wed / Fri; 4: Mon / Tue / Thu / Fri, counted from the plan week's first
+  // day). Arm care, throwing and re-education don't make a training day on their own. { rest, why }, or null with no
+  // plan for that day. The athlete can still switch it.
+  // ---- water: a day's goal and what's been drunk, counted with taps; kept in the day's log as one more entry with no
+  // food in it ({ id: "water", oz, extra }: extra is what the post-lift weight said to drink back, added to the goal
+  // when they tap it; the weight itself is never kept). The goal is half their body weight in ounces (their latest
+  // pre-lift weigh-in, else the plan's weight), 24 oz more on a training day, plus any drink-back.
+  const WATER_TAG = "water";
+  const waterOf = (dk) => ((foodDays && foodDays[dk]) || []).find((x) => x.id === WATER_TAG) || { oz: 0, extra: 0 };
+  function setWater(dk, patch) {
+    if (!foodDays) return;
+    const next = Object.assign({ oz: 0, extra: 0 }, waterOf(dk), patch, { id: WATER_TAG });
+    setFoodDay(dk, (foodDays[dk] || []).filter((x) => x.id !== WATER_TAG).concat([next]));
+  }
+  const bodyLb = () => { const w = weighIns().pop(); return w ? w.lb : nutrition && nutrition.kg ? Math.round(nutrition.kg * 2.2) : null; };
+  const waterGoal = (dk, rest) => {
+    const lb = bodyLb(), w = waterOf(dk);
+    const base = lb ? Math.round(lb / 2) : 100, train = rest ? 0 : 24, extra = Math.round(+w.extra || 0);
+    return { goal: base + train + extra, base, train, extra, lb };
+  };
+  function waterCard(dk, rest) {
+    const g = waterGoal(dk, rest), drunk = Math.round(+waterOf(dk).oz || 0);
+    const add = (oz) => () => { setWater(dk, { oz: Math.max(0, drunk + oz) }); redrawKeep(); };
+    const left = g.goal - drunk;
+    return el("div", { class: "card water-card" },
+      el("div", { class: "water-top" },
+        el("div", null, el("b", null, `${drunk} oz`), el("small", null, ` of ${g.goal} oz`)),
+        el("small", { class: left > 0 ? "" : "water-done" }, left > 0 ? `${left} oz to go` : "Goal reached ✓")),
+      el("div", { class: "food-track water-track" }, el("span", { style: `width:${g.goal ? Math.min(100, (drunk / g.goal) * 100) : 0}%` })),
+      el("div", { class: "water-btns" },
+        [8, 16, 24, 32].map((oz) => el("button", { class: "water-add", onclick: add(oz) }, `+${oz}`)),
+        el("button", { class: "water-add water-minus", "aria-label": "8 oz less", disabled: !drunk, onclick: add(-8) }, "−8")),
+      el("div", { class: "card-sub water-why" }, [
+        g.lb ? `½ oz per lb (${g.lb} lb) = ${g.base}` : `${g.base} oz to start`,
+        g.train ? `+${g.train} training day` : "",
+        g.extra ? `+${g.extra} to drink back after your lift` : "",
+      ].filter(Boolean).join(" · ")));
+  }
+
+  // ---- eating on the road: orders at the places players end up on road trips (chains, the hotel breakfast, a gas
+  // station), each built from the food database's published figures (foods_db.js) and set against the meal it's for:
+  // how close it comes to that meal's calories, sorted closest first. "Log" adds it to the day shown, food by food.
+  // Orders with a food they're allergic to are left out.
+  const ROAD = [
+    { at: "Chick-fil-A", name: "Egg White Grill + fruit cup", for: "breakfast", parts: [["Chick-fil-A Egg White Grill", 1], ["Chick-fil-A fruit cup (medium)", 1]] },
+    { at: "Starbucks", name: "Egg bites + oatmeal", for: "breakfast", parts: [["Starbucks egg white & roasted red pepper egg bites (2)", 1], ["Starbucks classic oatmeal", 1]] },
+    { at: "Starbucks", name: "Spinach feta wrap + banana", for: "breakfast", parts: [["Starbucks spinach, feta & egg white wrap", 1], ["Banana (medium)", 1]] },
+    { at: "Starbucks", name: "Turkey bacon sandwich + egg bites", for: "breakfast", parts: [["Starbucks turkey bacon, cheddar & egg white sandwich", 1], ["Starbucks egg white & roasted red pepper egg bites (2)", 1]] },
+    { at: "McDonald's", name: "2 Egg McMuffins", for: "breakfast", parts: [["McDonald's Egg McMuffin", 2]] },
+    { at: "Hotel breakfast", name: "3 eggs, oatmeal, banana, 2 toast", for: "breakfast", parts: [["Egg, large", 3], ["Oatmeal, cooked with water", 1], ["Banana (medium)", 1], ["Whole wheat bread", 2]] },
+    { at: "Hotel breakfast", name: "2 Greek yogurts, oatmeal, apple", for: "breakfast", parts: [["Greek yogurt cup, flavored nonfat (5.3 oz)", 2], ["Oatmeal, cooked with water", 1], ["Apple (medium)", 1]] },
+    { at: "Chipotle", name: "Chicken bowl (white rice, black beans, fajita veg, salsa)", for: "meal", parts: [["Chipotle chicken", 1], ["Chipotle white rice", 1], ["Chipotle black beans", 1], ["Chipotle fajita veggies", 1], ["Chipotle fresh tomato salsa", 1]] },
+    { at: "Chipotle", name: "Double chicken bowl", for: "meal", parts: [["Chipotle chicken", 2], ["Chipotle white rice", 1], ["Chipotle black beans", 1], ["Chipotle fajita veggies", 1], ["Chipotle fresh tomato salsa", 1]] },
+    { at: "Chipotle", name: "Steak burrito (rice, pinto beans, fajita veg, salsa, cheese)", for: "meal", parts: [["Chipotle flour tortilla (burrito)", 1], ["Chipotle steak", 1], ["Chipotle white rice", 1], ["Chipotle pinto beans", 1], ["Chipotle fajita veggies", 1], ["Chipotle fresh tomato salsa", 1], ["Chipotle cheese", 1]] },
+    { at: "Chipotle", name: "Chicken bowl, brown rice, half guac", for: "meal", parts: [["Chipotle chicken", 1], ["Chipotle brown rice", 1], ["Chipotle black beans", 1], ["Chipotle fajita veggies", 1], ["Chipotle fresh tomato salsa", 1], ["Chipotle guacamole", 0.5]] },
+    { at: "Chick-fil-A", name: "12 ct grilled nuggets + fruit cup", for: "meal", parts: [["Chick-fil-A Grilled Nuggets (12 ct)", 1], ["Chick-fil-A fruit cup (medium)", 1]] },
+    { at: "Chick-fil-A", name: "Grilled chicken sandwich + 8 ct grilled nuggets", for: "meal", parts: [["Chick-fil-A Grilled Chicken Sandwich", 1], ["Chick-fil-A Grilled Nuggets (8 ct)", 1]] },
+    { at: "Subway", name: "Footlong oven roasted turkey on wheat", for: "meal", parts: [["Subway 6 inch oven roasted turkey on wheat", 2]] },
+    { at: "Gas station", name: "Beef jerky, banana, string cheese", for: "snack", parts: [["Beef jerky", 2], ["Banana (medium)", 1], ["String cheese", 1]] },
+    { at: "Anywhere", name: "Premier Protein shake + banana", for: "snack", parts: [["Premier Protein shake (11 fl oz)", 1], ["Banana (medium)", 1]] },
+    { at: "Anywhere", name: "Core Power + RXBAR", for: "post", parts: [["Fairlife Core Power 26g (14 fl oz)", 1], ["RXBAR", 1]] },
+    { at: "Clubhouse", name: "2 cups chocolate milk + PB&J", for: "post", parts: [["Chocolate milk, low-fat", 2], ["PB&J sandwich (wheat bread, 2 tbsp PB, 1 tbsp jam)", 1]] },
+  ];
+  const ROAD_GROUPS = [["breakfast", "Breakfast"], ["meal", "Lunch or dinner"], ["snack", "Snacks"], ["post", "After a lift or game"]];
+  function roadFold(fold, rest) {
+    const db = {};
+    (window.DSTFoodDB || []).forEach((r) => { db[r[0]] = { name: r[0], sAmt: r[1], sUnit: r[2], kcal: r[3], p: r[4], c: r[5], f: r[6] }; });
+    const meals = (nutrition && nutrition.meals) || [];
+    // the plan's meal each kind of order is set against
+    const mealFor = (kind) => meals.find((m) => (kind === "breakfast" ? /breakfast/i : kind === "meal" ? /lunch/i : kind === "post" ? /post|workout/i : /snack/i).test(m.name))
+      || (kind === "post" ? meals.find((m) => /snack/i.test(m.name)) : null);
+    const items = (o) => o.parts.map(([name, qty]) => {
+      const d = db[name];
+      if (!d) return null;
+      const count = d.sUnit === "piece" || d.sUnit === "serving";
+      return { kind: "label", def: Object.assign({ db: true }, d), eAmt: String(count ? qty : qty * d.sAmt), eUnit: count ? "servings" : d.sUnit };
+    });
+    const groups = ROAD_GROUPS.map(([kind, title]) => {
+      const m = mealFor(kind), t = m ? (rest && m.rest ? m.rest : m.train) : null;
+      const rows = ROAD.filter((o) => o.for === kind && !o.parts.some(([n]) => nameBanned(n))).map((o) => {
+        const its = items(o);
+        if (its.some((x) => !x)) return null;
+        const tot = its.map(itemTotals).reduce((a, x) => ({ kcal: a.kcal + x.kcal, p: a.p + x.p, c: a.c + x.c, f: a.f + x.f }), { kcal: 0, p: 0, c: 0, f: 0 });
+        return { o, its, tot, off: t && t.kcal ? (tot.kcal - t.kcal) / t.kcal : 0 };
+      }).filter(Boolean).sort((a, b) => Math.abs(a.off) - Math.abs(b.off));
+      if (!rows.length) return null;
+      return [el("div", { class: "nut-group" }, title, m && t ? el("small", null, ` · your ${m.name.toLowerCase()} is ${t.kcal} cal`) : null),
+        ...rows.map((r) => el("div", { class: "road-row" },
+          el("div", { class: "road-main" },
+            el("b", null, r.o.name), el("small", { class: "road-at" }, r.o.at),
+            el("small", null, `${Math.round(r.tot.kcal)} cal · P ${Math.round(r.tot.p)} · C ${Math.round(r.tot.c)} · F ${Math.round(r.tot.f)}`),
+            t ? el("em", { class: `road-fit${Math.abs(r.off) <= 0.2 ? " good" : ""}` }, Math.abs(r.off) <= 0.2 ? `fits your ${m.name.toLowerCase()}` : r.off > 0 ? `${Math.round(r.tot.kcal - t.kcal)} cal more than your ${m.name.toLowerCase()}` : `${Math.round(t.kcal - r.tot.kcal)} cal less: add a side`) : null),
+          foodDays ? el("button", { class: "food-logmeal road-log", onclick: () => {
+            const meal = m ? m.name : mealNow();
+            addFood(r.its.map((it) => itemToEntry(it, meal)).filter(Boolean));
+            showStatus(`${foodDay > todayKey() ? "Planned" : "Logged"} ${r.o.name} as ${meal.toLowerCase()}`);
+          } }, foodDay > todayKey() ? "Plan" : "Log") : null))];
+    }).filter(Boolean);
+    if (!groups.length) return null;
+    return fold("Eating on the road",
+      el("div", { class: "card-sub nut-note" }, "Orders at the places you'll end up on a road trip, set against your meals. Restaurants change their menus now and then, so these are close estimates."),
+      ...groups.flat());
+  }
+
+  const WEEKDAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const SPREAD = { 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4], 6: [0, 1, 2, 3, 4, 5], 7: [0, 1, 2, 3, 4, 5, 6] };
+  const weekdayOf = (name) => { const m = /\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\b/i.exec(String(name || "")); return m ? WEEKDAYS[m[1].toLowerCase()] : null; };
+  function programDayType(dk) {
+    if (!plan || !plan.startDate || !plan.blocks) return null;
+    const d = parseISO(dk), days = Math.round((d - parseISO(plan.startDate)) / 864e5);
+    if (days < 0 || days >= (plan.weeks || 0) * 7) return null;
+    const wk = Math.floor(days / 7), slot = days % 7;
+    const items = itemsAt(wk).filter((it) => !/throw|arm\s*care|re-?ed|correct|rehab/i.test(it.lane.name || ""));
+    const loggedOn = (pid) => Object.keys(logTimes).some((k) => k.startsWith(`${pid}|`) && !/\|bw-/.test(k) && dayKeyOf(new Date(logTimes[k])) === dk);
+    for (const it of items) {
+      const ss = (it.week.sessions || []).filter((s) => (s.exercises || []).some((e) => (e.name || "").trim()));
+      const name = (s, i) => `${it.lane.name}: ${(s && s.name) || `Day ${i + 1}`}`;
+      const dated = ss.find((s) => s.date === dk);
+      if (dated) return { rest: false, why: name(dated, ss.indexOf(dated)) };
+      if (ss.some((s) => s.date)) continue; // a quick session on another day
+      if (loggedOn(it.program.id)) return { rest: false, why: `${it.lane.name} logged` };
+      if (ss.some((s) => weekdayOf(s.name) != null)) {
+        const i = ss.findIndex((s) => weekdayOf(s.name) === d.getDay());
+        if (i >= 0) return { rest: false, why: name(ss[i], i) };
+        continue;
+      }
+      const at = (SPREAD[Math.min(ss.length, 7)] || []).indexOf(slot);
+      if (at >= 0 && ss[at]) return { rest: false, why: name(ss[at], at) };
+    }
+    return { rest: true, why: items.length ? "no session on your program" : "nothing on your program this week" };
+  }
 
   // ---- food allergies: what they've said they can't eat, and the foods and meals that rules out. The plan's own foods
   // carry their allergens (nutrition.js); other foods (the database, the library) are matched by name. Their answer
@@ -2004,6 +2144,98 @@
       el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: () => openFoodPicker() }, future ? "+ Plan a food" : "+ Log food")));
   }
 
+  // ---- barcode scanning ----------------------------------------------------------------------------------
+  // The camera reads a packaged food's barcode and Open Food Facts (a free, open food database) gives its label, which
+  // opens in the custom food form to set how much (and goes into the shared food library when it's logged, so the next
+  // athlete finds it by name). html5-qrcode reads the barcode on any phone (iPhones have no built-in barcode reader for
+  // web pages); it's loaded the first time it's needed. Without the camera: a photo of the barcode, or its digits typed.
+  const SCANNER_SRC = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+  let scannerLoad = null;
+  const loadScanner = () => scannerLoad || (scannerLoad = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = SCANNER_SRC;
+    s.onload = () => (window.Html5Qrcode ? res(window.Html5Qrcode) : rej(new Error("no scanner")));
+    s.onerror = () => { scannerLoad = null; rej(new Error("load")); };
+    document.head.appendChild(s);
+  }));
+  // a barcode's food as a label { name, sAmt, sUnit, kcal, p, c, f }, per serving where the database has one (else per
+  // 100 g); null when it isn't in the database or has no calories
+  async function lookUpBarcode(code) {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,brands,serving_size,serving_quantity,nutriments`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const p = j && j.status === 1 ? j.product : null;
+    if (!p) return null;
+    const n = p.nutriments || {}, grams = parseFloat(p.serving_quantity);
+    const hasServing = n["energy-kcal_serving"] != null || n.energy_serving != null;
+    const get = (k) => {
+      const v = hasServing ? n[`${k}_serving`] : n[`${k}_100g`];
+      return v != null && isFinite(+v) ? +v : null;
+    };
+    let kcal = get("energy-kcal");
+    if (kcal == null && get("energy") != null) kcal = get("energy") / 4.184; // kJ
+    if (kcal == null) return null;
+    const brand = String(p.brands || "").split(",")[0].trim(), name = String(p.product_name || "").trim();
+    return {
+      name: `${brand && !name.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ` : ""}${name || "Scanned food"}`.slice(0, 60),
+      sAmt: hasServing ? (grams > 0 ? Math.round(grams) : 1) : 100, sUnit: hasServing ? (grams > 0 ? "g" : "serving") : "g",
+      kcal: Math.round(kcal), p: r1(get("proteins") || 0), c: r1(get("carbohydrates") || 0), f: r1(get("fat") || 0),
+    };
+  }
+  let activeScanner = null; // the camera while a barcode is being read (stopped whenever the sheet closes)
+  const stopScanner = () => { const s = activeScanner; activeScanner = null; if (s) { try { s.stop().catch(() => {}).then(() => { try { s.clear(); } catch (e) { /* gone */ } }); } catch (e) { /* not running */ } } };
+  window.__dstStopScanner = stopScanner; // for closeVideo, defined before this
+  // onResult(label) with the food found, or onResult(null) to enter it from the label instead; `back` is the sheet to
+  // return to (the Log food sheet)
+  function openScanner(onResult, back) {
+    const status = el("div", { class: "card-sub scan-status" }, "Starting the camera…");
+    const reader = el("div", { id: "bc-reader", class: "scan-reader" });
+    const typed = el("input", { class: "food-input", inputmode: "numeric", placeholder: "Or type the barcode number", "aria-label": "Barcode number" });
+    const photo = el("input", { type: "file", accept: "image/*", capture: "environment", class: "scan-file" });
+    let busy = false;
+    const leave = (label) => { stopScanner(); overlay.replaceChildren(back); onResult(label); };
+    const found = async (code) => {
+      if (busy) return;
+      busy = true;
+      stopScanner();
+      status.textContent = `Looking up ${code}…`;
+      let d = null;
+      try { d = await lookUpBarcode(String(code).replace(/\D/g, "")); } catch (e) { d = null; }
+      if (d) { showStatus(`Found: ${d.name}`); leave(d); return; }
+      busy = false;
+      status.replaceChildren(`${code} isn't in the food database yet. `, el("button", { class: "btn-link", onclick: () => leave(null) }, "Enter it from the label"), " (it's added for everyone after).");
+    };
+    photo.addEventListener("change", async () => {
+      const file = photo.files && photo.files[0];
+      if (!file) return;
+      status.textContent = "Reading the photo…";
+      try {
+        const Lib = await loadScanner();
+        stopScanner();
+        const code = await new Lib("bc-reader").scanFile(file, false);
+        found(code);
+      } catch (e) { status.textContent = "Couldn't read a barcode in that photo. Try again closer up, or type the number."; }
+    });
+    overlay.replaceChildren(el("div", { class: "sheet food-sheet scan-sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: () => leave(undefined) }, "×"),
+      el("h2", null, "Scan a barcode"),
+      reader, status,
+      el("div", { class: "food-pair scan-type" }, typed, el("button", { class: "primary", onclick: () => { if (typed.value.replace(/\D/g, "").length >= 6) found(typed.value); } }, "Look up")),
+      el("label", { class: "food-row food-custom scan-photo" }, el("span", null, "Take a photo of the barcode"), el("small", null, "if the camera won't scan"), photo),
+      el("div", { class: "swap-actions" }, el("button", { onclick: () => leave(undefined) }, "Back"))));
+    overlay.className = "overlay show";
+    loadScanner().then((Lib) => {
+      if (!document.getElementById("bc-reader")) return;
+      const F = window.Html5QrcodeSupportedFormats || {};
+      const formats = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E].filter((x) => x != null);
+      const s = new Lib("bc-reader", Object.assign({ verbose: false }, formats.length ? { formatsToSupport: formats } : {}));
+      activeScanner = s;
+      return s.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 130 } }, (code) => found(code), () => {})
+        .then(() => { status.textContent = "Hold the barcode inside the box."; })
+        .catch(() => { activeScanner = null; status.textContent = "The camera isn't available. Allow camera access for this page, or take a photo of the barcode or type its number below."; });
+    }).catch(() => { status.textContent = "The scanner couldn't load. Check your connection, or type the barcode number below."; });
+  }
+
   // The Log food sheet: search the food lists (or a recent food) and set the amount, or enter a food of their own from
   // its label. With onPick, the food chosen goes back to the meal editor instead of into the log.
   function openFoodPicker(meal, onPick) {
@@ -2083,6 +2315,7 @@
           .sort((a, b) => (b.name.toLowerCase().startsWith(words) ? 1 : 0) - (a.name.toLowerCase().startsWith(words) ? 1 : 0) || a.name.localeCompare(b.name)).slice(0, 40) : [];
         const dbCount = databaseFoods().length;
         list.replaceChildren(
+          el("button", { class: "food-row food-custom food-scan", onclick: () => openScanner((d) => { if (d) openLabel(d, false); else if (d === null) { custom = true; cf.name = ""; draw(); } }, sheet) }, el("span", null, "▦ Scan a barcode"), el("small", null, "packaged foods")),
           el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
           mine.length ? el("div", { class: "nut-group" }, "My foods") : "",
           ...mine.map((d) => el("button", { class: "food-row", onclick: () => openLabel(d, false) },
@@ -2428,8 +2661,11 @@
     const redraw = redrawKeep;
     const macros = (t) => `P ${t.p} · C ${t.c} · F ${t.f}`;
     if (!foodDay) foodDay = todayKey();
-    // a day shown for the first time takes the training or rest day it was logged as (training to start with)
-    if (foodDays && foodDay !== dayTypeShown) { const t = dayTypeOf(foodDay); nutRest = t == null ? false : t; dayTypeShown = foodDay; }
+    // a day shown for the first time takes the training or rest day it was logged as, or else the one on their program
+    // (training with neither); until the food log is in, the program's
+    const fromProgram = programDayType(foodDay);
+    const setOn = foodDays ? dayTypeOf(foodDay) : null;
+    if (foodDay !== dayTypeShown) { nutRest = setOn != null ? setOn : fromProgram ? fromProgram.rest : false; if (foodDays) dayTypeShown = foodDay; }
     const day = nutRest ? n.rest : n.train;
     if (!foodDay) foodDay = todayKey();
     const today = todayKey();
@@ -2440,6 +2676,8 @@
         if (foodDays) setDayType(foodDay, rest); // the day is logged as a training or rest day (their coach sees it)
         redraw();
       } }, text))));
+    // where the setting came from, when it's the program's
+    if (setOn == null && fromProgram) main.append(el("div", { class: "nut-daytype-why" }, fromProgram.rest ? `Rest day: ${fromProgram.why}. Tap Training day if you train.` : `Training day: ${fromProgram.why}.`));
     const al = myAllergies();
     main.append(el("div", { class: "card nut-head" },
       el("div", { class: "card-title" }, n.goal),
@@ -2455,6 +2693,8 @@
 
     // the countdown for the day shown (once the food log has loaded; there is none until migration_023 has been run)
     if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, foodDay > today ? "planning ahead" : "counts down to your targets")), foodLogCard(day));
+    // water for the day shown (not a day still to come)
+    if (foodDays && foodDay <= today) main.append(el("h2", { class: "section" }, "Water", el("small", null, dayLabel(foodDay))), waterCard(foodDay, nutRest));
 
     // ---- Your meals: one cell per meal for the day shown
     const entries = (foodDays && foodDays[foodDay]) || [];
@@ -2515,7 +2755,13 @@
         const replaceIds = planned.map((e) => e.id);
         const saved = (savedMeals || []).length;
         const act = (title, sub, onclick) => el("button", { class: "meal-act", onclick }, el("b", null, title), el("small", null, sub), el("span", { class: "nut-chev", "aria-hidden": "true" }, "›"));
+        // nothing on this meal yet and they ate it yesterday: the same again in a tap (planned, for a day still to come)
+        const yesterday = mine.length ? [] : eatenOf((foodDays[shiftDay(foodDay, -1)] || []).filter((e) => e.meal === m.name && e.name));
         body.push(el("div", { class: "meal-actions" },
+          yesterday.length ? act("Same as yesterday", `${yesterday.map((e) => e.name).join(", ")} · ${Math.round(sumOf(yesterday).kcal)} cal`, () => {
+            setFoodDay(foodDay, entries.concat(yesterday.map((e) => Object.assign({}, e, { id: newEntryId(), planned: foodDay > today }))));
+            showStatus(foodDay > today ? `Planned ${m.name.toLowerCase()}` : `Logged ${m.name.toLowerCase()}`); redraw();
+          }) : null,
           adjustItems.length ? act("Adjust this meal", "Swap foods or change amounts", () => openMealEditor({
             meal: m.name, items: adjustItems, replaceIds: shown.map((e) => e.id),
             title: eaten.length ? `${m.name} (logged)` : planned.length ? `${m.name} (planned)` : sample.title || m.name, note: shown.length ? "" : sample.note,
@@ -2588,14 +2834,18 @@
       el("div", { class: "card-sub" }, "NSF Certified for Sport products only."),
       el("a", { class: "food-logmeal thorne-link", href: THORNE_URL, target: "_blank", rel: "noopener" }, "Shop the DST dispensary on Thorne ↗")));
 
+    // ---- eating on the road
+    const road = roadFold(fold, nutRest);
+    if (road) main.append(road);
+
     // ---- More: the grocery list (following what's planned for the coming week), hydration, packing and the exchange lists
     main.append(el("h2", { class: "section" }, "More"));
     main.append(groceryFold(fold, table));
     main.append(fold("Hydration",
       el("ul", { class: "nut-items" },
-        el("li", null, "Weigh before and after practice"),
-        el("li", null, "Drink 16 oz of water for every pound lost"),
-        el("li", null, "About 128 oz (1 gallon) through the day: two 32 oz bottles in the morning, two in the afternoon")),
+        el("li", null, "Weigh before and after practice (Pre Weight and Post Weight on the Program page)"),
+        el("li", null, "Drink 16 oz of water for every pound lost: add it to the day's water goal from there"),
+        el("li", null, "Your daily goal is under Water above: about half your body weight in ounces, more on training days. Spread it out: bottles in the morning and the afternoon")),
       el("div", { class: "card-sub" }, "Losing 2–3% of your body weight in water can cost 15–20% of your performance.")));
     // packing tips, from the DST high school meal rotation
     if (n.packing && n.packing.length) main.append(fold(n.school ? "Packing your school lunch" : "Packing a lunch",

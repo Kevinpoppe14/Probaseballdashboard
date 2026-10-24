@@ -271,6 +271,39 @@
   .bw-out:not(:empty) { margin-top: 8px; }
   .bw-out.drink { color: var(--text); }
   .bw-out.drink strong { color: #3b82f6; }
+  /* where the day's training / rest setting came from, under the tabs */
+  .nut-daytype-why { font-size: 12px; color: var(--dim); margin: -4px 2px 10px; line-height: 1.35; }
+  /* water: the day's ounces against the goal, with taps to add */
+  .water-card .water-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .water-card .water-top b { font-size: 22px; color: #3b82f6; }
+  .water-card .water-top small { color: var(--dim); font-size: 13px; }
+  .water-card .water-done { color: var(--good, #2fb463) !important; font-weight: 700; }
+  .water-track span { background: #3b82f6 !important; }
+  .water-btns { display: flex; gap: 8px; margin-top: 12px; }
+  .water-add { flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.6); background: rgba(59, 130, 246, 0.12); color: var(--text); font: inherit; font-size: 15px; font-weight: 800; }
+  .water-add:active { background: #3b82f6; color: #fff; }
+  .water-minus { flex: 0 0 52px; border-color: var(--line); background: transparent; color: var(--dim); }
+  .water-why { margin-top: 10px; font-size: 12px; }
+  .bw-water { display: block; margin-top: 8px; min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid #3b82f6; background: transparent; color: #3b82f6; font: inherit; font-size: 13px; font-weight: 700; }
+  .bw-water:disabled { border-color: var(--line); color: var(--dim); }
+  /* barcode scanning */
+  .scan-reader { width: 100%; min-height: 220px; border-radius: 12px; overflow: hidden; background: #000; }
+  .scan-reader video { width: 100% !important; height: auto !important; display: block; }
+  .scan-status { margin: 10px 0; min-height: 18px; }
+  .scan-type { margin: 6px 0 10px; }
+  .scan-type .primary { flex: 0 0 auto; min-height: 44px; padding: 0 16px; border-radius: 10px; }
+  .scan-photo { position: relative; cursor: pointer; }
+  .scan-photo input[type="file"] { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+  .food-scan span { font-weight: 800; }
+  /* eating on the road */
+  .road-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .road-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .road-main b { font-size: 14px; }
+  .road-main small { color: var(--dim); font-size: 12px; }
+  .road-main .road-at { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; font-size: 10px; }
+  .road-fit { font-style: normal; font-size: 11px; font-weight: 700; color: var(--dim); }
+  .road-fit.good { color: var(--good, #2fb463); }
+  .road-log { flex: 0 0 auto; }
   /* a coach setting the nutrition plan's weight, details and goal from the app */
   .nut-coach-edit { margin-top: 10px; width: 100%; min-height: 38px; border-radius: 10px; border: 1px dashed var(--line); background: transparent; color: var(--dim); font: inherit; font-size: 13px; font-weight: 700; }
   .plan-edit .pe-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 10px; }

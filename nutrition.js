@@ -717,7 +717,8 @@
       const target = snap ? (rest ? snap.rest : snap.train) : null;
       const meals = MEAL_KEYS.filter((mk) => !(rest && mk === "Post-Workout Shake")).map((mk) => ({ name: mk, eaten: eaten.filter((e) => e.meal === mk), planned: planned.filter((e) => e.meal === mk) }));
       const status = eaten.length ? "logged" : k > today ? (planned.length ? "planned" : "upcoming") : k === today ? (planned.length ? "planned" : "today") : "missed";
-      return { k, eaten, planned, rest, target, meals, status, tot: sum(eaten) };
+      const water = all.find((e) => e.id === "water"); // the water tapped in on the phone ({ oz, extra: drink-back added to the goal })
+      return { k, eaten, planned, rest, target, meals, status, tot: sum(eaten), water: water && +water.oz > 0 ? water : null };
     };
     const week = dates.map(info);
     const past = week.filter((d) => d.k <= today);
@@ -753,6 +754,7 @@
                   {[["p", "Protein"], ["c", "Carbs"], ["f", "Fat"]].map(([mk, name]) => (
                     <tr key={mk}><td className="nut-slot">{name}</td>{week.map((d) => <td key={d.k} className={d.eaten.length && d.target ? `ml-${cls(d.tot[mk], d.target[mk])}` : ""}>{d.eaten.length ? <React.Fragment>{Math.round(d.tot[mk])}g{d.target ? <small> / {d.target[mk]}g</small> : null}</React.Fragment> : "—"}</td>)}</tr>
                   ))}
+                  <tr><td className="nut-slot">Water</td>{week.map((d) => <td key={d.k}>{d.water ? <React.Fragment><b>{Math.round(d.water.oz)} oz</b>{+d.water.extra > 0 ? <small> · {Math.round(d.water.extra)} oz drink-back</small> : null}</React.Fragment> : "—"}</td>)}</tr>
                   {MEAL_KEYS.map((mk) => (
                     <tr key={mk}><td className="nut-slot">{mk}</td>{week.map((d) => { const m = d.meals.find((x) => x.name === mk); return <td key={d.k} className="ml-meal">{!m ? "" : m.eaten.length ? <span className="ml-yes">✓ {Math.round(sum(m.eaten).kcal)}</span> : m.planned.length ? <span className="ml-plan">planned</span> : d.k < today || (d.k === today && d.eaten.length) ? <span className="ml-no">✗</span> : ""}</td>; })}</tr>
                   ))}
