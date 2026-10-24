@@ -125,11 +125,23 @@
       const { data, error } = await sb.from("food_library").select("id,data").limit(5000);
       return error ? null : (data || []).map((r) => Object.assign({ id: r.id }, r.data || {}, { mine: (r.data || {}).athleteId === String(coachId) }));
     },
+    // the same as athlete_portal_food_library_add: the food already there for its barcode (or under the same name,
+    // serving and calories) is handed back instead of adding another (migration_027's index refuses a second barcode)
     async foodLibraryAdd(def) {
+      const code = String(def.barcode || "").replace(/\D/g, "");
+      const byCode = async () => { const r = await sb.from("food_library").select("id").eq("data->>barcode", code).limit(1); return r.data && r.data[0] ? r.data[0].id : null; };
+      if (code) { const had = await byCode(); if (had) return had; }
+      const same = await sb.from("food_library").select("id,data").ilike("data->>name", String(def.name || "").replace(/[%_]/g, "")).limit(20);
+      const match = (same.data || []).find((r) => r.data && r.data.sUnit === def.sUnit && +r.data.sAmt === +def.sAmt && Math.abs(+r.data.kcal - +def.kcal) < 1);
+      if (match) {
+        if (code && !match.data.barcode) await sb.from("food_library").update({ data: Object.assign({}, match.data, { barcode: code }), updated_at: new Date().toISOString() }).eq("id", match.id);
+        return match.id;
+      }
       const { data: s } = await sb.auth.getSession();
       const id = `fl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       const by = (s && s.session && s.session.user && s.session.user.email) || "";
-      const { error } = await sb.from("food_library").insert({ id, data: Object.assign({}, def, { source: "coach", athleteId: String(coachId), addedBy: by }) });
+      const { error } = await sb.from("food_library").insert({ id, data: Object.assign({}, def, code ? { barcode: code } : {}, { source: "coach", athleteId: String(coachId), addedBy: by }) });
+      if (error && code && error.code === "23505") return byCode(); // added by someone else a moment ago
       return error ? null : id;
     },
     // their food allergies, as athlete_portal_allergies / _set_allergies read and write them (the "nutrition_prefs" record)
@@ -2194,25 +2206,38 @@
   let activeScanner = null; // the camera while a barcode is being read (stopped whenever the sheet closes)
   const stopScanner = () => { const s = activeScanner; activeScanner = null; if (s) { try { s.stop().catch(() => {}).then(() => { try { s.clear(); } catch (e) { /* gone */ } }); } catch (e) { /* not running */ } } };
   window.__dstStopScanner = stopScanner; // for closeVideo, defined before this
-  // onResult(label) with the food found, or onResult(null) to enter it from the label instead; `back` is the sheet to
-  // return to (the Log food sheet)
+  // A scan looks in the shared food library first (a product someone has scanned before, by its barcode), then in
+  // Open Food Facts; a product found there goes into the library straight away, barcode and all, so it's in it once
+  // and the next scan finds it there (migration_027 refuses a second food with the same barcode).
+  const libraryByBarcode = (code) => libraryFoods.find((x) => x.barcode && String(x.barcode) === code) || null;
+  function addScannedToLibrary(d) {
+    if (!api.foodLibraryAdd || !d.barcode || libraryByBarcode(d.barcode)) return;
+    api.foodLibraryAdd(d).then((id) => {
+      if (id && !libraryFoods.some((y) => y.id === id)) libraryFoods.push(Object.assign({ id, mine: true }, d));
+    }).catch(() => {});
+  }
+  // onResult(label, code) with the food found, or onResult(null, code) to enter it from the label instead (its barcode
+  // kept with it); `back` is the sheet to return to (the Log food sheet)
   function openScanner(onResult, back) {
     const status = el("div", { class: "card-sub scan-status" }, "Starting the camera…");
     const reader = el("div", { id: "bc-reader", class: "scan-reader" });
     const typed = el("input", { class: "food-input", inputmode: "numeric", placeholder: "Or type the barcode number", "aria-label": "Barcode number" });
     const photo = el("input", { type: "file", accept: "image/*", capture: "environment", class: "scan-file" });
     let busy = false;
-    const leave = (label) => { stopScanner(); overlay.replaceChildren(back); onResult(label); };
-    const found = async (code) => {
+    const leave = (label, code) => { stopScanner(); overlay.replaceChildren(back); onResult(label, code); };
+    const found = async (raw) => {
       if (busy) return;
       busy = true;
       stopScanner();
+      const code = String(raw).replace(/\D/g, "");
+      const mine = libraryByBarcode(code);
+      if (mine) { showStatus(`Found: ${mine.name}`); leave(Object.assign(labelOf(mine), { barcode: code }), code); return; }
       status.textContent = `Looking up ${code}…`;
       let d = null;
-      try { d = await lookUpBarcode(String(code).replace(/\D/g, "")); } catch (e) { d = null; }
-      if (d) { showStatus(`Found: ${d.name}`); leave(d); return; }
+      try { d = await lookUpBarcode(code); } catch (e) { d = null; }
+      if (d) { d.barcode = code; addScannedToLibrary(d); showStatus(`Found: ${d.name}`); leave(d, code); return; }
       busy = false;
-      status.replaceChildren(`${code} isn't in the food database yet. `, el("button", { class: "btn-link", onclick: () => leave(null) }, "Enter it from the label"), " (it's added for everyone after).");
+      status.replaceChildren(`${code} isn't in the food database yet. `, el("button", { class: "btn-link", onclick: () => leave(null, code) }, "Enter it from the label"), " (it's added for everyone after).");
     };
     photo.addEventListener("change", async () => {
       const file = photo.files && photo.files[0];
@@ -2252,7 +2277,7 @@
     let fromDb = false; // the label form opened on a food from the database (not added to the library again)
     const cf = { name: "", sAmt: "1", sUnit: "serving", kcal: "", p: "", c: "", f: "", eAmt: "1", eUnit: "servings" };
     // a food of their own, or one from the database, in the label form ready for an amount
-    const openLabel = (d, db) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit }); fromDb = !!db; custom = true; draw(); };
+    const openLabel = (d, db) => { Object.assign(cf, { name: d.name, sAmt: String(d.sAmt), sUnit: d.sUnit, kcal: String(d.kcal), p: String(d.p), c: String(d.c), f: String(d.f), eAmt: String(d.sAmt), eUnit: d.sUnit === "serving" || d.sUnit === "piece" ? "servings" : d.sUnit, barcode: d.barcode || "" }); fromDb = !!db; custom = true; draw(); };
     const done = (item) => { if (onPick) onPick(item); else { closeVideo(); const e = itemToEntry(item, mealSel); if (e) addFood([e]); } };
     const sheet = el("div", { class: "sheet food-sheet" });
     const close = () => el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×");
@@ -2299,7 +2324,7 @@
             if (!cf.name.trim()) { showStatus("Give the food a name.", true); return; }
             if (!(ratio() > 0)) { showStatus("Enter how much.", true); return; }
             const x = per();
-            const def = { name: cf.name.trim().slice(0, 60), sAmt: numOf(cf.sAmt) || 1, sUnit: cf.sUnit, kcal: Math.round(x.kcal), p: r1(x.p), c: r1(x.c), f: r1(x.f) };
+            const def = Object.assign({ name: cf.name.trim().slice(0, 60), sAmt: numOf(cf.sAmt) || 1, sUnit: cf.sUnit, kcal: Math.round(x.kcal), p: r1(x.p), c: r1(x.c), f: r1(x.f) }, cf.barcode ? { barcode: cf.barcode } : {}); // a scanned product entered by hand keeps its barcode
             // a food of their own goes into the shared library for good (one already there under the same name,
             // serving and calories is left as it is)
             if (!fromDb && api.foodLibraryAdd) {
@@ -2324,8 +2349,8 @@
           .sort((a, b) => (b.name.toLowerCase().startsWith(words) ? 1 : 0) - (a.name.toLowerCase().startsWith(words) ? 1 : 0) || a.name.localeCompare(b.name)).slice(0, 40) : [];
         const dbCount = databaseFoods().length;
         list.replaceChildren(
-          el("button", { class: "food-row food-custom food-scan", onclick: () => openScanner((d) => { if (d) openLabel(d, false); else if (d === null) { custom = true; cf.name = ""; draw(); } }, sheet) }, el("span", null, "▦ Scan a barcode"), el("small", null, "packaged foods")),
-          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
+          el("button", { class: "food-row food-custom food-scan", onclick: () => openScanner((d, code) => { if (d) openLabel(d, true); else if (d === null) { custom = true; cf.name = ""; cf.barcode = code; draw(); } }, sheet) }, el("span", null, "▦ Scan a barcode"), el("small", null, "packaged foods")),
+          el("button", { class: "food-row food-custom", onclick: () => { custom = true; cf.name = q.trim(); cf.barcode = ""; draw(); } }, el("span", null, "+ Custom food"), el("small", null, "from its nutrition label")),
           mine.length ? el("div", { class: "nut-group" }, "My foods") : "",
           ...mine.map((d) => el("button", { class: "food-row", onclick: () => openLabel(d, false) },
             el("span", null, d.name), el("small", null, `${d.kcal} cal / ${d.sAmt} ${d.sUnit}`))),
