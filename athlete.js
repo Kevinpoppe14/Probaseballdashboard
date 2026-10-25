@@ -168,6 +168,9 @@
       return !error;
     },
     // the nutrition plan's copy for the phone, as athlete_portal_nutrition hands it back
+    // a coach looking at an athlete's app doesn't see (or clear) the messages sent to them
+    async messages() { return []; },
+    async messageSeen() { return false; },
     async nutrition() {
       const { data, error } = await sb.from("assessments").select("data").eq("athlete_id", String(coachId)).eq("data->>kind", "nutrition").limit(10);
       if (error) return null;
@@ -256,6 +259,15 @@
       return !res.error && res.data ? res.data : null;
     },
     // the nutrition plan (supabase/migration_022_athlete_portal_nutrition.sql); none until that has been run
+    // messages from their coach (supabase/migration_029_coach_messages.sql): the unseen ones; none until that has been run
+    async messages() {
+      const res = await sb.rpc("athlete_portal_messages", { p_token: token });
+      return !res.error && Array.isArray(res.data) ? res.data : [];
+    },
+    async messageSeen(id) {
+      const res = await sb.rpc("athlete_portal_message_seen", { p_token: token, p_id: id });
+      return !res.error && res.data === true;
+    },
     async nutrition() {
       const res = await sb.rpc("athlete_portal_nutrition", { p_token: token });
       return !res.error && res.data && typeof res.data === "object" ? res.data : null;
@@ -332,6 +344,8 @@
   let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
   let nutrition = null; // the nutrition plan as the dashboard wrote it out for the phone (nutrition.js), loaded the same way
   let nutRest = false, nutWeek = null, nutDay = null; // the Nutrition tab: rest-day targets, and the example week and day shown
+  let messages = []; // messages from their coach not seen yet (migration_029)
+  let prShowAll = false, maxLift = null; // Progress: every personal record shown, and the lift on the max trend chart
   let foodDays = null; // the food log: "YYYY-MM-DD" -> that day's entries (null until loaded, or with no food log in the database)
   let foodDay = null; // the day the food log is showing ("YYYY-MM-DD"), today to start with
   let libraryFoods = []; // the shared food library: custom foods athletes and coaches have added (migration_024)
@@ -1756,6 +1770,61 @@
     return [el("h2", { class: "section" }, "Countermovement jump", el("small", null, `${days.length} test day${days.length === 1 ? "" : "s"}`)), card];
   }
 
+  // ---- a message from their coach (Coach Mode -> Team today), shown until they tap Got it ----------------------
+  function messageCard(m) {
+    const when = m.at ? new Date(m.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    return el("div", { class: "card coach-msg" },
+      el("div", { class: "coach-msg-top" }, el("b", null, m.sender ? `From ${m.sender}` : "From your coach"), when ? el("small", null, when) : null),
+      el("div", { class: "coach-msg-body" }, m.body),
+      el("button", { class: "coach-msg-ok", onclick: () => {
+        messages = messages.filter((x) => x.id !== m.id);
+        api.messageSeen(m.id).catch(() => false);
+        redrawKeep();
+      } }, "Got it"));
+  }
+
+  // ---- personal records --------------------------------------------------------------------------------
+  // Every time a lift went past its best: a heavier weight than ever logged for it (any set), or a higher estimated
+  // max from a set to failure (planMaxes). Newest first: { kind: "weight" | "max", name, value, reps, prev, pos, at }.
+  // pos is plan week * 100 + day (as in planMaxes); at is when it was typed in, where the log says.
+  function personalRecords() {
+    const sets = []; // every logged weight, in plan order
+    (plan.blocks || []).filter((b) => b.programId).forEach((b) => {
+      const program = programById(b.programId);
+      const log = (plan.programLog || {})[b.programId] || {};
+      if (!program) return;
+      (program.weeks || []).forEach((w, wi) => (w.sessions || []).forEach((s, si) => (s.exercises || []).forEach((e) => {
+        const name = (e.name || "").trim();
+        if (!name || unloaded({ program }, e)) return;
+        Rx.groups(e).forEach((g, gi) => {
+          const key = Rx.logKey(e, gi), v = parseFloat(log[key]);
+          if (!(v > 0)) return;
+          sets.push({ lift: Rx.liftKey(name), name, value: v, reps: log[Rx.repsLogKey(e, gi)] || `${g.reps || ""}`.trim(), pos: (b.start + wi) * 100 + si, at: logTimes[`${b.programId}|${key}`] || null });
+        });
+      })));
+    });
+    sets.sort((a, b) => a.pos - b.pos || String(a.at || "").localeCompare(String(b.at || "")));
+    const out = [], best = {};
+    let seq = 0;
+    sets.forEach((s) => {
+      const had = best[s.lift];
+      if (had != null && s.value > had) out.push({ kind: "weight", name: s.name, value: s.value, reps: s.reps, prev: had, pos: s.pos, at: s.at, seq: seq++ });
+      if (had == null || s.value > had) best[s.lift] = s.value;
+    });
+    const maxBest = {};
+    window.planMaxes(plan, programById).all.forEach((m) => {
+      const had = maxBest[m.key];
+      // when it was logged: the set it came from (same lift, day and weight)
+      const from = sets.find((s) => s.lift === m.key && s.pos === m.pos && String(s.value) === String(parseFloat(m.weight)));
+      if (had != null && m.value > had) out.push({ kind: "max", name: m.name, value: m.value, reps: m.reps, weight: m.weight, prev: had, pos: m.pos, at: from ? from.at : null, seq: seq++ });
+      if (had == null || m.value > had) maxBest[m.key] = m.value;
+    });
+    return out.sort((a, b) => b.pos - a.pos || String(b.at || "").localeCompare(String(a.at || "")) || b.seq - a.seq);
+  }
+  const posDate = (pos) => { const d = parseISO(plan.startDate); d.setDate(d.getDate() + Math.floor(pos / 100) * 7 + (pos % 100)); return d; };
+  const prWhen = (r) => (r.at ? new Date(r.at) : posDate(r.pos)).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const prText = (r) => (r.kind === "max" ? `${r.name.trim()} est. max ${r.value} (+${r.value - r.prev})` : `${r.name.trim()} ${nice(r.value)}${r.reps ? ` × ${r.reps}` : ""} (+${nice(r.value - r.prev)})`);
+
   // What shows at the end of a logged day: the week so far, the streak, any estimated max that went past the
   // athlete's best, and any Group Testing best from today.
   // what a logged day earned: new or first estimated maxes from it, and today's new testing bests, as [label, text]
@@ -1775,6 +1844,14 @@
       if (!before.length) wins.push(["First estimated max", `${e.name.trim()} ${now}`]);
       else if (now > Math.max(...before)) wins.push(["New estimated max", `${e.name.trim()} ${now} (+${now - Math.max(...before)})`]);
     });
+    // a heavier weight than ever for a lift, on this day (the heaviest of the day's for each lift)
+    const shown = new Set();
+    personalRecords().filter((r) => r.kind === "weight" && r.pos === pos).forEach((r) => {
+      const k = Rx.liftKey(r.name);
+      if (shown.has(k)) return;
+      shown.add(k);
+      wins.push(["New top weight", prText(r)]);
+    });
     if (weekIdx === currentWeek()) {
       (tests || []).filter((t) => t.date === localDay() && isTestBest(t)).forEach((t) => wins.push(["New testing best", `${t.kpiName} ${nice(testValue(t))}${t.unit ? ` ${t.unit}` : ""}`]));
     }
@@ -1788,12 +1865,16 @@
     const week = wk.total && wk.done >= wk.total
       ? (wk.total > 1 ? `Week complete: all ${wk.total} sessions done` : "Week complete")
       : `${wk.done} of ${wk.total} sessions this week`;
-    overlay.replaceChildren(el("div", { class: "sheet finish", role: "dialog", "aria-label": "Session logged" },
-      el("div", { class: "finish-check", "aria-hidden": "true" }, "✓"),
+    const prs = wins.filter(([k]) => /^New /.test(k)).length;
+    // a new best: a burst of confetti behind the check
+    const burst = prs ? el("div", { class: "finish-burst", "aria-hidden": "true" }, Array.from({ length: 18 }, (_, i) => el("i", { style: `--a:${i * 20}deg;--d:${(i % 3) * 0.08}s` }))) : null;
+    overlay.replaceChildren(el("div", { class: `sheet finish${prs ? " has-pr" : ""}`, role: "dialog", "aria-label": "Session logged" },
+      el("div", { class: "finish-top" }, burst, el("div", { class: "finish-check", "aria-hidden": "true" }, prs ? "🏆" : "✓")),
       el("h2", null, `${(s.name || "").trim() || `Day ${si + 1}`} done.`),
+      prs ? el("div", { class: "finish-pr-line" }, prs === 1 ? "New personal record!" : `${prs} new personal records!`) : null,
       el("div", { class: "finish-lines" },
         el("div", null, week),
-        st >= 2 ? el("div", null, `${st} weeks in a row`) : null),
+        st >= 2 ? el("div", { class: "finish-streak" }, `🔥 ${st} weeks in a row`) : null),
       wins.length
         ? el("div", { class: "sum-wins" }, wins.map(([k, v]) => el("div", { class: "sum-win" }, el("span", null, k), el("b", null, v))))
         : el("p", { class: "finish-close" }, "Nice work. See you next session."),
@@ -1940,6 +2021,36 @@
         g.train ? `+${g.train} training day` : "",
         g.extra ? `+${g.extra} to drink back after your lift` : "",
       ].filter(Boolean).join(" · ")));
+  }
+
+  // ---- the week's score: the last seven days (today and the six before) on four counts, each with a dot per day:
+  // food logged, protein reached (90% of the day's target or more), calories on target (within 10%), and the water
+  // goal reached. A day's targets are its training or rest day's (as logged, else the program's).
+  function weekScoreCard(n) {
+    const today = todayKey();
+    const days = Array.from({ length: 7 }, (_, i) => shiftDay(today, i - 6));
+    const rows = days.map((dk) => {
+      const set = dayTypeOf(dk), prog = programDayType(dk), rest = set != null ? set : prog ? prog.rest : false;
+      const t = rest ? n.rest : n.train, ate = eatenOf((foodDays[dk] || []).filter((e) => e.name)), tot = sumOf(ate);
+      const logged = ate.length > 0;
+      return {
+        dk, logged,
+        protein: logged && t && tot.p >= t.p * 0.9,
+        kcal: logged && t && Math.abs(tot.kcal - t.kcal) <= t.kcal * 0.1,
+        water: (+waterOf(dk).oz || 0) >= waterGoal(dk, rest).goal,
+      };
+    });
+    if (!rows.some((r) => r.logged || r.water)) return null;
+    const line = (label, key) => {
+      const hits = rows.filter((r) => r[key]).length;
+      return el("div", { class: "wk-score-row" },
+        el("span", { class: "wk-score-label" }, label),
+        el("span", { class: "wk-dots" }, rows.map((r) => el("i", { class: r[key] ? "hit" : r.dk === today ? "today" : "", title: `${dayLabel(r.dk)}: ${r[key] ? "yes" : "no"}` }))),
+        el("b", null, `${hits}/7`));
+    };
+    return el("div", { class: "card wk-score" },
+      line("Food logged", "logged"), line("Protein hit", "protein"), line("Calories on target", "kcal"), line("Water goal", "water"),
+      el("div", { class: "wk-days" }, el("span"), el("span", { class: "wk-dots" }, days.map((dk) => el("small", null, new Date(`${dk}T12:00:00`).toLocaleDateString(undefined, { weekday: "narrow" })))), el("span")));
   }
 
   // ---- eating on the road: orders at the places players end up on road trips (chains, the hotel breakfast, a gas
@@ -2862,6 +2973,8 @@
     if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, foodDay > today ? "planning ahead" : "counts down to your targets")), foodLogCard(day));
     // water for the day shown (not a day still to come)
     if (foodDays && foodDay <= today) main.append(el("h2", { class: "section" }, "Water", el("small", null, dayLabel(foodDay))), waterCard(foodDay, nutRest));
+    // the last seven days at a glance
+    if (foodDays) { const wkCard = weekScoreCard(n); if (wkCard) main.append(el("h2", { class: "section" }, "This week", el("small", null, "the last 7 days")), wkCard); }
 
     // ---- Your meals: one cell per meal for the day shown
     const entries = (foodDays && foodDays[foodDay]) || [];
@@ -3074,9 +3187,45 @@
       el("span", { class: "prog-name" }, name), line, el("span", { class: "prog-val" }, el("b", null, value), sub ? el("small", null, sub) : null));
     const weekOf = (pos) => Math.floor(pos / 100) + 1;
 
+    // personal records: every time a lift went past its best, newest first
+    const prs = personalRecords();
+    if (prs.length) {
+      main.append(el("h2", { class: "section" }, "Personal records", el("small", null, `${prs.length} so far`)));
+      main.append(el("div", { class: "card pr-feed" },
+        prs.slice(0, prShowAll ? prs.length : 6).map((r) => el("div", { class: "pr-row" },
+          el("span", { class: "pr-icon", "aria-hidden": "true" }, r.kind === "max" ? "📈" : "🏆"),
+          el("div", { class: "pr-main" },
+            el("b", null, r.kind === "max" ? `${r.name.trim()}: est. max ${r.value}` : `${r.name.trim()}: ${nice(r.value)}${r.reps ? ` × ${r.reps}` : ""}`),
+            el("small", null, `${r.kind === "max" ? "New estimated max" : "Heaviest yet"} · +${nice(r.value - r.prev)} over ${nice(r.prev)}`)),
+          el("small", { class: "pr-when" }, prWhen(r)))),
+        prs.length > 6 ? el("button", { class: "sum-more", onclick: () => { prShowAll = !prShowAll; redrawKeep(); } }, prShowAll ? "Show fewer" : `Show all ${prs.length}`) : null));
+    }
+
+    // estimated max over time, one lift at a time: from sets to failure, and the training max from % sets
+    const mx = window.planMaxes(plan, programById);
+    const liftKeys = [...new Set(mx.all.map((m) => m.key).concat(mx.tms.map((m) => m.key)))];
+    if (liftKeys.length) {
+      const nameOf = (k) => (mx.all.find((m) => m.key === k) || mx.tms.find((m) => m.key === k)).name.trim();
+      const lastPos = (k) => Math.max(...mx.all.concat(mx.tms).filter((m) => m.key === k).map((m) => m.pos));
+      liftKeys.sort((a, b) => lastPos(b) - lastPos(a));
+      const pick = liftKeys.includes(maxLift) ? maxLift : liftKeys[0];
+      const pts = (list) => list.filter((m) => m.key === pick).map((m) => ({ t: posDate(m.pos).getTime(), v: m.value }));
+      const series = [
+        { name: "Estimated max", color: "var(--label, var(--accent))", points: pts(mx.all) },
+        { name: "Training max", color: "#3b82f6", points: pts(mx.tms) },
+      ].filter((s) => s.points.length);
+      main.append(el("h2", { class: "section" }, "Max trend", el("small", null, "estimated max by lift")));
+      main.append(el("div", { class: "card" },
+        liftKeys.length > 1 ? el("div", { class: "chips bc-chips" }, liftKeys.map((k) => el("button", { class: `chip${k === pick ? " on" : ""}`, onclick: () => { maxLift = k; redrawKeep(); } }, nameOf(k)))) : null,
+        bcGraph(series, "lb", false, `${nameOf(pick)} estimated max`),
+        series.map((s) => { const a = s.points[0], z = s.points[s.points.length - 1], d = Math.round(z.v - a.v);
+          return el("div", { class: "bc-latest" }, el("span", { class: "bc-key", style: `background:${s.color}` }), el("span", null, `${s.name}: `, el("b", null, `${z.v} lb`), el("small", null, s.points.length > 1 ? ` ${d >= 0 ? "+" : ""}${d} since ${bcDay(a.t)}` : ` ${bcDay(z.t)}`))); }),
+        el("div", { class: "card-sub" }, "Estimated max comes from sets taken to failure (BM / TF). Training max comes from the weight you logged on a % set, and fills in your % weights until there's an estimated max.")));
+    }
+
     // estimated maxes, from sets taken to failure
     const byLift = new Map();
-    window.planMaxes(plan, programById).all.forEach((m) => { if (!byLift.has(m.key)) byLift.set(m.key, []); byLift.get(m.key).push(m); });
+    mx.all.forEach((m) => { if (!byLift.has(m.key)) byLift.set(m.key, []); byLift.get(m.key).push(m); });
     if (byLift.size) {
       main.append(el("h2", { class: "section" }, "Estimated maxes"));
       main.append(el("div", { class: "card" }, [...byLift.values()].map((ms) => {
@@ -3235,6 +3384,8 @@
     }
 
     const main = el("main");
+    // a message from their coach, at the top until they tap Got it
+    messages.forEach((m) => main.append(messageCard(m)));
     if (!item) {
       main.append(el("div", { class: "empty" }, "Nothing is scheduled for this week."));
       shown = null;
@@ -3443,6 +3594,8 @@
       const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if ((nutrition || view === "nutrition") && !typing && !overlay.className.includes("show")) { const y = window.scrollY; render(); window.scrollTo(0, y); }
     });
+    // messages from their coach (none in Coach Mode)
+    api.messages().catch(() => []).then((m) => { messages = Array.isArray(m) ? m : []; if (messages.length && view === "program" && !overlay.className.includes("show")) redrawKeep(); });
     api.logTimes().catch(() => []).then((t) => {
       logTimes = {};
       (Array.isArray(t) ? t : []).forEach((r) => { logTimes[`${r.programId}|${r.key}`] = r.at; });

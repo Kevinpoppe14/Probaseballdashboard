@@ -89,7 +89,7 @@
   .stage .empty { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--dim); padding: 24px; font-size: 15px; }
 
   /* KPI sheet: athletes down the side, trials across */
-  .modes { display: flex; gap: 6px; padding: 0 14px 10px; }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 14px 10px; }
   .modes .kpi-btn { flex: 1; height: 38px; }
   .kpi-btn { white-space: nowrap; height: 34px; padding: 0 6px; border: 1px solid #555; border-radius: 8px; background: none; font-size: 13px; font-weight: 700; }
   .kpi-btn.on { background: var(--accent); border-color: var(--accent); }
@@ -215,6 +215,7 @@
     .side-foot { display: none; }
     .stage iframe { max-width: none; border-left: none; border-right: none; }
   }
+/* Team today: everyone on the board, one row each */  .team-actions { display: flex; gap: 8px; margin-bottom: 12px; }  .team-actions .kpi-btn { padding: 0 12px; }  .team-table { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 12px; }  .team-row { display: grid; grid-template-columns: minmax(130px, 1.4fr) 1fr 1fr 1.3fr 0.8fr 1.1fr; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 14px; }  .team-row:last-child { border-bottom: none; }  .team-head { background: none; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }  .team-name { text-align: left; background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: inherit; cursor: pointer; }  .team-cell.ok { color: #5fdc8f; font-weight: 600; }  .team-cell.mid { color: #f5b942; font-weight: 600; }  .team-cell.dim { opacity: 0.55; }  .team-msg { display: flex; align-items: center; gap: 8px; }  .team-msg small { opacity: 0.7; font-size: 12px; }  .team-msg-btn { width: 34px; height: 30px; border-radius: 8px; border: 1px solid #555; background: none; font-size: 15px; cursor: pointer; }  .team-compose { max-width: 620px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel); }  .team-compose-to { font-weight: 700; margin-bottom: 8px; }  .team-msg-box { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: inherit; resize: vertical; }  .kpi-cancel { height: 44px; padding: 0 16px; background: none; border: 1px solid #555; border-radius: 8px; font-size: 15px; font-weight: 700; margin-left: 8px; }  @media (max-width: 760px) {    .team-row { grid-template-columns: 1fr 1fr; }    .team-head { display: none; }    .team-name { grid-column: 1 / -1; }    .team-cell[data-h]::before { content: attr(data-h) ": "; opacity: 0.6; font-weight: 400; }  }
 </style>
 </head>
 <body>
@@ -236,7 +237,7 @@
 <div class="board" id="board" hidden>
   <aside class="side">
     <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
-    <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button></div>
+    <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button></div>
     <div class="add">
       <select id="grp" aria-label="Groups"><option value="">Groups</option></select>
       <select id="loc" aria-label="Location"><option value="">All locations</option></select>

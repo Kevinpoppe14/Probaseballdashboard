@@ -5334,12 +5334,44 @@ function inCoachScope(a, scope) {
   if (scope.locs.includes(a.dstLocation)) return true;
   return a.dstLocation === REMOTE_LOCATION && !!scope.email && coachWorksWithRemote(a, scope.email);
 }
-function todayItems() {
+// Needs attention: what the phone's logs say about an athlete between visits, each a reason shown beside the name:
+//   weight moving fast   pre-lift weigh-ins (store.bodyweightLog) up or down 2% or more within about a week
+//   not logging food     a nutrition plan, and no food logged in 3+ days
+//   low protein          a nutrition plan, and protein under 80% of target on average over the days logged this week
+// `food` is the last two weeks of food_logs by athlete ({ days: Map day -> entries }), fetched by the panel.
+function attentionFor(a, food) {
+  const S = window.AthleteStore, out = [];
+  const log = S.bodyweightLog ? S.bodyweightLog(a.id) : [];
+  if (log.length >= 2) {
+    const z = log[log.length - 1], ago = (d) => Math.round((new Date(`${z.date}T12:00:00`) - new Date(`${d}T12:00:00`)) / 864e5);
+    const base = log.filter((w) => ago(w.date) >= 5 && ago(w.date) <= 10).pop();
+    if (base && ago(z.date) <= 0 && Math.abs(z.lb - base.lb) / base.lb >= 0.02) {
+      const d = Math.round((z.lb - base.lb) * 10) / 10;
+      out.push({ text: `${d > 0 ? "+" : ""}${d} lb in ${ago(base.date)} days`, tab: "bodycomp" });
+    }
+  }
+  const rec = S.getNutritionPlan ? S.getNutritionPlan(a.id) : null;
+  if (food && rec && rec.goal && rec.snapshot) {
+    const mine = food.get(String(a.id)), today = new Date(), key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const eatenOn = (dk) => ((mine && mine.get(dk)) || []).filter((e) => e.name && !e.planned);
+    let last = null;
+    for (let i = 0; i < 14 && last == null; i += 1) { const d = new Date(today); d.setDate(d.getDate() - i); if (eatenOn(key(d)).length) last = i; }
+    if (last == null || last >= 3) out.push({ text: last == null ? "no food logged in 2 weeks" : `no food logged in ${last} days`, tab: "meallog" });
+    const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() - i); return eatenOn(key(d)); }).filter((l) => l.length);
+    const target = rec.snapshot.train && rec.snapshot.train.p;
+    if (week.length >= 2 && target) {
+      const avg = week.reduce((s, l) => s + l.reduce((t, e) => t + (+e.p || 0), 0), 0) / week.length;
+      if (avg < target * 0.8) out.push({ text: `protein ${Math.round((avg / target) * 100)}% of target`, tab: "meallog" });
+    }
+  }
+  return out;
+}
+function todayItems(food) {
   const S = window.AthleteStore;
   const lib = window.PeriodizationLib;
   const now = new Date(new Date().toDateString());
   const daysSince = (iso) => (iso ? Math.floor((now - new Date(new Date(iso).toDateString())) / 864e5) : null);
-  const out = { gap: [], ending: [], quiet: [], text: [], assess: [], reassess: [] };
+  const out = { gap: [], ending: [], quiet: [], text: [], assess: [], reassess: [], attention: [] };
   // Cubs players appear only for Kevin (the same account that gets them in the weekly email); for everyone else
   // the panel covers DST athletes only
   const forKevin = (S.currentUserEmail() || "").toLowerCase() === "kevin@dynamicsportstraining.com";
@@ -5364,6 +5396,8 @@ function todayItems() {
         }
       }
     }
+    const needs = attentionFor(a, food);
+    if (needs.length) out.attention.push({ a, note: needs.map((x) => x.text).join(" · "), tab: needs[0].tab, sort: needs.length });
     if (forKevin && a.rosterGroup === CUBS_ROSTER_GROUP) { // texts are Kevin's list only
       const since = daysSince(a.lastTexted ? `${a.lastTexted}T12:00:00` : null);
       if (since == null || since >= CONTACT_DAYS) out.text.push({ a, note: since == null ? "never" : `${since} days`, tab: "plan", sort: since == null ? 9999 : since });
@@ -5385,6 +5419,7 @@ function todayItems() {
   const byName = (x, y) => lastNameOnly(x.a.name).localeCompare(lastNameOnly(y.a.name));
   const longestFirst = (x, y) => (y.sort || 0) - (x.sort || 0) || byName(x, y);
   return [
+    { key: "attention", title: "Needs attention", tone: "danger", hint: "From their app: weight moving fast, food not logged, or protein low", list: out.attention.sort(longestFirst) },
     { key: "gap", title: "Program gap", tone: "danger", hint: "A block ended last week with nothing after it", list: out.gap.sort(byName) },
     { key: "ending", title: "Program ending this week", tone: "warn", hint: "Line up the next phase", list: out.ending.sort(byName) },
     { key: "quiet", title: "Not logging", tone: "warn", hint: `Has a program, nothing logged in ${LOG_QUIET_DAYS}+ days`, list: out.quiet.sort(longestFirst) },
@@ -5435,7 +5470,21 @@ function TodayPanel({ onOpenTab, dataVersion }) {
   }, []);
   const dismiss = (id) => setDismissed((d) => { const next = [...d, id]; saveTodayDismissed(next); return next; });
   const restore = () => { setDismissed([]); saveTodayDismissed([]); };
-  const items = useMemo(() => todayItems(), [dataVersion]) // eslint-disable-line
+  // the last two weeks of every athlete's food log, for Needs attention (none until migration_023 has been run)
+  const [food, setFood] = useState(null);
+  React.useEffect(() => {
+    const sb = window.supabaseClient;
+    if (!sb) return;
+    const from = new Date(); from.setDate(from.getDate() - 14);
+    const day = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
+    sb.from("food_logs").select("athlete_id,day,entries").gte("day", day).limit(10000).then(({ data, error }) => {
+      if (error || !data) return;
+      const m = new Map();
+      data.forEach((r) => { const id = String(r.athlete_id); if (!m.has(id)) m.set(id, new Map()); m.get(id).set(String(r.day).slice(0, 10), r.entries || []); });
+      setFood(m);
+    });
+  }, [dataVersion]);
+  const items = useMemo(() => todayItems(food), [dataVersion, food]) // eslint-disable-line
     .map((it) => (dismissed.includes(`card:${it.key}`) ? { ...it, list: [] } : { ...it, list: it.list.filter(({ a }) => !dismissed.includes(`${it.key}:${a.id}`)) }));
   // form checks remote athletes sent to this coach and nobody has reviewed yet (form_checks.js); each opens the clip
   const checks = window.useOpenFormChecks ? window.useOpenFormChecks() : [];

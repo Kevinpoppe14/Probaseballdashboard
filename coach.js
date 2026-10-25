@@ -44,7 +44,7 @@
   }
   function show(id) {
     active = id;
-    closeKpi(); closeSpeed(); closeLog();
+    closeKpi(); closeSpeed(); closeLog(); closeTeam();
     const stage = $("stage");
     if (!id) { stage.replaceChildren(el("div", { class: "empty" }, picked.length ? "Pick an athlete." : "Add an athlete to see their program.")); frames.forEach((f) => f.remove()); frames.clear(); draw(); remember(); return; }
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
@@ -62,6 +62,7 @@
     if (kpiOpen) { if (!active) active = id; remember(); openKpi(); return; } // adding while on the KPI sheet adds a row to it
     if (speedOpen) { if (!active) active = id; remember(); openSpeed(); return; } // adding while on the speed session adds them to its list
     if (logOpen) { if (!active) active = id; remember(); openLog(); return; }
+    if (teamOpen) { if (!active) active = id; remember(); openTeam(); return; }
     show(id);
   }
   function remove(id) {
@@ -74,6 +75,7 @@
     if (kpiOpen) { active = next; remember(); openKpi(); return; }
     if (speedOpen) { active = next; remember(); openSpeed(); return; }
     if (logOpen) { active = next; remember(); openLog(); return; }
+    if (teamOpen) { active = next; remember(); openTeam(); return; }
     show(next);
   }
   function draw() {
@@ -81,12 +83,13 @@
     $("kpi-btn").classList.toggle("on", kpiOpen);
     $("speed-btn").classList.toggle("on", speedOpen);
     $("log-btn").classList.toggle("on", logOpen);
+    $("team-btn").classList.toggle("on", teamOpen);
     drawPreview();
     if (!picked.length) { list.replaceChildren(el("div", { class: "list-hint" }, "No athletes yet. Search above to add one.")); return; }
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
       const done = doneToday.has(id);
-      return el("div", { class: `who${id === active && !kpiOpen && !speedOpen && !logOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
+      return el("div", { class: `who${id === active && !kpiOpen && !speedOpen && !logOpen && !teamOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
         el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, done ? "✓ " : "", a.name), el("small", null, done ? `Done today${a.sub ? ` · ${a.sub}` : ""}` : a.sub)),
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
     }));
@@ -101,7 +104,7 @@
   function drawPreview() {
     if (!previewEl) previewEl = el("aside", { class: "preview", "aria-label": "Workout preview" });
     const stage = $("stage");
-    if (!active || kpiOpen || speedOpen || logOpen) { previewEl.remove(); return; }
+    if (!active || kpiOpen || speedOpen || logOpen || teamOpen) { previewEl.remove(); return; }
     if (!previewEl.isConnected) stage.append(previewEl);
     const p = previews.get(active);
     const a = byId(active) || { name: "" };
@@ -132,7 +135,7 @@
   let logOpen = false;
   let logEl = null;
   function openLog() {
-    logOpen = true; closeKpi(); closeSpeed(); logOpen = true;
+    logOpen = true; closeKpi(); closeSpeed(); closeTeam(); logOpen = true;
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     picked.forEach(ensureFrame); // pages not opened yet load now, out of sight
@@ -188,6 +191,123 @@
   window.addEventListener("message", (e) => { if (e.origin === window.location.origin && e.data === "coach-session-changed") loadDone(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) loadDone(); });
   setInterval(() => { if (!document.hidden) loadDone(); }, 30000);
+
+  // ---- Team today: everyone on the board at a glance -------------------------------------------------------
+  // One row per athlete: whether they've lifted today (session logged, or how many sets are in so far), today's
+  // pre-lift weight, food logged against the day's calories, water, and a message to them (shown at the top of
+  // their app until they tap Got it; migration_029). Refreshed every half minute while it's open.
+  let teamOpen = false, teamEl = null, teamData = null, teamTimer = null, teamCompose = null;
+  const myName = () => {
+    const m = (user && user.user_metadata) || {};
+    if (m.name || m.full_name) return m.name || m.full_name;
+    const local = String((user && user.email) || "").split("@")[0];
+    return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") || "Your coach";
+  };
+  function openTeam() {
+    closeKpi(); closeSpeed(); closeLog(); teamOpen = true;
+    const stage = $("stage");
+    stage.querySelectorAll(".empty").forEach((n) => n.remove());
+    frames.forEach((f) => { f.hidden = true; });
+    if (!teamEl) teamEl = el("div", { class: "kpi team" });
+    if (!teamEl.isConnected) stage.append(teamEl);
+    draw();
+    drawTeam();
+    loadTeam();
+    clearInterval(teamTimer);
+    teamTimer = setInterval(() => { if (!document.hidden && teamOpen) loadTeam(); }, 30000);
+  }
+  function closeTeam() {
+    teamOpen = false; teamCompose = null;
+    clearInterval(teamTimer); teamTimer = null;
+    if (teamEl) teamEl.remove();
+  }
+  async function loadTeam() {
+    if (!user || !picked.length) { teamData = {}; drawTeam(); return; }
+    const day = localDay(), bwKey = `bw-${day.replace(/-/g, "")}|0`;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const [logs, food, plans, msgs] = await Promise.all([
+      sb.from("athlete_logs").select("athlete_id,key,value").in("athlete_id", picked).gte("updated_at", start.toISOString()).limit(5000),
+      sb.from("food_logs").select("athlete_id,entries").in("athlete_id", picked).eq("day", day).limit(500),
+      sb.from("assessments").select("athlete_id,train:data->snapshot->train,rest:data->snapshot->rest").in("athlete_id", picked).eq("data->>kind", "nutrition").limit(500),
+      sb.from("coach_messages").select("athlete_id,body,created_at,seen_at").in("athlete_id", picked).gte("created_at", new Date(Date.now() - 7 * 864e5).toISOString()).order("created_at", { ascending: false }).limit(500),
+    ]);
+    const out = {};
+    picked.forEach((id) => { out[id] = { lifted: false, sets: 0, bw: "", kcal: 0, water: 0, logged: false, target: null, msg: null, foodMissing: !!food.error }; });
+    (logs.data || []).forEach((r) => {
+      const o = out[String(r.athlete_id)];
+      if (!o || !r.value) return;
+      if (/^session-/.test(r.key) && r.value === "done") o.lifted = true;
+      else if (r.key === bwKey) o.bw = r.value;
+      else if (/\|\d{1,2}$/.test(r.key) && !/^bw-/.test(r.key)) o.sets += 1;
+    });
+    (food.data || []).forEach((r) => {
+      const o = out[String(r.athlete_id)];
+      if (!o) return;
+      const entries = r.entries || [], eaten = entries.filter((e) => e.name && !e.planned);
+      o.kcal = Math.round(eaten.reduce((t, e) => t + (+e.kcal || 0), 0));
+      o.logged = eaten.length > 0;
+      const w = entries.find((e) => e.id === "water"); o.water = w ? Math.round(+w.oz || 0) : 0;
+      const t = entries.find((e) => e.id === "daytype"); o.rest = t ? t.dayType === "rest" : null;
+    });
+    (plans.data || []).forEach((r) => { const o = out[String(r.athlete_id)]; if (o) o.target = r; });
+    (msgs.data || []).forEach((r) => { const o = out[String(r.athlete_id)]; if (o && !o.msg) o.msg = r; });
+    teamData = out;
+    teamData.__msgMissing = !!msgs.error;
+    drawTeam();
+  }
+  async function sendMessage(ids, body) {
+    const text = String(body || "").trim().slice(0, 500);
+    if (!text || !ids.length) return false;
+    const rows = ids.map((id) => ({ id: `cm-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, athlete_id: String(id), body: text, sender: myName() }));
+    const { error } = await sb.from("coach_messages").insert(rows);
+    return !error;
+  }
+  function drawTeam(status) {
+    if (!teamOpen || !teamEl) return;
+    const d = teamData;
+    const when = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const composer = () => {
+      if (!teamCompose) return null;
+      const ids = teamCompose === "all" ? picked.slice() : [teamCompose];
+      const who = teamCompose === "all" ? `everyone on the board (${ids.length})` : (byId(teamCompose) || { name: "athlete" }).name;
+      const box = el("textarea", { class: "team-msg-box", rows: "3", maxlength: "500", placeholder: "e.g. Add 10 lb to your bench today" });
+      const send = el("button", { class: "kpi-save", onclick: async () => {
+        send.disabled = true;
+        const ok = await sendMessage(ids, box.value);
+        if (ok) { teamCompose = null; await loadTeam(); drawTeam(`Sent to ${who}`); }
+        else { send.disabled = false; drawTeam(d && d.__msgMissing ? "Messages aren't set up yet: run supabase/migration_029_coach_messages.sql" : "Couldn't send. Check your connection."); }
+      } }, "Send");
+      setTimeout(() => box.focus(), 0);
+      return el("div", { class: "team-compose" }, el("div", { class: "team-compose-to" }, `Message to ${who}`), box,
+        el("div", { class: "kpi-foot" }, send, el("button", { class: "kpi-cancel", onclick: () => { teamCompose = null; drawTeam(); } }, "Cancel")));
+    };
+    const rows = picked.map((id) => {
+      const a = byId(id) || { name: "Unknown athlete" }, o = d && d[id];
+      if (!o) return el("div", { class: "team-row" }, el("span", { class: "team-name" }, a.name), el("span", { class: "team-cell dim" }, "Loading…"));
+      const t = o.target ? (o.rest ? o.target.rest : o.target.train) || o.target.train : null;
+      const msg = o.msg ? `${o.msg.seen_at ? "Seen" : "Sent"} ${when(o.msg.created_at)}` : "";
+      return el("div", { class: "team-row" },
+        el("button", { class: "team-name", title: "Open their program", onclick: () => show(id) }, a.name),
+        el("span", { class: `team-cell ${o.lifted ? "ok" : o.sets ? "mid" : "dim"}`, "data-h": "Lift" }, o.lifted ? "✓ Lifted" : o.sets ? `${o.sets} set${o.sets === 1 ? "" : "s"} in` : "Not yet"),
+        el("span", { class: `team-cell ${o.bw ? "ok" : "dim"}`, "data-h": "Pre weight" }, o.bw ? `${o.bw} lb` : "—"),
+        el("span", { class: `team-cell ${o.logged ? "ok" : "dim"}`, "data-h": "Food" }, o.foodMissing ? "—" : o.logged ? `${o.kcal.toLocaleString()}${t && t.kcal ? ` / ${t.kcal.toLocaleString()}` : ""} cal` : "Nothing yet"),
+        el("span", { class: `team-cell ${o.water ? "ok" : "dim"}`, "data-h": "Water" }, o.water ? `${o.water} oz` : "—"),
+        el("span", { class: "team-cell team-msg" }, el("button", { class: "team-msg-btn", title: `Message ${a.name}`, "aria-label": `Message ${a.name}`, onclick: () => { teamCompose = id; drawTeam(); } }, "✉"), msg ? el("small", null, msg) : null));
+    });
+    teamEl.replaceChildren(
+      el("h2", { class: "speed-h" }, "Team today", el("small", null, `${new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} · everyone on the board`)),
+      picked.length ? el("div", { class: "team-actions" },
+        el("button", { class: "kpi-btn", onclick: () => { teamCompose = "all"; drawTeam(); } }, "✉ Message everyone"),
+        el("button", { class: "kpi-btn", onclick: () => loadTeam() }, "Refresh")) : null,
+      composer(),
+      picked.length
+        ? el("div", { class: "team-table" },
+          el("div", { class: "team-row team-head" }, ["Athlete", "Lift", "Pre weight", "Food", "Water", "Message"].map((h) => el("span", null, h))),
+          ...rows)
+        : el("div", { class: "kpi-note" }, "Add athletes to the board first, or load a group."),
+      el("div", { class: "kpi-foot" }, el("span", { class: "kpi-status", role: "status" }, status || "")),
+      el("p", { class: "kpi-hint" }, "Updates every 30 seconds. Lift: ✓ once a session is logged today, or how many sets are in so far. Pre weight, food and water are what they entered in their app today. A message shows at the top of the athlete's app until they tap Got it."));
+  }
 
   // ---- KPI sheet: results for something the group did that is not in anyone's program ------------------
   // A sheet with the athletes on the board down the side and trials across: pick the KPI (or make a new one)
@@ -256,7 +376,7 @@
   }
 
   async function openKpi() {
-    kpiOpen = true; closeSpeed(); closeLog();
+    kpiOpen = true; closeSpeed(); closeLog(); closeTeam();
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -574,7 +694,7 @@
   }
 
   async function openSpeed() {
-    speedOpen = true; closeKpi(); closeLog(); speedOpen = true;
+    speedOpen = true; closeKpi(); closeLog(); closeTeam(); speedOpen = true;
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -1073,7 +1193,7 @@
   function close() {
     endTour();
     user = null; picked = []; active = null;
-    closeKpi(); closeSpeed(); closeLog(); kpiSheet = {}; kpiHistory = [];
+    closeKpi(); closeSpeed(); closeLog(); closeTeam(); kpiSheet = {}; kpiHistory = [];
     frames.forEach((f) => f.remove()); frames.clear();
     $("board").hidden = true;
     $("login").hidden = false;
@@ -1104,6 +1224,7 @@
   $("kpi-btn").addEventListener("click", () => { if (kpiOpen) show(active); else openKpi(); });
   $("speed-btn").addEventListener("click", () => { if (speedOpen) show(active); else openSpeed(); });
   $("log-btn").addEventListener("click", () => { if (logOpen) show(active); else openLog(); });
+  $("team-btn").addEventListener("click", () => { if (teamOpen) show(active); else openTeam(); });
   $("grp").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "__save__") saveGroup(); else if (v) loadGroup(v); });
   $("loc").addEventListener("change", (e) => { locFilter = e.target.value; try { localStorage.setItem(locKey(), locFilter); } catch (ex) { /* private window */ } $("search").value = ""; if (locFilter) $("search").focus(); search(); });
   $("search").addEventListener("input", search);
