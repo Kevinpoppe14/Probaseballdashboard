@@ -294,7 +294,7 @@
         el("span", { class: `team-cell ${o.water ? "ok" : "dim"}`, "data-h": "Water" }, o.water ? `${o.water} oz` : "—"),
         el("span", { class: "team-cell team-msg" }, el("button", { class: "team-msg-btn", title: `Message ${a.name}`, "aria-label": `Message ${a.name}`, onclick: () => { teamCompose = id; drawTeam(); } }, "✉"), msg ? el("small", null, msg) : null));
     });
-    teamEl.replaceChildren(
+    teamEl.replaceChildren(...[ // (replaceChildren would write out a null as text)
       el("h2", { class: "speed-h" }, "Team today", el("small", null, `${new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} · everyone on the board`)),
       picked.length ? el("div", { class: "team-actions" },
         el("button", { class: "kpi-btn", onclick: () => { teamCompose = "all"; drawTeam(); } }, "✉ Message everyone"),
@@ -306,7 +306,8 @@
           ...rows)
         : el("div", { class: "kpi-note" }, "Add athletes to the board first, or load a group."),
       el("div", { class: "kpi-foot" }, el("span", { class: "kpi-status", role: "status" }, status || "")),
-      el("p", { class: "kpi-hint" }, "Updates every 30 seconds. Lift: ✓ once a session is logged today, or how many sets are in so far. Pre weight, food and water are what they entered in their app today. A message shows at the top of the athlete's app until they tap Got it."));
+      el("p", { class: "kpi-hint" }, "Updates every 30 seconds. Lift: ✓ once a session is logged today, or how many sets are in so far. Pre weight, food and water are what they entered in their app today. A message shows at the top of the athlete's app until they tap Got it."),
+    ].filter(Boolean));
   }
 
   // ---- KPI sheet: results for something the group did that is not in anyone's program ------------------
