@@ -1547,6 +1547,11 @@ function moveToSuperset(exercises, index, target) {
 // as many lines as it needs; clicking (or tabbing into) it turns it into the usual box with library suggestions.
 function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
   const [editing, setEditing] = useState(false);
+  // A long name wraps onto two or three lines in the view, but the box it's edited in is one line: the box keeps the
+  // view's height, so the card doesn't shrink (and everything under it jump up) the moment it's clicked.
+  const viewRef = React.useRef(null);
+  const [height, setHeight] = useState(null);
+  const startEditing = () => { if (editing) return; setHeight(viewRef.current ? viewRef.current.offsetHeight : null); onFocus(); setEditing(true); };
   if (editing) {
     return (
       <input
@@ -1555,6 +1560,7 @@ function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
         list="exercise-library-names"
         value={value || ""}
         placeholder="Exercise"
+        style={height ? { minHeight: `${height}px` } : undefined}
         onChange={(e) => onChange(e.target.value)}
         onBlur={() => { setEditing(false); onBlur(); }}
         onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
@@ -1563,11 +1569,12 @@ function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
   }
   return (
     <div
+      ref={viewRef}
       className={`program-ex-name program-ex-name-view ${(value || "").trim() ? "" : "empty"}`}
       tabIndex={0}
       title="Click to edit"
-      onClick={() => { onFocus(); setEditing(true); }}
-      onFocus={() => { onFocus(); setEditing(true); }}
+      onClick={startEditing}
+      onFocus={startEditing}
     >
       {(value || "").trim() || "Exercise"}
     </div>
@@ -1924,10 +1931,14 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
             <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
           ))}
         </span>
-        {/* clicking into a week or a superset dims the rest; this brings everything back */}
-        {(focusSet || (focusWeek != null && draft.weeks.length > 1)) && (
-          <button className="btn btn-small-grey program-show-all" onClick={() => { setFocusWeek(null); setFocusSet(null); }}>Show everything at full brightness</button>
-        )}
+        {/* clicking into a week or a superset dims the rest; this brings everything back. Always in the toolbar (only
+            hidden when nothing is dimmed), so its showing up never shifts the program down mid-click. */}
+        {(() => {
+          const dimmed = !!(focusSet || (focusWeek != null && draft.weeks.length > 1));
+          return (
+            <button className="btn btn-small-grey program-show-all" style={dimmed ? undefined : { visibility: "hidden" }} disabled={!dimmed} aria-hidden={dimmed ? undefined : "true"} tabIndex={dimmed ? undefined : -1} onClick={() => { setFocusWeek(null); setFocusSet(null); }}>Show everything at full brightness</button>
+          );
+        })()}
         {onSaveAndAssign && (
           <button className="btn btn-assign" disabled={!canSave} title={canSave ? "Saves this program, then lets you assign it to athletes or to a group" : "Give the program a name first"} onClick={saveAndAssign}>
             Save &amp; assign to athletes or a group
