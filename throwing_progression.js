@@ -92,6 +92,78 @@
   const hashOf = (s) => { let h = 0; for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
   const round = (v) => (Math.round(v * 10) / 10).toString();
 
+  // ---- logged throws against the drills ------------------------------------------------------------------------
+  // The drills that count toward a day's throws: those with a Throws box, outside warm-up / arm care and recovery.
+  // A day's logged throws are measured against what those same drills prescribed (sets x reps), and the day counts
+  // as its progression throws times that ratio: plyo and catch play done as written count as exactly "2x25" = 50,
+  // 20% more than written counts as 60. A counted drill left blank on a logged day counts as done as written.
+  const countedDrill = (e) => (e.extras || []).some((x) => /^throws$/i.test(`${x.label || ""}`.trim())) && !/warm|arm care|recover/i.test(e.section || "");
+  const drillRx = (e) => { const g = ((e && e.groups) || [])[0] || {}; const sets = `${g.sets || ""}`.trim(), reps = num(`${g.reps || ""}`); return Number.isFinite(reps) ? (sets ? num(sets) : 1) * reps : null; };
+
+  // ---- keeping ACR on its planned path when what was thrown differs from what was prescribed --------------------
+  // A day changed by a suggestion keeps what it said before as `orig`, so the planned path stays the one the coach
+  // wrote; editing the day by hand makes the new text the plan.
+  const planOf = (weeks) => weeks.map((w) => ({ ...w, days: w.days.map((d) => (d.orig != null ? { ...d, text: d.orig } : d)) }));
+  // how far a suggestion may move a day: 40% fewer throws to 15% more
+  const LO = 0.6, HI = 1.15;
+  // "2x25" times 0.8 is "2x20": the reps change and the sets stay; counts that are multiples of 5 stay multiples of 5,
+  // without the rounding taking a count past LO-HI
+  function scaleText(text, f, fine) {
+    const r = (v) => {
+      if (fine || v % 5 !== 0) return Math.max(1, Math.round(v * f));
+      let c = Math.round((v * f) / 5) * 5;
+      if (c < v * LO) c += 5;
+      if (c > v * HI) c -= 5;
+      return Math.max(1, c);
+    };
+    const nums = (s) => s.replace(/\d+(?:\.\d+)?/g, (m) => String(r(parseFloat(m))));
+    const t = text || "";
+    const sets = /(\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)(\s*[x×]\s*)(\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)/i.exec(t);
+    if (sets) return t.slice(0, sets.index) + sets[1] + sets[2] + nums(sets[3]) + t.slice(sets.index + sets[0].length);
+    const lone = /\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?/.exec(t);
+    return lone ? t.slice(0, lone.index) + nums(lone[0]) + t.slice(lone.index + lone[0].length) : t;
+  }
+  // Week by week from the first day that can still change (`fromIdx`, days from Week 1's Sunday), the load each
+  // week needs for its ACR (4-wk avg) to match the planned one, given what was really thrown before it:
+  // ACR = n x load / (the other weeks in the window + load), so load = ACR x others / (n - ACR). The days still
+  // ahead in that week are scaled to reach it, within 40% fewer to 15% more throws a day (cutting back can be
+  // bigger than making up). Scaling always starts from what the coach wrote (`orig`), so running it again gives the
+  // same days rather than cutting twice, and a day that no longer needs changing goes back to what was written.
+  // Counts round to 5s, or to whole throws when 5s would change nothing and the change is 10% or more. Logged days
+  // and days already past stay put.
+  function suggestAdjustments(weeks, weights, actualOf, fromIdx) {
+    const plan = weekLoads(planOf(weeks), weights);
+    const next = weeks.map((w) => ({ ...w, days: w.days.map((d) => ({ ...d })) }));
+    const wt = (d) => parseFloat(weights[d.level || "M"]) || 0;
+    const baseOf = (d) => (d.orig != null ? d.orig : d.text);
+    const changes = [];
+    for (let wi = Math.max(0, Math.floor(fromIdx / 7)); wi < next.length; wi += 1) {
+      const rows = weekLoads(next, weights, actualOf);
+      const n = Math.min(4, wi + 1), acr = plan[wi].acr;
+      const others = rows.slice(wi - n + 1, wi).reduce((t, r) => t + r.load, 0);
+      const target = acr != null && n - acr > 0.05 && others > 0 ? (acr * others) / (n - acr) : plan[wi].load;
+      let fixed = 0, free = 0;
+      const open = [];
+      next[wi].days.forEach((d, di) => {
+        const a = actualOf(wi, di), t = throwsOf({ ...d, text: baseOf(d) });
+        if (a == null && wi * 7 + di >= fromIdx && d.level && t > 0) { free += t * wt(d); open.push(di); } else fixed += (a != null ? a : throwsOf(d)) * wt(d);
+      });
+      if (!open.length || free <= 0) continue;
+      let f = Math.min(HI, Math.max(LO, (target - fixed) / free));
+      if (Math.abs(f - 1) < 0.08) f = 1; // close enough: within 8% is left as written
+      const textsAt = (fine) => open.map((di) => { const d = next[wi].days[di]; return f === 1 ? baseOf(d) : scaleText(baseOf(d), f, fine); });
+      let texts = textsAt(false);
+      if (Math.abs(f - 1) >= 0.1 && open.every((di, k) => throwsOf({ level: "L", text: texts[k] }) === throwsOf({ level: "L", text: baseOf(next[wi].days[di]) }))) texts = textsAt(true);
+      open.forEach((di, k) => {
+        const d = next[wi].days[di], base = baseOf(d), text = texts[k];
+        if (throwsOf({ ...d, text }) === throwsOf(d)) return;
+        changes.push({ wi, di, level: d.level, from: d.text, to: text });
+        next[wi].days[di] = text === base ? { ...d, text, orig: undefined } : { ...d, orig: base, text };
+      });
+    }
+    return { changes, next, plan, before: weekLoads(weeks, weights, actualOf), after: weekLoads(next, weights, actualOf) };
+  }
+
   // ACR week by week, drawn over its bands: blue under 0.8, green for the target range, yellow for caution and
   // red for a spike. Each point carries its value and takes the color of the band it sits in.
   const ACR_COLORS = { under: "#6ea8dc", good: "#34a853", caution: "#fbbc04", spike: "#ea4335", none: "#888" };
@@ -135,7 +207,7 @@
     );
   }
 
-  function DayCell({ d, title, onCycle, onText, actual }) {
+  function DayCell({ d, title, onCycle, onText, actual, actualNote }) {
     const [editing, setEditing] = useState(false);
     const inputRef = useRef(null);
     useEffect(() => { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
@@ -156,12 +228,19 @@
         </td>
       );
     }
+    const adjusted = d.orig != null && d.orig !== d.text;
     return (
-      <td className={`tp-cell ${cls}`}>
+      <td className={`tp-cell ${cls}${actual != null || adjusted ? " has-note" : ""}`}>
         <button type="button" className="tp-day" onClick={onCycle} title={`${title}: click to change the intensity`}>{label(d)}</button>
         <button type="button" className="tp-edit no-print" onClick={() => setEditing(true)} title="Edit what this day says" aria-label={`Edit ${title}`}>✎</button>
-        {/* the throws the athlete logged for the day in their throwing program (what the ACR counts for it) */}
-        {actual != null && <small className="tp-actual" title={`Logged in the app: ${actual} throws (the ACR counts these for this day)`}>✓ {round(actual)}</small>}
+        {(actual != null || adjusted) && (
+          <span className="tp-notes">
+            {/* what the ACR counts for the day from what the athlete logged in their throwing program */}
+            {actual != null && <small className="tp-actual" title={actualNote}>✓ {Math.round(actual)}</small>}
+            {/* changed by an ACR suggestion: what the coach first wrote */}
+            {adjusted && <small className="tp-adjusted" title={`Adjusted from ${d.level}-${d.orig} to keep ACR on its planned path. Edit the day to make it the plan.`}>↻ was {d.orig}</small>}
+          </span>
+        )}
       </td>
     );
   }
@@ -177,7 +256,7 @@
     const [weights, setWeights] = useState(() => ({ ...DEFAULT_WEIGHTS, ...(savedWeights || {}) }));
     useEffect(() => { setWeights({ ...DEFAULT_WEIGHTS, ...(savedWeights || {}) }); /* eslint-disable-next-line */ }, [athlete.id]);
     // when Week 1 starts (a Sunday, so each cell is a date) and the throwing program built from it, kept with it
-    const metaOf = (a) => { const t = (a && a.throwingProgression) || {}; return { start: t.start || "", programId: t.programId || "" }; };
+    const metaOf = (a) => { const t = (a && a.throwingProgression) || {}; return { start: t.start || "", programId: t.programId || "", dismissed: t.dismissed || "" }; };
     const [meta, setMetaState] = useState(() => metaOf(athlete));
     useEffect(() => { setMetaState(metaOf(athlete)); /* eslint-disable-next-line */ }, [athlete.id]);
     const save = (next, nextWeights, nextMeta) => store.updateAthlete(athlete.id, { throwingProgression: { ...((athlete && athlete.throwingProgression) || {}), ...nextMeta, weeks: next, weights: nextWeights } });
@@ -192,18 +271,75 @@
     const program = meta.programId ? store.allPrograms().find((p) => p.id === meta.programId) : null;
     const plan = store.getPeriodization(athlete.id);
     const log = program && store.programLogFor ? (store.programLogFor(athlete.id, plan) || {})[program.id] || {} : {};
-    const actualOf = (wi, di) => {
+    // for one day: every throw logged (raw), and the counted drills' throws (logged, blanks as written) against what they prescribed (rx)
+    const loggedOf = (wi, di) => {
       const s = program && ((program.weeks || [])[wi] || { sessions: [] }).sessions.find((x) => x.tpDay === di);
       if (!s) return null;
-      let n = 0, any = false;
-      (s.exercises || []).forEach((e) => { const v = parseFloat(log[`${e.id}|x|throws`]); if (Number.isFinite(v)) { n += v; any = true; } });
-      return any ? n : null;
+      let raw = 0, logged = 0, rx = 0, any = false;
+      (s.exercises || []).forEach((e) => {
+        const v = parseFloat(log[`${e.id}|x|throws`]), has = Number.isFinite(v);
+        if (has) { raw += v; any = true; }
+        if (!countedDrill(e)) return;
+        const p = drillRx(e);
+        if (has) { logged += v; rx += p != null ? p : v; } else if (p != null) { logged += p; rx += p; }
+      });
+      return any ? { raw, logged, rx } : null;
+    };
+    const actualOf = (wi, di) => {
+      const info = loggedOf(wi, di);
+      if (!info) return null;
+      const planned = throwsOf((weeks[wi] || { days: [] }).days[di]);
+      return planned > 0 && info.rx > 0 ? (planned * info.logged) / info.rx : info.raw;
+    };
+    const actualNote = (wi, di) => {
+      const info = loggedOf(wi, di), a = actualOf(wi, di);
+      if (!info) return "";
+      return info.rx > 0 && throwsOf((weeks[wi] || { days: [] }).days[di]) > 0
+        ? `Logged in the app: ${round(info.logged)} throws in the counted drills against ${round(info.rx)} prescribed (${Math.round((info.logged / info.rx) * 100)}%), so this day counts as ${round(a)} for the ACR.`
+        : `Logged in the app: ${round(info.raw)} throws (the ACR counts these for this day).`;
     };
     const loads = weekLoads(weeks, weights, actualOf);
     const dateOf = (wi, di) => { if (!meta.start) return null; const d = new Date(`${meta.start}T12:00:00`); d.setDate(d.getDate() + wi * 7 + di); return d; };
     const md = (d) => (d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
     const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const sundayOf = (iso) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - d.getDay()); return isoOf(d); };
+    const dayLabel = (wi, di) => `Wk ${wi + 1} ${DAYS[di].slice(0, 3)}${meta.start ? ` ${md(dateOf(wi, di))}` : ""}`;
+
+    // ---- logged days that strayed from the prescription, and what the days ahead could change to -----------------
+    // Off by 5 throws and 10% or more. The days that can change start today (or, with no Week 1 date, after the last
+    // logged day). The coach applies the suggestion or dismisses it; a dismissed one stays hidden until it changes.
+    const strayed = [];
+    let lastLogged = -1;
+    weeks.forEach((w, wi) => w.days.forEach((d, di) => {
+      const a = actualOf(wi, di);
+      if (a == null) return;
+      lastLogged = wi * 7 + di;
+      const p = throwsOf(d);
+      if (Math.abs(a - p) >= Math.max(5, p * 0.1)) strayed.push({ wi, di, a, p });
+    }));
+    const todayIdx = meta.start ? Math.round((new Date().setHours(12, 0, 0, 0) - new Date(`${meta.start}T12:00:00`)) / 864e5) : null;
+    const fromIdx = Math.max(0, todayIdx != null ? todayIdx : lastLogged + 1, lastLogged + 1);
+    const suggestion = strayed.length ? suggestAdjustments(weeks, weights, actualOf, fromIdx) : null;
+    const suggestSig = suggestion && suggestion.changes.length ? String(hashOf(JSON.stringify(suggestion.changes))) : "";
+    const showSuggestion = !!suggestSig && meta.dismissed !== suggestSig;
+    // the program's counted drills follow their day: reps scaled by the same amount as the day's throws
+    const scaleDrills = (changes) => {
+      const cur = program && store.allPrograms().find((p) => p.id === program.id);
+      if (!cur) return;
+      const weeksP = (cur.weeks || []).map((w, wi) => ({ ...w, sessions: (w.sessions || []).map((s) => {
+        const c = changes.find((x) => x.wi === wi && x.di === s.tpDay);
+        const was = c && throwsOf({ level: c.level, text: c.from });
+        if (!c || !was) return s;
+        const f = throwsOf({ level: c.level, text: c.to }) / was;
+        return { ...s, exercises: (s.exercises || []).map((e) => (!countedDrill(e) ? e : { ...e, groups: (e.groups || []).map((g) => (Number.isFinite(num(`${g.reps || ""}`)) ? { ...g, reps: scaleText(`${g.reps}`, f) } : g)) })) };
+      }) }));
+      store.saveProgram({ ...cur, weeks: weeksP });
+    };
+    const applySuggestion = () => {
+      if (!suggestion) return;
+      scaleDrills(suggestion.changes);
+      commit(suggestion.next);
+    };
 
     // ---- the throwing program, built from this progression (speed_builder.js, layout "throwing") -------------------
     // One day for each throwing day here, named and colored by it; the coach fills in the drills. It is the athlete's
@@ -297,9 +433,10 @@
                           key={wi}
                           d={d}
                           actual={actual}
+                          actualNote={actual != null ? actualNote(wi, di) : ""}
                           title={`${name}, Week ${wi + 1}${meta.start ? ` (${md(dateOf(wi, di))})` : ""}`}
                           onCycle={() => setDay(wi, di, { level: NEXT[d.level || ""] })}
-                          onText={(text) => setDay(wi, di, { text })}
+                          onText={(text) => setDay(wi, di, { text, orig: undefined })}
                         />
                       );
                     })}
@@ -333,6 +470,49 @@
             <button className="btn btn-secondary" onClick={clearAll}>Clear all</button>
             <span className="timestamp-note">{isSaved ? `${weeks.length} week${weeks.length === 1 ? "" : "s"} saved for ${athlete.name}.` : "Showing the base program. It saves to this athlete as soon as you change something."}</span>
           </div>
+          {/* logged throws strayed from the prescription: the days ahead that keep ACR on its planned path, for the coach to apply */}
+          {showSuggestion && (() => {
+            const { changes, plan, before, after } = suggestion;
+            const lo = Math.min(...strayed.map((s) => s.wi), ...changes.map((c) => c.wi));
+            const hi = Math.min(weeks.length - 1, Math.max(...changes.map((c) => c.wi)) + 1, lo + 5);
+            const cols = [];
+            for (let i = lo; i <= hi; i += 1) cols.push(i);
+            const cell = (r, i) => <td key={i} className={acrClass(r.acr)}>{r.acr == null ? "—" : r.acr.toFixed(2)}</td>;
+            return (
+              <div className="tp-adjust no-print">
+                <strong>Keep ACR on its planned path</strong>
+                <p>
+                  {strayed.slice(0, 3).map((s) => `${dayLabel(s.wi, s.di)}: ${Math.round(s.a)} counted, ${round(s.p)} prescribed (${s.a > s.p ? "+" : ""}${Math.round(((s.a - s.p) / (s.p || 1)) * 100)}%)`).join(" · ")}
+                  {strayed.length > 3 ? ` · and ${strayed.length - 3} more` : ""}.
+                  {" "}To bring the ACR back to the path you planned, the days ahead could change to:
+                </p>
+                <ul className="tp-adjust-list">
+                  {changes.map((c) => (
+                    <li key={`${c.wi}|${c.di}`}>
+                      <span className={`tp-adjust-day ${LEVELS[c.level].cls}`}>{dayLabel(c.wi, c.di)}</span>
+                      {c.level}-{c.from} <span aria-hidden="true">→</span> <b>{c.level}-{c.to}</b>
+                      <small> ({round(throwsOf({ level: c.level, text: c.from }))} → {round(throwsOf({ level: c.level, text: c.to }))} throws)</small>
+                    </li>
+                  ))}
+                </ul>
+                <div className="tp-scroll">
+                  <table className="tp-adjust-acr">
+                    <thead><tr><th>ACR (4-wk avg)</th>{cols.map((i) => <th key={i}>Wk {i + 1}</th>)}</tr></thead>
+                    <tbody>
+                      <tr><th>Planned</th>{cols.map((i) => cell(plan[i], i))}</tr>
+                      <tr><th>As it stands</th>{cols.map((i) => cell(before[i], i))}</tr>
+                      <tr><th>With these changes</th>{cols.map((i) => cell(after[i], i))}</tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="tp-adjust-actions">
+                  <button className="btn btn-primary" onClick={applySuggestion}>Apply {changes.length} change{changes.length === 1 ? "" : "s"}</button>
+                  <button className="btn btn-secondary" onClick={() => setMeta({ dismissed: suggestSig })}>Dismiss</button>
+                  <small>{program ? `The drills with a Throws box on those days change by the same amount. ` : ""}Changed days show what they were, and editing a day by hand makes it the plan.</small>
+                </div>
+              </div>
+            );
+          })()}
           {/* when Week 1 starts: puts a date on every day, places the program on the chart, and tells Coach Mode what today is */}
           <div className="tp-start no-print">
             <label>Week 1 starts <input type="date" value={meta.start} onChange={(e) => { if (!e.target.value) { setMeta({ start: "" }); return; } const v = sundayOf(e.target.value); setMeta({ start: v }); if (program) linkToPlan(program, v); }} /></label>
@@ -367,6 +547,9 @@
               ACR (EWMA) is the exponentially weighted version: a 7-day average over a 28-day average, worked day by day so
               recent days count most, shown as it stands at the end of each week.
               Load is throws times the intensity weight below; a day's throws are read from its text, so "2x25" counts as 50.
+              Once a day is logged in the app (✓), it counts what was done: the throws logged in its drills against what
+              those drills prescribed, so 20% more than written turns 50 into 60. Warm-up / arm care and recovery drills
+              aren't counted. When logged days stray from the plan, a suggestion appears above to adjust the days ahead.
               {loads.some((r) => r.unknown) && " Weeks marked * have a throwing day with no count typed in, which is left out."}
             </p>
             <div className="tp-weights no-print">
@@ -440,4 +623,5 @@
   }
 
   window.ThrowingProgressionTab = ThrowingProgressionTab;
+  window.ThrowingProgressionKit = { throwsOf, weekLoads, scaleText, suggestAdjustments, countedDrill, drillRx };
 })();
