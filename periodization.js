@@ -746,7 +746,18 @@
         {block && indivFor !== block.id && (
           <kit.ProgramEditor
             key={`${block.id}-${rev}-${extRev}`}
-            initial={program || { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) }}
+            initial={(() => {
+              // a Throwing row's program is a throwing program: the one built from the athlete's Throwing Progression is
+              // laid out from it (its days named and colored from there), and a new one starts as a throwing program
+              const tp = athlete.throwingProgression, Kit = window.SpeedKit;
+              if (program && Kit && program.layout === "throwing" && tp && tp.programId === program.id) return Kit.syncWithProgression(program, tp);
+              if (program) return program;
+              if (Kit && /throw/i.test(lane.name || "")) {
+                const fresh = Kit.newThrowingProgram(Math.max(1, block.len), 3);
+                return { ...fresh, name: withLast(block.label || lane.name) };
+              }
+              return { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) };
+            })()}
             onSave={save}
             autoSave={autoSave}
             pdfAthlete={athlete}

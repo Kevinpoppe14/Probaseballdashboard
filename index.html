@@ -1638,6 +1638,7 @@ function ProgramTags({ tags, all, onChange }) {
 
 // A speed program (sections and series, speed_builder.js) opens in its own builder; every other program in this one.
 function ProgramEditor(props) {
+  if (props.initial && props.initial.layout === "throwing" && window.SpeedProgramEditor) return <window.SpeedProgramEditor {...props} kind="throwing" />; // a throwing program: the same builder, with intensities
   return props.initial && window.isSpeedProgram(props.initial) && window.SpeedProgramEditor ? <window.SpeedProgramEditor {...props} /> : <StandardProgramEditor {...props} />;
 }
 function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, pdfAthlete }) {
@@ -2649,10 +2650,10 @@ function ProgramsPage({ nav, setNav }) {
   // folder: path of the folder being viewed ("" is the top level). A folder that no longer exists falls back to the top.
   const folder = nav.folder && folders.includes(nav.folder) ? nav.folder : "";
   // editing: null = list, {} = new program, record = editing that one. assigning: the program being assigned, if any.
-  const editing = nav.editingId === "new" || nav.editingId === "new-speed" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
+  const editing = nav.editingId === "new" || nav.editingId === "new-speed" || nav.editingId === "new-throwing" ? {} : (nav.editingId && programs.find((p) => p.id === nav.editingId)) || null;
   // a new program started from an existing one: a copy of it with its own exercise ids, saved as a separate program
   const copySource = nav.editingId === "new" && nav.copyFromId ? programs.find((p) => p.id === nav.copyFromId) : null;
-  const copyStart = nav.editingId === "new-speed" && window.SpeedKit ? window.SpeedKit.newSpeedProgram() : copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], tags: [...(copySource.tags || [])], ...(copySource.layout ? { layout: copySource.layout } : {}), weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
+  const copyStart = nav.editingId === "new-throwing" && window.SpeedKit ? window.SpeedKit.newThrowingProgram() : nav.editingId === "new-speed" && window.SpeedKit ? window.SpeedKit.newSpeedProgram() : copySource ? { name: `${copySource.name} (copy)`, description: copySource.description || "", nextProgramIds: [], tags: [...(copySource.tags || [])], ...(copySource.layout ? { layout: copySource.layout } : {}), weeks: JSON.parse(JSON.stringify(copySource.weeks || [])).map((w) => ({ ...w, sessions: (w.sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: newExercise().id })) })) })) } : null;
   const [newChoice, setNewChoice] = useState(null); // null, "ask" (the two choices showing) or "copy" (picking a program)
   const [copyQuery, setCopyQuery] = useState("");
   const assigning = (nav.assigningId && programs.find((p) => p.id === nav.assigningId)) || null;
@@ -2846,6 +2847,7 @@ function ProgramsPage({ nav, setNav }) {
           <div className="new-program-options">
             <button className="btn btn-assign" onClick={() => { setNewChoice(null); setEditing({}); }}>Build from scratch</button>
             <button className="btn btn-assign" title="Days laid out in sections (Warm-up, Plyometrics, Speed...) and series instead of A1/A2, with each week side by side" onClick={() => { setNewChoice(null); setNav((n) => ({ ...n, editingId: "new-speed", copyFromId: null })); }}>Build a speed program</button>
+            <button className="btn btn-assign" title="The speed layout for throwing: sections (Warm-up / Arm Care, Plyo Ball, Catch Play / Long Toss), each day colored by its intensity (Low, Medium, High), drills with throws, distance and ball weight" onClick={() => { setNewChoice(null); setNav((n) => ({ ...n, editingId: "new-throwing", copyFromId: null })); }}>Build a throwing program</button>
             <button className={`btn ${newChoice === "copy" ? "btn-assign" : "btn-secondary"}`} onClick={() => setNewChoice("copy")}>Modify an existing program</button>
             <button className="btn-link" onClick={() => setNewChoice(null)}>Cancel</button>
           </div>

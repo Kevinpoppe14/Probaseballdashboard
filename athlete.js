@@ -1781,6 +1781,21 @@
     return [el("h2", { class: "section" }, "Countermovement jump", el("small", null, `${days.length} test day${days.length === 1 ? "" : "s"}`)), card];
   }
 
+  // ---- throwing days (a throwing program, speed_builder.js): each day Low (green), Medium (yellow) or High (red), as on
+  // the athlete's Throwing Progression, on its day button and as a banner at the top of the day ----------------------
+  const THROW_INFO = {
+    L: { cls: "low", name: "Low intensity", detail: "60-90 ft · 50-60% RPE · 75% max velo" },
+    M: { cls: "med", name: "Medium intensity", detail: "90-120 ft · 60-75% RPE · 85% max velo" },
+    H: { cls: "high", name: "High intensity", detail: "120+ ft · 80-100% RPE · 90%+ max velo" },
+  };
+  function throwBanner(s) {
+    const t = THROW_INFO[s.level];
+    return el("div", { class: `thr-banner thr-${t ? t.cls : "off"}` },
+      el("b", null, t ? t.name : "Off day"),
+      t ? el("span", null, t.detail) : el("span", null, "No throwing planned today"),
+      el("small", null, "Log the throws you actually make (and distance or velo where it's asked) under each drill."));
+  }
+
   // ---- a message from their coach (Coach Mode -> Team today), shown until they tap Got it ----------------------
   function messageCard(m) {
     const when = m.at ? new Date(m.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
@@ -3391,7 +3406,7 @@
       parts.push(el("div", { class: "lane-tabs", role: "tablist" }, items.map((it, i) => el("button", { class: `lane-tab${i === itemIdx ? " on" : ""}`, role: "tab", "aria-selected": i === itemIdx ? "true" : "false", onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }
     if (sessions.length > 1) {
-      parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => { const done = logged(item.program.id, sessionKey(item, i)); return el("button", { class: `chip${i === dayIdx ? " on" : ""}${done ? " done" : ""}`, title: `${s.name || `Day ${i + 1}`}${done ? " · session logged" : ""}`, onclick: go(() => { dayIdx = i; }) }, done ? "✓ " : "", s.name || `Day ${i + 1}`); })));
+      parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => { const done = logged(item.program.id, sessionKey(item, i)); return el("button", { class: `chip${i === dayIdx ? " on" : ""}${done ? " done" : ""}${s && "level" in s ? ` thr-chip thr-${THROW_INFO[s.level] ? THROW_INFO[s.level].cls : "off"}` : ""}`, title: `${s.name || `Day ${i + 1}`}${done ? " · session logged" : ""}`, onclick: go(() => { dayIdx = i; }) }, done ? "✓ " : "", s.name || `Day ${i + 1}`); })));
     }
 
     const main = el("main");
@@ -3412,6 +3427,8 @@
         : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`,
         canChange ? el("button", { class: "program-change", title: "Start it another week, swap it, or take it off", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, manage: item.block.id, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Change") : null));
       const rows = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
+      // a throwing day: its intensity (Low, Medium, High) and what that means, in its color
+      if (s && "level" in s) main.append(throwBanner(s));
       if (s && weekIdx === currentWeek()) main.append(weighIn(item));
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
@@ -3453,14 +3470,18 @@
             if (sr.name) card.append(el("div", { class: "spd-ser" }, sr.name));
             list.forEach((e) => {
               const info = exerciseInfo(e.name);
-              const rx = window.speedText(window.speedNormalize(JSON.parse(JSON.stringify(e)))); // "3 × 4 reps @ 10 yd"
+              const copy = window.speedNormalize(JSON.parse(JSON.stringify(e)));
+              if ("level" in s && /^\d+(\.\d+)?$/.test(`${copy.distance || ""}`.trim())) copy.distance = `${copy.distance.trim()} ft`; // a throwing distance is in feet
+              const rx = [window.speedText(copy), (e.weight || "").trim()].filter(Boolean).join(" · "); // "3 × 4 reps @ 10 yd", and a throwing drill's ball weight ("5 oz")
               // boxes the coach added with the builder's "+" (Time, Height...): the athlete writes in their own, with the
               // coach's target shown when there is one. A drill from before the "+" that asked for a best time keeps
               // its Time box (and what was written in it, kept where it always was).
               const boxes = (Array.isArray(e.extras) ? e.extras : []).map((x) => ({ label: x.label || "", target: `${x.value || ""}`.trim(), key: `${e.id}|x|${(x.label || "").toLowerCase()}` }));
               if (e.record && !boxes.some((b) => /^time$/i.test(b.label))) boxes.unshift({ label: "Time", target: "", key: Rx.logKey(e, 0) });
               const time = boxes.length ? el("div", { class: "spd-boxes" }, boxes.map((b) => {
-                const box = el("input", { class: "spd-time-box", type: "text", placeholder: b.target || b.label.toLowerCase(), "aria-label": `${b.label} for ${e.name}`, autocomplete: "off", value: logged(item.program.id, b.key) });
+                // a throwing drill's boxes: the throws made, a distance in feet, a velocity in mph
+                const unit = s && "level" in s ? { throws: "#", distance: "ft", velo: "mph" }[b.label.toLowerCase()] : null;
+                const box = el("input", { class: "spd-time-box", type: "text", inputmode: unit ? "decimal" : null, placeholder: b.target || unit || b.label.toLowerCase(), "aria-label": `${b.label} for ${e.name}`, autocomplete: "off", value: logged(item.program.id, b.key) });
                 box.addEventListener("blur", () => save(item.program.id, b.key, box.value.trim()));
                 return el("label", { class: "spd-box" }, el("span", null, b.label, b.target ? el("small", null, ` target ${b.target}`) : null), box);
               })) : null;

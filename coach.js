@@ -232,10 +232,11 @@
       sb.from("coach_messages").select("athlete_id,body,created_at,seen_at").in("athlete_id", picked).gte("created_at", new Date(Date.now() - 7 * 864e5).toISOString()).order("created_at", { ascending: false }).limit(500),
     ]);
     const out = {};
-    picked.forEach((id) => { out[id] = { lifted: false, sets: 0, bw: "", kcal: 0, water: 0, logged: false, target: null, msg: null, foodMissing: !!food.error }; });
+    picked.forEach((id) => { out[id] = { lifted: false, sets: 0, bw: "", kcal: 0, water: 0, logged: false, target: null, msg: null, foodMissing: !!food.error, thrown: 0 }; });
     (logs.data || []).forEach((r) => {
       const o = out[String(r.athlete_id)];
       if (!o || !r.value) return;
+      if (/\|x\|throws$/.test(r.key)) { const n = parseFloat(r.value); if (Number.isFinite(n)) o.thrown += n; return; } // throws logged today in a throwing program
       if (/^session-/.test(r.key) && r.value === "done") o.lifted = true;
       else if (r.key === bwKey) o.bw = r.value;
       else if (/\|\d{1,2}$/.test(r.key) && !/^bw-/.test(r.key)) o.sets += 1;
@@ -255,6 +256,19 @@
     teamData.__msgMissing = !!msgs.error;
     drawTeam();
   }
+  // today's throwing from the athlete's Throwing Progression (once its Week 1 date is set): "L-2x25" and its intensity
+  // (Low green, Medium yellow, High red), "OFF", or when it starts
+  const throwToday = (a) => {
+    const tp = a && a.tp;
+    if (!tp) return null;
+    const start = new Date(`${tp.start}T12:00:00`), now = new Date(); now.setHours(12, 0, 0, 0);
+    const days = Math.round((now - start) / 864e5);
+    if (days < 0) return { level: "", text: `Starts ${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` };
+    const w = (tp.weeks || [])[Math.floor(days / 7)], d = w && (w.days || [])[days % 7];
+    if (!w) return { level: "", text: "Progression done" };
+    return d && d.level ? { level: d.level, text: `${d.level}${d.text ? `-${d.text}` : ""}` } : { level: "", text: "OFF" };
+  };
+  const THROW_CLS = { L: "low", M: "med", H: "high" };
   async function sendMessage(ids, body) {
     const text = String(body || "").trim().slice(0, 500);
     if (!text || !ids.length) return false;
@@ -289,6 +303,12 @@
       return el("div", { class: "team-row" },
         el("button", { class: "team-name", title: "Open their program", onclick: () => show(id) }, a.name),
         el("span", { class: `team-cell ${o.lifted ? "ok" : o.sets ? "mid" : "dim"}`, "data-h": "Lift" }, o.lifted ? "✓ Lifted" : o.sets ? `${o.sets} set${o.sets === 1 ? "" : "s"} in` : "Not yet"),
+        (() => {
+          const t = throwToday(a);
+          return el("span", { class: "team-cell team-throw", "data-h": "Throwing" },
+            t ? el("span", { class: `team-throw-chip thr-${THROW_CLS[t.level] || "off"}`, title: t.level ? `Today on the throwing progression: ${t.text}` : t.text }, t.text) : el("span", { class: "dim" }, "—"),
+            o.thrown ? el("small", null, ` ✓ ${Math.round(o.thrown)} thrown`) : null);
+        })(),
         el("span", { class: `team-cell ${o.bw ? "ok" : "dim"}`, "data-h": "Pre weight" }, o.bw ? `${o.bw} lb` : "—"),
         el("span", { class: `team-cell ${o.logged ? "ok" : "dim"}`, "data-h": "Food" }, o.foodMissing ? "—" : o.logged ? `${o.kcal.toLocaleString()}${t && t.kcal ? ` / ${t.kcal.toLocaleString()}` : ""} cal` : "Nothing yet"),
         el("span", { class: `team-cell ${o.water ? "ok" : "dim"}`, "data-h": "Water" }, o.water ? `${o.water} oz` : "—"),
@@ -302,11 +322,11 @@
       composer(),
       picked.length
         ? el("div", { class: "team-table" },
-          el("div", { class: "team-row team-head" }, ["Athlete", "Lift", "Pre weight", "Food", "Water", "Message"].map((h) => el("span", null, h))),
+          el("div", { class: "team-row team-head" }, ["Athlete", "Lift", "Throwing", "Pre weight", "Food", "Water", "Message"].map((h) => el("span", null, h))),
           ...rows)
         : el("div", { class: "kpi-note" }, "Add athletes to the board first, or load a group."),
       el("div", { class: "kpi-foot" }, el("span", { class: "kpi-status", role: "status" }, status || "")),
-      el("p", { class: "kpi-hint" }, "Updates every 30 seconds. Lift: ✓ once a session is logged today, or how many sets are in so far. Pre weight, food and water are what they entered in their app today. A message shows at the top of the athlete's app until they tap Got it."),
+      el("p", { class: "kpi-hint" }, "Updates every 30 seconds. Lift: ✓ once a session is logged today, or how many sets are in so far. Throwing: today on their Throwing Progression (once its Week 1 date is set), with the throws they have logged. Pre weight, food and water are what they entered in their app today. A message shows at the top of the athlete's app until they tap Got it."),
     ].filter(Boolean));
   }
 
@@ -1059,6 +1079,7 @@
         sub: [where === "No location" ? "" : coach ? "Coach" : where, d.position && d.position !== "Unassigned" ? d.position : ""].filter(Boolean).join(" · "),
         cubs: cubsRoster && !d.dstLocation, // Cubs-only players get the Cubs look, as on their own link
         remote: d.dstLocation === "DST Remote Training", // their equipment list is checked when a speed session is sent to their app
+        tp: d.throwingProgression && d.throwingProgression.start ? { start: d.throwingProgression.start, weeks: d.throwingProgression.weeks || [] } : null, // today's throwing, for Team today
       };
     }).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
     fillLocations();

@@ -268,9 +268,9 @@
     const p = program || {}, names = laneNames || [];
     const top = String(p.folder || "").split("/")[0];
     const kinds = [
-      { name: "Speed", is: () => (window.isSpeedProgram && window.isSpeedProgram(p)) || /speed|sprint/i.test(top), row: /^speed/i },
+      { name: "Speed", is: () => p.layout !== "throwing" && ((window.isSpeedProgram && window.isSpeedProgram(p)) || /speed|sprint/i.test(top)), row: /^speed/i },
       { name: "Arm Care", is: () => /arm\s*care/i.test(`${p.folder || ""} ${p.name || ""}`), row: /arm\s*care/i },
-      { name: "Throwing", is: () => /throw/i.test(top), row: /throw/i },
+      { name: "Throwing", is: () => p.layout === "throwing" || /throw/i.test(top), row: /throw/i }, // (a throwing program, layout "throwing", even outside the Throwing folder)
       { name: "Re-Education", is: () => /re-?ed|correct|rehab/i.test(top), row: /re-?ed|correct/i },
       { name: "Strength", is: () => true, row: /^strength$/i },
     ];

@@ -3857,3 +3857,33 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .nut-num { height: 30px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 5px; text-align: right; }
 .nut-target-edit .nut-targets td { vertical-align: middle; }
 .nut-time { width: 130px; text-align: left; }
+
+/* ---- throwing programs (speed_builder.js, layout "throwing"): each day colored by its intensity, as on the Throwing
+   Progression: Low green, Medium yellow, High red, off grey ---- */
+.thr-day { border-top: 5px solid rgba(148, 163, 184, 0.5); }
+.thr-day.thr-low { border-top-color: #34a853; background: rgba(52, 168, 83, 0.08); }
+.thr-day.thr-med { border-top-color: #fbbc04; background: rgba(251, 188, 4, 0.08); }
+.thr-day.thr-high { border-top-color: #ea4335; background: rgba(234, 67, 53, 0.08); }
+.thr-day-name { display: block; font-weight: 800; padding: 3px 6px; }
+.thr-day.thr-low .thr-day-name { color: #1f8a45; }
+.thr-day.thr-med .thr-day-name { color: #b07d00; }
+.thr-day.thr-high .thr-day-name { color: #c5372b; }
+.thr-levels { display: flex; gap: 4px; margin: 2px 0 6px; }
+.thr-lvl { flex: 1; padding: 3px 0; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.thr-lvl.on.thr-low { background: #34a853; border-color: #34a853; color: #fff; }
+.thr-lvl.on.thr-med { background: #fbbc04; border-color: #fbbc04; color: #1a1a1a; }
+.thr-lvl.on.thr-high { background: #ea4335; border-color: #ea4335; color: #fff; }
+.thr-lvl.on.thr-off { background: rgba(148, 163, 184, 0.35); color: var(--text); }
+.thr-weight { display: inline-flex; align-items: center; gap: 2px; }
+.thr-weight select { font-size: 12px; padding: 2px 1px; }
+/* the Throwing Progression tab: Week 1's date, the logged throws on a day, and the program built from it */
+.tp-week-date { display: block; font-size: 10.5px; font-weight: 500; opacity: 0.75; }
+.tp-actual { display: block; font-size: 10px; font-weight: 700; color: #fff; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35); }
+.tp-cell.off .tp-actual { color: var(--text); text-shadow: none; }
+.tp-start { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0 4px; font-size: 13px; }
+.tp-start label { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.tp-start small { color: var(--text-dim); }
+.tp-builder { margin: 18px 0 8px; padding-top: 14px; border-top: 1px solid var(--border); }
+.tp-builder h3 { margin: 0 0 8px; }
+.tp-builder h3 small { font-weight: 400; color: var(--text-dim); font-size: 12.5px; margin-left: 6px; }
+.tp-builder-empty p { max-width: 760px; color: var(--text-dim); font-size: 13.5px; line-height: 1.45; }

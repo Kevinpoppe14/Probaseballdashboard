@@ -44,16 +44,25 @@
     const lone = /(\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)/.exec(t);
     return lone ? num(lone[1]) : 0;
   }
-  function weekLoads(weeks, weights) {
-    const rows = weeks.map((w) => {
-      let throws = 0, load = 0, unknown = 0;
-      w.days.forEach((d) => {
-        const n = throwsOf(d);
-        if (d.level && !n) unknown += 1; // a throwing day with no count typed in
+  // `actualOf(week, day)` gives the throws the athlete logged for that day in their throwing program (the Throws boxes
+  // in the app), or null: a day with throws logged counts what was actually done, any other day what was prescribed.
+  // A day's intensity weight is the progression's either way.
+  function dayThrows(d, wi, di, actualOf) {
+    const a = actualOf ? actualOf(wi, di) : null;
+    return a != null ? a : throwsOf(d);
+  }
+  function weekLoads(weeks, weights, actualOf) {
+    const rows = weeks.map((w, wi) => {
+      let throws = 0, load = 0, unknown = 0, logged = 0;
+      w.days.forEach((d, di) => {
+        const a = actualOf ? actualOf(wi, di) : null;
+        const n = a != null ? a : throwsOf(d);
+        if (a != null) logged += 1;
+        else if (d.level && !n) unknown += 1; // a throwing day with no count typed in
         throws += n;
-        load += n * (parseFloat(weights[d.level]) || 0);
+        load += n * (parseFloat(weights[d.level || "M"]) || 0);
       });
-      return { throws, load, unknown };
+      return { throws, load, unknown, logged };
     });
     rows.forEach((r, i) => {
       const window4 = rows.slice(Math.max(0, i - 3), i + 1);
@@ -67,7 +76,7 @@
     // average daily load (so the ratio starts at 1 rather than being thrown off by starting from zero), and each
     // week shows the ratio as it stands at the end of that week.
     const daily = [];
-    weeks.forEach((w) => w.days.forEach((d) => daily.push(throwsOf(d) * (parseFloat(weights[d.level]) || 0))));
+    weeks.forEach((w, wi) => w.days.forEach((d, di) => daily.push(dayThrows(d, wi, di, actualOf) * (parseFloat(weights[d.level || "M"]) || 0))));
     const lamA = 2 / 8, lamC = 2 / 29;
     let acute = rows.length ? rows[0].load / 7 : 0, chronicE = acute;
     daily.forEach((l, k) => {
@@ -79,6 +88,8 @@
   }
   // under 0.8 is detraining, 0.8-1.3 is the target range, 1.3-1.5 is a caution, above 1.5 is a spike
   const acrClass = (v) => (v == null ? "none" : v > 1.5 ? "spike" : v > 1.3 ? "caution" : v >= 0.8 ? "good" : "under");
+  // a short fingerprint of the progression, so the builder under it starts over (re-laid out) whenever a day changes
+  const hashOf = (s) => { let h = 0; for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
   const round = (v) => (Math.round(v * 10) / 10).toString();
 
   // ACR week by week, drawn over its bands: blue under 0.8, green for the target range, yellow for caution and
@@ -124,7 +135,7 @@
     );
   }
 
-  function DayCell({ d, title, onCycle, onText }) {
+  function DayCell({ d, title, onCycle, onText, actual }) {
     const [editing, setEditing] = useState(false);
     const inputRef = useRef(null);
     useEffect(() => { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
@@ -149,6 +160,8 @@
       <td className={`tp-cell ${cls}`}>
         <button type="button" className="tp-day" onClick={onCycle} title={`${title}: click to change the intensity`}>{label(d)}</button>
         <button type="button" className="tp-edit no-print" onClick={() => setEditing(true)} title="Edit what this day says" aria-label={`Edit ${title}`}>✎</button>
+        {/* the throws the athlete logged for the day in their throwing program (what the ACR counts for it) */}
+        {actual != null && <small className="tp-actual" title={`Logged in the app: ${actual} throws (the ACR counts these for this day)`}>✓ {round(actual)}</small>}
       </td>
     );
   }
@@ -163,13 +176,81 @@
     const savedWeights = (athlete.throwingProgression || {}).weights;
     const [weights, setWeights] = useState(() => ({ ...DEFAULT_WEIGHTS, ...(savedWeights || {}) }));
     useEffect(() => { setWeights({ ...DEFAULT_WEIGHTS, ...(savedWeights || {}) }); /* eslint-disable-next-line */ }, [athlete.id]);
+    // when Week 1 starts (a Sunday, so each cell is a date) and the throwing program built from it, kept with it
+    const metaOf = (a) => { const t = (a && a.throwingProgression) || {}; return { start: t.start || "", programId: t.programId || "" }; };
+    const [meta, setMetaState] = useState(() => metaOf(athlete));
+    useEffect(() => { setMetaState(metaOf(athlete)); /* eslint-disable-next-line */ }, [athlete.id]);
+    const save = (next, nextWeights, nextMeta) => store.updateAthlete(athlete.id, { throwingProgression: { ...((athlete && athlete.throwingProgression) || {}), ...nextMeta, weeks: next, weights: nextWeights } });
     const commit = (next, nextWeights = weights) => {
       setWeeks(next);
       setWeights(nextWeights);
       setIsSaved(true);
-      store.updateAthlete(athlete.id, { throwingProgression: { weeks: next, weights: nextWeights } });
+      save(next, nextWeights, meta);
     };
-    const loads = weekLoads(weeks, weights);
+    const setMeta = (patch) => { const m = { ...meta, ...patch }; setMetaState(m); setIsSaved(true); save(weeks, weights, m); return m; };
+    // what the athlete logged: the throws they wrote in for each day of their throwing program (its Throws boxes)
+    const program = meta.programId ? store.allPrograms().find((p) => p.id === meta.programId) : null;
+    const plan = store.getPeriodization(athlete.id);
+    const log = program && store.programLogFor ? (store.programLogFor(athlete.id, plan) || {})[program.id] || {} : {};
+    const actualOf = (wi, di) => {
+      const s = program && ((program.weeks || [])[wi] || { sessions: [] }).sessions.find((x) => x.tpDay === di);
+      if (!s) return null;
+      let n = 0, any = false;
+      (s.exercises || []).forEach((e) => { const v = parseFloat(log[`${e.id}|x|throws`]); if (Number.isFinite(v)) { n += v; any = true; } });
+      return any ? n : null;
+    };
+    const loads = weekLoads(weeks, weights, actualOf);
+    const dateOf = (wi, di) => { if (!meta.start) return null; const d = new Date(`${meta.start}T12:00:00`); d.setDate(d.getDate() + wi * 7 + di); return d; };
+    const md = (d) => (d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+    const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const sundayOf = (iso) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - d.getDay()); return isoOf(d); };
+
+    // ---- the throwing program, built from this progression (speed_builder.js, layout "throwing") -------------------
+    // One day for each throwing day here, named and colored by it; the coach fills in the drills. It is the athlete's
+    // own program, and goes on their periodization chart in the Throwing row from Week 1's date, so it is the same
+    // program in the Programming section and in their app. When the progression changes, its days follow.
+    const Kit = window.SpeedKit, Editor = window.SpeedProgramEditor, PL = window.PeriodizationLib, BK = window.ProgramBuilderKit;
+    const first = (athlete.name || "").split(/\s+/)[0] || athlete.name;
+    const linkToPlan = (prog, start) => {
+      if (!PL || !PL.assignProgram || !start || !prog) return;
+      const p = store.getPeriodization(athlete.id);
+      if (p && (p.blocks || []).some((b) => b.programId === prog.id)) return;
+      const mon = new Date(`${start}T12:00:00`); mon.setDate(mon.getDate() + 1); // the plan's weeks run Monday to Sunday
+      PL.assignProgram(athlete.id, prog, { startDate: isoOf(mon), laneName: "Throwing" });
+    };
+    // the block on the chart is as long as the program
+    const fitBlock = (prog) => {
+      const p = store.getPeriodization(athlete.id), n = (prog.weeks || []).length;
+      const b = p && (p.blocks || []).find((x) => x.programId === prog.id);
+      if (b && n && b.len !== n) store.setPeriodization(athlete.id, { ...p, weeks: Math.max(p.weeks, b.start + n), blocks: p.blocks.map((x) => (x.id === b.id ? { ...x, len: n } : x)) });
+    };
+    const createProgram = () => {
+      if (!Kit) return;
+      const last = BK ? BK.athleteLastName(athlete.name || "") : "";
+      const rec = Kit.syncWithProgression(null, { weeks });
+      rec.name = `${last ? `${last} - ` : ""}Throwing Program`;
+      rec.athleteId = athlete.id;
+      const saved = store.saveProgram(rec);
+      setMeta({ programId: saved.id });
+      linkToPlan(saved, meta.start);
+    };
+    const autoSave = (rec) => {
+      const cur = store.allPrograms().find((p) => p.id === meta.programId) || {};
+      const saved = store.saveProgram({ ...cur, ...rec, id: meta.programId, athleteId: athlete.id });
+      fitBlock(saved);
+      return saved;
+    };
+    // the progression changed: the program's days follow it (names, colors, days added or taken off), drills kept
+    const weeksKey = JSON.stringify(weeks);
+    useEffect(() => {
+      if (!Kit || !meta.programId) return;
+      const cur = store.allPrograms().find((p) => p.id === meta.programId);
+      if (!cur) return;
+      const synced = Kit.syncWithProgression(cur, { weeks });
+      if (JSON.stringify(synced.weeks) !== JSON.stringify(cur.weeks)) { const saved = store.saveProgram({ ...cur, layout: "throwing", weeks: synced.weeks }); fitBlock(saved); }
+      /* eslint-disable-next-line */
+    }, [weeksKey, meta.programId]);
+    const throwingBlock = (() => { const p = plan; const lane = p && (p.lanes || []).find((l) => /throw/i.test(l.name)); const b = lane && (p.blocks || []).filter((x) => x.lane === lane.id).sort((a, c) => a.start - c.start)[0]; return b ? { b, date: (() => { const d = new Date(`${p.startDate}T12:00:00`); d.setDate(d.getDate() + b.start * 7); return d; })() } : null; })();
     const setDay = (wi, di, patch) => commit(weeks.map((w, i) => (i !== wi ? w : { ...w, days: w.days.map((d, j) => (j !== di ? d : { ...d, ...patch })) })));
     const addWeek = () => commit([...weeks, blankWeek()]);
     const removeWeek = (wi) => {
@@ -198,6 +279,7 @@
                   {weeks.map((w, wi) => (
                     <th key={wi}>
                       Week {wi + 1}
+                      {meta.start && <small className="tp-week-date">{md(dateOf(wi, 0))}</small>}
                       {weeks.length > 1 && <button type="button" className="tp-remove no-print" onClick={() => removeWeek(wi)} title={`Remove Week ${wi + 1}`} aria-label={`Remove Week ${wi + 1}`}>&times;</button>}
                     </th>
                   ))}
@@ -209,11 +291,13 @@
                     <th className="tp-dayname">{name}</th>
                     {weeks.map((w, wi) => {
                       const d = w.days[di] || { level: "", text: "" };
+                      const actual = actualOf(wi, di);
                       return (
                         <DayCell
                           key={wi}
                           d={d}
-                          title={`${name}, Week ${wi + 1}`}
+                          actual={actual}
+                          title={`${name}, Week ${wi + 1}${meta.start ? ` (${md(dateOf(wi, di))})` : ""}`}
                           onCycle={() => setDay(wi, di, { level: NEXT[d.level || ""] })}
                           onText={(text) => setDay(wi, di, { text })}
                         />
@@ -248,6 +332,33 @@
             <button className="btn btn-secondary" onClick={reset}>Reset to base program</button>
             <button className="btn btn-secondary" onClick={clearAll}>Clear all</button>
             <span className="timestamp-note">{isSaved ? `${weeks.length} week${weeks.length === 1 ? "" : "s"} saved for ${athlete.name}.` : "Showing the base program. It saves to this athlete as soon as you change something."}</span>
+          </div>
+          {/* when Week 1 starts: puts a date on every day, places the program on the chart, and tells Coach Mode what today is */}
+          <div className="tp-start no-print">
+            <label>Week 1 starts <input type="date" value={meta.start} onChange={(e) => { if (!e.target.value) { setMeta({ start: "" }); return; } const v = sundayOf(e.target.value); setMeta({ start: v }); if (program) linkToPlan(program, v); }} /></label>
+            <small>{meta.start ? `Sunday, ${md(new Date(`${meta.start}T12:00:00`))}. Each day has its date, and Coach Mode shows today's throwing.` : "Pick the Sunday Week 1 starts (any day snaps to its Sunday)."}</small>
+            {!meta.start && throwingBlock && <button className="btn-link" onClick={() => { const v = sundayOf(isoOf(throwingBlock.date)); setMeta({ start: v }); if (program) linkToPlan(program, v); }}>Use the Throwing row's start ({md(throwingBlock.date)})</button>}
+          </div>
+
+          {/* the throwing program built from this progression, under the weeks and above the ACR */}
+          <div className="tp-builder">
+            <h3>Throwing program <small>the drills for each throwing day above, in {first}'s app</small></h3>
+            {!program && (
+              <div className="tp-builder-empty no-print">
+                <p>Build {first}'s throwing program from this progression: a day for each throwing day, named and colored from it (green Low, yellow Medium, red High). Fill in the drills with sets, reps, distance and ball weight; {first} logs the throws actually made (and distance or velocity where you ask for it), and the ACR above counts what was logged.</p>
+                <button className="btn btn-primary" disabled={!Kit} onClick={createProgram}>Build the throwing program</button>
+              </div>
+            )}
+            {program && !meta.start && <p className="timestamp-note">Set when Week 1 starts (above) to put this program on {first}'s periodization chart, in the Throwing row.</p>}
+            {program && Editor && Kit && (
+              <Editor
+                key={`${program.id}|${hashOf(weeksKey)}`}
+                kind="throwing"
+                embedded
+                initial={Kit.syncWithProgression(program, { weeks })}
+                autoSave={autoSave}
+              />
+            )}
           </div>
           <div className="tp-acr-help">
             <strong>ACR calculator</strong>
