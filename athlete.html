@@ -127,7 +127,9 @@
   .chips::-webkit-scrollbar { display: none; }
   .chip { flex: 0 0 auto; min-height: 40px; padding: 8px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--panel); font-size: 14px; white-space: nowrap; }
   .chip.on { background: var(--accent); border-color: var(--accent); font-weight: 600; }
-  .chips.days .chip { border-radius: 10px; }
+  /* the day buttons share the width of the screen evenly, centered; a long day name wraps onto a second line */
+  .chips.days { justify-content: center; overflow-x: visible; }
+  .chips.days .chip { border-radius: 10px; flex: 1 1 0; min-width: 0; padding: 6px 6px; text-align: center; white-space: normal; line-height: 1.2; font-size: 13px; overflow-wrap: anywhere; }
   /* days already logged step back so the ones still to do stand out; they can still be opened and edited */
   .chips.days .chip.done:not(.on) { background: transparent; border-style: dashed; color: var(--dim, #8a8a8a); opacity: 0.6; }
   .chips.days .chip.done.on { opacity: 0.75; }
@@ -223,13 +225,14 @@
   .set input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
   .set .pct { background: var(--pct); color: #000; font-size: 12px; font-style: italic; padding: 2px 4px; }
   .set .est { font-size: 12px; font-weight: 700; padding-top: 3px; min-height: 0; }
-  .set .last { font-size: 11px; color: var(--dim); padding-top: 3px; white-space: nowrap; }
+  .set .last { font-size: 11px; color: var(--dim); padding-top: 3px; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
   /* faster logging: -5 / +5 under the weight box, last week's numbers as a tap-to-copy button, no box on unloaded drills */
   .set .steps { display: flex; }
   .set .step { flex: 1; height: 28px; padding: 0; font-size: 12px; font-weight: 700; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-top: none; }
   .set .step + .step { border-left: none; }
   .set .step:active { background: var(--accent); color: #fff; }
-  .set button.last { background: none; border: none; font: inherit; font-size: 11px; color: var(--dim); padding: 4px 0 0; cursor: pointer; }
+  .set button.last { background: none; border: none; font: inherit; font-size: 11px; color: var(--dim); padding: 4px 0 0; cursor: pointer; white-space: normal; line-height: 1.25; display: flex; flex-direction: column; align-items: center; max-width: 100%; overflow-wrap: anywhere; }
+  .set button.last .last-when { font-size: 10px; opacity: 0.85; }
   .set button.last b { color: var(--accent); font-weight: 700; }
   /* timed sets: a timer button under the set, and the countdown sheet */
   .set .timer-btn { margin-top: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--label, var(--accent)); background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 700; }

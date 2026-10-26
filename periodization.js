@@ -1433,6 +1433,14 @@
       const b = planRef.current.blocks.find((x) => x.id === blockId);
       if (b) goProgram({ laneId: b.lane, blockId: b.id }, true);
     };
+    // A plain click on a bubble (not a drag or a resize) switches the builder below to that row and block, where the
+    // builder is on this page (Programming); the page stays where it is. Read by the pointer handlers through a ref.
+    const bubbleClickRef = useRef(null);
+    bubbleClickRef.current = (blockId) => {
+      if (mode !== "programming") return;
+      const b = planRef.current.blocks.find((x) => x.id === blockId);
+      if (b) goProgram({ laneId: b.lane, blockId: b.id }, false);
+    };
     const laneById = (id) => plan.lanes.find((l) => l.id === id);
     const blockColor = (b) => b.color || (laneById(b.lane) ? laneById(b.lane).color : PALETTE[7]);
     const shownBlocks = draft || plan.blocks;
@@ -1658,6 +1666,8 @@
         } else if (d.collapseOnClick) {
           setSel([d.origs.find((b) => b.id === d.id).id]);
         }
+        // a click on a bubble, not a drag: the builder below opens that block
+        if (!d.moved && d.mode === "move" && bubbleClickRef.current) bubbleClickRef.current(d.id);
         draftRef.current = null;
         setDraft(null);
       };

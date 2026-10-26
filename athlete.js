@@ -835,7 +835,7 @@
     for (let wk = weekIdx - 1; wk >= item.block.start; wk -= 1) {
       if (isDeload(weekAt(wk)) && wk !== item.block.start) continue;
       const last = on(wk);
-      if (last) return { value: last.w + step, note: `+${step} from ${last.when}` };
+      if (last) return { value: last.w + step, note: `+${step} from last` }; // (the date is on the last-time line under it)
     }
     return null;
   }
@@ -1207,7 +1207,10 @@
       if (reps && document.activeElement !== reps) reps.value = logged(pid, rKey);
       const used = has || (auto ? `${auto}` : "");
       const value = fail ? Rx.estimate1RM(used, logged(pid, rKey)) : null;
-      est.textContent = value ? `Est. 1RM ${value}` : auto && sug.note ? sug.note : ""; // where a filled-in weight came from
+      // where a filled-in weight came from ("TM 234"): said once, under the first of a run of sets it's the same for
+      const pg = gi > 0 ? Rx.groups(e)[gi - 1] : null;
+      const prevNote = pg && !logged(pid, Rx.logKey(e, gi - 1)) ? ((suggestFor(item, si, e, pg, gi - 1, window.planMaxes(plan, programById)) || {}).note || "") : "";
+      est.textContent = value ? `Est. 1RM ${value}` : auto && sug.note && sug.note !== prevNote ? sug.note : "";
     };
     weight.addEventListener("focus", () => { weight.className = ""; weight.select(); });
     weight.addEventListener("blur", () => {
@@ -1243,6 +1246,14 @@
       if (reps && last.r) { save(pid, rKey, last.r); refresh(); }
       showStatus("Same as last time");
     };
+    // last time's numbers, in two short lines so they fit a narrow column (the date, then the weight); when they're the
+    // same as the set before's (a 70% and an 80% set both paired with last week's 60%), only "use" is shown again
+    const prevLast = last && gi > 0 ? lastLogged(item, si, e, gi - 1) : null;
+    const sameAsPrev = !!(prevLast && prevLast.when === last.when && prevLast.text === last.text);
+    const lastBtn = !last ? null : sameAsPrev
+      ? el("button", { class: "last last-same", title: `Same as the set before: ${last.when}, ${last.text}. Tap to use it.`, "aria-label": `Use ${last.text} from ${last.when}`, onclick: useLast }, el("b", null, "use"))
+      : el("button", { class: "last", title: `Logged in week ${last.week} (${last.when}). Tap to use the same numbers.`, onclick: useLast },
+        el("span", { class: "last-when" }, last.when), el("span", { class: "last-val" }, last.text, el("b", null, " · use")));
     return el("div", { class: `set${fail ? " fail" : ""}` },
       el("span", { class: "reps" }, Rx.repsText(g)),
       el("div", { class: "boxes" }, weight, reps),
@@ -1252,7 +1263,7 @@
         el("button", { class: "step", "aria-label": `5 more for ${e.name}`, onclick: step(5) }, "+5")),
       int ? el("span", { class: "pct" }, int) : null,
       est,
-      last ? el("button", { class: "last", title: `Logged in week ${last.week} (${last.when}). Tap to use the same numbers.`, onclick: useLast }, `${last.when}: ${last.text}`, el("b", null, " · use")) : null,
+      lastBtn,
       timerFor(e, g));
   }
 
@@ -3380,7 +3391,7 @@
       parts.push(el("div", { class: "lane-tabs", role: "tablist" }, items.map((it, i) => el("button", { class: `lane-tab${i === itemIdx ? " on" : ""}`, role: "tab", "aria-selected": i === itemIdx ? "true" : "false", onclick: go(() => { itemIdx = i; dayIdx = 0; }) }, it.lane.name))));
     }
     if (sessions.length > 1) {
-      parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => { const done = logged(item.program.id, sessionKey(item, i)); return el("button", { class: `chip${i === dayIdx ? " on" : ""}${done ? " done" : ""}`, title: done ? "Session logged" : null, onclick: go(() => { dayIdx = i; }) }, done ? "✓ " : "", s.name || `Day ${i + 1}`); })));
+      parts.push(el("div", { class: "chips days" }, sessions.map((s, i) => { const done = logged(item.program.id, sessionKey(item, i)); return el("button", { class: `chip${i === dayIdx ? " on" : ""}${done ? " done" : ""}`, title: `${s.name || `Day ${i + 1}`}${done ? " · session logged" : ""}`, onclick: go(() => { dayIdx = i; }) }, done ? "✓ " : "", s.name || `Day ${i + 1}`); })));
     }
 
     const main = el("main");
