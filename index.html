@@ -5376,7 +5376,7 @@ function todayItems(food) {
   // the panel covers DST athletes only
   const forKevin = (S.currentUserEmail() || "").toLowerCase() === "kevin@dynamicsportstraining.com";
   const mine = coachScopeFor(S.currentUserEmail());
-  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP)
+  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP || a.dstLocation)
     && ((forKevin && a.rosterGroup === CUBS_ROSTER_GROUP) || inCoachScope(a, mine))).forEach((a) => {
     const plan = S.getPeriodization(a.id);
     if (plan && lib) {
@@ -5407,7 +5407,7 @@ function todayItems(food) {
     const old = latest ? daysSince(`${latest.date}T12:00:00`) : null;
     // Cubs players are not given DST's biomechanical assessment, so they are left off these lists. With a full
     // assessment in the last eight months, a monthly re-assessment is due instead (see window.ReassessRules)
-    if (a.rosterGroup !== CUBS_ROSTER_GROUP) {
+    if (a.rosterGroup !== CUBS_ROSTER_GROUP || a.dstLocation) { // (a Cubs player who is also a DST client is assessed as one)
       const st = window.reassessStatusFor ? window.reassessStatusFor(a) : null;
       if (!latest || !st || st.state === "assess") out.assess.push({ a, note: latest ? `last ${old} days ago` : "none on file", tab: "assessment", sort: latest ? old : 9999 });
       else if (st.state === "reassess-due" || st.state === "reassess-soon") {
@@ -5539,6 +5539,9 @@ function TodayPanel({ onOpenTab, dataVersion }) {
 
 function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
   const isCubs = (a) => a.rosterGroup === CUBS_ROSTER_GROUP;
+  // a Cubs player who is also a DST client (a DST location on file, DST Remote Training say) is on both rosters:
+  // the Chicago Cubs button and the DST ones (All, and their location)
+  const onDstRoster = (a) => !isCubs(a) || !!a.dstLocation;
   const [sortConfig, setSortConfig] = useState({ key: null, dir: "asc" });
   const [coachFilter, setCoachFilter] = useState("All"); // Cubs roster: one coach, "none", or "All"
   const cubsCoachCount = (name) => getRoster().filter((a) => isCubs(a) && (a.status || "active").toLowerCase() !== "alumni" && (name ? a.cubsCoach === name : !CUBS_COACHES.some((c) => c.name === a.cubsCoach))).length;
@@ -5574,7 +5577,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
         return isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && matchesCoach;
       }
       const matchesLocation = locationFilter === "All" || (a.dstLocation || "") === locationFilter;
-      return !isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
+      return onDstRoster(a) && matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
     });
     // eslint-disable-next-line
   }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion, coachFilter]);
@@ -5602,7 +5605,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       const matchesStatus = statusFilter === "All" || (a.status || "active").toLowerCase() === statusFilter.toLowerCase();
       const matchesLeague = leagueFilter === "All" || (a.league || "") === leagueFilter;
       const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
-      return !isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && (a.status || "active").toLowerCase() !== "alumni";
+      return onDstRoster(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && (a.status || "active").toLowerCase() !== "alumni";
     });
     // eslint-disable-next-line
   }, [positionFilter, statusFilter, leagueFilter, search, dataVersion]);

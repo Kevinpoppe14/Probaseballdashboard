@@ -1016,16 +1016,16 @@
   let locFilter = "";
   const locKey = () => `coachLocation:${user.id}`;
   function fillLocations() {
-    const places = [...new Set(athletes.map((a) => a.where))].sort((a, b) => a.localeCompare(b));
+    const places = [...new Set(athletes.flatMap((a) => a.wheres))].sort((a, b) => a.localeCompare(b));
     try { locFilter = localStorage.getItem(locKey()) || ""; } catch (e) { locFilter = ""; }
     if (!places.includes(locFilter)) locFilter = "";
-    $("loc").replaceChildren(el("option", { value: "" }, "All locations"), ...places.map((p) => el("option", { value: p, selected: p === locFilter }, `${p} (${athletes.filter((a) => a.where === p).length})`)));
+    $("loc").replaceChildren(el("option", { value: "" }, "All locations"), ...places.map((p) => el("option", { value: p, selected: p === locFilter }, `${p} (${athletes.filter((a) => a.wheres.includes(p)).length})`)));
   }
   function search() {
     const q = $("search").value.trim().toLowerCase();
     const box = $("results");
     if (!q && !locFilter) { box.hidden = true; return; }
-    const pool = athletes.filter((a) => !locFilter || a.where === locFilter);
+    const pool = athletes.filter((a) => !locFilter || a.wheres.includes(locFilter));
     const hits = pool.filter((a) => !picked.includes(a.id) && (!q || `${a.name} ${a.sub}`.toLowerCase().includes(q))).slice(0, q ? 12 : 200);
     const none = pool.some((a) => picked.includes(a.id) && (!q || a.name.toLowerCase().includes(q)))
       ? (q ? "Already on the board." : "Everyone here is already on the board.")
@@ -1054,7 +1054,8 @@
       return {
         id: String(r.id),
         name: d.name || "Unnamed",
-        where, // what the location picker goes by
+        where, // where they train (the line under their name)
+        wheres: cubsRoster && d.dstLocation ? [where, "Chicago Cubs"] : [where], // the location picker: a Cubs player who is also a DST client is under both
         sub: [where === "No location" ? "" : coach ? "Coach" : where, d.position && d.position !== "Unassigned" ? d.position : ""].filter(Boolean).join(" · "),
         cubs: cubsRoster && !d.dstLocation, // Cubs-only players get the Cubs look, as on their own link
         remote: d.dstLocation === "DST Remote Training", // their equipment list is checked when a speed session is sent to their app
