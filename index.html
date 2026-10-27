@@ -1880,8 +1880,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                         const hasExtra = (label) => extras.some((x) => (x.label || "").toLowerCase() === label.toLowerCase());
                         const addExtra = (label) => edit((d) => { const e = d.weeks[wi].sessions[si].exercises[ei]; e.extras = [...(Array.isArray(e.extras) ? e.extras : []), { label, value: "" }]; });
                         const setExtra = (xi, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].extras[xi].value = v; });
-                        // an extra box left empty goes away again, like the notes box
-                        const dropIfEmpty = (xi) => { if (!`${(extras[xi] || {}).value || ""}`.trim()) edit((d) => { d.weeks[wi].sessions[si].exercises[ei].extras.splice(xi, 1); }); };
+                        // an extra box stays, empty or not (empty, the athlete writes in their own), until its ✕ takes it off
+                        const removeExtra = (xi) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].extras.splice(xi, 1); });
                         // what the "+" adds: another line of sets, an intensity, tempo, rest, notes, or an extra box
                         const addField = (what) => {
                           if (what === "sets") edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); });
@@ -1924,7 +1924,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                   {gi === 0 && extras.map((x, xi) => (
                                     <React.Fragment key={xi}>
                                       <span className="pe-xlabel" title={x.label}>{x.label}</span>
-                                      {input(x.value, (v) => setExtra(xi, v), { placeholder: x.label, className: "pe-num pe-wide", autoFocus: !`${x.value || ""}`.trim(), title: x.label, onBlur: () => dropIfEmpty(xi) })}
+                                      {input(x.value, (v) => setExtra(xi, v), { placeholder: x.label, className: "pe-num pe-wide", autoFocus: !`${x.value || ""}`.trim(), title: `${x.label}: a target, or leave it empty for the athlete to write in their own` })}
+                                      <button className="btn-link pe-x" title={`Remove the ${x.label} box`} onClick={() => removeExtra(xi)}>✕</button>
                                     </React.Fragment>
                                   ))}
                                   {gi === 0 && showEdt && (

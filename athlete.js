@@ -3209,7 +3209,8 @@
     overlay.className = "overlay show";
   }
   const whoFor = () => (data.athlete.name ? `${data.athlete.name} - ` : "");
-  const printProgram = (item) => makePdf(`${whoFor()}${item.program.name}`, async () => (await window.buildProgramPdf(item.program, data.athlete.name || "", cubs)).pdf);
+  // a day to a page: each day with all its weeks side by side (program_pdf.js buildProgramPdfByDay)
+  const printProgram = (item) => makePdf(`${whoFor()}${item.program.name}`, async () => (await window.buildProgramPdfByDay(item.program, data.athlete.name || "", cubs)).pdf);
   const printNutrition = () => makePdf(`${whoFor()}Nutrition Plan`, () => window.buildNutritionPdf({
     plan: nutrition, athleteName: data.athlete.name || "", cubs,
     allergies: allergyInfo ? myAllergies().map((a) => ALLERGY_LABELS[a]) : null,

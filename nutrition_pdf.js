@@ -35,12 +35,13 @@
     pdf.setDrawColor(...C.accent); pdf.setLineWidth(1.5); pdf.line(M, y, W - M, y);
     y += 16;
 
+    // each section starts a page of its own (the first goes under the title)
+    let sections = 0;
     const heading = (text, sub) => {
-      if (y > H - 90) { pdf.addPage(); y = M; }
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(13); pdf.setTextColor(...C.accent); pdf.text(text, M, y);
-      const w = pdf.getTextWidth(text);
-      if (sub) { pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(110); pdf.text(sub, M + w + 8, y); }
-      y += 8;
+      if (sections++ > 0) { pdf.addPage(); y = M + 10; }
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(15); pdf.setTextColor(...C.accent); pdf.text(text, M, y);
+      if (sub) { pdf.setFont("helvetica", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(110); pdf.text(sub, M, y + 14); y += 14; }
+      y += 10;
     };
     const table = (head, body, opts) => {
       pdf.autoTable(Object.assign({
@@ -79,7 +80,7 @@
     // ---- a week of sample meals (the rotation's first week)
     const week = (n.weeks || [])[0];
     if (week && week.length) {
-      heading("Sample week", "a training-day example; swap in any option below");
+      heading("Sample week", "a training-day example; any of the meal options on the next pages can be swapped in");
       y += 4;
       const body = [];
       week.forEach((day) => {
@@ -96,7 +97,7 @@
     // ---- each meal's options (training day)
     const choiceMeals = (n.meals || []).filter((m) => n.choices && n.choices[m.name] && (n.choices[m.name].train || []).length);
     if (choiceMeals.length) {
-      pdf.addPage(); y = M;
+
       heading("Meal options", "each fits that meal's training-day targets");
       y += 4;
       choiceMeals.forEach((m) => {
@@ -109,7 +110,7 @@
 
     // ---- the food exchange lists
     if ((n.lists || []).length) {
-      if (y > H - 200) { pdf.addPage(); y = M; }
+
       heading("Food exchange options", "for lunch and dinner: one protein, one carbohydrate and one fruit, plus vegetables");
       y += 4;
       n.lists.forEach((l) => {

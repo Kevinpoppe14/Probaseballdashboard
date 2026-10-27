@@ -7,7 +7,8 @@
   // week with its days side by side. It stays on one page while the text can remain readable; a longer program
   // runs onto more pages, with whole weeks kept together. Returns { pdf, fontSize, fits, pages }.
   // `into`: an existing PDF to add this program to, starting on a new page (Print all on the Player Plan).
-  async function buildProgramPdf(program, athleteName, cubsLogo = false, into = null) {
+  // `maxFs`: the largest text size (10 for the all-weeks sheet; larger for a day to a page, which has room)
+  async function buildProgramPdf(program, athleteName, cubsLogo = false, into = null, maxFs = 10) {
     const { jsPDF } = window.jspdf;
     const pdf = into || new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
     const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
@@ -140,14 +141,14 @@
       p.rows.forEach((row) => { if (used > 0 && used + row.h > availH) { page += 1; used = 0; } row.page = page; used += row.h; });
       return page;
     };
-    let fs = 10, plan = layout(fs);
+    let fs = maxFs, plan = layout(fs);
     while (plan.total > availH && fs > READABLE) { fs -= 0.5; plan = layout(fs); }
     let pages = 1;
     if (plan.total > availH) {
       // a single week taller than a page keeps shrinking, so no week is ever cut off
       while (Math.max(...plan.rows.map((r) => r.h)) > availH && fs > 3.5) { fs -= 0.5; plan = layout(fs); }
       pages = paginate(plan);
-      for (let bigger = fs + 0.5; bigger <= 10; bigger += 0.5) {
+      for (let bigger = fs + 0.5; bigger <= maxFs; bigger += 0.5) {
         const tryPlan = layout(bigger);
         if (Math.max(...tryPlan.rows.map((r) => r.h)) > availH || paginate(tryPlan) > pages) break;
         fs = bigger; plan = tryPlan;
@@ -255,4 +256,41 @@
     return { pdf, fontSize: fs, fits, pages };
   }
   window.buildProgramPdf = buildProgramPdf;
+
+  // The same program a day to a page (the phone's Print / PDF): Day 1 in every week on the first page, Day 2 in every
+  // week on the next, and so on, with the weeks side by side. Up to five weeks go across; more run in rows of up to
+  // five (a 10-week program is weeks 1-5 over weeks 6-10). A day is the same place in each week, or on a throwing
+  // program laid over the progression, the same weekday. Drawn with buildProgramPdf, one page (or more) per day.
+  async function buildProgramPdfByDay(program, athleteName, cubsLogo) {
+    const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const weeks = program.weeks || [];
+    const byKey = new Map();
+    weeks.forEach((w, wi) => (w.sessions || []).forEach((s, si) => {
+      const key = s.tpDay != null ? `t${s.tpDay}` : `i${si}`;
+      if (!byKey.has(key)) byKey.set(key, { name: s.tpDay != null ? DAYS[s.tpDay] : (s.name || `Day ${si + 1}`), sort: s.tpDay != null ? s.tpDay : si, cells: [] });
+      byKey.get(key).cells[wi] = s;
+    }));
+    const days = [...byKey.values()].sort((a, b) => a.sort - b.sort);
+    const per = weeks.length <= 5 ? weeks.length : Math.ceil(weeks.length / Math.ceil(weeks.length / 5));
+    let pdf = null, pages = 0, fits = true;
+    for (const d of days) {
+      const rows = [];
+      for (let i = 0; i < weeks.length; i += per) {
+        const span = weeks.slice(i, i + per);
+        rows.push({
+          name: weeks.length > per ? `Wk ${i + 1}-${i + span.length}` : "",
+          // each week's session for this day under the week's name (a throwing day keeps its "L-2x25"); a week without the day is left empty
+          sessions: span.map((w, k) => {
+            const s = d.cells[i + k], wk = w.name || `Week ${i + k + 1}`;
+            return Object.assign({}, s || { exercises: [] }, { name: s && s.tpDay != null && s.name ? `${wk} · ${s.name.replace(/^\w+ · /, "")}` : wk });
+          }),
+        });
+      }
+      const built = await buildProgramPdf({ name: `${program.name} · ${d.name}`, weeks: rows }, athleteName, cubsLogo, pdf, 13);
+      pdf = built.pdf; pages += built.pages; fits = fits && built.fits;
+    }
+    if (!pdf) return buildProgramPdf(program, athleteName, cubsLogo);
+    return { pdf, pages, fits };
+  }
+  window.buildProgramPdfByDay = buildProgramPdfByDay;
 })();
