@@ -598,6 +598,11 @@
   /* the whole program's Assign at the top of the preview */
   .qa-assign-top { display: block; width: 100%; min-height: 44px; margin: 4px 0 12px; border: none; border-radius: 10px; background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; }
   .program-change { margin-left: 8px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--dim); font-size: 12px; vertical-align: 1px; }
+  /* Print / Save PDF: the sheet once the PDF is made (athlete.js makePdf); "Open PDF" is a link drawn as a button */
+  .pdf-actions { margin: 14px 0 10px; }
+  .pdf-actions .pdf-open { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 15px; text-decoration: none; }
+  .pdf-actions .pdf-open.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .nut-pdf { border-style: solid; }
   :root[data-theme="light"] .qa-remove { border-color: #e2a3a3; color: #b42323; }
   /* building a quick session from scratch */
   .qa-build { border-color: var(--label, var(--accent)); margin-bottom: 4px; }

@@ -3002,7 +3002,8 @@
       // the training and sport time the calories are worked out for (a coach can change it here)
       n.basis ? (() => { const mm = minutesOf(null, n.basis), text = `Training ${mm.trainMin} min · sport ${mm.sportMin} min a day`;
         return canPlanNutrition() ? el("button", { class: "nut-allergy-line nut-minutes", onclick: openMinutesEditor }, text, el("span", null, " · change")) : el("div", { class: "nut-allergy-line nut-minutes" }, text); })() : null,
-      canPlanNutrition() ? el("button", { class: "nut-coach-edit", onclick: openPlanEditor }, "Coach: change weight or goal") : null));
+      canPlanNutrition() ? el("button", { class: "nut-coach-edit", onclick: openPlanEditor }, "Coach: change weight or goal") : null,
+      el("button", { class: "nut-coach-edit nut-pdf", onclick: printNutrition }, "Print / Save PDF of my plan")));
 
     // the countdown for the day shown (once the food log has loaded; there is none until migration_023 has been run)
     if (foodDays) main.append(el("h2", { class: "section" }, "Food log", el("small", null, foodDay > today ? "planning ahead" : "counts down to your targets")), foodLogCard(day));
@@ -3174,6 +3175,49 @@
     return main;
   }
   const THORNE_URL = "https://s.thorne.com/WFei3"; // the DST dispensary on Thorne
+
+  // ---- Print / Save PDF: the program showing, or the nutrition plan, as a PDF to print or keep ----------------------
+  // The PDF code loads the first time one is asked for (jsPDF, its table plugin, program_pdf.js, nutrition_pdf.js). The
+  // program PDF is the same one the dashboard prints. Once it's made, a sheet offers the phone's share menu (Save to
+  // Files, Print, AirDrop, Mail...) and opening the PDF: each its own tap, as phones only share or open a file from one.
+  let pdfKit = null;
+  const loadScript = (src) => new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error(`Couldn't load ${src}`)); document.head.append(s); });
+  const loadPdfKit = () => (pdfKit = pdfKit || (async () => {
+    if (!window.jspdf) await loadScript("https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js");
+    if (!window.jspdf.jsPDF.API.autoTable) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+    if (!window.buildProgramPdf) await loadScript("program_pdf.js");
+    if (!window.buildNutritionPdf) await loadScript("nutrition_pdf.js");
+  })().catch((e) => { pdfKit = null; throw e; }));
+  async function makePdf(title, build) {
+    showStatus("Making your PDF…");
+    let pdf;
+    try { await loadPdfKit(); pdf = await build(); } catch (e) { console.error("PDF failed", e); showStatus("The PDF couldn't be made. Check your connection and try again.", true); return; }
+    pdf.setProperties({ title });
+    const name = `${title.replace(/[\\/:*?"<>|]/g, "").trim()}.pdf`, blob = pdf.output("blob"), url = URL.createObjectURL(blob);
+    const file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
+    const canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+    overlay.replaceChildren(el("div", { class: "sheet pdf-sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Your PDF is ready"),
+      el("div", { class: "card-sub" }, title),
+      el("div", { class: "swap-actions pdf-actions" },
+        canShare ? el("button", { class: "primary", onclick: () => navigator.share({ files: [file], title }).catch(() => {}) }, "Share, save or print") : null,
+        el("a", { class: canShare ? "pdf-open" : "primary pdf-open", href: url, target: "_blank", rel: "noopener", download: canShare ? null : name }, "Open PDF")),
+      el("div", { class: "card-sub" }, canShare
+        ? "Share opens your phone's menu: Save to Files, Print, AirDrop, Mail or Messages."
+        : "Open it, then use your browser's share or print button to save or print it.")));
+    overlay.className = "overlay show";
+  }
+  const whoFor = () => (data.athlete.name ? `${data.athlete.name} - ` : "");
+  const printProgram = (item) => makePdf(`${whoFor()}${item.program.name}`, async () => (await window.buildProgramPdf(item.program, data.athlete.name || "", cubs)).pdf);
+  const printNutrition = () => makePdf(`${whoFor()}Nutrition Plan`, () => window.buildNutritionPdf({
+    plan: nutrition, athleteName: data.athlete.name || "", cubs,
+    allergies: allergyInfo ? myAllergies().map((a) => ALLERGY_LABELS[a]) : null,
+    basisText: nutrition.basis ? (() => { const mm = minutesOf(null, nutrition.basis); return `Training ${mm.trainMin} min · sport ${mm.sportMin} min a day`; })() : "",
+    okParts: partsOk,
+    // a lunch or dinner sample is named for its protein and starch ("Tilapia & Pasta"), as on the Nutrition page
+    titleOf: (s, slot) => { const a = s.parts && s.parts[0] && foodOf(s.parts[0][0]), b = s.parts && s.parts[1] && foodOf(s.parts[1][0]); return s.title && s.title !== slot ? s.title : a && b ? `${a.name} & ${b.name}` : slot; },
+  }));
 
   // The grocery list: one list, for what's planned over the next seven days (from today), each food added up across
   // the meals it's in. With nothing planned there's no list, just the way to plan the week.
@@ -3434,7 +3478,9 @@
       main.append(el("p", { class: "program-name" }, window.isSentProgram(item.program.id)
         ? `${item.lane.name} · ${(s && s.name) || item.program.name}`
         : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`,
-        canChange ? el("button", { class: "program-change", title: "Start it another week, swap it, or take it off", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, manage: item.block.id, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Change") : null));
+        canChange ? el("button", { class: "program-change", title: "Start it another week, swap it, or take it off", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, manage: item.block.id, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Change") : null,
+        // the whole program as a PDF, to print or keep (the same one the dashboard prints)
+        el("button", { class: "program-change program-pdf", title: "The whole program as a PDF, to print or save", onclick: () => printProgram(item) }, "Print / PDF")));
       const rows = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
       // a throwing day: its intensity (Low, Medium, High) and what that means, in its color
       if (s && "level" in s) main.append(throwBanner(s));
