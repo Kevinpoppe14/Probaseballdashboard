@@ -1295,7 +1295,7 @@ function moveToSuperset(exercises, index, target) {
 
 // Exercise name in the program builder. While it isn't being typed in, the name shows as text that wraps onto
 // as many lines as it needs; clicking (or tabbing into) it turns it into the usual box with library suggestions.
-function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
+function ExerciseNameField({ value, onChange, onFocus, onBlur, row }) {
   const [editing, setEditing] = useState(false);
   // A long name wraps onto two or three lines in the view, but the box it's edited in is one line: the box keeps the
   // view's height, so the card doesn't shrink (and everything under it jump up) the moment it's clicked.
@@ -1307,6 +1307,7 @@ function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
       <input
         autoFocus
         className="program-ex-name"
+        data-cell="name" data-row={row}
         list="exercise-library-names"
         value={value || ""}
         placeholder="Exercise"
@@ -1322,6 +1323,7 @@ function ExerciseNameField({ value, onChange, onFocus, onBlur }) {
       ref={viewRef}
       className={`program-ex-name program-ex-name-view ${(value || "").trim() ? "" : "empty"}`}
       tabIndex={0}
+      data-cell="name" data-row={row}
       title="Click to edit"
       onClick={startEditing}
       onFocus={startEditing}
@@ -1665,9 +1667,42 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const input = (value, onChange, props = {}) => (
     <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
   );
+  // rows in a week's grid: the day names, the warm-ups, then one per exercise slot (as many as the longest day)
+  const weekRowsOf = (week) => 2 + Math.max(1, ...week.sessions.map((s) => s.exercises.length));
+
+  // Moving between boxes like a spreadsheet: Tab / Shift+Tab to the next or previous box in the day (past the
+  // buttons in between), Enter / Shift+Enter (or the down / up arrow) to the same column on the next or previous line
+  // (A1's reps to its next set line's reps, then A2's). Arriving in a box selects what's in it, so typing replaces it.
+  // The boxes carry data-cell (their column) and data-row (the exercise and set line). The arrows are left alone in
+  // the exercise name, where they move through the library suggestions.
+  const cellNav = (e) => {
+    const t = e.target, col = t && t.dataset ? t.dataset.cell : null;
+    if (!col || e.altKey || e.ctrlKey || e.metaKey) return false;
+    const k = e.key;
+    const down = (k === "Enter" && !e.shiftKey) || (k === "ArrowDown" && col !== "name");
+    const up = (k === "Enter" && e.shiftKey) || (k === "ArrowUp" && col !== "name");
+    if (!down && !up && k !== "Tab") return false;
+    const day = t.closest(".program-day");
+    if (!day) return false;
+    const cells = [...day.querySelectorAll("[data-cell]")];
+    const i = cells.indexOf(t);
+    let to = null;
+    if (k === "Tab") {
+      to = cells[i + (e.shiftKey ? -1 : 1)] || null;
+      if (!to) return false; // past the day's first or last box: the browser's own Tab
+    } else {
+      const step = down ? 1 : -1;
+      for (let j = i + step; j >= 0 && j < cells.length; j += step) if (cells[j].dataset.row !== t.dataset.row && cells[j].dataset.cell === col) { to = cells[j]; break; }
+      if (!to) { e.preventDefault(); if (k === "Enter") t.blur(); return true; }
+    }
+    e.preventDefault();
+    to.focus();
+    if (to.select) to.select();
+    return true;
+  };
 
   return (
-    <div className={`panel program-editor ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} onKeyDown={(e) => { if (handleKey(e)) e.stopPropagation(); }}>
+    <div className={`panel program-editor ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} onKeyDown={(e) => { if (handleKey(e) || cellNav(e)) e.stopPropagation(); }}>
       {/* exercise names suggest from the library; a name that matches links to its library entry */}
       <datalist id="exercise-library-names">
         {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
@@ -1767,16 +1802,28 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
             <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>✕</button>
           </div>
 
-          <div className="program-days">
+          {/* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),
+              under the day names and warm-ups; each day spans all the rows (subgrid). */}
+          <div className="program-days program-grid" style={{ gridTemplateRows: `repeat(${weekRowsOf(week)}, auto)` }}>
             {week.sessions.map((session, si) => {
               const labels = window.exerciseLabels(session.exercises);
               // the letter of the last block in this day, and the letter a new block would take (for the add buttons)
               const lastLetter = labels.length ? labels[labels.length - 1].replace(/[^A-Za-z]/g, "") : "";
               const blockLetters = { last: lastLetter, next: lastLetter ? String.fromCharCode(lastLetter.charCodeAt(lastLetter.length - 1) + 1) : "A" };
               const setEx = (ei, key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei][key] = v; });
+              // The set lines are laid out like a sheet: sets, reps, intensity, tempo and rest each in a column of their
+              // own, the same for every exercise in the day, so A1, A2, B1… line up down the day. A column (intensity,
+              // tempo, rest) is there when any exercise in the day shows it; an exercise without one leaves it blank.
+              const shownOf = (ex, ei) => {
+                const k = ex.id || `${wi}-${si}-${ei}`, o = (f) => !!opened[`${k}:${f}`];
+                return { int: ex.intensityUnit !== "" && (ex.groups.some((g) => `${g.intensity || ""}`.trim()) || o("int")), tempo: !!`${ex.tempo || ""}`.trim() || o("tempo"), rest: !!`${ex.rest || ""}`.trim() || o("rest") };
+              };
+              const dayCols = session.exercises.reduce((c, ex, ei) => { const s = shownOf(ex, ei); return { int: c.int || s.int, tempo: c.tempo || s.tempo, rest: c.rest || s.rest }; }, { int: false, tempo: false, rest: false });
+              const lineCols = ["[sets] 32px [x] 10px [reps] 44px", dayCols.int ? "[at] 10px [int] 38px [unit] 46px" : "", dayCols.tempo ? "[tempo] 44px" : "", dayCols.rest ? "[rest] 44px" : "", "[more] 26px [del] 18px [end]"].filter(Boolean).join(" ");
               return (
                 <div
                   className={`program-day ${focusSet && focusSet.wi === wi && focusSet.si !== si ? "day-dimmed" : ""} ${dayOver === `${wi}|${si}` ? "day-drop-over" : ""}`}
+                  style={{ gridRow: `1 / span ${weekRowsOf(week)}` }}
                   key={si}
                   onDragOver={(e) => { if (dayDrag.current) { e.preventDefault(); if (dayOver !== `${wi}|${si}`) setDayOver(`${wi}|${si}`); } }}
                   onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDayOver(null); }}
@@ -1807,7 +1854,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                     onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].warmup = e.target.value; })}
                   />
                   {session.exercises.map((ex, ei) => (
-                    <React.Fragment key={ex.id || ei}>
+                    <div className="pe-slot" key={ex.id || ei}>
                     <div
                       className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""} ${focusSet && focusSet.wi === wi && focusSet.si === si ? (focusSet.letter === labels[ei].replace(/\d+\.$/, "") ? "set-focused" : "set-dimmed") : ""}`}
                       key={ex.id || ei}
@@ -1850,6 +1897,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                           onChange={(v) => setEx(ei, "name", v)}
                           onFocus={() => { nameAtFocus.current = { wi, si, ei, name: ex.name }; }}
                           onBlur={() => offerSwapForward(wi, si, ei)}
+                          row={`${ei}.name`}
                         />
                         {window.AthleteStore.findExerciseByName(ex.name) && (
                           <button className="exercise-view-btn" title="View this exercise from the library" onClick={() => window.openExercise(ex.name)}>▶</button>
@@ -1908,43 +1956,22 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                             {ex.groups.map((g, gi) => {
                               const setG = (key, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups[gi][key] = v; });
                               return (
-                                <div className="program-ex-group" key={gi}>
-                                  {input(g.sets, (v) => setG("sets", v), { placeholder: "Sets", className: "pe-num pe-sets", title: "Sets (leave blank for one set)" })}
-                                  <span>×</span>
-                                  {input(g.reps, (v) => setG("reps", v), { placeholder: "Reps", className: "pe-num pe-reps", title: "Reps" })}
-                                  {showInt && <span>@</span>}
-                                  {showInt && input(g.intensity, (v) => setG("intensity", v), { placeholder: ex.intensityUnit === "%" ? "%" : ex.intensityUnit, className: "pe-num", autoFocus: gi === 0 && isOpen("int") && !`${g.intensity || ""}`.trim(), title: `Intensity (${ex.intensityUnit})` })}
+                                <div className="program-ex-group pe-grid" key={gi} style={{ gridTemplateColumns: lineCols }}>
+                                  {input(g.sets, (v) => setG("sets", v), { placeholder: "Sets", className: "pe-num pe-sets", title: "Sets (leave blank for one set)", style: { gridColumn: "sets" }, "data-cell": "sets", "data-row": `${ei}.${gi}` })}
+                                  <span style={{ gridColumn: "x" }}>×</span>
+                                  {input(g.reps, (v) => setG("reps", v), { placeholder: "Reps", className: "pe-num pe-reps", title: "Reps", style: { gridColumn: "reps" }, "data-cell": "reps", "data-row": `${ei}.${gi}` })}
+                                  {showInt && <span style={{ gridColumn: "at" }}>@</span>}
+                                  {showInt && input(g.intensity, (v) => setG("intensity", v), { placeholder: ex.intensityUnit === "%" ? "%" : ex.intensityUnit, className: "pe-num", autoFocus: gi === 0 && isOpen("int") && !`${g.intensity || ""}`.trim(), title: `Intensity (${ex.intensityUnit})`, style: { gridColumn: "int" }, "data-cell": "int", "data-row": `${ei}.${gi}` })}
                                   {showInt && gi === 0 && (
-                                    <select className="pe-unit" value={ex.intensityUnit} title="How intensity is prescribed: % of max, RIR, RPE, or none (removes it)" onChange={(e) => setEx(ei, "intensityUnit", e.target.value)}>
+                                    <select className="pe-unit" style={{ gridColumn: "unit" }} value={ex.intensityUnit} title="How intensity is prescribed: % of max, RIR, RPE, or none (removes it)" onChange={(e) => setEx(ei, "intensityUnit", e.target.value)}>
                                       {INTENSITY_UNITS.map(([v, label]) => <option key={v} value={v} title={label}>{v || "None"}</option>)}
                                     </select>
                                   )}
-                                  {gi === 0 && showTempo && input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "pe-num pe-wide pe-gap", maxLength: 6, autoFocus: isOpen("tempo") && !ex.tempo, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up." })}
-                                  {gi === 0 && showRest && input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", className: `pe-num pe-wide ${showTempo ? "" : "pe-gap"}`, autoFocus: isOpen("rest") && !ex.rest, title: "Rest" })}
-                                  {gi === 0 && extras.map((x, xi) => (
-                                    <React.Fragment key={xi}>
-                                      <span className="pe-xlabel" title={x.label}>{x.label}</span>
-                                      {input(x.value, (v) => setExtra(xi, v), { placeholder: x.label, className: "pe-num pe-wide", autoFocus: !`${x.value || ""}`.trim(), title: `${x.label}: a target, or leave it empty for the athlete to write in their own` })}
-                                      <button className="btn-link pe-x" title={`Remove the ${x.label} box`} onClick={() => removeExtra(xi)}>✕</button>
-                                    </React.Fragment>
-                                  ))}
-                                  {gi === 0 && showEdt && (
-                                    <span className="pe-tag" title={`EDT: ${labels[ei].replace(/\d+\.$/, "")}1, ${labels[ei].replace(/\d+\.$/, "")}2… done back to back for this many minutes. The athlete gets a countdown and logs how many sets (times through) they got.`}>
-                                      EDT
-                                      {input(edtSet ? `${ex.edt}` : `${window.ProgramRx.edtMinutes(ex)}`, (v) => setEx(ei, "edt", v.replace(/[^\d.]/g, "")), { placeholder: "min", className: "pe-num pe-tag-min", autoFocus: ex.edt === "", "aria-label": "EDT minutes" })}
-                                      min
-                                      <button className="btn-link pe-x" title="Not an EDT block" onClick={() => setEx(ei, "edt", 0)}>✕</button>
-                                    </span>
-                                  )}
-                                  {gi === 0 && accOn && (
-                                    <span className="pe-tag" title={`Accumulate: the time in Reps (${ex.groups.map((g) => g.reps).filter(Boolean).join(", ") || "for example 3 MIN, or 3 MIN E for each side"}) is built up in as many sets as it takes. The athlete gets a timer that counts the sets, and logs them (left and right on a sided one).${ex.accumulate === true ? "" : " On by itself because this is an iso longer than a minute."}`}>
-                                      ⏱ Accumulate{ex.accumulate === true ? "" : " (auto)"}
-                                      <button className="btn-link pe-x" title="Not accumulated time" onClick={() => setEx(ei, "accumulate", false)}>✕</button>
-                                    </span>
-                                  )}
+                                  {gi === 0 && showTempo && input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "pe-num pe-wide", maxLength: 6, autoFocus: isOpen("tempo") && !ex.tempo, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up.", style: { gridColumn: "tempo" }, "data-cell": "tempo", "data-row": `${ei}.${gi}` })}
+                                  {gi === 0 && showRest && input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", className: "pe-num pe-wide", autoFocus: isOpen("rest") && !ex.rest, title: "Rest", style: { gridColumn: "rest" }, "data-cell": "rest", "data-row": `${ei}.${gi}` })}
                                   {/* "+" at the end of the first line: a menu of what can be added (only what isn't showing yet) */}
                                   {gi === 0 && (
-                                    <select className="pe-more" value="" title="Add another line of sets, an intensity, tempo, rest, time, distance, speed, a box you name, or notes" onChange={(e) => addField(e.target.value)}>
+                                    <select className="pe-more" style={{ gridColumn: "more" }} value="" title="Add another line of sets, an intensity, tempo, rest, time, distance, speed, a box you name, or notes" onChange={(e) => addField(e.target.value)}>
                                       <option value="" disabled hidden>+</option>
                                       <option value="sets">Another line of sets</option>
                                       {!showInt && <option value="%">Percentage</option>}
@@ -1961,12 +1988,39 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                       {!showNotes && <option value="notes">Notes/cues</option>}
                                     </select>
                                   )}
-                                  {ex.groups.length > 1 && <button className="btn-link pe-x" title="Remove this line" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>}
+                                  {ex.groups.length > 1 && <button className="btn-link pe-x" style={{ gridColumn: "del" }} title="Remove this line" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>}
+                                  {/* boxes added with the "+" (Time, Distance…), EDT and Accumulate: a line of their own under the
+                                      first set line, so they never push the columns out of line */}
+                                  {gi === 0 && (extras.length > 0 || showEdt || accOn) && (
+                                    <div className="pe-extras" style={{ gridColumn: "1 / -1" }}>
+                                      {extras.map((x, xi) => (
+                                        <span className="pe-extra" key={xi}>
+                                          <span className="pe-xlabel" title={x.label}>{x.label}</span>
+                                          {input(x.value, (v) => setExtra(xi, v), { placeholder: x.label, className: "pe-num pe-wide", autoFocus: !`${x.value || ""}`.trim(), title: `${x.label}: a target, or leave it empty for the athlete to write in their own`, "data-cell": `x:${x.label}`, "data-row": `${ei}.${gi}` })}
+                                          <button className="btn-link pe-x" title={`Remove the ${x.label} box`} onClick={() => removeExtra(xi)}>✕</button>
+                                        </span>
+                                      ))}
+                                      {showEdt && (
+                                        <span className="pe-tag" title={`EDT: ${labels[ei].replace(/\d+\.$/, "")}1, ${labels[ei].replace(/\d+\.$/, "")}2… done back to back for this many minutes. The athlete gets a countdown and logs how many sets (times through) they got.`}>
+                                          EDT
+                                          {input(edtSet ? `${ex.edt}` : `${window.ProgramRx.edtMinutes(ex)}`, (v) => setEx(ei, "edt", v.replace(/[^\d.]/g, "")), { placeholder: "min", className: "pe-num pe-tag-min", autoFocus: ex.edt === "", "aria-label": "EDT minutes", "data-cell": "edt", "data-row": `${ei}.${gi}` })}
+                                          min
+                                          <button className="btn-link pe-x" title="Not an EDT block" onClick={() => setEx(ei, "edt", 0)}>✕</button>
+                                        </span>
+                                      )}
+                                      {accOn && (
+                                        <span className="pe-tag" title={`Accumulate: the time in Reps (${ex.groups.map((g) => g.reps).filter(Boolean).join(", ") || "for example 3 MIN, or 3 MIN E for each side"}) is built up in as many sets as it takes. The athlete gets a timer that counts the sets, and logs them (left and right on a sided one).${ex.accumulate === true ? "" : " On by itself because this is an iso longer than a minute."}`}>
+                                          ⏱ Accumulate{ex.accumulate === true ? "" : " (auto)"}
+                                          <button className="btn-link pe-x" title="Not accumulated time" onClick={() => setEx(ei, "accumulate", false)}>✕</button>
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
                             {(window.ProgramRx.text(ex) || window.ProgramRx.extrasText(ex)) && <div className="program-ex-preview">{[window.ProgramRx.text(ex), window.ProgramRx.extrasText(ex)].filter(Boolean).join(" · ")}</div>}
-                            {showNotes && input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes", autoFocus: notesOpen === ex.id, onFocus: () => setNotesOpen(ex.id), onBlur: () => setNotesOpen((id) => (id === ex.id ? null : id)) })}
+                            {showNotes && input(ex.notes, (v) => setEx(ei, "notes", v), { placeholder: "Notes: cues", className: "program-ex-notes", "data-cell": "notes", "data-row": `${ei}.notes`, autoFocus: notesOpen === ex.id, onFocus: () => setNotesOpen(ex.id), onBlur: () => setNotesOpen((id) => (id === ex.id ? null : id)) })}
                           </React.Fragment>
                         );
                       })()}
@@ -1981,7 +2035,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                         Add {(() => { const m = /^([A-Za-z]+)([0-9]+)/.exec(labels[ei] || ""); return m ? `${m[1]}${Number(m[2]) + 1}.` : "exercise"; })()}
                       </button>
                     )}
-                    </React.Fragment>
+                    </div>
                   ))}
                   <div className="program-day-actions">
                     <button className="program-add-block" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}><span className="program-add-block-plus" aria-hidden="true">+</span>Add {blockLetters.next} Block</button>
@@ -1990,7 +2044,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
               );
             })}
             {/* a week holds at most seven days */}
-            {week.sessions.length < MAX_DAYS && <button className="program-add-day" onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < MAX_DAYS) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>}
+            {week.sessions.length < MAX_DAYS && <button className="program-add-day" style={{ gridRow: `1 / span ${weekRowsOf(week)}` }} onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < MAX_DAYS) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>}
           </div>
         </div>
       ))}

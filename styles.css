@@ -3917,3 +3917,24 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 :root[data-theme="light"] .spd-copy option { color: #111; background: #fff; }
 .program-session-head .spd-copy-day { margin-left: auto; }
 .spd-totals-note { font-size: 10px; color: var(--text-dim); text-align: left; padding-top: 4px; }
+/* ---- the strength builder as a sheet (index.html ProgramEditor) ----
+   A week is a grid: a row for the day names, one for the warm-ups, then one per exercise slot, shared by every day,
+   so Day 1's A1 sits level with Day 2's A1 (each day spans all the rows as a subgrid). */
+.program-editor .program-days.program-grid { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(400px, 460px); column-gap: 12px; align-items: stretch; }
+.program-editor.program-fit .program-days.program-grid { grid-auto-columns: minmax(340px, 420px); }
+.program-grid > .program-day { display: grid; grid-template-rows: subgrid; align-content: start; max-width: none; min-width: 0; }
+.program-grid > .program-day > * { min-width: 0; }
+.program-grid .pe-slot { align-self: start; }
+.program-warmup + .pe-slot > .program-ex { margin-top: 12px; }
+.program-warmup + .pe-slot > .program-ex::before { display: none; }
+/* each set line: sets, reps, intensity, tempo and rest in fixed columns (the day's grid-template-columns, set inline) */
+.program-ex-group.pe-grid { display: grid; column-gap: 3px; row-gap: 4px; align-items: center; justify-content: start; }
+.program-ex-group.pe-grid > .pe-num, .program-ex-group.pe-grid > .pe-unit { width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
+.program-ex-group.pe-grid > span { text-align: center; }
+.program-ex-group.pe-grid > .pe-more { justify-self: start; margin-left: 2px; }
+/* Time / Distance / custom boxes, EDT and Accumulate: their own line under the first set line */
+.pe-extras { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.pe-extras .pe-extra { display: inline-flex; align-items: center; gap: 3px; }
+.pe-extras .pe-xlabel { margin-left: 0; }
+.pe-extras .pe-num { flex: 0 0 56px; width: 56px; padding: 3px 2px; }
+.pe-extras .pe-tag { margin-left: 0; }
