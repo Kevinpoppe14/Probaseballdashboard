@@ -284,7 +284,8 @@
   // is an ordinary exercise with `section`, optionally `series`, its sets and reps in its one set group, `distance`
   // (a distance or a time for each rep: "10 yd", "120 ft", "30 m", "6 s", "1:00") and `extras` (boxes added with
   // the builder's "+", Time, Height..., each with an optional target, that the athlete fills in in the app). The day keeps its sections' order and times, and an optional description shown at the top of the section in the app, in `sections` ([{ name, time, description }]).
-  window.isSpeedSession = (s) => !!s && (s.exercises || []).some((e) => e && e.section);
+  // (a speed day can also be only sections with a description, "Follow the script exactly", and no drills)
+  window.isSpeedSession = (s) => !!s && ((s.exercises || []).some((e) => e && e.section) || (Array.isArray(s.sections) && s.sections.some((x) => x && `${x.description || ""}`.trim())));
   window.isSpeedProgram = (p) => !!p && (p.layout === "speed" || (p.weeks || []).some((w) => (w.sessions || []).some(window.isSpeedSession)));
   // "10 yd", "120 feet", "30m", "40 meters", "@7yds", "6 s", "6 seconds", "2 min", "1:30" -> { yards } or { seconds },
   // or null. A bare number counts as yards.

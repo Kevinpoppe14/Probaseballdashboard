@@ -3431,7 +3431,7 @@
       if (s && "level" in s) main.append(throwBanner(s));
       if (s && weekIdx === currentWeek()) main.append(weighIn(item));
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
-      if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
+      if (!rows.length && !(s && window.isSpeedSession(s))) main.append(el("div", { class: "empty" }, "No exercises for this day."));
       const labels = window.exerciseLabels(rows);
       // a speed or throwing drill's prescription: "3 × 4 reps @ 10 yd", and a throwing drill's distance in ft and ball weight ("5 oz")
       const spdRx = (e) => {
@@ -3454,7 +3454,7 @@
         const out = [];
         window.speedSections(s).forEach((sec) => {
           const named = (sr) => sr.drills.map((d) => d.e).filter((e) => (e.name || "").trim());
-          if (!sec.series.some((sr) => named(sr).length)) return;
+          if (!sec.series.some((sr) => named(sr).length) && !(sec.description || "").trim()) return;
           out.push({ heading: "section", name: sec.name, rx: sec.time || "", notes: (sec.description || "").trim() });
           sec.series.forEach((sr) => {
             const list = named(sr);
@@ -3484,10 +3484,11 @@
       if (s && window.isSpeedSession(s)) {
         window.speedSections(s).forEach((sec) => {
           const drills = sec.series.flatMap((x) => x.drills).map((d) => d.e).filter((e) => (e.name || "").trim());
-          if (!drills.length) return;
+          if (!drills.length && !(sec.description || "").trim()) return;
           const card = el("div", { class: "group spd" }, el("div", { class: "spd-sec" }, el("span", null, sec.name), sec.time ? el("small", null, sec.time) : null),
             (sec.description || "").trim() ? el("div", { class: "spd-sec-desc" }, sec.description.trim()) : null);
           main.append(card);
+          if (!drills.length) return; // a section that is only its description ("Follow the script exactly"): nothing to log or fold
           blocks.push({ card, rows: drills, letter: sec.name });
           sec.series.forEach((sr) => {
             const list = sr.drills.map((d) => d.e).filter((e) => (e.name || "").trim());
