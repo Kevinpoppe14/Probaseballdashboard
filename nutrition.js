@@ -633,13 +633,21 @@
       if (error) { window.alert(`That food couldn’t be deleted: ${error.message}`); return; }
       load();
     };
+    // shared with everyone's food log: a coach's food, a barcode scan, or one a coach shared; an athlete's typed-in food is theirs alone
+    const isShared = (r) => r.source !== "athlete" || !!r.barcode || r.shared === true;
+    const share = async (r) => {
+      const { id, ...data } = r;
+      const { error } = await sb.from("food_library").upsert({ id, data: Object.assign({}, data, { shared: true }), updated_at: new Date().toISOString() });
+      if (error) { window.alert(`That food couldn’t be shared: ${error.message}`); return; }
+      load();
+    };
     const setForm = (k, v) => setEdit((e) => Object.assign({}, e, { form: Object.assign({}, e.form, { [k]: v }) }));
     const field = (k, label, type) => <label className="nut-field"><span>{label}</span><input type={type || "number"} step="any" value={edit.form[k]} onChange={(e) => setForm(k, e.target.value)} /></label>;
     const words = q.toLowerCase().trim();
     const shown = Array.isArray(rows) ? rows.filter((r) => !words || String(r.name || "").toLowerCase().includes(words)) : [];
     return (
       <details className="panel nut-library no-print" onToggle={(e) => { if (e.currentTarget.open && rows == null) load(); }}>
-        <summary><b>Food library</b> <small>custom foods athletes and coaches have added, searched by everyone’s food log beside {(window.DSTFoodDB || []).length} built-in foods</small></summary>
+        <summary><b>Food library</b> <small>custom foods beside the {(window.DSTFoodDB || []).length} built-in foods: coaches’ foods and barcode scans are in everyone’s food log; a food an athlete types in is theirs until you share it</small></summary>
         {rows == null && <p className="nut-hint">Loading…</p>}
         {rows === "missing" && <p className="nut-hint">The food library isn’t set up yet: run supabase/migration_024_food_library.sql in the Supabase SQL Editor.</p>}
         {Array.isArray(rows) && (
@@ -664,11 +672,13 @@
             )}
             {shown.length ? (
               <table className="nut-table">
-                <thead><tr><th>Food</th><th>Serving</th><th>Calories</th><th>P / C / F</th><th>Added by</th><th></th></tr></thead>
+                <thead><tr><th>Food</th><th>Serving</th><th>Calories</th><th>P / C / F</th><th>Added by</th><th>Who sees it</th><th></th></tr></thead>
                 <tbody>
                   {shown.map((r) => (
                     <tr key={r.id}>
                       <td>{r.name}</td><td>{r.sAmt} {r.sUnit}</td><td>{r.kcal}</td><td>{r.p} / {r.c} / {r.f}</td><td>{r.addedBy || (r.source === "coach" ? "a coach" : "an athlete")}</td>
+                      {/* an athlete's typed-in food is theirs alone (migration_030) until a coach shares it */}
+                      <td>{isShared(r) ? "Everyone" : <span>Only {r.addedBy || "that athlete"} <button type="button" className="btn-link" title="Put this food in everyone's food log search" onClick={() => share(r)}>Share with everyone</button></span>}</td>
                       <td className="nut-lib-acts">
                         <button type="button" className="btn-link" onClick={() => setEdit({ id: r.id, form: { name: r.name || "", sAmt: String(r.sAmt || 1), sUnit: r.sUnit || "serving", kcal: String(r.kcal || ""), p: String(r.p || ""), c: String(r.c || ""), f: String(r.f || "") } })}>Edit</button>
                         <button type="button" className="btn-link" style={{ color: "var(--danger)" }} onClick={() => remove(r)}>Delete</button>

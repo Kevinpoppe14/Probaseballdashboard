@@ -283,9 +283,12 @@
   .water-card .water-done { color: var(--good, #2fb463) !important; font-weight: 700; }
   .water-track span { background: #3b82f6 !important; }
   .water-btns { display: flex; gap: 8px; margin-top: 12px; }
-  .water-add { flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.6); background: rgba(59, 130, 246, 0.12); color: var(--text); font: inherit; font-size: 15px; font-weight: 800; }
+  .water-add { flex: 1; min-width: 0; min-height: 44px; border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.6); background: rgba(59, 130, 246, 0.12); color: var(--text); font: inherit; font-size: 15px; font-weight: 800; }
   .water-add:active { background: #3b82f6; color: #fff; }
-  .water-minus { flex: 0 0 52px; border-color: var(--line); background: transparent; color: var(--dim); }
+  .water-custom { display: flex; gap: 8px; margin-top: 8px; }
+  .water-custom-box { flex: 3; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 16px; }
+  .water-custom .water-add { flex: 1; }
+  .water-minus { flex: 0 1 52px; border-color: var(--line); background: transparent; color: var(--dim); }
   .water-why { margin-top: 10px; font-size: 12px; }
   .bw-water { display: block; margin-top: 8px; min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid #3b82f6; background: transparent; color: #3b82f6; font: inherit; font-size: 13px; font-weight: 700; }
   .bw-water:disabled { border-color: var(--line); color: var(--dim); }

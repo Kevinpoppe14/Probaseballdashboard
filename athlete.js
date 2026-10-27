@@ -121,9 +121,11 @@
       return !error;
     },
     // the shared food library, as athlete_portal_food_library / _add read and write it
+    // (the foods everyone sees, and this athlete's own: another athlete's typed-in foods stay theirs, migration_030)
     async foodLibrary() {
       const { data, error } = await sb.from("food_library").select("id,data").limit(5000);
-      return error ? null : (data || []).map((r) => Object.assign({ id: r.id }, r.data || {}, { mine: (r.data || {}).athleteId === String(coachId) }));
+      const seen = (d) => d.source !== "athlete" || !!d.barcode || d.shared === true || d.athleteId === String(coachId);
+      return error ? null : (data || []).filter((r) => seen(r.data || {})).map((r) => Object.assign({ id: r.id }, r.data || {}, { mine: (r.data || {}).athleteId === String(coachId) }));
     },
     // the same as athlete_portal_food_library_add: the food already there for its barcode (or under the same name,
     // serving and calories) is handed back instead of adding another (migration_027's index refuses a second barcode)
@@ -2042,6 +2044,13 @@
       el("div", { class: "water-btns" },
         [8, 16, 24, 32].map((oz) => el("button", { class: "water-add", onclick: add(oz) }, `+${oz}`)),
         el("button", { class: "water-add water-minus", "aria-label": "8 oz less", disabled: !drunk, onclick: add(-8) }, "−8")),
+      // any other amount: "20" adds 20 oz, "-12" takes 12 off
+      (() => {
+        const box = el("input", { class: "water-custom-box", type: "text", inputmode: "decimal", placeholder: "Other oz", "aria-label": "Water in ounces", autocomplete: "off" });
+        const go = () => { const oz = Math.round(parseFloat(box.value.replace(/[^\d.-]/g, ""))); if (!Number.isFinite(oz) || !oz) { box.focus(); return; } add(oz)(); };
+        box.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+        return el("div", { class: "water-custom" }, box, el("button", { class: "water-add", onclick: go }, "Add"));
+      })(),
       el("div", { class: "card-sub water-why" }, [
         g.lb ? `½ oz per lb (${g.lb} lb) = ${g.base}` : `${g.base} oz to start`,
         g.train ? `+${g.train} training day` : "",
