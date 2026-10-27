@@ -1667,8 +1667,16 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const input = (value, onChange, props = {}) => (
     <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
   );
-  // rows in a week's grid: the day names, the warm-ups, then one per exercise slot (as many as the longest day)
-  const weekRowsOf = (week) => 2 + Math.max(1, ...week.sessions.map((s) => s.exercises.length));
+  // A week's grid rows: the day names, the warm-ups, then one per exercise label used in any of its days, in order
+  // (A1, A2, A3, B1, B2, C1…), so each day's A2 is in the A2 row and its B1 in the B1 row, with a gap where a day has
+  // no such exercise. Repeated labels can't happen (they're worked out from the order), so a label is a row.
+  const labelRowsOf = (week) => {
+    const key = (l) => { const m = /^([A-Za-z]+)(\d+)/.exec(l || ""); return m ? [m[1].length, m[1].toUpperCase(), Number(m[2])] : [99, "", 0]; };
+    const all = [...new Set(week.sessions.flatMap((s) => window.exerciseLabels(s.exercises)))];
+    all.sort((a, b) => { const x = key(a), y = key(b); return x[0] - y[0] || x[1].localeCompare(y[1]) || x[2] - y[2]; });
+    return all;
+  };
+  const weekRowsOf = (week) => 2 + Math.max(1, labelRowsOf(week).length);
 
   // Moving between boxes like a spreadsheet: Tab / Shift+Tab to the next or previous box in the day (past the
   // buttons in between), Enter / Shift+Enter (or the down / up arrow) to the same column on the next or previous line
@@ -1807,6 +1815,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
           <div className="program-days program-grid" style={{ gridTemplateRows: `repeat(${weekRowsOf(week)}, auto)` }}>
             {week.sessions.map((session, si) => {
               const labels = window.exerciseLabels(session.exercises);
+              const weekLabels = labelRowsOf(week);
               // the letter of the last block in this day, and the letter a new block would take (for the add buttons)
               const lastLetter = labels.length ? labels[labels.length - 1].replace(/[^A-Za-z]/g, "") : "";
               const blockLetters = { last: lastLetter, next: lastLetter ? String.fromCharCode(lastLetter.charCodeAt(lastLetter.length - 1) + 1) : "A" };
@@ -1854,7 +1863,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                     onChange={(e) => edit((d) => { d.weeks[wi].sessions[si].warmup = e.target.value; })}
                   />
                   {session.exercises.map((ex, ei) => (
-                    <div className="pe-slot" key={ex.id || ei}>
+                    <div className="pe-slot" key={ex.id || ei} style={{ gridRow: 3 + Math.max(0, weekLabels.indexOf(labels[ei])) }}>
                     <div
                       className={`program-ex ${ei > 0 && ex.linked ? "superset-linked" : ""} ${focusSet && focusSet.wi === wi && focusSet.si === si ? (focusSet.letter === labels[ei].replace(/\d+\.$/, "") ? "set-focused" : "set-dimmed") : ""}`}
                       key={ex.id || ei}
