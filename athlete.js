@@ -3433,8 +3433,38 @@
       if (s && (s.warmup || "").trim()) main.append(el("div", { class: "warmup" }, el("strong", null, "Warm-up: "), s.warmup));
       if (!rows.length) main.append(el("div", { class: "empty" }, "No exercises for this day."));
       const labels = window.exerciseLabels(rows);
-      // Coach Mode shows the whole day as plain text beside this page, so the coach can read it without scrolling
+      // a speed or throwing drill's prescription: "3 × 4 reps @ 10 yd", and a throwing drill's distance in ft and ball weight ("5 oz")
+      const spdRx = (e) => {
+        const copy = window.speedNormalize(JSON.parse(JSON.stringify(e)));
+        if ("level" in s && /^\d+(\.\d+)?$/.test(`${copy.distance || ""}`.trim())) copy.distance = `${copy.distance.trim()} ft`; // a throwing distance is in feet
+        return [window.speedText(copy), (e.weight || "").trim()].filter(Boolean).join(" · ");
+      };
+      // Coach Mode shows the whole day as plain text beside this page, so the coach can read it without scrolling.
+      // A speed or throwing day goes in its sections and series (headings), as it is laid out here, not A1/B1.
       shown = s ? { item, dayIdx } : null;
+      const previewRows = () => {
+        if (!(s && window.isSpeedSession(s))) {
+          return rows.map((e, ei) => ({
+            label: labels[ei] || "", name: e.name.trim(), first: !(ei > 0 && e.linked),
+            rx: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
+            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", Rx.extrasText(e), Rx.tagText(e)].filter(Boolean).join(" · "),
+            notes: e.notes || "",
+          }));
+        }
+        const out = [];
+        window.speedSections(s).forEach((sec) => {
+          const named = (sr) => sr.drills.map((d) => d.e).filter((e) => (e.name || "").trim());
+          if (!sec.series.some((sr) => named(sr).length)) return;
+          out.push({ heading: "section", name: sec.name, rx: sec.time || "", notes: (sec.description || "").trim() });
+          sec.series.forEach((sr) => {
+            const list = named(sr);
+            if (!list.length) return;
+            if (sr.name) out.push({ heading: "series", name: sr.name });
+            list.forEach((e) => out.push({ label: "", name: e.name.trim(), first: false, rx: spdRx(e), meta: Rx.extrasText(e), notes: e.notes || "" }));
+          });
+        });
+        return out;
+      };
       if (coachId && window.parent !== window) {
         window.parent.postMessage({
           type: "coach-preview", aid: String(coachId),
@@ -3443,12 +3473,7 @@
           warmup: s ? (s.warmup || "").trim() : "",
           day: s && s.name ? s.name : `Day ${dayIdx + 1}`, week: item.week.name || `Week ${item.weekNo}`, hasDay: !!s,
           done: !!s && !!logged(item.program.id, sessionKey(item, dayIdx)),
-          rows: rows.map((e, ei) => ({
-            label: labels[ei] || "", name: e.name.trim(), first: !(ei > 0 && e.linked),
-            rx: Rx.groups(e).map((g) => Rx.groupText(e, g)).join(", "),
-            meta: [e.tempo ? `Tempo ${e.tempo}` : "", e.rest ? `Rest ${e.rest}` : "", Rx.extrasText(e), Rx.tagText(e)].filter(Boolean).join(" · "),
-            notes: e.notes || "",
-          })),
+          rows: previewRows(),
         }, window.location.origin);
       }
       let group = null;
@@ -3470,9 +3495,7 @@
             if (sr.name) card.append(el("div", { class: "spd-ser" }, sr.name));
             list.forEach((e) => {
               const info = exerciseInfo(e.name);
-              const copy = window.speedNormalize(JSON.parse(JSON.stringify(e)));
-              if ("level" in s && /^\d+(\.\d+)?$/.test(`${copy.distance || ""}`.trim())) copy.distance = `${copy.distance.trim()} ft`; // a throwing distance is in feet
-              const rx = [window.speedText(copy), (e.weight || "").trim()].filter(Boolean).join(" · "); // "3 × 4 reps @ 10 yd", and a throwing drill's ball weight ("5 oz")
+              const rx = spdRx(e);
               // boxes the coach added with the builder's "+" (Time, Height...): the athlete writes in their own, with the
               // coach's target shown when there is one. A drill from before the "+" that asked for a best time keeps
               // its Time box (and what was written in it, kept where it always was).

@@ -36,6 +36,16 @@
   // the boxes a throwing drill can ask the athlete to fill in from the app (a target typed here shows beside the box):
   // the throws they actually made (on every throwing drill to start with), and where it applies a distance or velocity
   const THROW_BOXES = ["Throws", "Distance", "Velo"]; // (the phone asks for distance in ft and velo in mph; plain labels, as each box is saved under its label)
+  // Warm-up / arm care and recovery aren't throws: their drills get no Throws box to start with and aren't in the
+  // day's throws (nor in the athlete's ACR, see throwing_progression.js). A drill's throws are sets x reps, a range of
+  // reps counting as its middle ("25-30" is 27.5); reps that aren't a count ("30sec") aren't throws.
+  const notThrows = (section) => /warm|arm care|recover/i.test(section || "");
+  const countOf = (s) => { const m = /^(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?$/.exec(`${s || ""}`.trim()); return m ? (m[2] ? (parseFloat(m[1]) + parseFloat(m[2])) / 2 : parseFloat(m[1])) : NaN; };
+  const drillThrows = (e) => {
+    if (!e || notThrows(e.section) || !(e.name || "").trim()) return 0;
+    const g = (e.groups || [])[0] || {}, reps = countOf(g.reps), sets = `${g.sets || ""}`.trim() ? countOf(g.sets) : 1;
+    return Number.isFinite(reps) && Number.isFinite(sets) ? sets * reps : 0;
+  };
   // A throwing program laid over an athlete's progression: a week for each of its weeks, a day for each throwing day
   // (Sunday first), named and colored from it. Days already built keep their drills; a day the progression turned OFF
   // stays only if it has drills in it (marked OFF).
@@ -177,7 +187,7 @@
       let last = -1;
       xs.forEach((e, i) => { if (e.section === section && (series == null || (e.series || "") === series)) last = i; });
       const drill = newDrill(section, series);
-      if (THROW) drill.extras = [{ label: "Throws", value: "" }]; // the athlete writes in the throws they made
+      if (THROW && !notThrows(section)) drill.extras = [{ label: "Throws", value: "" }]; // the athlete writes in the throws they made
       xs.splice(last >= 0 ? last + 1 : xs.length, 0, drill);
     });
     const addSeries = (wi, si, section) => {
@@ -217,6 +227,57 @@
       }
       edit((d) => { d.weeks[wi] = { name: d.weeks[wi].name, sessions: d.weeks[wi - 1].sessions.map(freshIds) }; });
     };
+    // ---- copying a section's drills, or a whole day, onto other days: the other days this week ("week"), this day in
+    // the weeks after ("same": the same weekday, on a program laid out from the progression), or every day from this
+    // week on ("after"). The copies replace what those days had there; their names and intensities stay their own.
+    const COPY_TO = [["week", "To the other days this week"], ["same", fromProgression ? "To this weekday in the weeks after" : "To this day in the weeks after"], ["after", "To every day from this week on"]];
+    const targetsOf = (d, wi, si, how) => {
+      const src = sess(d, wi, si), out = [];
+      d.weeks.forEach((w, wj) => w.sessions.forEach((s, sj) => {
+        if (wj === wi && sj === si) return;
+        if (how === "week" && wj !== wi) return;
+        if (how === "after" && wj < wi) return;
+        if (how === "same" && (wj <= wi || (src.tpDay != null ? s.tpDay !== src.tpDay : sj !== si))) return;
+        out.push([wj, sj]);
+      }));
+      return out;
+    };
+    const dayWord = (n) => `${n} day${n === 1 ? "" : "s"}`;
+    const copySection = (wi, si, name, how) => {
+      const d0 = draftRef.current, tg = targetsOf(d0, wi, si, how);
+      const n = sess(d0, wi, si).exercises.filter((e) => e.section === name && (e.name || "").trim()).length;
+      if (!tg.length) { window.alert("There are no days there to copy to."); return; }
+      const filled = tg.filter(([wj, sj]) => sess(d0, wj, sj).exercises.some((e) => e.section === name && (e.name || "").trim())).length;
+      if (!window.confirm(`Copy ${name} (${n} drill${n === 1 ? "" : "s"}) to ${dayWord(tg.length)}?${filled ? ` ${dayWord(filled)} already ${filled === 1 ? "has" : "have"} drills in ${name}; they'll be replaced.` : ""}`)) return;
+      edit((d) => {
+        const s0 = sess(d, wi, si), at0 = s0.sections.findIndex((x) => x.name === name), sec0 = s0.sections[at0] || { name, time: "" };
+        const drills = s0.exercises.filter((e) => e.section === name);
+        tg.forEach(([wj, sj]) => {
+          const s = sess(d, wj, sj);
+          if (!s.sections.some((x) => x.name === name)) s.sections.splice(Math.max(0, Math.min(at0, s.sections.length)), 0, { name, time: "" });
+          const x = s.sections.find((y) => y.name === name);
+          x.time = sec0.time || "";
+          if (sec0.description) x.description = sec0.description; else delete x.description;
+          s.exercises = s.exercises.filter((e) => e.section !== name).concat(drills.map((e) => ({ ...clone(e), id: uid() })));
+        });
+      });
+    };
+    const copyDay = (wi, si, how) => {
+      const d0 = draftRef.current, tg = targetsOf(d0, wi, si, how);
+      if (!tg.length) { window.alert("There are no days there to copy to."); return; }
+      const filled = tg.filter(([wj, sj]) => sess(d0, wj, sj).exercises.some((e) => (e.name || "").trim())).length;
+      if (!window.confirm(`Copy all of ${sess(d0, wi, si).name || "this day"} (every section and drill) to ${dayWord(tg.length)}?${filled ? ` ${dayWord(filled)} already ${filled === 1 ? "has" : "have"} drills; they'll be replaced.` : ""}`)) return;
+      edit((d) => {
+        const src = sess(d, wi, si);
+        tg.forEach(([wj, sj]) => { const s = sess(d, wj, sj), c = freshIds(src); s.sections = c.sections; s.exercises = c.exercises; });
+      });
+    };
+    const copyMenu = (label, onPick, cls) => (
+      <select className={`spd-copy ${cls || ""}`} value="" title={label} aria-label={label} onChange={(ev) => { const v = ev.target.value; ev.target.value = ""; if (v) onPick(v); }}>
+        <option value="" disabled hidden>⧉</option>
+        {COPY_TO.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
+      </select>
+    );
     const addWeek = () => edit((d) => { const last = d.weeks[d.weeks.length - 1]; d.weeks.push({ name: `Week ${d.weeks.length + 1}`, sessions: last.sessions.map(freshIds) }); });
     const removeWeek = (wi) => { if (draft.weeks.length > 1 && window.confirm(`Remove ${draft.weeks[wi].name || `week ${wi + 1}`}?`)) edit((d) => { d.weeks.splice(wi, 1); }); };
     const days = Math.max(...draft.weeks.map((w) => w.sessions.length));
@@ -252,6 +313,7 @@
             {linked
               ? <span className="program-session-name thr-day-name" title="From the throwing progression: change it there">{s.name}</span>
               : <input className="program-session-name" value={s.name || ""} aria-label="Day name" title="The day's name is the same in every week" onChange={(e) => renameDay(si, e.target.value)} />}
+            {copyMenu("Copy this whole day (every section and drill) to other days", (how) => copyDay(wi, si, how), "spd-copy-day")}
             {!linked && <button className="btn-link" title="Remove this day from every week" disabled={days <= 1} onClick={() => removeDay(si)}>✕</button>}
           </div>
           {/* a throwing day's intensity, this week: Low, Medium, High or off (from the progression on a day laid out from it) */}
@@ -271,6 +333,7 @@
                   <input className="spd-sec-name" value={sec.name} aria-label="Section name" title="The section's name is the same in every week" onChange={(e) => renameSection(si, sec.name, e.target.value)} />
                   <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => setTime(wi, si, sec.name, e.target.value)} />
                   <span className="spd-sec-tools">
+                    {copyMenu(`Copy ${sec.name} (its drills, time and description) to other days`, (how) => copySection(wi, si, sec.name, how))}
                     <button className="spd-x" title="Move this section up" disabled={k === 0} onClick={() => moveSection(si, sec.name, -1)}>↑</button>
                     <button className="spd-x" title="Move this section down" disabled={k === sections.length - 1} onClick={() => moveSection(si, sec.name, 1)}>↓</button>
                     <button className="spd-x" title="Remove this section from this day in every week" onClick={() => removeSection(si, sec.name)}>✕</button>
@@ -345,14 +408,23 @@
           })}
           <button className="btn-link spd-add" title="Add a section to this day in every week" onClick={() => addSection(si)}>+ Section</button>
           {THROW ? (
-            // a throwing day's prescribed throws (sets x reps), by section and for the day
-            <table className="spd-totals">
-              <thead><tr><th>Totals</th><th>Throws</th></tr></thead>
-              <tbody>
-                {t.rows.map((r) => <tr key={r.name}><td>{r.name}</td><td>{r.reps || ""}</td></tr>)}
-                <tr className="spd-total-row"><td>Day</td><td>{t.all.reps || "—"}</td></tr>
-              </tbody>
-            </table>
+            // a throwing day's prescribed throws (sets x reps), by section and for the day; warm-up / arm care and recovery left out
+            (() => {
+              const rows = sections.filter((sec) => !notThrows(sec.name)).map((sec) => ({ name: sec.name, n: sec.series.reduce((t, sr) => t + sr.drills.reduce((u, { e }) => u + drillThrows(e), 0), 0) })).filter((r) => r.n);
+              const all = rows.reduce((t, r) => t + r.n, 0);
+              return (
+                <table className="spd-totals">
+                  <thead><tr><th>Totals</th><th>Throws</th></tr></thead>
+                  <tbody>
+                    {rows.map((r) => <tr key={r.name}><td>{r.name}</td><td>{round(r.n)}</td></tr>)}
+                    <tr className="spd-total-row"><td>Day</td><td>{all ? round(all) : "—"}</td></tr>
+                  </tbody>
+                  {sections.some((sec) => notThrows(sec.name) && sec.series.some((sr) => sr.drills.some(({ e }) => (e.name || "").trim()))) && (
+                    <tfoot><tr><td colSpan={2} className="spd-totals-note">Warm-up / arm care and recovery aren't counted as throws.</td></tr></tfoot>
+                  )}
+                </table>
+              );
+            })()
           ) : (
             <table className="spd-totals">
               <thead><tr><th>Totals</th><th>Reps</th><th>Distance</th><th>Time</th></tr></thead>
@@ -392,8 +464,8 @@
         </div>
         {THROW
           ? <p className="timestamp-note">{fromProgression
-            ? "One day for each throwing day on the progression above, named and colored from it (green Low, yellow Medium, red High): change a day's intensity or throws up there and it follows here. Fill in each day's drills: sets x reps (the prescribed throws), the distance, and a ball weight in oz or g for weighted balls. Each drill asks the athlete for the throws they made; add Distance (ft) or Velo (mph) with the + where it applies, with a target if you like."
-            : "Each day has an intensity for the week (green Low, yellow Medium, red High, or off), which colors it here and in the athlete's app. Drills take sets x reps (the prescribed throws), a distance, and a ball weight in oz or g; each asks the athlete for the throws they made, and the + adds Distance or Velo (mph) where it applies."}</p>
+            ? "One day for each throwing day on the progression above, named and colored from it (green Low, yellow Medium, red High): change a day's intensity or throws up there and it follows here. Fill in each day's drills: sets x reps (the prescribed throws), the distance, and a ball weight in oz or g for weighted balls. Each drill asks the athlete for the throws they made; add Distance (ft) or Velo (mph) with the + where it applies, with a target if you like. Use ⧉ on a section or a day to copy it to the other days this week, the same day in later weeks, or every day from this week on."
+            : "Each day has an intensity for the week (green Low, yellow Medium, red High, or off), which colors it here and in the athlete's app. Drills take sets x reps (the prescribed throws), a distance, and a ball weight in oz or g; each asks the athlete for the throws they made, and the + adds Distance or Velo (mph) where it applies. Use ⧉ on a section or a day to copy it to other days."}</p>
           : <p className="timestamp-note">Click into a day to work on it: that day lights up in every week and the other days dim, so you can progress it through the program, and the section you're in is highlighted in each week. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>}
         {draft.weeks.map((w, wi) => (
           <div className="program-week" key={wi}>

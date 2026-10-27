@@ -114,9 +114,13 @@
       el("p", { class: "pv-title" }, p.title),
       p.sub ? el("p", { class: "pv-sub" }, p.sub) : null,
       p.warmup ? el("p", { class: "pv-warm" }, `Warm-up: ${p.warmup}`) : null,
-      ...p.rows.map((r) => el("div", { class: `pv-row${r.first ? " first" : ""}` },
+      // a speed or throwing day comes with its section (and its time and description) and series headings over its drills
+      ...p.rows.map((r) => (r.heading === "section"
+        ? el("div", { class: "pv-sec" }, el("span", null, r.name), r.rx ? el("small", null, r.rx) : null, r.notes ? el("p", null, r.notes) : null)
+        : r.heading === "series" ? el("div", { class: "pv-ser" }, r.name)
+        : el("div", { class: `pv-row${r.first ? " first" : ""}${r.label ? "" : " no-label"}` },
         el("div", null, el("span", { class: "pv-label" }, r.label), el("span", { class: "pv-name" }, r.name), r.rx ? el("span", { class: "pv-rx" }, r.rx) : null),
-        r.meta || r.notes ? el("small", null, [r.meta, r.notes].filter(Boolean).join(" · ")) : null)),
+        r.meta || r.notes ? el("small", null, [r.meta, r.notes].filter(Boolean).join(" · ")) : null))),
       p.rows.length || !p.sub ? null : el("p", { class: "pv-sub" }, "No exercises for this day."),
     ].filter(Boolean));
   }
