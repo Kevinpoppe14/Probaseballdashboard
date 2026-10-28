@@ -3595,7 +3595,7 @@
             canSendChecks() ? (() => { const b = el("button", { class: "film check", "aria-label": `Film a set of ${e.name} for your coach`, title: "Film a set and send it to your coach", onclick: () => sendCheck(item, e, (s && s.name) || `Day ${dayIdx + 1}`) }); b.innerHTML = CAMERA; return b; })() : null,
             el("button", { class: `swap${e._coach ? " on" : ""}`, "aria-label": `Change ${e.name} or its sets and reps`, title: "Change exercise or sets and reps", onclick: () => openSwap(item, dayIdx, e) }, "⇄")),
           e._coach ? el("div", { class: "notes" }, `You changed this. Coach: ${e._coach.name}${e._coach.text ? `, ${e._coach.text}` : ""}`) : null,
-          (e.tempo || e.rest || Rx.extras(e).length) ? el("div", { class: "meta" }, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null, Rx.extras(e).map((x) => el("span", null, `${x.label} ${x.value}`))) : null,
+          (e.tempo || e.rest || Rx.extras(e).length || Rx.withSetsText(e)) ? el("div", { class: "meta" }, Rx.withSetsText(e) ? el("span", { class: "with-sets" }, Rx.withSetsText(e)) : null, e.tempo ? el("span", { class: "tempo" }, `Tempo ${e.tempo}`) : null, e.rest ? el("span", null, `Rest ${e.rest}`) : null, Rx.extras(e).map((x) => el("span", null, `${x.label} ${x.value}`))) : null,
           e.notes ? el("div", { class: "notes coach-note" }, e.notes) : null, // only when the coach added one
           canSendChecks() ? checkLine(item, e) : null,
           groups.length ? el("div", { class: "sets" }, groups.map((g, gi) => setBox(item, dayIdx, e, g, gi))) : null));

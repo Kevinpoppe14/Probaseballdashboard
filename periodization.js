@@ -652,7 +652,7 @@
     };
 
     return (
-      <div className="panel period-program-tabs no-print" ref={panelRef}>
+      <div className="panel period-program-tabs no-print" ref={panelRef} tabIndex={-1}>
         <h2 className="ppt-title">
           <span>Programming Workbook</span>
           {/* the quick swap-exercises / sets-and-reps screen, available any time after a program is assigned */}
@@ -1473,6 +1473,18 @@
       }
       const b = planRef.current.blocks.find((x) => x.id === blockId);
       if (b && Object.keys(patch).every((k) => k === "assignedBy" ? !!b.assignedBy || !patch.assignedBy : b[k] === patch[k])) return; // nothing changes (an autosave of the same program)
+      // The athlete's own copy of the block's program, just made by saving it (program.basedOn is the one the block
+      // had): not a step to undo on the chart, and the chart's undo history follows it to the copy. Undo putting the
+      // block back on the program it was copied from made the next save copy it again, piling up duplicates.
+      if (program && b && b.programId && program.basedOn === b.programId) {
+        const relink = (p) => ({ ...p, blocks: (p.blocks || []).map((x) => (x.id === blockId && x.programId === b.programId ? { ...x, programId: program.id } : x)) });
+        setPast((ps) => ps.map(relink));
+        setFuture((fs) => fs.map(relink));
+        const current = planRef.current;
+        const synced = syncPrograms(current, { ...current, blocks: current.blocks.map((x) => (x.id === blockId ? { ...x, ...patch } : x)) });
+        if (synced) apply(synced);
+        return;
+      }
       updateBlock(blockId, patch);
     };
 
@@ -1808,6 +1820,8 @@
     const onKeyDown = (e) => {
       const tag = e.target.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // keys pressed in the program builder below are the builder's (its own Ctrl+Z undoes the program), never the chart's
+      if (progPanelRef.current && progPanelRef.current.contains(e.target)) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod && k === "c") { if (selectedBlocks.length) { e.preventDefault(); copySel(); } }

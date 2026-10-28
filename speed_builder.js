@@ -439,7 +439,7 @@
     };
 
     return (
-      <div className={`${embedded ? "" : "panel "}program-editor spd-editor ${THROW ? "thr-editor" : ""} ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef}>
+      <div className={`${embedded ? "" : "panel "}program-editor spd-editor ${THROW ? "thr-editor" : ""} ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} tabIndex={-1}>
         <datalist id="exercise-library-names">
           {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
         </datalist>

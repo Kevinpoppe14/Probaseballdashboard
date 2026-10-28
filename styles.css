@@ -4057,3 +4057,8 @@ button.pt-label.on { color: var(--dst-red); }
 .program-editor .program-day .program-session-head .program-progress-btn:hover, .pt-day-head .pt-day-progress:hover { background: #15803d; }
 .pt-progress { color: #22c55e !important; opacity: 0.7; }
 .pt-table tbody:hover .pt-progress { opacity: 1; }
+/* "with sets 1-2": a superset partner that goes with only some of the first exercise's sets */
+.pt-edt.pt-with { background: rgba(56, 189, 248, 0.14); border-color: rgba(56, 189, 248, 0.5); }
+.pe-tag.pe-with { border-color: rgba(56, 189, 248, 0.5); }
+/* the program builder and the plan's program panel take focus when clicked (so Ctrl+Z there is the builder's, not the chart's) */
+.program-editor:focus, .period-program-tabs:focus { outline: none; }

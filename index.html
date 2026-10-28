@@ -1742,7 +1742,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   };
 
   return (
-    <div className={`panel program-editor ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} onKeyDown={(e) => { if (handleKey(e) || cellNav(e)) e.stopPropagation(); }}>
+    <div className={`panel program-editor ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} tabIndex={-1} onKeyDown={(e) => { if (handleKey(e) || cellNav(e)) e.stopPropagation(); }}>
       {/* exercise names suggest from the library; a name that matches links to its library entry */}
       <datalist id="exercise-library-names">
         {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
@@ -2026,6 +2026,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                           } else if (what.startsWith("x:")) addExtra(what.slice(2));
                           else if (what === "edt") setEx(ei, "edt", "");
                           else if (what === "acc") setEx(ei, "accumulate", true);
+                          else if (what === "with") setEx(ei, "withSets", "");
                         };
                         // EDT (on a block's first exercise: the whole block is done back to back for so many minutes,
                         // the athlete logs the sets) and Accumulate (the reps box is a time built up in as many sets as
@@ -2035,6 +2036,9 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                         const edtSet = ex.edt !== undefined && ex.edt !== 0;
                         const showEdt = blockFirst && (edtSet || !!window.ProgramRx.edtMinutes(ex));
                         const accOn = ex.groups.some((g) => window.ProgramRx.accumulated(ex, g)) || ex.accumulate === true;
+                        // a superset partner that goes with only some of the first exercise's sets (A2 "with sets 1-2",
+                        // A3 "with sets 3-4"), so a 4x5 with a changing partner stays one series (ProgramRx.withSetsText)
+                        const showWith = !blockFirst && ex.withSets != null;
                         return (
                           <React.Fragment>
                             {ex.groups.map((g, gi) => {
@@ -2071,14 +2075,22 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                       <option value="custom">Custom…</option>
                                       {blockFirst && !showEdt && <option value="edt">EDT block (timed, log sets)</option>}
                                       {!accOn && <option value="acc">Accumulate time (log sets)</option>}
+                                      {!blockFirst && !showWith && <option value="with">Goes with only some of {labels[ei].replace(/\d+\.$/, "")}1's sets…</option>}
                                       {!showNotes && <option value="notes">Notes/cues</option>}
                                     </select>
                                   )}
                                   {ex.groups.length > 1 && <button className="btn-link pe-x" style={{ gridColumn: "del" }} title="Remove this line" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.splice(gi, 1); })}>✕</button>}
                                   {/* boxes added with the "+" (Time, Distance…), EDT and Accumulate: a line of their own under the
                                       first set line, so they never push the columns out of line */}
-                                  {gi === 0 && (extras.length > 0 || showEdt || accOn) && (
+                                  {gi === 0 && (extras.length > 0 || showEdt || accOn || showWith) && (
                                     <div className="pe-extras" style={{ gridColumn: "1 / -1" }}>
+                                      {showWith && (
+                                        <span className="pe-tag pe-with" title={`Which of ${labels[ei].replace(/\d+\.$/, "")}1's sets this goes with, for example 1-2 (and the next exercise 3-4). The athlete sees "With sets 1–2".`}>
+                                          with sets
+                                          {input(ex.withSets, (v) => setEx(ei, "withSets", v.replace(/[^\d\s,–-]/g, "")), { placeholder: "1-2", className: "pe-num pe-tag-min", autoFocus: ex.withSets === "", "aria-label": "With sets" })}
+                                          <button className="btn-link pe-x" title="Goes with every set" onClick={() => edit((d) => { delete d.weeks[wi].sessions[si].exercises[ei].withSets; })}>✕</button>
+                                        </span>
+                                      )}
                                       {extras.map((x, xi) => (
                                         <span className="pe-extra" key={xi}>
                                           <span className="pe-xlabel" title={x.label}>{x.label}</span>

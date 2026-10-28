@@ -95,10 +95,15 @@
     tagText(e) {
       const x = e || {}, notes = `${x.notes || ""}`;
       return [
+        ProgramRx.withSetsText(x),
         parseFloat(x.edt) > 0 && !/\bEDT\b/i.test(notes) ? `EDT ${parseFloat(x.edt)} min` : "",
         x.accumulate === true && !/accumulat/i.test(notes) ? "Accumulate time" : "",
       ].filter(Boolean).join(" · ");
     },
+    // A superset partner that goes with only some of the first exercise's sets (`withSets`, "1-2"): a 4x5 squat whose
+    // A2 is a depth drop for sets 1-2 and a force plate jump for sets 3-4 stays one A1 4x5, with A2 "with sets 1-2"
+    // and A3 "with sets 3-4", instead of being split into an A and a B series
+    withSetsText: (e) => { const w = `${(e && e.withSets) || ""}`.trim(); return w ? `With sets ${w.replace(/\s*-\s*/g, "–")}` : ""; },
     // where the sets for an EDT block are logged, on the exercise with the EDT note: a set group slot no exercise
     // has, so it passes the phone link's key check (migration_007)
     edtKey: (e) => `${e.id}|99|r`,

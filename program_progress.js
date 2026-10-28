@@ -54,10 +54,8 @@
   function ProgramProgressDialog({ weeks, si, letter, onLetter, edit, undo, canUndo, onClose }) {
     const [note, setNote] = useState("");
     useEffect(() => {
-      const onKey = (e) => {
-        if (e.key === "Escape") onClose();
-        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key || "").toLowerCase() === "z") { e.preventDefault(); undo(); }
-      };
+      // (Ctrl+Z needs nothing here: keys in the pop-up reach the builder it's drawn from, whose Ctrl+Z undoes)
+      const onKey = (e) => { if (e.key === "Escape") onClose(); };
       document.addEventListener("keydown", onKey);
       return () => document.removeEventListener("keydown", onKey);
     });

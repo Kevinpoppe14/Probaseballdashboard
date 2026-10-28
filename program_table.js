@@ -581,6 +581,16 @@
                                   <button className="pt-edt-add" tabIndex={-1} title={`Make the ${letter} block an EDT: done back to back for so many minutes, the athlete logs the times through`} onClick={() => { pending.current = `${si}:${ei}.0:edt`; setEx(ei, "edt", ""); }}>+ EDT</button>
                                 ))}
                                 {blockEdt !== null && <div className="pt-more">in the {letter} EDT{blockEdt ? ` (${blockEdt} min)` : ""}</div>}
+                                {/* a superset partner that goes with only some of the first exercise's sets (ProgramRx.withSetsText) */}
+                                {linked && (ex.withSets != null ? (
+                                  <div className="pt-edt pt-with" title={`Which of ${letter}1's sets this goes with, for example 1-2 (and the next row 3-4). The athlete sees "With sets 1–2".`}>
+                                    with sets
+                                    <input className="pt-cell pt-edt-min" value={ex.withSets} data-pt={`${si}:${ei}.0:with`} aria-label="With sets" placeholder="1-2" onChange={(e) => { const v = e.target.value.replace(/[^\d\s,–-]/g, ""); edit((d) => { ex$(d, ei).withSets = v; }); }} />
+                                    <button className="btn-link pt-edt-off" tabIndex={-1} title="Goes with every set" onClick={() => edit((d) => { delete ex$(d, ei).withSets; })}>✕</button>
+                                  </div>
+                                ) : (
+                                  <button className="pt-edt-add" tabIndex={-1} title={`This goes with only some of ${letter}1's sets (say 1-2, with the next row taking 3-4), so ${letter}1 stays one series`} onClick={() => { pending.current = `${si}:${ei}.0:with`; edit((d) => { ex$(d, ei).withSets = ""; }); }}>+ with sets</button>
+                                ))}
                                 {more && <div className="pt-more" title="Edited in the Boxes view">{more}</div>}
                               </td>
                             </React.Fragment>
