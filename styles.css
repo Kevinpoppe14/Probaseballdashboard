@@ -3989,3 +3989,10 @@ button.pt-label.on { color: var(--dst-red); }
 /* the Boxes view's per-day "+ all" menu (a box on every exercise in the day) */
 .program-editor .program-day .program-session-head .pe-day-more { flex: 0 0 auto; width: 54px; min-width: 0; max-width: 54px; font-size: 11px; padding: 1px 4px; border-radius: 5px; background: rgba(0, 0, 0, 0.25); color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
 .pe-day-more option { color: #111; background: #fff; }
+/* Table view: a block's EDT (program_table.js) */
+.pt-edt { display: flex; width: max-content; align-items: center; gap: 4px; margin: 0 6px 5px; padding: 1px 4px 1px 7px; border-radius: 10px; background: rgba(165, 42, 52, 0.18); border: 1px solid rgba(165, 42, 52, 0.55); font-size: 11.5px; font-weight: 600; color: var(--text); }
+.pt-edt .pt-edt-min { width: 40px; padding: 2px 4px; text-align: center; font-weight: 600; }
+.pt-edt .pt-edt-off { padding: 0 2px !important; font-size: 10px; }
+.pt-edt-add { display: block; margin: 0 6px 4px; padding: 0; background: none; border: none; color: var(--text-dim); font-size: 11px; cursor: pointer; opacity: 0.35; }
+.pt-table tbody:hover .pt-edt-add { opacity: 1; }
+.pt-edt-add:hover { color: var(--text); text-decoration: underline; }

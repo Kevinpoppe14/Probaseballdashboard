@@ -16,7 +16,9 @@
 //   - Tempo and Rest are always columns. "+ Column" adds Time, Distance, Speed or a box the coach names to every
 //     exercise in a day (or, above the days, every day of the week) at once; its header's ✕ takes it off the day.
 //     They're the same extra boxes the Boxes view's "+" adds one exercise at a time.
-//   - EDT and Accumulate show under the exercise name; they're edited in the Boxes view.
+//   - "+ EDT" under a block's first exercise makes the block an EDT, with its minutes in a box of their own (the
+//     same setting as the Boxes view's "EDT block"); the block's other rows say they're in it. Accumulate shows
+//     under the exercise name and is edited in the Boxes view.
 (function () {
   const { useState, useRef, useEffect } = React;
   const LABEL_RE = /^[A-Z]{1,2}\d+\.?$/i, NUM_RE = /^\d+[a-z]?\.?$/i;
@@ -82,12 +84,21 @@
   const rxText = (ex) => window.ProgramRx.groups(ex).map((g) => window.ProgramRx.groupText(ex, g)).join(", ");
   const intText = (ex, g) => window.ProgramRx.intensityText(ex, g);
 
-  // what's shown under the exercise name: EDT and Accumulate (edited in the Boxes view)
-  const moreText = (ex, blockFirst) => {
+  // EDT, on a block's first exercise (the same `edt` setting as the Boxes view's "EDT block"): the block is done
+  // back to back for so many minutes and the athlete logs the times through. `edt` is the minutes ("" while being
+  // typed), 0 for "not an EDT" (which also overrides an "EDT 10 min" written in the notes the old way).
+  const edtOn = (ex) => (ex.edt !== undefined && ex.edt !== 0) || !!window.ProgramRx.edtMinutes(ex);
+  const edtValue = (ex) => (ex.edt !== undefined && ex.edt !== 0 ? `${ex.edt}` : `${window.ProgramRx.edtMinutes(ex) || ""}`);
+  // setting it here takes an "EDT 10 min" written in the notes the old way out of them, so the two never disagree
+  const setEdt = (e, v) => {
+    e.edt = v;
+    const notes = `${e.notes || ""}`, cleaned = notes.replace(/\bEDT\b\s*[-–—:]?\s*\d+(?:\.\d+)?\s*(?:m|min|mins|minutes)\b\.?/i, "").replace(/\s{2,}/g, " ").replace(/^[\s,;·-]+|[\s,;·-]+$/g, "");
+    if (cleaned !== notes.trim()) e.notes = cleaned;
+  };
+  // what's shown under the exercise name: Accumulate (edited in the Boxes view)
+  const moreText = (ex) => {
     const R = window.ProgramRx;
-    const edt = blockFirst ? (ex.edt !== undefined && ex.edt !== 0 && `${ex.edt}` !== "" ? Number(ex.edt) : R.edtMinutes(ex)) : 0;
-    const acc = ex.accumulate === true || (ex.groups || []).some((g) => R.accumulated(ex, g));
-    return [edt ? `EDT ${edt} min` : "", acc ? "Accumulate" : ""].filter(Boolean).join(" · ");
+    return ex.accumulate === true || (ex.groups || []).some((g) => R.accumulated(ex, g)) ? "Accumulate" : "";
   };
 
   // ---- extra columns: the boxes added with the Boxes view's "+" (Time, Distance, Speed, one named by the coach),
@@ -383,7 +394,12 @@
                   </tr>
                 </thead>
                 {session.exercises.map((ex, ei) => {
-                  const lab = labels[ei].replace(/\.$/, ""), linked = ei > 0 && !!ex.linked, more = moreText(ex, !linked);
+                  const lab = labels[ei].replace(/\.$/, ""), linked = ei > 0 && !!ex.linked, more = moreText(ex);
+                  // the block's first exercise, which holds the block's EDT
+                  let first = ei;
+                  while (first > 0 && session.exercises[first].linked) first -= 1;
+                  const blockEdt = linked && edtOn(session.exercises[first]) ? edtValue(session.exercises[first]) : null;
+                  const letter = lab.replace(/\d+$/, "");
                   const groups = groupsOf(ex), n = groups.length;
                   // one tbody per exercise: a row per set line, the exercise's own cells spanning them
                   return (
@@ -399,6 +415,17 @@
                               </td>
                               <td rowSpan={n}>
                                 {cell(ex, ei, "name", { className: "pt-name", list: "exercise-library-names", placeholder: "Exercise", onFocus: () => onNameFocus && onNameFocus(wi, si, ei, ex.name), onBlur: () => onNameBlur && onNameBlur(wi, si, ei) })}
+                                {!linked && (edtOn(ex) ? (
+                                  <div className="pt-edt" title={`EDT: ${letter}1, ${letter}2… done back to back for this many minutes. The athlete gets a countdown and logs how many times through they got.`}>
+                                    ⏱ EDT
+                                    <input className="pt-cell pt-edt-min" value={edtValue(ex)} data-pt={`${si}:${ei}.0:edt`} aria-label="EDT minutes" placeholder="min" onChange={(e) => { const v = e.target.value.replace(/[^\d.]/g, ""); edit((d) => setEdt(ex$(d, ei), v)); }} />
+                                    min
+                                    <button className="btn-link pt-edt-off" tabIndex={-1} title="Not an EDT block" onClick={() => edit((d) => setEdt(ex$(d, ei), 0))}>✕</button>
+                                  </div>
+                                ) : (
+                                  <button className="pt-edt-add" tabIndex={-1} title={`Make the ${letter} block an EDT: done back to back for so many minutes, the athlete logs the times through`} onClick={() => { pending.current = `${si}:${ei}.0:edt`; setEx(ei, "edt", ""); }}>+ EDT</button>
+                                ))}
+                                {blockEdt !== null && <div className="pt-more">in the {letter} EDT{blockEdt ? ` (${blockEdt} min)` : ""}</div>}
                                 {more && <div className="pt-more" title="Edited in the Boxes view">{more}</div>}
                               </td>
                             </React.Fragment>
