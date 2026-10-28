@@ -16,6 +16,8 @@
 //   - Tempo and Rest are always columns. "+ Column" adds Time, Distance, Speed or a box the coach names to every
 //     exercise in a day (or, above the days, every day of the week) at once; its header's ✕ takes it off the day.
 //     They're the same extra boxes the Boxes view's "+" adds one exercise at a time.
+//   - A week's days sit side by side, the weeks one under another; the builder's size buttons (Fit week…) apply.
+//     The ↗ on a day, or beside a block's label, opens "Progress across the weeks" (program_progress.js).
 //   - "+ EDT" under a block's first exercise makes the block an EDT, with its minutes in a box of their own (the
 //     same setting as the Boxes view's "EDT block"); the block's other rows say they're in it. Accumulate shows
 //     under the exercise name and is edited in the Boxes view.
@@ -230,7 +232,7 @@
     );
   }
 
-  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur }) {
+  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress }) {
     const rootRef = useRef(null);
     const pending = useRef(null); // the cell to move into once a new row is drawn
     const [note, setNote] = useState("");
@@ -357,11 +359,13 @@
     };
 
     return (
-      <div className="pt-days" ref={rootRef} onKeyDown={onKey} onPaste={onPaste}>
+      <div className="pt-week" ref={rootRef} onKeyDown={onKey} onPaste={onPaste}>
         <div className="pt-weekbar">
           {colMenu(null)}
           {note && <span className="pt-note">{note}</span>}
         </div>
+        {/* the week's days side by side (program-days: the builder's size buttons and Fit week apply) */}
+        <div className="program-days pt-days">
         {week.sessions.map((session, si) => {
           const labels = window.exerciseLabels(session.exercises);
           const xcols = extraColsOf(session);
@@ -375,6 +379,7 @@
             <div className="pt-day" key={si}>
               <div className="pt-day-head">
                 <input className="program-session-name" value={session.name || ""} aria-label="Day name" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].name = v; }); }} />
+                {onProgress && <button className="btn-link pt-day-progress" title="Progress this day across the weeks: every week's sets, reps and intensity side by side" aria-label="Progress this day across the weeks" onClick={() => onProgress(si, null)}>↗</button>}
                 {colMenu(si)}
                 <button className="btn btn-small-grey" title="Copies this day's rows, to paste into Google Sheets or Excel" onClick={() => copyDay(si)}>Copy for Sheets</button>
                 <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
@@ -382,7 +387,7 @@
               <textarea className="program-warmup pt-warmup" rows={1} value={session.warmup || ""} placeholder="Warm-up (optional), shown above A1" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].warmup = v; }); }} />
               {/* wider than the day when it has many columns: the exercise column keeps at least 160px, and the table scrolls */}
               <div className="pt-scroll">
-              <table className="pt-table" style={{ minWidth: 34 + 160 + 50 + 70 + 76 + 26 + 72 * 2 + 86 * xcols.length + 170 + 22 }}>
+              <table className="pt-table" style={{ minWidth: 34 + 140 + 50 + 70 + 76 + 26 + 72 * 2 + 86 * xcols.length + 130 + 22 }}>
                 <thead>
                   <tr>
                     <th className="pt-lab" /><th>Exercise</th><th className="pt-setsh">Sets</th><th className="pt-repsh">Reps</th><th className="pt-inth">Intensity</th><th className="pt-ln" />
@@ -412,6 +417,7 @@
                                 {ei > 0 ? (
                                   <button className={`pt-label ${linked ? "on" : ""}`} title={linked ? `${lab}: supersetted with the row above. Click to make it a block of its own.` : `${lab}: click to superset it with the row above`} onClick={() => setEx(ei, "linked", !ex.linked)}>{lab}</button>
                                 ) : <span className="pt-label">{lab}</span>}
+                                {!linked && onProgress && <button className="pt-progress" tabIndex={-1} title={`Progress the ${letter} series across the weeks`} onClick={() => onProgress(si, letter)}>↗</button>}
                               </td>
                               <td rowSpan={n}>
                                 {cell(ex, ei, "name", { className: "pt-name", list: "exercise-library-names", placeholder: "Exercise", onFocus: () => onNameFocus && onNameFocus(wi, si, ei, ex.name), onBlur: () => onNameBlur && onNameBlur(wi, si, ei) })}
@@ -474,6 +480,7 @@
         {week.sessions.length < maxDays && (
           <button className="program-add-day pt-add-day" onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < maxDays) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>
         )}
+        </div>
       </div>
     );
   }

@@ -3940,7 +3940,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .pe-extras .pe-tag { margin-left: 0; }
 
 /* ---- program builder, Table view (program_table.js): each day as a spreadsheet ---- */
-.pt-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(620px, 1fr)); gap: 14px; padding: 10px 0 6px; align-items: start; }
+.pt-days { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(600px, 1fr); gap: 14px; padding: 10px 0 6px; align-items: start; overflow-x: auto; }
 .pt-day { border: 1px solid rgba(165, 42, 52, 0.55); border-radius: 8px; background: var(--panel); overflow: hidden; }
 .pt-day-head { display: flex; align-items: center; gap: 8px; background: var(--dst-red); padding: 6px 10px; }
 .pt-day-head .program-session-name { flex: 1; min-width: 0; color: #fff; border-bottom-color: rgba(255, 255, 255, 0.45); }
@@ -3951,7 +3951,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .pt-table th { text-align: left; font-weight: 500; font-size: 11px; color: var(--text-dim); padding: 4px 6px; border-bottom: 1px solid var(--border); }
 .pt-table td { border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); padding: 0; vertical-align: top; }
 .pt-table td:first-child { border-left: none; }
-.pt-table th.pt-noteh { width: 170px; }
+.pt-table th.pt-noteh { width: 130px; }
 .pt-table th.pt-sh { width: 72px; }
 .pt-scroll { overflow-x: auto; }
 .pt-table .pt-lab { width: 34px; text-align: center; }
@@ -3977,7 +3977,7 @@ button.pt-label.on { color: var(--dst-red); }
 .pt-more { font-size: 11px; color: var(--text-dim); padding: 0 6px 5px; }
 .pt-add { margin: 6px 8px 8px; }
 .pt-add-day { min-height: 60px; }
-.pt-weekbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pt-weekbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pt-note { font-size: 12px; color: var(--text-dim); }
 .pt-addcol { font-size: 11.5px; padding: 3px 6px; border-radius: 6px; background: var(--btn-bg); color: var(--text); border: 1px solid var(--input-border); cursor: pointer; }
 .pt-day-head .pt-addcol { background: rgba(0, 0, 0, 0.25); color: #fff; border-color: rgba(255, 255, 255, 0.4); }
@@ -3996,3 +3996,41 @@ button.pt-label.on { color: var(--dst-red); }
 .pt-edt-add { display: block; margin: 0 6px 4px; padding: 0; background: none; border: none; color: var(--text-dim); font-size: 11px; cursor: pointer; opacity: 0.35; }
 .pt-table tbody:hover .pt-edt-add { opacity: 1; }
 .pt-edt-add:hover { color: var(--text); text-decoration: underline; }
+/* "Progress across the weeks": the ↗ on a day or series, and its pop-up (program_progress.js) */
+.program-editor .program-day .program-session-head .program-progress-btn, .pt-day-progress { flex: 0 0 auto; color: #fff; font-weight: 700; font-size: 14px; padding: 0 4px; }
+.pt-progress { display: block; margin: -4px auto 4px; padding: 0 3px; background: none; border: none; color: var(--text-dim); font-size: 12px; font-weight: 700; cursor: pointer; opacity: 0.45; border-radius: 4px; }
+.pt-table tbody:hover .pt-progress { opacity: 1; }
+.pt-progress:hover { color: var(--text); background: var(--overlay-soft); }
+.zoom-modal.pp-dialog { width: min(1400px, 96vw); max-width: 96vw; max-height: 90vh; display: flex; flex-direction: column; padding: 16px 18px; }
+.pp-head { display: flex; align-items: center; gap: 10px; }
+.pp-head h2 { margin: 0; font-size: 18px; flex: 1; }
+.pp-close { font-size: 16px; }
+.pp-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.pp-bar .btn { margin: 0; padding: 3px 9px; font-size: 12px; }
+.pp-chips { display: inline-flex; gap: 0; }
+.pp-chip { padding: 4px 11px; font-size: 12px; border: 1px solid var(--input-border); background: var(--btn-bg); color: var(--text); cursor: pointer; margin-left: -1px; }
+.pp-chip:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.pp-chip:last-child { border-radius: 0 6px 6px 0; }
+.pp-chip.on { background: var(--dst-red); border-color: var(--dst-red); color: #fff; }
+.pp-tool { font-size: 12px; padding: 3px 6px; border-radius: 6px; background: var(--btn-bg); color: var(--text); border: 1px solid var(--input-border); cursor: pointer; max-width: 160px; }
+.pp-tool option { color: #111; background: #fff; }
+.pp-note { font-size: 12px; color: var(--text-dim); }
+.pp-scroll { overflow: auto; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 8px; }
+.pp-table { display: table; overflow: visible; border-collapse: collapse; font-size: 13px; width: max-content; min-width: 100%; }
+.pp-table th, .pp-table td { border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); padding: 5px 6px; vertical-align: top; text-align: left; }
+.pp-table thead th { position: sticky; top: 0; background: var(--panel); z-index: 2; font-size: 11.5px; color: var(--text-dim); font-weight: 600; white-space: nowrap; }
+.pp-table th.pp-ex, .pp-table th.pp-exh { position: sticky; left: 0; background: var(--panel); z-index: 1; min-width: 190px; max-width: 230px; white-space: normal; }
+.pp-table thead th.pp-exh { z-index: 3; }
+.pp-table tr.pp-blockstart > * { border-top: 2px solid var(--border); }
+.pp-label { display: inline-block; min-width: 24px; font-weight: 700; color: var(--text-dim); font-size: 12px; }
+.pp-name { font-weight: 600; }
+.pp-ex .pp-tool { display: block; margin-top: 5px; }
+.pp-line { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; white-space: nowrap; }
+.pp-line span { color: var(--text-dim); font-size: 11px; }
+.pp-in { box-sizing: border-box; padding: 3px 4px; font: inherit; font-size: 12.5px; border: 1px solid var(--input-border); border-radius: 4px; background: var(--input-bg); color: var(--text); text-align: center; }
+.pp-in:focus { outline: none; border-color: var(--dst-red); box-shadow: 0 0 0 1px var(--dst-red); }
+.pp-sets { width: 36px; } .pp-reps { width: 50px; } .pp-int { width: 62px; }
+.pp-x { font-size: 10px; padding: 0 2px !important; color: var(--text-dim); }
+.pp-addline { font-size: 11px; color: var(--text-dim); padding: 0 !important; }
+.pp-none { color: var(--text-dim); text-align: center !important; }
+.pp-other { font-size: 11px; color: var(--warn); margin-bottom: 3px; white-space: nowrap; }

@@ -71,6 +71,7 @@
 <script type="text/babel" data-presets="react" src="ovr_import.js"></script>
 <script type="text/babel" data-presets="react" src="speed_builder.js"></script>
 <script type="text/babel" data-presets="react" src="program_table.js"></script>
+<script type="text/babel" data-presets="react" src="program_progress.js"></script>
 <script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="form_checks.js"></script>
@@ -1479,6 +1480,11 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView") || "boxes"; } catch (e) { return "boxes"; } });
   const setView = (v) => { setViewState(v); try { localStorage.setItem("programView", v); } catch (e) { /* not remembered */ } };
   const tableView = view === "table" && !!window.ProgramTableWeek;
+  // "Progress across the weeks" (program_progress.js): one day, or one series of it, every week side by side
+  const [progress, setProgress] = useState(null); // { si, letter } while it's open
+  const progressBtn = (si) => window.ProgramProgressDialog && (
+    <button className="btn-link program-progress-btn" title="Progress this day across the weeks: every week's sets, reps and intensity side by side" aria-label="Progress this day across the weeks" onClick={() => setProgress({ si, letter: null })}>↗</button>
+  );
   React.useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
@@ -1751,7 +1757,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
           </span>
         )}
         {/* how big the days are drawn: smaller fits more across; Fit week shrinks each week just enough to show all its days */}
-        <span className="program-zoom" role="group" aria-label="Size" style={tableView ? { display: "none" } : undefined}>
+        <span className="program-zoom" role="group" aria-label="Size">
           {[["1", "100%"], ["0.85", "85%"], ["0.7", "70%"], ["fit", "Fit week"]].map(([v, label]) => (
             <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
           ))}
@@ -1851,6 +1857,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
               maxDays={MAX_DAYS}
               onNameFocus={(w, s, e, name) => { nameAtFocus.current = { wi: w, si: s, ei: e, name }; }}
               onNameBlur={(w, s, e) => offerSwapForward(w, s, e)}
+              onProgress={window.ProgramProgressDialog ? (s, letter) => setProgress({ si: s, letter: letter || null }) : null}
             />
           ) : (
           /* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),
@@ -1893,6 +1900,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                     >⠿</span>
                     <input type="checkbox" className="program-tick" title="Tick this whole day: to copy it (Ctrl+C), or as the day to paste into (Ctrl+V)" aria-label={`Select ${session.name || `Day ${si + 1}`}`} checked={dayTicked(wi, si)} onChange={() => toggleDay(wi, si)} />
                     {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
+                    {progressBtn(si)}
                     {/* a box on every exercise in this day at once (addToDay) */}
                     <select className="pe-day-more" value="" title="Add a box to every exercise in this day: tempo, rest, intensity, time, distance…" aria-label="Add a box to every exercise in this day" onChange={(e) => addToDay(wi, si, e.target.value)}>
                       <option value="" disabled hidden>+ all</option>
@@ -1939,9 +1947,15 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                           className="superset-pick"
                           value="__here__"
                           title="Change which superset this exercise belongs to"
-                          onChange={(e) => e.target.value !== "__here__" && edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises = moveToSuperset(s.exercises, ei, e.target.value); })}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "__here__") return;
+                            if (v === "__progress__") { setProgress({ si, letter: labels[ei].replace(/\d+\.$/, "") }); return; }
+                            edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises = moveToSuperset(s.exercises, ei, v); });
+                          }}
                         >
                           <option value="__here__">{labels[ei]}</option>
+                          {window.ProgramProgressDialog && <option value="__progress__">↗ Progress the {labels[ei].replace(/\d+\.$/, "")} series across the weeks…</option>}
                           {[...new Set(labels.map((l) => l.replace(/\d+\.$/, "")))].filter((l) => l !== labels[ei].replace(/\d+\.$/, "")).map((l) => <option key={l} value={l}>Move to {l}</option>)}
                           <option value="__new__">Its own superset</option>
                         </select>
@@ -2119,6 +2133,18 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
       ))}
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
+      {progress && window.ProgramProgressDialog && (
+        <window.ProgramProgressDialog
+          weeks={draft.weeks}
+          si={progress.si}
+          letter={progress.letter}
+          onLetter={(l) => setProgress((p) => ({ ...p, letter: l }))}
+          edit={edit}
+          undo={undo}
+          canUndo={history.current.past.length > 0}
+          onClose={() => setProgress(null)}
+        />
+      )}
       {/* changed an exercise that also sits in the same spot in other weeks: change it there too? */}
       {swapAsk && ReactDOM.createPortal(
         <div className="zoom-overlay" onClick={() => setSwapAsk(null)}>
