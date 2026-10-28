@@ -2056,7 +2056,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                       {INTENSITY_UNITS.map(([v, label]) => <option key={v} value={v} title={label}>{v || "None"}</option>)}
                                     </select>
                                   )}
-                                  {gi === 0 && showTempo && input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "pe-num pe-wide", maxLength: 6, autoFocus: isOpen("tempo") && !ex.tempo, title: "Tempo, optional: eccentric, pause, concentric. 40* = 4 seconds down, no pause, explosive up.", style: { gridColumn: "tempo" }, "data-cell": "tempo", "data-row": `${ei}.${gi}` })}
+                                  {gi === 0 && showTempo && input(ex.tempo, (v) => setEx(ei, "tempo", v), { placeholder: "Tempo", className: "pe-num pe-wide", maxLength: 10, autoFocus: isOpen("tempo") && !ex.tempo, title: "Tempo: eccentric, iso, concentric. 30* = 3 seconds down, no pause, explosive up; *5* (or 050) = a 5-second iso; 6-1 = descending isos from 6 seconds to 1, 6-1-6 down and back up.", style: { gridColumn: "tempo" }, "data-cell": "tempo", "data-row": `${ei}.${gi}` })}
                                   {gi === 0 && showRest && input(ex.rest, (v) => setEx(ei, "rest", v), { placeholder: "Rest", className: "pe-num pe-wide", autoFocus: isOpen("rest") && !ex.rest, title: "Rest", style: { gridColumn: "rest" }, "data-cell": "rest", "data-row": `${ei}.${gi}` })}
                                   {/* "+" at the end of the first line: a menu of what can be added (only what isn't showing yet) */}
                                   {gi === 0 && (

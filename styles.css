@@ -4063,7 +4063,7 @@ button.pt-label.on { color: var(--dst-red); }
 /* the program builder and the plan's program panel take focus when clicked (so Ctrl+Z there is the builder's, not the chart's) */
 .program-editor:focus, .period-program-tabs:focus { outline: none; }
 /* Table views: each block (A1, A2…) or series in a color of its own, with a box around it (program_table.js, speed_builder.js) */
-.pt-table tbody.pt-boxed > tr > td { background-color: color-mix(in srgb, var(--blk) 9%, transparent); }
+.pt-table tbody.pt-boxed > tr > td { background-color: color-mix(in srgb, var(--blk) 6%, transparent); }
 .pt-table tbody.pt-boxed > tr > td.pt-lab, .pt-table tbody.spt-series > tr > td:first-child { border-left: 2px solid var(--blk); }
 .pt-table tbody.pt-boxed > tr > td.pt-del, .pt-table tbody.spt-series > tr > td:last-child { border-right: 2px solid var(--blk); }
 .pt-table tbody.pt-boxed.pt-bstart > tr:first-child > td, .pt-table tbody.spt-series > tr:first-child > td { border-top: 2px solid var(--blk); }
@@ -4084,3 +4084,9 @@ button.pt-label.on { color: var(--dst-red); }
 .spt-table .spt-unclear { color: var(--warn); }
 .spt-table .spd-sec-desc { width: 100%; box-sizing: border-box; margin-top: 4px; }
 .spt-day .thr-levels { margin: 6px 8px; }
+/* the lines between a table's cells (Sets | Reps | Intensity…), clear on the colored blocks too */
+.pt-table { --cell-line: rgba(255, 255, 255, 0.2); }
+:root[data-theme="light"] .pt-table { --cell-line: rgba(0, 0, 0, 0.2); }
+.pt-table td { border-left-color: var(--cell-line); border-bottom-color: var(--cell-line); }
+.pt-table tr.pt-subline > td { border-top-color: var(--cell-line); }
+.pt-table th { border-bottom-color: var(--cell-line); }

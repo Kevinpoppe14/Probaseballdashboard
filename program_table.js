@@ -621,7 +621,7 @@
                           </td>
                           {gi === 0 && (
                             <React.Fragment>
-                              {sh.tempo && <td rowSpan={n}>{cell(ex, ei, "tempo", { className: "pt-short", maxLength: 6 })}</td>}
+                              {sh.tempo && <td rowSpan={n}>{cell(ex, ei, "tempo", { className: "pt-short", maxLength: 10, title: "Tempo: eccentric, iso, concentric. 30* = 3 seconds down, no pause, explosive up; *5* (or 050) = a 5-second iso; 6-1 = descending isos from 6 seconds to 1, 6-1-6 down and back up." })}</td>}
                               {sh.rest && <td rowSpan={n}>{cell(ex, ei, "rest", { className: "pt-short" })}</td>}
                               {xcols.map((l, xi) => {
                                 const i = extraIndex(ex, l);
