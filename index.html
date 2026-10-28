@@ -1872,8 +1872,11 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                     >
                       <div className="program-ex-top">
                         {/* ticks the whole block (this exercise and any supersetted under it), for copy and paste */}
-                        {!(ei > 0 && ex.linked) && (
+                        {!(ei > 0 && ex.linked) ? (
                           <input type="checkbox" className="program-tick" title={`Tick the whole ${labels[ei].replace(/[^A-Za-z]/g, "")} block: to copy it (Ctrl+C), or to paste into this day (Ctrl+V)`} aria-label={`Select the ${labels[ei].replace(/[^A-Za-z]/g, "")} block`} checked={blockTicked(wi, si, ei)} onChange={() => toggleBlock(wi, si, ei)} />
+                        ) : (
+                          // A2, A3… keep the tick's room, so their labels and names line up under A1's
+                          <input type="checkbox" className="program-tick" style={{ visibility: "hidden" }} tabIndex={-1} aria-hidden="true" disabled />
                         )}
                         {/* the label is a picker: choose another letter to move this exercise into that superset */}
                         <select
@@ -1891,10 +1894,10 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                           const letter = (i) => (labels[i] || "").replace(/\d+\.$/, "");
                           const canUp = ei > 0 && letter(ei - 1) === letter(ei);
                           const canDown = ei < session.exercises.length - 1 && letter(ei + 1) === letter(ei);
-                          if (!canUp && !canDown) return null;
                           const move = (dir) => edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises = swapInSuperset(s.exercises, ei, dir); });
+                          // an exercise on its own keeps the arrows' room (hidden), so its name lines up with the others
                           return (
-                            <span className="superset-order">
+                            <span className="superset-order" style={!canUp && !canDown ? { visibility: "hidden" } : undefined} aria-hidden={!canUp && !canDown ? "true" : undefined}>
                               <button title="Move earlier in this superset" disabled={!canUp} onClick={() => move(-1)}>▲</button>
                               <button title="Move later in this superset" disabled={!canDown} onClick={() => move(1)}>▼</button>
                             </span>
