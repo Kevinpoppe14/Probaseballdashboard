@@ -481,8 +481,8 @@
     // Drill, Sets, Reps, the distance or time for each rep (Time on a re-ed day), a weight (ball weight on a throwing
     // day), a column for each box the day's drills have (Throws, Time, Height…, "+ Column" adds one to every drill in
     // the day), and Notes. Enter and the up / down arrows move down and up a column, Tab across.
-    const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView") || "boxes"; } catch (e) { return "boxes"; } });
-    const setView = (v) => { setViewState(v); try { localStorage.setItem("programView", v); } catch (e) { /* not remembered */ } };
+    const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView2") || "table"; } catch (e) { return "table"; } });
+    const setView = (v) => { setViewState(v); try { localStorage.setItem("programView2", v); } catch (e) { /* not remembered */ } };
     const tableView = view === "table";
     const SERIES_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#ec4899", "#84cc16"];
     const xLabelsOf = (s) => { const m = new Map(); (s.exercises || []).forEach((e) => (e.extras || []).forEach((x) => { const l = (x.label || "").trim(); if (l && !m.has(l.toLowerCase())) m.set(l.toLowerCase(), l); })); return [...m.values()]; };

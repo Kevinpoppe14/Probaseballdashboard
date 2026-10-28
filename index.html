@@ -1479,8 +1479,10 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const setZoom = (v) => { setZoomMode(v); try { localStorage.setItem("programZoom", v); } catch (e) { /* not remembered */ } };
   // Boxes (the days side by side, below) or Table (program_table.js: each day as a spreadsheet). The same program
   // either way; the choice is remembered.
-  const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView") || "boxes"; } catch (e) { return "boxes"; } });
-  const setView = (v) => { setViewState(v); try { localStorage.setItem("programView", v); } catch (e) { /* not remembered */ } };
+  // Table is where a program starts (Boxes is a click away, and the choice is remembered). The key is programView2 so
+  // that everyone starts on Table once, whatever they last picked under the old key.
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView2") || "table"; } catch (e) { return "table"; } });
+  const setView = (v) => { setViewState(v); try { localStorage.setItem("programView2", v); } catch (e) { /* not remembered */ } };
   const tableView = view === "table" && !!window.ProgramTableWeek;
   // "Progress across the weeks" (program_progress.js): one day, or one series of it, every week side by side
   const [progress, setProgress] = useState(null); // { si, letter } while it's open
