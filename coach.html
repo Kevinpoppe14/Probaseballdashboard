@@ -82,6 +82,7 @@
   .who-pick span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .who-x { flex: 0 0 36px; height: 36px; background: none; border: none; font-size: 18px; color: var(--dim); }
   .who.on .who-x { color: #fff; }
+  .side-foot #me { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); font-size: 12px; color: var(--dim); }
   .side-foot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-foot button { background: none; border: none; text-decoration: underline; color: var(--dim); font-size: 12px; flex: 0 0 auto; }
@@ -208,7 +209,7 @@
   /* the side bars fold away: the athletes to a slim edge on the left (‹ / ›), the day summary on the right (› / ‹) */
   .side-close, .side-rail, .pv-toggle { display: none; }
   @media (min-width: 781px) {
-    .side-close { display: block; margin-left: 4px; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border-radius: 7px; border: 1px solid #444; background: none; color: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
+    .side-close { display: block; flex: 0 0 auto; height: 26px; padding: 0 9px; margin-right: 8px; border-radius: 7px; border: 1px solid #444; background: none; color: inherit; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
     .side-close:hover, .pv-toggle:hover { border-color: #888; }
     .board.side-closed { grid-template-columns: 30px 1fr; }
     .board.side-closed .side > *:not(.side-rail) { display: none; }
@@ -263,7 +264,7 @@
   <aside class="side">
     <!-- the side bar folds away to a slim edge (‹), and comes back from it (›); remembered on this device -->
     <button class="side-rail" id="side-open" type="button" title="Show the athletes" aria-label="Show the athletes side bar">›</button>
-    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a><button class="side-close" id="side-close" type="button" title="Hide the athletes (more room for the program)" aria-label="Hide the athletes side bar">‹</button></div>
+    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
     <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button></div>
     <div class="add">
       <select id="grp" aria-label="Groups"><option value="">Groups</option></select>
@@ -272,7 +273,7 @@
       <div class="results" id="results" hidden></div>
     </div>
     <div class="list" id="list"></div>
-    <div class="side-foot"><span id="me"></span><button id="signout">Sign out</button></div>
+    <div class="side-foot"><button class="side-close" id="side-close" type="button" title="Hide the athletes (more room for the program)" aria-label="Hide the athletes side bar">‹ Hide</button><span id="me"></span><button id="signout">Sign out</button></div>
   </aside>
   <main class="stage" id="stage"></main>
   <!-- the day as plain text beside the program (wide screens) folds away too -->
