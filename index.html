@@ -58,6 +58,7 @@
 <script src="tour.js"></script>
 <script src="program_rx.js"></script>
 <script src="program_pdf.js"></script>
+<script type="text/babel" data-presets="react" src="app_ask.js"></script>
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
@@ -1688,12 +1689,12 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
       openAll("int");
       return;
     }
-    const label = what === "custom" ? (window.prompt("Name the new box (for example Height, Load, Distance, Holds):") || "").trim().slice(0, 20) : what.replace(/^x:/, "");
-    if (!label) return;
-    edit((d) => d.weeks[wi].sessions[si].exercises.forEach((e) => {
+    const addAll = (label) => label && edit((d) => d.weeks[wi].sessions[si].exercises.forEach((e) => {
       const extras = Array.isArray(e.extras) ? e.extras : [];
       if (!extras.some((x) => (x.label || "").toLowerCase() === label.toLowerCase())) e.extras = [...extras, { label, value: "" }];
     }));
+    if (what === "custom") window.askText({ title: "New box on every exercise", text: `Added to every exercise in ${draft.weeks[wi].sessions[si].name || `Day ${si + 1}`}.`, placeholder: "Height, Load, Holds…", maxLength: 20 }).then(addAll);
+    else addAll(what.replace(/^x:/, ""));
   };
   const input = (value, onChange, props = {}) => (
     <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
@@ -2019,8 +2020,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                           else if (what === "notes") setNotesOpen(ex.id);
                           else if (what === "tempo" || what === "rest") open(what);
                           else if (what === "custom") {
-                            const label = (window.prompt("Name the new box (for example Height, Load, Distance, Holds):") || "").trim().slice(0, 20);
-                            if (label) addExtra(label);
+                            window.askText({ title: "New box", text: `Added to ${ex.name || "this exercise"}.`, placeholder: "Height, Load, Holds…", maxLength: 20 }).then((label) => { if (label) addExtra(label); });
                           } else if (what.startsWith("x:")) addExtra(what.slice(2));
                           else if (what === "edt") setEx(ei, "edt", "");
                           else if (what === "acc") setEx(ei, "accumulate", true);

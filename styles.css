@@ -3940,7 +3940,7 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .pe-extras .pe-tag { margin-left: 0; }
 
 /* ---- program builder, Table view (program_table.js): each day as a spreadsheet ---- */
-.pt-days { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(600px, 1fr); gap: 14px; padding: 10px 0 6px; align-items: start; overflow-x: auto; }
+.pt-days { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(700px, 1fr); gap: 14px; padding: 10px 0 6px; align-items: start; overflow-x: auto; }
 .pt-day { border: 1px solid rgba(165, 42, 52, 0.55); border-radius: 8px; background: var(--panel); overflow: hidden; }
 .pt-day-head { display: flex; align-items: center; gap: 8px; background: var(--dst-red); padding: 6px 10px; }
 .pt-day-head .program-session-name { flex: 1; min-width: 0; color: #fff; border-bottom-color: rgba(255, 255, 255, 0.45); }
@@ -3976,7 +3976,7 @@ button.pt-label.on { color: var(--dst-red); }
 .pt-linked .pt-lab { border-left: 3px solid var(--dst-red); }
 .pt-more { font-size: 11px; color: var(--text-dim); padding: 0 6px 5px; }
 .pt-add { margin: 6px 8px 8px; }
-.pt-add-day { min-height: 60px; }
+.pt-weekbar .pt-add-day { margin: 0; padding: 3px 10px; font-size: 12px; }
 .pt-weekbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pt-note { font-size: 12px; color: var(--text-dim); }
 .pt-addcol { font-size: 11.5px; padding: 3px 6px; border-radius: 6px; background: var(--btn-bg); color: var(--text); border: 1px solid var(--input-border); cursor: pointer; }
@@ -4034,3 +4034,12 @@ button.pt-label.on { color: var(--dst-red); }
 .pp-addline { font-size: 11px; color: var(--text-dim); padding: 0 !important; }
 .pp-none { color: var(--text-dim); text-align: center !important; }
 .pp-other { font-size: 11px; color: var(--warn); margin-bottom: 3px; white-space: nowrap; }
+/* the app's own question boxes (app_ask.js), in place of the browser's prompt / confirm */
+.zoom-modal.app-ask { width: min(420px, 92vw); max-width: 92vw; padding: 18px 20px; }
+.app-ask h2 { margin: 0 0 6px; font-size: 17px; }
+.app-ask p { margin: 0 0 10px; font-size: 13.5px; color: var(--text-dim); line-height: 1.45; }
+.app-ask input { width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit; font-size: 14px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text); }
+.app-ask input:focus { outline: none; border-color: var(--dst-red); box-shadow: 0 0 0 1px var(--dst-red); }
+.app-ask-actions { display: flex; gap: 8px; margin-top: 14px; }
+.app-ask-actions .btn { margin: 0; }
+.app-ask .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }

@@ -258,16 +258,21 @@
     const colKey = (session, col) => { const m = /^x(\d+)$/.exec(col); return m ? `x:${extraColsOf(session)[Number(m[1])]}` : col; };
     // "+ Column": Time, Distance, Speed or a box the coach names, on every exercise of one day (si) or of the week
     const addCol = (si, what) => {
-      const label = what === "custom" ? (window.prompt("Name the new column (for example Height, Load, Holds):") || "").trim().slice(0, 20) : what;
-      if (!label) return;
-      edit((d) => (si == null ? d.weeks[wi].sessions : [d.weeks[wi].sessions[si]]).forEach((s) => addColumn(s, label)));
-      setNote(`${label} added to every exercise ${si == null ? "this week" : `in ${week.sessions[si].name || `Day ${si + 1}`}`}. Leave a box empty for the athlete to write in their own.`);
+      const where = si == null ? "this week" : `in ${week.sessions[si].name || `Day ${si + 1}`}`;
+      const add = (label) => {
+        if (!label) return;
+        edit((d) => (si == null ? d.weeks[wi].sessions : [d.weeks[wi].sessions[si]]).forEach((s) => addColumn(s, label)));
+        setNote(`${label} added to every exercise ${where}. Leave a box empty for the athlete to write in their own.`);
+      };
+      if (what === "custom") window.askText({ title: "New column", text: `Added to every exercise ${where}.`, placeholder: "Height, Load, Holds…", maxLength: 20 }).then(add);
+      else add(what);
     };
     const dropCol = (si, label) => {
       const s = week.sessions[si];
       const filled = s.exercises.filter((ex) => { const i = extraIndex(ex, label); return i >= 0 && `${ex.extras[i].value || ""}`.trim(); }).length;
-      if (filled && !window.confirm(`Remove the ${label} column from ${s.name || `Day ${si + 1}`}? ${filled} exercise${filled === 1 ? " has" : "s have"} something in it. (Ctrl+Z undoes it.)`)) return;
-      edit((d) => removeColumn(d.weeks[wi].sessions[si], label));
+      const drop = () => edit((d) => removeColumn(d.weeks[wi].sessions[si], label));
+      if (!filled) { drop(); return; }
+      window.askConfirm({ title: `Remove the ${label} column?`, text: `${filled} exercise${filled === 1 ? " has" : "s have"} something in it in ${s.name || `Day ${si + 1}`}. Ctrl+Z undoes it.`, ok: "Remove", danger: true }).then((yes) => { if (yes) drop(); });
     };
     const colMenu = (si) => (
       <select className="pt-addcol" value="" title={si == null ? "Add a column to every exercise on every day of this week" : "Add a column to every exercise in this day"} onChange={(e) => addCol(si, e.target.value)}>
@@ -361,6 +366,9 @@
     return (
       <div className="pt-week" ref={rootRef} onKeyDown={onKey} onPaste={onPaste}>
         <div className="pt-weekbar">
+          {week.sessions.length < maxDays && (
+            <button className="btn btn-small-grey pt-add-day" onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < maxDays) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>
+          )}
           {colMenu(null)}
           {note && <span className="pt-note">{note}</span>}
         </div>
@@ -477,9 +485,6 @@
             </div>
           );
         })}
-        {week.sessions.length < maxDays && (
-          <button className="program-add-day pt-add-day" onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < maxDays) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>
-        )}
         </div>
       </div>
     );

@@ -160,8 +160,9 @@
     const sess = (d, wi, si) => d.weeks[wi].sessions[si];
     const sameDayEveryWeek = (d, si, fn) => d.weeks.forEach((w, wi) => { if (w.sessions[si]) fn(w.sessions[si], wi); });
     const addSection = (si) => {
-      const name = (window.prompt("Section name (e.g. Core / MB / Upper RNT)") || "").trim();
-      if (name) edit((d) => sameDayEveryWeek(d, si, (s) => { if (!s.sections.some((x) => x.name === name)) s.sections.push({ name, time: "" }); }));
+      window.askText({ title: "New section", text: "Added to this day in every week.", placeholder: "Core / MB / Upper RNT" }).then((name) => {
+        if (name) edit((d) => sameDayEveryWeek(d, si, (s) => { if (!s.sections.some((x) => x.name === name)) s.sections.push({ name, time: "" }); }));
+      });
     };
     const renameSection = (si, oldName, name) => edit((d) => sameDayEveryWeek(d, si, (s) => {
       s.sections.forEach((x) => { if (x.name === oldName) x.name = name; });
@@ -191,8 +192,7 @@
       xs.splice(last >= 0 ? last + 1 : xs.length, 0, drill);
     });
     const addSeries = (wi, si, section) => {
-      const name = (window.prompt("Series name (e.g. Acceleration Series - Prowler)") || "").trim();
-      if (name) addDrill(wi, si, section, name);
+      window.askText({ title: "New series", text: `In ${section}.`, placeholder: "Acceleration Series - Prowler" }).then((name) => { if (name) addDrill(wi, si, section, name); });
     };
     const renameSeries = (wi, si, section, oldName, name) => edit((d) => sess(d, wi, si).exercises.forEach((e) => { if (e.section === section && (e.series || "") === oldName) e.series = name; }));
     const setDrill = (wi, si, index, patch) => edit((d) => Object.assign(sess(d, wi, si).exercises[index], patch));
@@ -381,7 +381,7 @@
                             <select className="pe-more spd-more" value="" title="Add a box (time, height, distance, speed, or one you name) or a note" onChange={(ev) => {
                               const v = ev.target.value;
                               if (v === "note") setOpened((o) => ({ ...o, [`note|${e.id}`]: true }));
-                              else if (v === "custom") { const label = (window.prompt("Name the new box (for example Height, Load, Holds):") || "").trim().slice(0, 20); if (label) addExtra(wi, si, index, label); }
+                              else if (v === "custom") window.askText({ title: "New box", text: `Added to ${e.name || "this drill"}.`, placeholder: "Height, Load, Holds…", maxLength: 20 }).then((label) => { if (label) addExtra(wi, si, index, label); });
                               else if (v) addExtra(wi, si, index, v);
                             }}>
                               <option value="" disabled hidden>+</option>
