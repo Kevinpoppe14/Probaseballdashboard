@@ -274,6 +274,7 @@
     const p = program || {}, names = laneNames || [];
     const top = String(p.folder || "").split("/")[0];
     const kinds = [
+      { name: "Re-Education", is: () => p.layout === "reed", row: /re-?ed|correct/i }, // (a re-ed program, layout "reed", is laid out like a speed one but isn't speed)
       { name: "Speed", is: () => p.layout !== "throwing" && ((window.isSpeedProgram && window.isSpeedProgram(p)) || /speed|sprint/i.test(top)), row: /^speed/i },
       { name: "Arm Care", is: () => /arm\s*care/i.test(`${p.folder || ""} ${p.name || ""}`), row: /arm\s*care/i },
       { name: "Throwing", is: () => p.layout === "throwing" || /throw/i.test(top), row: /throw/i }, // (a throwing program, layout "throwing", even outside the Throwing folder)
@@ -292,7 +293,8 @@
   // the builder's "+", Time, Height..., each with an optional target, that the athlete fills in in the app). The day keeps its sections' order and times, and an optional description shown at the top of the section in the app, in `sections` ([{ name, time, description }]).
   // (a speed day can also be only sections with a description, "Follow the script exactly", and no drills)
   window.isSpeedSession = (s) => !!s && ((s.exercises || []).some((e) => e && e.section) || (Array.isArray(s.sections) && s.sections.some((x) => x && `${x.description || ""}`.trim())));
-  window.isSpeedProgram = (p) => !!p && (p.layout === "speed" || (p.weeks || []).some((w) => (w.sessions || []).some(window.isSpeedSession)));
+  // (laid out in sections: a speed program, a throwing one, or a re-education one, layout "reed")
+  window.isSpeedProgram = (p) => !!p && (p.layout === "speed" || p.layout === "reed" || (p.weeks || []).some((w) => (w.sessions || []).some(window.isSpeedSession)));
   // "10 yd", "120 feet", "30m", "40 meters", "@7yds", "6 s", "6 seconds", "2 min", "1:30" -> { yards } or { seconds },
   // or null. A bare number counts as yards.
   window.speedParse = (text) => {

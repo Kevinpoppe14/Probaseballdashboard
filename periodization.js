@@ -756,6 +756,11 @@
                 const fresh = Kit.newThrowingProgram(Math.max(1, block.len), 3);
                 return { ...fresh, name: withLast(block.label || lane.name) };
               }
+              // and a Re-Ed / Correctives row's starts as a re-education program (sections and series)
+              if (Kit && Kit.newReedProgram && /re-?ed|correct/i.test(lane.name || "")) {
+                const fresh = Kit.newReedProgram(Math.max(1, block.len), 3);
+                return { ...fresh, name: withLast(block.label || lane.name) };
+              }
               return { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) };
             })()}
             onSave={save}

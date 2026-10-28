@@ -28,6 +28,9 @@
 (function () {
   const { useState, useRef, useEffect } = React;
   const LABEL_RE = /^[A-Z]{1,2}\d+\.?$/i, NUM_RE = /^\d+[a-z]?\.?$/i;
+  // a block's color, by its letter (A, B, C…), the same in every day
+  const BLOCK_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#ec4899", "#84cc16"];
+  const letterIndex = (l) => [...`${l || "A"}`.toUpperCase()].reduce((n, c) => n * 26 + (c.charCodeAt(0) - 64), 0) - 1;
   const blankGroup = () => ({ sets: "", reps: "", intensity: "" });
   const groupsOf = (ex) => { const g = window.ProgramRx.normalize(ex).groups; return g && g.length ? g : [blankGroup()]; };
   const ensureGroups = (e) => { if (!Array.isArray(e.groups)) Object.assign(e, window.ProgramRx.normalize(e)); if (!e.groups.length) e.groups = [blankGroup()]; };
@@ -557,7 +560,9 @@
                   const groups = groupsOf(ex), n = groups.length;
                   // one tbody per exercise: a row per set line, the exercise's own cells spanning them
                   return (
-                    <tbody key={ex.id || ei} className={linked ? "pt-linked" : ei > 0 ? "pt-block" : ""}>
+                    // each block (A1, A2…; then B1, B2…) in a color of its own, boxed: the box's top on its first exercise,
+                    // its bottom on its last
+                    <tbody key={ex.id || ei} className={`pt-boxed${linked ? " pt-linked" : ei > 0 ? " pt-block" : ""}${!linked ? " pt-bstart" : ""}${!(session.exercises[ei + 1] && session.exercises[ei + 1].linked) ? " pt-bend" : ""}`} style={{ "--blk": BLOCK_COLORS[letterIndex(letter) % BLOCK_COLORS.length] }}>
                       {groups.map((g, gi) => (
                         <tr key={gi} className={gi > 0 ? "pt-subline" : ""}>
                           {gi === 0 && (
@@ -647,5 +652,5 @@
   }
 
   window.ProgramTableWeek = ProgramTableWeek;
-  window.ProgramTableKit = { parseRx, rxText, parseSheet, applyRec, parseIntensity };
+  window.ProgramTableKit = { parseRx, rxText, parseSheet, applyRec, parseIntensity, WrapCell };
 })();

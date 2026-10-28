@@ -33,6 +33,12 @@
   const newThrowingDay = (n) => ({ name: `Day ${n}`, level: "", sections: THROW_SECTIONS.map((name) => ({ name, time: "" })), exercises: [] });
   const newThrowingProgram = (weeks = 4, days = 3) => ({ name: "", description: "", layout: "throwing", tags: [], nextProgramIds: [], weeks: Array.from({ length: weeks }, (_, w) => ({ name: `Week ${w + 1}`, sessions: Array.from({ length: days }, (_, d) => newThrowingDay(d + 1)) })) });
   const tpLabel = (d) => (d && d.level ? `${d.level}${d.text ? `-${d.text}` : ""}` : "OFF");
+  // ---- re-education programs: the same builder (layout "reed"), with re-ed sections, and each drill's sets, reps, a
+  // time for each rep (in `distance`, which also takes a time: "30 s", "1:00") and a weight ("135 lb", in `weight`).
+  // The athlete's app shows them in their sections and series like a speed day.
+  const REED_SECTIONS = ["Warm-up", "Re-Education", "Accessory", "Core Stability"];
+  const newReedDay = (n) => ({ name: `Day ${n}`, sections: REED_SECTIONS.map((name) => ({ name, time: "" })), exercises: [] });
+  const newReedProgram = (weeks = 4, days = 3) => ({ name: "", description: "", layout: "reed", tags: [], nextProgramIds: [], weeks: Array.from({ length: weeks }, (_, w) => ({ name: `Week ${w + 1}`, sessions: Array.from({ length: days }, (_, d) => newReedDay(d + 1)) })) });
   // the boxes a throwing drill can ask the athlete to fill in from the app (a target typed here shows beside the box):
   // the throws they actually made (on every throwing drill to start with), and where it applies a distance or velocity
   const THROW_BOXES = ["Throws", "Distance", "Velo"]; // (the phone asks for distance in ft and velo in mph; plain labels, as each box is saved under its label)
@@ -75,10 +81,12 @@
 
   function SpeedProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, kind, embedded }) {
     const THROW = kind === "throwing" || !!(initial && initial.layout === "throwing");
-    const blank = () => (THROW ? newThrowingProgram() : newSpeedProgram());
+    const REED = !THROW && (kind === "reed" || !!(initial && initial.layout === "reed"));
+    const LAYOUT = THROW ? "throwing" : REED ? "reed" : "speed";
+    const blank = () => (THROW ? newThrowingProgram() : REED ? newReedProgram() : newSpeedProgram());
     const [draft, setDraft] = useState(() => {
       const d = clone(initial && (initial.weeks || []).length ? initial : { ...blank(), ...(initial || {}), weeks: blank().weeks });
-      d.layout = THROW ? "throwing" : "speed";
+      d.layout = LAYOUT;
       d.weeks.forEach((w) => w.sessions.forEach((s) => { if (!Array.isArray(s.sections)) s.sections = window.speedSections(s).map((x) => ({ name: x.name, time: x.time })); s.exercises = (s.exercises || []).map((e) => {
         const n = window.speedNormalize(e); delete n.volume; delete n.category;
         // the old "Time" tick becomes a Time box, as if added with the "+"
@@ -118,7 +126,7 @@
     });
 
     // ---- saving: the same autosave as the standard builder (a moment after each change, and on leaving) ----
-    const recOf = (d) => ({ name: (d.name || "").trim(), description: (d.description || "").trim(), layout: THROW ? "throwing" : "speed", weeks: d.weeks, nextProgramIds: d.nextProgramIds || [], tags: d.tags || [] });
+    const recOf = (d) => ({ name: (d.name || "").trim(), description: (d.description || "").trim(), layout: LAYOUT, weeks: d.weeks, nextProgramIds: d.nextProgramIds || [], tags: d.tags || [] });
     const savedId = React.useRef(initial && initial.id ? initial.id : null);
     const lastSaved = React.useRef(JSON.stringify(recOf(draft)));
     const [saveState, setSaveState] = useState("saved");
@@ -281,7 +289,7 @@
     const addWeek = () => edit((d) => { const last = d.weeks[d.weeks.length - 1]; d.weeks.push({ name: `Week ${d.weeks.length + 1}`, sessions: last.sessions.map(freshIds) }); });
     const removeWeek = (wi) => { if (draft.weeks.length > 1 && window.confirm(`Remove ${draft.weeks[wi].name || `week ${wi + 1}`}?`)) edit((d) => { d.weeks.splice(wi, 1); }); };
     const days = Math.max(...draft.weeks.map((w) => w.sessions.length));
-    const addDay = () => edit((d) => d.weeks.forEach((w) => { if (w.sessions.length < 7) w.sessions.push(THROW ? newThrowingDay(w.sessions.length + 1) : newSpeedDay(w.sessions.length + 1)); }));
+    const addDay = () => edit((d) => d.weeks.forEach((w) => { if (w.sessions.length < 7) w.sessions.push(THROW ? newThrowingDay(w.sessions.length + 1) : REED ? newReedDay(w.sessions.length + 1) : newSpeedDay(w.sessions.length + 1)); }));
     const setLevel = (wi, si, level) => edit((d) => { sess(d, wi, si).level = level; });
     const removeDay = (si) => {
       if (days <= 1 || !window.confirm(`Remove ${(draft.weeks[0].sessions[si] || {}).name || "this day"} from every week?`)) return;
@@ -355,7 +363,9 @@
                           <input className="spd-name" list="exercise-library-names" value={e.name} placeholder="Drill" onChange={(ev) => setDrill(wi, si, index, { name: ev.target.value })} />
                           <input className="spd-num" value={g.sets || ""} placeholder="Sets" title="Sets" onChange={(ev) => setGroup(wi, si, index, { sets: ev.target.value })} />
                           <input className="spd-num" value={g.reps || ""} placeholder="Reps" title="Reps in each set" onChange={(ev) => setGroup(wi, si, index, { reps: ev.target.value })} />
-                          <input className={`spd-dist${unclear ? " unclear" : ""}`} value={e.distance || ""} placeholder={THROW ? "Dist (ft)" : "Dist / time"} title={unclear ? "Not read as a distance or time, so it isn't in the totals. Try 10 yd, 120 ft, 30 m, 6 s or 1:00." : THROW ? "Distance for each throw (90 ft, 120 ft), or a time (30 s)" : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 2 min, 1:00"} onChange={(ev) => setDrill(wi, si, index, { distance: ev.target.value })} />
+                          <input className={`spd-dist${unclear && !REED ? " unclear" : ""}`} value={e.distance || ""} placeholder={THROW ? "Dist (ft)" : REED ? "Time" : "Dist / time"} title={REED ? "Time for each rep, if it's timed: 30 s, 45 s, 1:00" : unclear ? "Not read as a distance or time, so it isn't in the totals. Try 10 yd, 120 ft, 30 m, 6 s or 1:00." : THROW ? "Distance for each throw (90 ft, 120 ft), or a time (30 s)" : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 2 min, 1:00"} onChange={(ev) => setDrill(wi, si, index, { distance: ev.target.value })} />
+                          {/* a re-ed drill's weight, if it's loaded: "135 lb", "20 kg", "Green band" */}
+                          {REED && <input className="spd-num spd-wt" value={e.weight || ""} placeholder="Weight" title="Weight, if it's loaded: 135 lb, 20 kg, a band color" onChange={(ev) => setDrill(wi, si, index, { weight: ev.target.value })} />}
                           {/* a throwing drill's ball weight, in ounces or grams (weighted and plyo balls) */}
                           {THROW && (() => {
                             const m = /^(\d+(?:\.\d+)?)\s*(oz|g)$/i.exec((e.weight || "").trim());
@@ -407,7 +417,14 @@
             );
           })}
           <button className="btn-link spd-add" title="Add a section to this day in every week" onClick={() => addSection(si)}>+ Section</button>
-          {THROW ? (
+          {totalsBlock(sections)}
+        </div>
+      );
+    };
+    // the day's totals under it: a throwing day's throws, a speed day's reps, distance and time (none on a re-ed day)
+    const totalsBlock = (sections) => {
+      const t = totals(sections);
+      return THROW ? (
             // a throwing day's prescribed throws (sets x reps), by section and for the day; warm-up / arm care and recovery left out
             (() => {
               const rows = sections.filter((sec) => !notThrows(sec.name)).map((sec) => ({ name: sec.name, n: sec.series.reduce((t, sr) => t + sr.drills.reduce((u, { e }) => u + drillThrows(e), 0), 0) })).filter((r) => r.n);
@@ -425,7 +442,7 @@
                 </table>
               );
             })()
-          ) : (
+          ) : REED ? null : (
             <table className="spd-totals">
               <thead><tr><th>Totals</th><th>Reps</th><th>Distance</th><th>Time</th></tr></thead>
               <tbody>
@@ -433,7 +450,166 @@
                 <tr className="spd-total-row"><td>Day</td><td>{t.all.reps || ""}</td><td>{t.all.yards ? `${round(t.all.yards)} yd` : "—"}</td><td>{t.all.seconds ? clock(t.all.seconds) : "—"}</td></tr>
               </tbody>
             </table>
+          );
+    };
+
+    // ---- the Table view (the Boxes | Table switch, remembered with the strength builder's): each day as a sheet,
+    // its sections and series as heading rows over the drills, each series boxed in a color of its own. Columns:
+    // Drill, Sets, Reps, the distance or time for each rep (Time on a re-ed day), a weight (ball weight on a throwing
+    // day), a column for each box the day's drills have (Throws, Time, Height…, "+ Column" adds one to every drill in
+    // the day), and Notes. Enter and the up / down arrows move down and up a column, Tab across.
+    const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView") || "boxes"; } catch (e) { return "boxes"; } });
+    const setView = (v) => { setViewState(v); try { localStorage.setItem("programView", v); } catch (e) { /* not remembered */ } };
+    const tableView = view === "table";
+    const SERIES_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#ec4899", "#84cc16"];
+    const xLabelsOf = (s) => { const m = new Map(); (s.exercises || []).forEach((e) => (e.extras || []).forEach((x) => { const l = (x.label || "").trim(); if (l && !m.has(l.toLowerCase())) m.set(l.toLowerCase(), l); })); return [...m.values()]; };
+    const xAt = (e, l) => (e.extras || []).findIndex((x) => (x.label || "").trim().toLowerCase() === l.toLowerCase());
+    const setExtraLabel = (wi, si, index, label, v) => edit((d) => {
+      const e = sess(d, wi, si).exercises[index];
+      e.extras = Array.isArray(e.extras) ? e.extras : [];
+      const i = xAt(e, label);
+      if (i >= 0) e.extras[i].value = v; else e.extras.push({ label, value: v });
+    });
+    const addColumnDay = (wi, si, what) => {
+      const add = (label) => label && edit((d) => sess(d, wi, si).exercises.forEach((e) => { if (xAt(e, label) < 0) e.extras = [...(Array.isArray(e.extras) ? e.extras : []), { label, value: "" }]; }));
+      if (what === "custom") window.askText({ title: "New column", text: "Added to every drill in this day.", placeholder: "Height, Load, Holds…", maxLength: 20 }).then(add);
+      else add(what);
+    };
+    const dropColumnDay = (wi, si, label) => {
+      const s = draftRef.current.weeks[wi].sessions[si];
+      const filled = s.exercises.filter((e) => { const i = xAt(e, label); return i >= 0 && `${e.extras[i].value || ""}`.trim(); }).length;
+      const drop = () => edit((d) => sess(d, wi, si).exercises.forEach((e) => { if (Array.isArray(e.extras)) e.extras = e.extras.filter((x) => (x.label || "").trim().toLowerCase() !== label.toLowerCase()); }));
+      if (!filled) { drop(); return; }
+      window.askConfirm({ title: `Remove the ${label} column?`, text: `${filled} drill${filled === 1 ? " has" : "s have"} something in it. Ctrl+Z isn't available here, so it's gone once removed.`, ok: "Remove", danger: true }).then((yes) => { if (yes) drop(); });
+    };
+    // up and down a column, like a sheet (Tab goes across as usual); the drill name's arrows stay with its suggestions
+    const tableKeys = (ev) => {
+      const t = ev.target, p = t && t.dataset && t.dataset.pt ? t.dataset.pt.split(":") : null;
+      if (!p || ev.altKey || ev.ctrlKey || ev.metaKey) return;
+      const k = ev.key, col = p[2];
+      const down = (k === "Enter" && !ev.shiftKey) || (k === "ArrowDown" && col !== "name"), up = (k === "Enter" && ev.shiftKey) || (k === "ArrowUp" && col !== "name");
+      if (!down && !up) return;
+      const cells = [...ev.currentTarget.querySelectorAll("[data-pt]")], i = cells.indexOf(t);
+      let to = null;
+      for (let j = i + (down ? 1 : -1); j >= 0 && j < cells.length; j += down ? 1 : -1) { const q = cells[j].dataset.pt.split(":"); if (q[2] === col && q[1] !== p[1]) { to = cells[j]; break; } }
+      ev.preventDefault();
+      if (to) { to.focus(); if (to.select) to.select(); } else if (k === "Enter") t.blur();
+    };
+    const tableDay = (s, wi, si) => {
+      const sections = window.speedSections(s);
+      const linked = THROW && s.tpDay != null;
+      const lvl = THROW ? (THROW_LEVELS[s.level] ? s.level : "") : null;
+      const xl = xLabelsOf(s);
+      const Wrap = window.ProgramTableKit && window.ProgramTableKit.WrapCell;
+      const cols = 3 + 1 + (THROW || REED ? 1 : 0) + xl.length + 1 + 1; // name, sets, reps, dist, weight?, extras, notes, tools
+      const cell = (e, index, col, value, onChange, props) => <input {...props} className={`pt-cell ${(props && props.className) || ""}`} value={value || ""} data-pt={`${si}:${index}:${col}`} onChange={(ev) => onChange(ev.target.value)} />;
+      const drillRow = (e, index, j, sr) => {
+        const g = e.groups[0] || {};
+        const unclear = !REED && (e.distance || "").trim() && !window.speedParse(e.distance);
+        return (
+          <tr key={e.id}>
+            <td className="spt-name">
+              {Wrap
+                ? <Wrap value={e.name} cell={`${si}:${index}:name`} cls="pt-name" list="exercise-library-names" placeholder="Drill" onChange={(v) => setDrill(wi, si, index, { name: v })} />
+                : cell(e, index, "name", e.name, (v) => setDrill(wi, si, index, { name: v }), { className: "pt-name", list: "exercise-library-names", placeholder: "Drill" })}
+            </td>
+            <td>{cell(e, index, "sets", g.sets, (v) => setGroup(wi, si, index, { sets: v }), { className: "pt-short", title: "Sets" })}</td>
+            <td>{cell(e, index, "reps", g.reps, (v) => setGroup(wi, si, index, { reps: v }), { className: "pt-short", title: "Reps in each set" })}</td>
+            <td>{cell(e, index, "dist", e.distance, (v) => setDrill(wi, si, index, { distance: v }), { className: `pt-short${unclear ? " spt-unclear" : ""}`, title: REED ? "Time for each rep, if it's timed: 30 s, 1:00" : THROW ? "Distance for each throw (90 ft, 120 ft), or a time" : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 1:00" })}</td>
+            {(THROW || REED) && <td>{cell(e, index, "wt", e.weight, (v) => setDrill(wi, si, index, { weight: v }), { className: "pt-short", title: THROW ? "Ball weight: 5 oz, 7 oz, 225 g (empty for a regular baseball)" : "Weight, if it's loaded: 135 lb, 20 kg, a band color", onBlur: THROW ? (ev) => { const v = ev.target.value.trim(); if (/^\d+(\.\d+)?$/.test(v)) setDrill(wi, si, index, { weight: `${v} oz` }); } : undefined })}</td>}
+            {xl.map((l) => { const i = xAt(e, l); return <td key={l}>{cell(e, index, `x:${l}`, i >= 0 ? e.extras[i].value : "", (v) => setExtraLabel(wi, si, index, l, v), { className: "pt-short", title: `${l}: a target, or leave it empty for the athlete to write in their own` })}</td>; })}
+            <td>{cell(e, index, "notes", e.notes, (v) => setDrill(wi, si, index, { notes: v }), {})}</td>
+            <td className="spt-tools">
+              <button className="spd-x" tabIndex={-1} title="Move up" onClick={() => moveDrill(wi, si, index, -1)}>↑</button>
+              <button className="spd-x" tabIndex={-1} title="Move down" onClick={() => moveDrill(wi, si, index, 1)}>↓</button>
+              <button className="spd-x" tabIndex={-1} title="Remove this drill" onClick={() => removeDrill(wi, si, index)}>✕</button>
+            </td>
+          </tr>
+        );
+      };
+      return (
+        <div className={`pt-day spt-day ${THROW ? `thr-day thr-${lvl ? THROW_LEVELS[lvl].cls : "off"}` : ""}`} key={si}>
+          <div className="pt-day-head">
+            {linked
+              ? <span className="program-session-name thr-day-name" title="From the throwing progression: change it there">{s.name}</span>
+              : <input className="program-session-name" value={s.name || ""} aria-label="Day name" title="The day's name is the same in every week" onChange={(e) => renameDay(si, e.target.value)} />}
+            <select className="pt-addcol" value="" title="Add a column to every drill in this day" onChange={(ev) => addColumnDay(wi, si, ev.target.value)}>
+              <option value="" disabled hidden>+ Column</option>
+              {(THROW ? THROW_BOXES : ["Time", "Height", "Distance", "Speed"]).filter((l) => !xl.some((x) => x.toLowerCase() === l.toLowerCase())).map((l) => <option key={l} value={l}>{l}</option>)}
+              <option value="custom">Name your own…</option>
+            </select>
+            {copyMenu("Copy this whole day (every section and drill) to other days", (how) => copyDay(wi, si, how), "spd-copy-day")}
+            {!linked && <button className="btn-link" title="Remove this day from every week" disabled={days <= 1} onClick={() => removeDay(si)}>✕</button>}
+          </div>
+          {THROW && !linked && (
+            <div className="thr-levels" role="group" aria-label="Intensity">
+              {["L", "M", "H", ""].map((k) => (
+                <button key={k || "off"} className={`thr-lvl thr-${k ? THROW_LEVELS[k].cls : "off"} ${lvl === k ? "on" : ""}`} title={k ? `${THROW_LEVELS[k].name} intensity this week` : "Off this week"} onClick={() => setLevel(wi, si, k)}>{k || "Off"}</button>
+              ))}
+            </div>
           )}
+          <div className="pt-scroll" onKeyDown={tableKeys}>
+            <table className="pt-table spt-table" style={{ minWidth: 150 + 56 * 2 + 72 + (THROW || REED ? 72 : 0) + 80 * xl.length + 130 + 70 }}>
+              <thead>
+                <tr>
+                  <th>Drill</th><th className="pt-sh">Sets</th><th className="pt-sh">Reps</th><th className="pt-sh">{THROW ? "Dist (ft)" : REED ? "Time" : "Dist / time"}</th>
+                  {(THROW || REED) && <th className="pt-sh">{THROW ? "Ball wt" : "Weight"}</th>}
+                  {xl.map((l) => <th className="pt-xcol" key={l}>{l}<button className="btn-link pt-xdrop" title={`Remove the ${l} column from this day`} onClick={() => dropColumnDay(wi, si, l)}>✕</button></th>)}
+                  <th className="pt-noteh">Notes</th><th className="spt-tools" />
+                </tr>
+              </thead>
+              {sections.map((sec, k) => {
+                let colorAt = 0;
+                return (
+                  <React.Fragment key={sec.name}>
+                    <tbody className="spt-sec">
+                      <tr>
+                        <td colSpan={cols}>
+                          <div className="spt-sec-head">
+                            <input className="spd-sec-name" value={sec.name} aria-label="Section name" title="The section's name is the same in every week" onChange={(e) => renameSection(si, sec.name, e.target.value)} />
+                            <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => setTime(wi, si, sec.name, e.target.value)} />
+                            {copyMenu(`Copy ${sec.name} (its drills, time and description) to other days`, (how) => copySection(wi, si, sec.name, how))}
+                            <button className="spd-x" title="Move this section up" disabled={k === 0} onClick={() => moveSection(si, sec.name, -1)}>↑</button>
+                            <button className="spd-x" title="Move this section down" disabled={k === sections.length - 1} onClick={() => moveSection(si, sec.name, 1)}>↓</button>
+                            <button className="spd-x" title="Remove this section from this day in every week" onClick={() => removeSection(si, sec.name)}>✕</button>
+                            {!(sec.description || opened[`desc|${wi}|${si}|${sec.name}`]) && <button className="btn-link spd-add" onClick={() => setOpened((o) => ({ ...o, [`desc|${wi}|${si}|${sec.name}`]: true }))}>+ Description</button>}
+                          </div>
+                          {(sec.description || opened[`desc|${wi}|${si}|${sec.name}`]) && <textarea className="spd-sec-desc" rows={2} value={sec.description} placeholder="Description (shows at the top of this section in the app)" autoFocus={!sec.description} onChange={(e) => setSectionField(wi, si, sec.name, "description", e.target.value)} />}
+                        </td>
+                      </tr>
+                    </tbody>
+                    {sec.series.map((sr, j) => {
+                      // a named series is boxed in a color of its own; drills outside a series aren't
+                      const color = sr.name ? SERIES_COLORS[colorAt++ % SERIES_COLORS.length] : null;
+                      return (
+                        <tbody key={`${sr.name}|${j}`} className={color ? "spt-series pt-boxed" : "spt-loose"} style={color ? { "--blk": color } : undefined}>
+                          {sr.name && (
+                            <tr className="spt-ser-head">
+                              <td colSpan={cols}>
+                                <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, si, sec.name, sr.name, e.target.value)} />
+                                <button className="btn-link spd-add" onClick={() => addDrill(wi, si, sec.name, sr.name)}>+ Drill in this series</button>
+                              </td>
+                            </tr>
+                          )}
+                          {sr.drills.map(({ e, index }) => drillRow(e, index, j, sr))}
+                        </tbody>
+                      );
+                    })}
+                    <tbody className="spt-foot">
+                      <tr>
+                        <td colSpan={cols}>
+                          <button className="btn-link spd-add" onClick={() => addDrill(wi, si, sec.name, "")}>+ Drill</button>
+                          <button className="btn-link spd-add" onClick={() => addSeries(wi, si, sec.name)}>+ Series</button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </React.Fragment>
+                );
+              })}
+            </table>
+          </div>
+          <button className="btn-link spd-add" title="Add a section to this day in every week" onClick={() => addSection(si)}>+ Section</button>
+          {totalsBlock(sections)}
         </div>
       );
     };
@@ -444,7 +620,11 @@
           {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
         </datalist>
         <div className="program-editor-top">
-          <h2>{THROW ? (initial && initial.id ? "Edit throwing program" : "New throwing program") : initial && initial.id ? "Edit speed program" : "New speed program"}</h2>
+          <h2>{`${initial && initial.id ? "Edit" : "New"} ${THROW ? "throwing" : REED ? "re-education" : "speed"} program`}</h2>
+          <span className="program-zoom" role="group" aria-label="View">
+            <button className={`btn btn-small-grey ${!tableView ? "on" : ""}`} title="Each day as a column of drill boxes" onClick={() => setView("boxes")}>Boxes</button>
+            <button className={`btn btn-small-grey ${tableView ? "on" : ""}`} title="Each day as a sheet: sections and series over the drills, a row per drill" onClick={() => setView("table")}>Table</button>
+          </span>
           <span className="program-zoom" role="group" aria-label="Size">
             {[["1", "100%"], ["0.85", "85%"], ["0.7", "70%"], ["fit", "Fit week"]].map(([v, label]) => (
               <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
@@ -459,13 +639,14 @@
           {onDelete && <button className="btn-link" onClick={onDelete}>Delete</button>}
         </div>
         <div className="spd-meta">
-          <input className="spd-title" value={draft.name || ""} placeholder={THROW ? "Program name (e.g. Off-Season Throwing Ph I)" : "Program name (e.g. MLB/MiLB OS Speed Ph I)"} onChange={(e) => edit((d) => { d.name = e.target.value; })} />
+          <input className="spd-title" value={draft.name || ""} placeholder={THROW ? "Program name (e.g. Off-Season Throwing Ph I)" : REED ? "Program name (e.g. Re-Eds Movement / Core Stability)" : "Program name (e.g. MLB/MiLB OS Speed Ph I)"} onChange={(e) => edit((d) => { d.name = e.target.value; })} />
           <input className="spd-desc" value={draft.description || ""} placeholder="Description (optional)" onChange={(e) => edit((d) => { d.description = e.target.value; })} />
         </div>
         {THROW
           ? <p className="timestamp-note">{fromProgression
             ? "One day for each throwing day on the progression above, named and colored from it (green Low, yellow Medium, red High): change a day's intensity or throws up there and it follows here. Fill in each day's drills: sets x reps (the prescribed throws), the distance, and a ball weight in oz or g for weighted balls. Each drill asks the athlete for the throws they made; add Distance (ft) or Velo (mph) with the + where it applies, with a target if you like. Use ⧉ on a section or a day to copy it to the other days this week, the same day in later weeks, or every day from this week on."
             : "Each day has an intensity for the week (green Low, yellow Medium, red High, or off), which colors it here and in the athlete's app. Drills take sets x reps (the prescribed throws), a distance, and a ball weight in oz or g; each asks the athlete for the throws they made, and the + adds Distance or Velo (mph) where it applies. Use ⧉ on a section or a day to copy it to other days."}</p>
+          : REED ? <p className="timestamp-note">Each day is in sections (Warm-up, Re-Education, Accessory, Core Stability: rename, add or remove them), and inside a section, series of drills, as on a speed day. A drill takes sets, reps, a time for each rep if it's timed, and a weight if it's loaded; the + adds more boxes. Use ⧉ on a section or a day to copy it to other days.</p>
           : <p className="timestamp-note">Click into a day to work on it: that day lights up in every week and the other days dim, so you can progress it through the program, and the section you're in is highlighted in each week. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>}
         {draft.weeks.map((w, wi) => (
           <div className="program-week" key={wi}>
@@ -474,8 +655,8 @@
               {wi > 0 && <button className="btn btn-small-grey program-copy-prev-week" title={`Replace ${w.name || `week ${wi + 1}`} with a copy of the week before`} onClick={() => copyPrevWeek(wi)}>Copy previous week</button>}
               <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => removeWeek(wi)}>✕</button>
             </div>
-            <div className="program-days">
-              {w.sessions.map((s, si) => dayCard(s, wi, si))}
+            <div className={`program-days${tableView ? " pt-days" : ""}`}>
+              {w.sessions.map((s, si) => (tableView ? tableDay(s, wi, si) : dayCard(s, wi, si)))}
             </div>
           </div>
         ))}
@@ -491,5 +672,5 @@
   }
 
   window.SpeedProgramEditor = SpeedProgramEditor;
-  window.SpeedKit = { newSpeedProgram, newSpeedDay, DEFAULT_SECTIONS, newThrowingProgram, newThrowingDay, syncWithProgression, THROW_LEVELS, DAY_ABBR };
+  window.SpeedKit = { newSpeedProgram, newSpeedDay, DEFAULT_SECTIONS, newThrowingProgram, newThrowingDay, newReedProgram, newReedDay, REED_SECTIONS, syncWithProgression, THROW_LEVELS, DAY_ABBR };
 })();
