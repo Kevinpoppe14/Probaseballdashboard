@@ -70,6 +70,7 @@
 <script type="text/babel" data-presets="react" src="evolt_import.js"></script>
 <script type="text/babel" data-presets="react" src="ovr_import.js"></script>
 <script type="text/babel" data-presets="react" src="speed_builder.js"></script>
+<script type="text/babel" data-presets="react" src="program_table.js"></script>
 <script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
 <script type="text/babel" data-presets="react" src="form_checks.js"></script>
@@ -1473,6 +1474,11 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   // its days to fit across (up to 7), never below 45%. Fit week is the standard; another choice is remembered.
   const [zoomMode, setZoomMode] = useState(() => { try { return localStorage.getItem("programZoom") || "fit"; } catch (e) { return "fit"; } }); // Fit week unless another size was picked
   const setZoom = (v) => { setZoomMode(v); try { localStorage.setItem("programZoom", v); } catch (e) { /* not remembered */ } };
+  // Boxes (the days side by side, below) or Table (program_table.js: each day as a spreadsheet). The same program
+  // either way; the choice is remembered.
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem("programView") || "boxes"; } catch (e) { return "boxes"; } });
+  const setView = (v) => { setViewState(v); try { localStorage.setItem("programView", v); } catch (e) { /* not remembered */ } };
+  const tableView = view === "table" && !!window.ProgramTableWeek;
   React.useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
@@ -1719,8 +1725,14 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
         <h2>{initial && initial.id ? "Edit program" : "New program"}</h2>
         <button className="btn btn-small-grey" disabled={!history.current.past.length} title="Undo the last change (Ctrl+Z)" onClick={undo}>↶ Undo</button>
         <button className="btn btn-small-grey" disabled={!history.current.future.length} title="Redo (Ctrl+Y)" onClick={redo}>↷ Redo</button>
+        {window.ProgramTableWeek && (
+          <span className="program-zoom" role="group" aria-label="View">
+            <button className={`btn btn-small-grey ${!tableView ? "on" : ""}`} title="Each day as a column of exercise boxes" onClick={() => setView("boxes")}>Boxes</button>
+            <button className={`btn btn-small-grey ${tableView ? "on" : ""}`} title="Each day as a spreadsheet: one row per exercise. Paste rows from Google Sheets or Excel." onClick={() => setView("table")}>Table</button>
+          </span>
+        )}
         {/* how big the days are drawn: smaller fits more across; Fit week shrinks each week just enough to show all its days */}
-        <span className="program-zoom" role="group" aria-label="Size">
+        <span className="program-zoom" role="group" aria-label="Size" style={tableView ? { display: "none" } : undefined}>
           {[["1", "100%"], ["0.85", "85%"], ["0.7", "70%"], ["fit", "Fit week"]].map(([v, label]) => (
             <button key={v} className={`btn btn-small-grey ${zoomMode === v ? "on" : ""}`} title={v === "fit" ? "Shrink each week so all its days fit across the screen" : `Draw the days at ${label}`} onClick={() => setZoom(v)}>{label}</button>
           ))}
@@ -1810,8 +1822,20 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
             <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>✕</button>
           </div>
 
-          {/* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),
-              under the day names and warm-ups; each day spans all the rows (subgrid). */}
+          {tableView ? (
+            <window.ProgramTableWeek
+              week={week}
+              wi={wi}
+              edit={edit}
+              newExercise={newExercise}
+              newSession={newSession}
+              maxDays={MAX_DAYS}
+              onNameFocus={(w, s, e, name) => { nameAtFocus.current = { wi: w, si: s, ei: e, name }; }}
+              onNameBlur={(w, s, e) => offerSwapForward(w, s, e)}
+            />
+          ) : (
+          /* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),
+             under the day names and warm-ups; each day spans all the rows (subgrid). */
           <div className="program-days program-grid" style={{ gridTemplateRows: `repeat(${weekRowsOf(week)}, auto)` }}>
             {week.sessions.map((session, si) => {
               const labels = window.exerciseLabels(session.exercises);
@@ -2058,6 +2082,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
             {/* a week holds at most seven days */}
             {week.sessions.length < MAX_DAYS && <button className="program-add-day" style={{ gridRow: `1 / span ${weekRowsOf(week)}` }} onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < MAX_DAYS) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>}
           </div>
+          )}
         </div>
       ))}
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
