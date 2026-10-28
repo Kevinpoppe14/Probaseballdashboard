@@ -2,7 +2,7 @@
 // same program as the Boxes view, drawn like a spreadsheet: one table per day, one row per exercise, with the
 // columns Exercise, Sets, Reps, Intensity, Tempo, Rest and Notes. Nothing about the program changes by switching.
 //   - Sets, Reps and Intensity are a set line each, like the Boxes view's. An exercise with more than one line
-//     (3x5 @ 70%, then 2x3 @ 80%) has a row per line under it; its "+" adds one and ✕ takes one off. Intensity is
+//     (3x5 @ 70%, then 2x3 @ 80%) has a row per line under it; the "+" in the Sets cell adds one and ✕ takes one off. Intensity is
 //     typed with its unit: 75%, RPE 8, 2 RIR; a bare number keeps the exercise's unit (a percentage if it has none).
 //   - The A1, A2, B1… labels are worked out as always (window.exerciseLabels): a row is in the block of the row
 //     above when it's linked to it. Clicking a row's label links it to the row above, or unlinks it.
@@ -12,7 +12,9 @@
 //     adding rows as needed. With a header row (Exercise, Sets, Reps, %, Tempo, Rest, Notes…) the columns are
 //     matched by name, and a combined "Sets x Reps" column (5x5 (75%)) is split up. A first column of labels (A1,
 //     A2, B1, or 1, 1, 2) sets the supersets; without one, rows between blank rows are supersetted together. A
-//     row with sets but no exercise is another line of the exercise above. "Copy for Sheets" copies a day out.
+//     row with sets but no exercise is another line of the exercise above.
+//   - Dragging across cells (or Shift+click) highlights a block, as in a sheet: Ctrl+C copies it to paste into a
+//     sheet or another day, Ctrl+V pastes at its top-left cell, Ctrl+X cuts and Delete clears it.
 //   - Tempo and Rest are always columns. "+ Column" adds Time, Distance, Speed or a box the coach names to every
 //     exercise in a day (or, above the days, every day of the week) at once; its header's ✕ takes it off the day.
 //     They're the same extra boxes the Boxes view's "+" adds one exercise at a time.
@@ -169,7 +171,7 @@
       if (!r.some(Boolean)) { gap = recs.length > 0; return; }
       const rec = {};
       map.forEach((k, i) => { if (k && r[i] !== undefined) rec[k] = r[i]; });
-      // sets and reps but no exercise (and no label): another line of the exercise above, as Copy for Sheets writes it
+      // sets and reps but no exercise (and no label): another line of the exercise above, as a copied block of an exercise with two set lines comes out
       if (map.includes("name") && !rec.name && !rec.label && recs.length && !gap && LINE_KEYS.some((k) => rec[k])) {
         const prev = recs[recs.length - 1];
         prev.more = [...(prev.more || []), rec];
@@ -215,13 +217,13 @@
   }
 
   // the Intensity cell: typed with its unit (75%, RPE 8, 2 RIR), saved when the cell is left
-  function IntCell({ ex, g, cell, onCommit }) {
+  function IntCell({ ex, g, cell, cls, onCommit }) {
     const [txt, setTxt] = useState(null); // what's being typed, until the cell is left
     const shown = intText(ex, g);
     const unit = window.ProgramRx.normalize(ex).intensityUnit;
     return (
       <input
-        className="pt-cell pt-short"
+        className={`pt-cell pt-short${cls || ""}`}
         value={txt !== null ? txt : shown}
         data-pt={cell}
         placeholder={unit === "RPE" ? "RPE" : unit === "RIR" ? "RIR" : "%"}
@@ -313,14 +315,9 @@
       if (done) { e.preventDefault(); e.stopPropagation(); }
     };
 
-    const onPaste = (e) => {
-      const t = e.target, key = t && t.dataset ? t.dataset.pt : null;
-      if (!key) return;
-      const text = ((e.clipboardData || window.clipboardData).getData("text/plain") || "").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
-      if (!/[\t\n]/.test(text)) return; // a single cell: an ordinary paste into the box
-      e.preventDefault();
-      const [s, row, col] = key.split(":");
-      const si = Number(s), ei = Number(row.split(".")[0]);
+    // rows copied from a sheet, pasted from one cell across and down (adding rows as needed)
+    const pasteAt = (si, row, col, text) => {
+      const ei = Number(row.split(".")[0]);
       const session = week.sessions[si], cols = colsOf(session);
       const recs = parseSheet(text, Math.max(0, cols.indexOf(colKey(session, col))), cols);
       if (!recs.length) return;
@@ -331,40 +328,132 @@
           applyRec(xs[ei + i], rec);
         });
       });
+      setNote(`Pasted ${recs.length} row${recs.length === 1 ? "" : "s"} into ${session.name || `Day ${si + 1}`}. Ctrl+Z undoes it.`);
+    };
+    const clipText = (e) => ((e.clipboardData || window.clipboardData).getData("text/plain") || "").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+    const onPaste = (e) => {
+      const t = e.target, key = t && t.dataset ? t.dataset.pt : null;
+      if (!key) return;
+      const text = clipText(e);
+      if (!/[\t\n]/.test(text)) return; // a single cell: an ordinary paste into the box
+      e.preventDefault();
+      const [s, row, col] = key.split(":");
       t.blur();
-      setNote(`Pasted ${recs.length} row${recs.length === 1 ? "" : "s"} into ${week.sessions[si].name || `Day ${si + 1}`}. Ctrl+Z undoes it.`);
+      pasteAt(Number(s), row, col, text);
     };
 
-    // a day as tab-separated rows, header included, to paste into Google Sheets or Excel (and back in here);
-    // an exercise's second and later set lines go on rows of their own with the exercise left blank
-    const copyDay = (si) => {
-      const s = week.sessions[si], labels = window.exerciseLabels(s.exercises);
-      const clean = (v) => `${v || ""}`.replace(/[\t\r\n]+/g, " ").trim();
-      const xcols = extraColsOf(s);
-      const lines = [["#", "Exercise", "Sets", "Reps", "Intensity", "Tempo", "Rest", ...xcols, "Notes"].join("\t")];
-      let rows = 0;
-      s.exercises.forEach((ex, ei) => {
-        if (!(ex.name || "").trim() && !rxText(ex)) return;
-        rows += 1;
-        const xs = xcols.map((l) => { const i = extraIndex(ex, l); return i >= 0 ? ex.extras[i].value : ""; });
-        groupsOf(ex).forEach((g, gi) => {
-          const line = [g.sets, g.reps, intText(ex, g)];
-          lines.push((gi === 0 ? [labels[ei].replace(/\.$/, ""), ex.name, ...line, ex.tempo, ex.rest, ...xs, ex.notes] : ["", "", ...line, "", "", ...xcols.map(() => ""), ""]).map(clean).join("\t"));
-        });
+    // ---- highlighting a block of cells, as in a sheet: drag across them (or click one, then Shift+click another).
+    // Ctrl+C copies them as rows and columns, ready to paste into Google Sheets, Excel or another day; Ctrl+V pastes
+    // at the block's top-left cell; Ctrl+X cuts; Delete clears them; Esc or a click elsewhere lets go.
+    // The block is { si, a: [row, col], b: [row, col] }, rows being the day's set lines in order and columns the
+    // day's columns (rowKeysOf / colIdsOf). A cell of the exercise itself (name, tempo…) is on its first line.
+    const [sel, setSel] = useState(null);
+    const drag = useRef(null);
+    const rowKeysOf = (session) => session.exercises.flatMap((ex, ei) => groupsOf(ex).map((g, gi) => `${ei}.${gi}`));
+    const colIdsOf = (session) => ["name", "sets", "reps", "int", "tempo", "rest", ...extraColsOf(session).map((l, i) => `x${i}`), "notes"];
+    const posOf = (el) => {
+      const p = el && el.dataset && el.dataset.pt ? el.dataset.pt.split(":") : null;
+      const s = p ? week.sessions[Number(p[0])] : null;
+      if (!s) return null;
+      const r = rowKeysOf(s).indexOf(p[1]), c = colIdsOf(s).indexOf(p[2]);
+      return r < 0 || c < 0 ? null : { si: Number(p[0]), r, c };
+    };
+    const box = (b) => ({ r0: Math.min(b.a[0], b.b[0]), r1: Math.max(b.a[0], b.b[0]), c0: Math.min(b.a[1], b.b[1]), c1: Math.max(b.a[1], b.b[1]) });
+    const multi = !!sel && (sel.a[0] !== sel.b[0] || sel.a[1] !== sel.b[1]);
+    const cellAt = (si, row, col) => rootRef.current && rootRef.current.querySelector(`[data-pt="${si}:${row}:${col}"]`);
+    // what each highlighted cell shows, as tab-separated rows; a block that starts at the Exercise column brings
+    // the labels (A1, A2…) along in front, so the supersets survive a trip through a sheet
+    const selText = () => {
+      const s = week.sessions[sel.si], rk = rowKeysOf(s), ci = colIdsOf(s), R = box(sel), out = [], labels = window.exerciseLabels(s.exercises);
+      for (let r = R.r0; r <= R.r1; r += 1) {
+        const [ei, gi] = rk[r].split(".").map(Number);
+        const line = R.c0 === 0 ? [gi === 0 ? labels[ei].replace(/\.$/, "") : ""] : [];
+        for (let c = R.c0; c <= R.c1; c += 1) { const el = cellAt(sel.si, rk[r], ci[c]); line.push(el ? `${el.value}`.replace(/[\t\r\n]+/g, " ") : ""); }
+        out.push(line.join("\t"));
+      }
+      return out.join("\n");
+    };
+    const clearSel = () => {
+      const s = week.sessions[sel.si], rk = rowKeysOf(s), ci = colIdsOf(s), R = box(sel), labels = extraColsOf(s);
+      edit((d) => {
+        const ds = d.weeks[wi].sessions[sel.si];
+        for (let r = R.r0; r <= R.r1; r += 1) for (let c = R.c0; c <= R.c1; c += 1) {
+          const [ei, gi] = rk[r].split(".").map(Number), col = ci[c], e = ds.exercises[ei];
+          if (!e) continue;
+          if (col === "sets" || col === "reps" || col === "int") { ensureGroups(e); if (e.groups[gi]) e.groups[gi][col === "int" ? "intensity" : col] = ""; }
+          else if (gi === 0) { const m = /^x(\d+)$/.exec(col); if (m) { if (labels[Number(m[1])]) setExtra(e, labels[Number(m[1])], ""); } else e[col] = ""; }
+        }
       });
-      const text = lines.join("\n");
-      const ok = () => setNote(`Copied ${s.name || `Day ${si + 1}`} (${rows} exercise${rows === 1 ? "" : "s"}). Paste it into Google Sheets or Excel.`);
-      const fallback = () => {
-        const ta = document.createElement("textarea");
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        try { document.execCommand("copy"); ok(); } catch (err) { setNote("Couldn't copy here. Try again."); }
-        ta.remove();
+    };
+    const onMouseDown = (e) => {
+      const p = posOf(e.target.closest && e.target.closest("[data-pt]"));
+      if (!p) { if (sel) setSel(null); return; }
+      if (e.shiftKey && sel && sel.si === p.si) { // Shift+click: from the cell already picked to this one
+        e.preventDefault();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        setSel({ ...sel, b: [p.r, p.c] });
+        return;
+      }
+      drag.current = { si: p.si, a: [p.r, p.c], moved: false };
+      setSel({ si: p.si, a: [p.r, p.c], b: [p.r, p.c] });
+    };
+    const onMouseOver = (e) => {
+      const d = drag.current;
+      if (!d) return;
+      const p = posOf(e.target.closest && e.target.closest("[data-pt]"));
+      if (!p || p.si !== d.si || (!d.moved && p.r === d.a[0] && p.c === d.a[1])) return;
+      if (!d.moved) { // the drag has left the first cell: a block of cells, not text inside the box
+        d.moved = true;
+        rootRef.current.classList.add("pt-dragging");
+        if (document.activeElement && rootRef.current.contains(document.activeElement)) document.activeElement.blur();
+      }
+      const s = window.getSelection && window.getSelection();
+      if (s && s.rangeCount) s.removeAllRanges();
+      setSel({ si: d.si, a: d.a, b: [p.r, p.c] });
+    };
+    useEffect(() => {
+      const up = () => { drag.current = null; if (rootRef.current) rootRef.current.classList.remove("pt-dragging"); };
+      const down = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setSel(null); };
+      document.addEventListener("mouseup", up);
+      document.addEventListener("mousedown", down);
+      return () => { document.removeEventListener("mouseup", up); document.removeEventListener("mousedown", down); };
+    }, []);
+    useEffect(() => {
+      if (!multi) return undefined;
+      const free = () => !document.activeElement || document.activeElement === document.body;
+      // first, so the builder's own Ctrl+C / Ctrl+V (for ticked days) leaves these to the copy and paste below
+      const keys = (e) => {
+        if (!free()) return;
+        const k = (e.key || "").toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && (k === "c" || k === "v" || k === "x")) e.stopPropagation();
+        else if (k === "escape") setSel(null);
+        else if (k === "delete" || k === "backspace") { e.preventDefault(); clearSel(); }
       };
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+      const copy = (e) => { if (!free()) return; e.clipboardData.setData("text/plain", selText()); e.preventDefault(); const R = box(sel); setNote(`Copied ${R.r1 - R.r0 + 1} row${R.r1 > R.r0 ? "s" : ""} × ${R.c1 - R.c0 + 1} column${R.c1 > R.c0 ? "s" : ""}. Paste it into a sheet, or click a cell here and press Ctrl+V.`); };
+      const cut = (e) => { if (!free()) return; e.clipboardData.setData("text/plain", selText()); e.preventDefault(); clearSel(); };
+      const paste = (e) => {
+        if (!free()) return;
+        const text = clipText(e);
+        if (!text) return;
+        e.preventDefault();
+        const s = week.sessions[sel.si], R = box(sel);
+        pasteAt(sel.si, rowKeysOf(s)[R.r0], colIdsOf(s)[R.c0], text);
+      };
+      window.addEventListener("keydown", keys, true);
+      document.addEventListener("copy", copy);
+      document.addEventListener("cut", cut);
+      document.addEventListener("paste", paste);
+      return () => { window.removeEventListener("keydown", keys, true); document.removeEventListener("copy", copy); document.removeEventListener("cut", cut); document.removeEventListener("paste", paste); };
+    });
+    // the class a highlighted cell gets
+    const selCls = (si, rk, ci, row, col) => {
+      if (!multi || sel.si !== si) return "";
+      const r = rk.indexOf(row), c = ci.indexOf(col), R = box(sel);
+      return r >= R.r0 && r <= R.r1 && c >= R.c0 && c <= R.c1 ? " pt-sel" : "";
     };
 
     return (
-      <div className="pt-week" ref={rootRef} onKeyDown={onKey} onPaste={onPaste}>
+      <div className="pt-week" ref={rootRef} onKeyDown={onKey} onPaste={onPaste} onMouseDown={onMouseDown} onMouseOver={onMouseOver}>
         <div className="pt-weekbar">
           {week.sessions.length < maxDays && (
             <button className="btn btn-small-grey pt-add-day" onClick={() => edit((d) => { if (d.weeks[wi].sessions.length < maxDays) d.weeks[wi].sessions.push(newSession(d.weeks[wi].sessions.length + 1)); })}>+ Add day</button>
@@ -380,8 +469,10 @@
           const ex$ = (d, ei) => d.weeks[wi].sessions[si].exercises[ei];
           const setEx = (ei, k, v) => edit((d) => { ex$(d, ei)[k] = v; });
           const setLine = (ei, gi, k, v) => edit((d) => { const e = ex$(d, ei); ensureGroups(e); e.groups[gi][k] = v; });
+          const rk = rowKeysOf(session), ci = colIdsOf(session);
+          const sc = (row, col) => selCls(si, rk, ci, row, col);
           const cell = (ex, ei, k, props) => (
-            <input {...props} className={`pt-cell ${(props && props.className) || ""}`} value={ex[k] || ""} data-pt={`${si}:${ei}.0:${k}`} onChange={(e) => setEx(ei, k, e.target.value)} />
+            <input {...props} className={`pt-cell ${(props && props.className) || ""}${sc(`${ei}.0`, k)}`} value={ex[k] || ""} data-pt={`${si}:${ei}.0:${k}`} onChange={(e) => setEx(ei, k, e.target.value)} />
           );
           return (
             <div className="pt-day" key={si}>
@@ -389,16 +480,15 @@
                 <input className="program-session-name" value={session.name || ""} aria-label="Day name" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].name = v; }); }} />
                 {onProgress && <button className="btn-link pt-day-progress" title="Progress this day across the weeks: every week's sets, reps and intensity side by side" aria-label="Progress this day across the weeks" onClick={() => onProgress(si, null)}>↗</button>}
                 {colMenu(si)}
-                <button className="btn btn-small-grey" title="Copies this day's rows, to paste into Google Sheets or Excel" onClick={() => copyDay(si)}>Copy for Sheets</button>
                 <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
               </div>
               <textarea className="program-warmup pt-warmup" rows={1} value={session.warmup || ""} placeholder="Warm-up (optional), shown above A1" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].warmup = v; }); }} />
               {/* wider than the day when it has many columns: the exercise column keeps at least 160px, and the table scrolls */}
               <div className="pt-scroll">
-              <table className="pt-table" style={{ minWidth: 34 + 140 + 50 + 70 + 76 + 26 + 72 * 2 + 86 * xcols.length + 130 + 22 }}>
+              <table className="pt-table" style={{ minWidth: 34 + 140 + 72 + 70 + 76 + 72 * 2 + 86 * xcols.length + 130 + 22 }}>
                 <thead>
                   <tr>
-                    <th className="pt-lab" /><th>Exercise</th><th className="pt-setsh">Sets</th><th className="pt-repsh">Reps</th><th className="pt-inth">Intensity</th><th className="pt-ln" />
+                    <th className="pt-lab" /><th>Exercise</th><th className="pt-setsh">Sets</th><th className="pt-repsh">Reps</th><th className="pt-inth">Intensity</th>
                     <th className="pt-sh">Tempo</th><th className="pt-sh">Rest</th>
                     {xcols.map((l) => (
                       <th className="pt-xcol" key={l}>{l}<button className="btn-link pt-xdrop" title={`Remove the ${l} column from this day`} onClick={() => dropCol(si, l)}>✕</button></th>
@@ -444,19 +534,24 @@
                               </td>
                             </React.Fragment>
                           )}
-                          <td><input className="pt-cell pt-short" value={g.sets || ""} data-pt={`${si}:${ei}.${gi}:sets`} title="Sets (leave blank for one set)" onChange={(e) => setLine(ei, gi, "sets", e.target.value)} /></td>
-                          <td><input className="pt-cell pt-short" value={g.reps || ""} data-pt={`${si}:${ei}.${gi}:reps`} title="Reps: 5, 8-10, 4E, 30sec, 3 MIN…" onChange={(e) => setLine(ei, gi, "reps", e.target.value)} /></td>
+                          {/* the sets cell also adds a set line (+, on the last one) and takes one off (✕) */}
                           <td>
-                            <IntCell ex={ex} g={g} cell={`${si}:${ei}.${gi}:int`} onCommit={(txt) => edit((d) => {
+                            <div className="pt-setcell">
+                              <input className={`pt-cell pt-short${sc(`${ei}.${gi}`, "sets")}`} value={g.sets || ""} data-pt={`${si}:${ei}.${gi}:sets`} title="Sets (leave blank for one set)" onChange={(e) => setLine(ei, gi, "sets", e.target.value)} />
+                              <span className="pt-ln">
+                                {gi === n - 1 && <button className="btn-link pt-addline" tabIndex={-1} title="Another line of sets for this exercise (3x5, then 2x3…)" onClick={() => { pending.current = `${si}:${ei}.${n}:sets`; edit((d) => { const e = ex$(d, ei); ensureGroups(e); e.groups.push(blankGroup()); }); }}>+</button>}
+                                {gi > 0 && <button className="btn-link" tabIndex={-1} title="Remove this set line" onClick={() => edit((d) => { const e = ex$(d, ei); ensureGroups(e); e.groups.splice(gi, 1); })}>✕</button>}
+                              </span>
+                            </div>
+                          </td>
+                          <td><input className={`pt-cell pt-short${sc(`${ei}.${gi}`, "reps")}`} value={g.reps || ""} data-pt={`${si}:${ei}.${gi}:reps`} title="Reps: 5, 8-10, 4E, 30sec, 3 MIN…" onChange={(e) => setLine(ei, gi, "reps", e.target.value)} /></td>
+                          <td>
+                            <IntCell ex={ex} g={g} cell={`${si}:${ei}.${gi}:int`} cls={sc(`${ei}.${gi}`, "int")} onCommit={(txt) => edit((d) => {
                               const e = ex$(d, ei), pi = parseIntensity(txt);
                               ensureGroups(e);
                               e.groups[gi].intensity = pi.value;
                               setUnit(e, pi.unit, !!pi.value);
                             })} />
-                          </td>
-                          <td className="pt-ln">
-                            {gi > 0 && <button className="btn-link" tabIndex={-1} title="Remove this set line" onClick={() => edit((d) => { const e = ex$(d, ei); ensureGroups(e); e.groups.splice(gi, 1); })}>✕</button>}
-                            {gi === n - 1 && <button className="btn-link pt-addline" tabIndex={-1} title="Another line of sets for this exercise (3x5, then 2x3…)" onClick={() => { pending.current = `${si}:${ei}.${n}:sets`; edit((d) => { const e = ex$(d, ei); ensureGroups(e); e.groups.push(blankGroup()); }); }}>+</button>}
                           </td>
                           {gi === 0 && (
                             <React.Fragment>
@@ -466,7 +561,7 @@
                                 const i = extraIndex(ex, l);
                                 return (
                                   <td key={l} rowSpan={n}>
-                                    <input className="pt-cell pt-short" value={i >= 0 ? ex.extras[i].value || "" : ""} data-pt={`${si}:${ei}.0:x${xi}`} title={`${l}: a target, or leave it empty for the athlete to write in their own`} onChange={(e) => { const v = e.target.value; edit((d) => setExtra(ex$(d, ei), l, v)); }} />
+                                    <input className={`pt-cell pt-short${sc(`${ei}.0`, `x${xi}`)}`} value={i >= 0 ? ex.extras[i].value || "" : ""} data-pt={`${si}:${ei}.0:x${xi}`} title={`${l}: a target, or leave it empty for the athlete to write in their own`} onChange={(e) => { const v = e.target.value; edit((d) => setExtra(ex$(d, ei), l, v)); }} />
                                   </td>
                                 );
                               })}

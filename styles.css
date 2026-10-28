@@ -3958,11 +3958,13 @@ input[placeholder^="Search"]:focus { outline: none; border-color: var(--dst-red)
 .pt-table .pt-del { width: 22px; text-align: center; border-left: none; }
 .pt-table tbody.pt-block > tr:first-child > td { border-top: 2px solid var(--border); }
 .pt-table tr.pt-subline > td { border-top: 1px dashed var(--border); }
-.pt-table th.pt-setsh { width: 50px; }
+.pt-table th.pt-setsh { width: 72px; }
 .pt-table th.pt-repsh { width: 70px; }
 .pt-table th.pt-inth { width: 76px; }
-.pt-table .pt-ln { width: 26px; text-align: center; border-left: none; white-space: nowrap; }
-.pt-table .pt-ln .btn-link { padding: 6px 1px; font-size: 11px; }
+.pt-setcell { display: flex; align-items: center; }
+.pt-setcell .pt-cell { flex: 1; min-width: 0; }
+.pt-ln { display: inline-flex; flex: 0 0 auto; padding-right: 3px; }
+.pt-ln .btn-link { padding: 4px 2px !important; font-size: 11px; color: var(--text-dim); }
 .pt-table .pt-addline { font-weight: 700; font-size: 14px !important; }
 .pt-cell { width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 0; background: transparent; color: var(--text); font: inherit; padding: 6px 6px; margin: 0; }
 .pt-cell:hover { background: var(--overlay-soft); }
@@ -4043,3 +4045,6 @@ button.pt-label.on { color: var(--dst-red); }
 .app-ask-actions { display: flex; gap: 8px; margin-top: 14px; }
 .app-ask-actions .btn { margin: 0; }
 .app-ask .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+/* Table view: a highlighted block of cells (drag across, or Shift+click) */
+.pt-cell.pt-sel { background: rgba(165, 42, 52, 0.32) !important; border-color: rgba(165, 42, 52, 0.6); }
+.pt-dragging, .pt-dragging * { user-select: none; cursor: cell; }
