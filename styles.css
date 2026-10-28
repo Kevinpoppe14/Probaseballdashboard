@@ -4090,3 +4090,13 @@ button.pt-label.on { color: var(--dst-red); }
 .pt-table td { border-left-color: var(--cell-line); border-bottom-color: var(--cell-line); }
 .pt-table tr.pt-subline > td { border-top-color: var(--cell-line); }
 .pt-table th { border-bottom-color: var(--cell-line); }
+/* speed / throwing / re-ed table: each section's title in a red tab, with the column titles repeated under it */
+.spt-table tbody.spt-sec > tr:first-child > td { background: var(--dst-red); border-top: 6px solid var(--panel); padding: 5px 8px; }
+.spt-table tbody.spt-sec:first-of-type > tr:first-child > td { border-top: none; }
+.spt-table .spt-sec-head .spd-sec-name { background: transparent; color: #fff; border: none; border-bottom: 1px dashed rgba(255, 255, 255, 0.5); font-size: 13.5px; }
+.spt-table .spt-sec-head .spd-time { background: rgba(0, 0, 0, 0.25); color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); }
+.spt-table .spt-sec-head .spd-time::placeholder { color: rgba(255, 255, 255, 0.7); }
+.spt-table .spt-sec-head .spd-x, .spt-table .spt-sec-head .spd-add, .spt-table .spt-sec-head .spd-copy { color: #fff; }
+.spt-table .spt-sec-head .spd-copy { background: rgba(0, 0, 0, 0.25); border-color: rgba(255, 255, 255, 0.35); }
+.spt-table .spt-sec .spd-sec-desc { background: rgba(0, 0, 0, 0.25); color: #fff; }
+.spt-table tr.spt-colhead > th { text-align: left; font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-dim); background: var(--panel); padding: 3px 6px; border-bottom: 1px solid var(--cell-line); }

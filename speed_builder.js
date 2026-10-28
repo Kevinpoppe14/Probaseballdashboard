@@ -747,6 +747,16 @@
                           {(sec.description || opened[`desc|${wi}|${si}|${sec.name}`]) && <textarea className="spd-sec-desc" rows={2} value={sec.description} placeholder="Description (shows at the top of this section in the app)" autoFocus={!sec.description} onChange={(e) => setSectionField(wi, si, sec.name, "description", e.target.value)} />}
                         </td>
                       </tr>
+                      {/* the column titles again under each section that has drills, so a section far down the day still
+                          shows which box is which */}
+                      {sec.series.some((sr) => sr.drills.length) && (
+                        <tr className="spt-colhead">
+                          <th>Drill</th><th>Sets</th><th>Reps</th><th>{THROW ? "Dist (ft)" : REED ? "Time" : "Dist / time"}</th>
+                          {(THROW || REED) && <th>{THROW ? "Ball wt" : "Weight"}</th>}
+                          {xl.map((l) => <th key={l}>{l}</th>)}
+                          <th>Notes</th><th />
+                        </tr>
+                      )}
                     </tbody>
                     {sec.series.map((sr, j) => {
                       // a named series is boxed in a color of its own; drills outside a series aren't
