@@ -15,7 +15,9 @@
 //     row with sets but no exercise is another line of the exercise above.
 //   - Dragging across cells (or Shift+click) highlights a block, as in a sheet: Ctrl+C copies it to paste into a
 //     sheet or another day, Ctrl+V pastes at its top-left cell, Ctrl+X cuts and Delete clears it.
-//   - Tempo and Rest are always columns. "+ Column" adds Time, Distance, Speed or a box the coach names to every
+//   - A day starts with just Sets, Reps and Intensity. Tempo, Rest and Notes are columns where the day uses them,
+//     or once "+ Column" adds them. The exercise name and notes wrap onto more lines rather than being cut off.
+//   - "+ Column" also adds Time, Distance, Speed or a box the coach names to every
 //     exercise in a day (or, above the days, every day of the week) at once; its header's ✕ takes it off the day.
 //     They're the same extra boxes the Boxes view's "+" adds one exercise at a time.
 //   - A week's days sit side by side, the weeks one under another; the builder's size buttons (Fit week…) apply.
@@ -30,12 +32,15 @@
   const groupsOf = (ex) => { const g = window.ProgramRx.normalize(ex).groups; return g && g.length ? g : [blankGroup()]; };
   const ensureGroups = (e) => { if (!Array.isArray(e.groups)) Object.assign(e, window.ProgramRx.normalize(e)); if (!e.groups.length) e.groups = [blankGroup()]; };
 
-  // an intensity as typed → { value, unit: "%" | "RPE" | "RIR" | null (not said) }: 75%, 70-75 %, RPE 8, 8 RPE, 2 RIR
+  // an intensity as typed → { value, unit: "%" | "RPE" | "RIR" | "lb" | "kg" | null (not said) }: 75%, 70-75 %,
+  // RPE 8, 8 RPE, 2 RIR, or a weight: 135 lb, 135lbs, 135#, 60 kg
   function parseIntensity(t) {
     let v = `${t || ""}`.trim();
     if (/rpe/i.test(v)) return { value: v.replace(/rpe/i, "").trim(), unit: "RPE" };
     if (/rir/i.test(v)) return { value: v.replace(/rir/i, "").trim(), unit: "RIR" };
     if (/%/.test(v)) return { value: v.replace(/\s*%\s*/g, "").trim(), unit: "%" };
+    if (/\d\s*(lbs?|#|pounds?)\.?$/i.test(v)) return { value: v.replace(/\s*(lbs?|#|pounds?)\.?$/i, "").trim(), unit: "lb" };
+    if (/\d\s*(kgs?|kilos?)\.?$/i.test(v)) return { value: v.replace(/\s*(kgs?|kilos?)\.?$/i, "").trim(), unit: "kg" };
     return { value: v, unit: null };
   }
   const setUnit = (e, unit, hasValue) => {
@@ -226,13 +231,37 @@
         className={`pt-cell pt-short${cls || ""}`}
         value={txt !== null ? txt : shown}
         data-pt={cell}
-        placeholder={unit === "RPE" ? "RPE" : unit === "RIR" ? "RIR" : "%"}
-        title="Intensity with its unit: 75%, RPE 8, 2 RIR. A number on its own keeps this exercise's unit."
+        placeholder={unit && unit !== "%" ? unit : "%"}
+        title="Intensity with its unit: 75%, RPE 8, 2 RIR, or a weight: 135 lb, 60 kg. A number on its own keeps this exercise's unit."
         onChange={(e) => setTxt(e.target.value)}
         onBlur={() => { if (txt !== null && txt.trim() !== shown) onCommit(txt); setTxt(null); }}
       />
     );
   }
+
+  // a cell whose words wrap onto more lines (the exercise name, the notes): the text itself until it's clicked or
+  // moved into, then a box to type in (keeping the library's suggestions for a name)
+  function WrapCell({ value, cell, cls, placeholder, list, onChange, onFocus, onBlur }) {
+    const [editing, setEditing] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => { if (editing && ref.current) { ref.current.focus(); ref.current.select(); } }, [editing]);
+    if (editing) {
+      return <input ref={ref} className={`pt-cell ${cls || ""}`} value={value || ""} data-pt={cell} list={list} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} onFocus={onFocus} onBlur={(e) => { setEditing(false); if (onBlur) onBlur(e); }} />;
+    }
+    return (
+      <div className={`pt-cell pt-wrap ${cls || ""}`} tabIndex={0} data-pt={cell} data-v={value || ""} onFocus={() => setEditing(true)}>
+        {value || <span className="pt-ph">{placeholder}</span>}
+      </div>
+    );
+  }
+
+  // Tempo, Rest and Notes are columns only where a day uses them (a value in any of its exercises) or "+ Column"
+  // added them (kept on the day as tableCols), so a day built from scratch is just Sets, Reps and Intensity
+  const OPTIONAL = [["tempo", "Tempo"], ["rest", "Rest"], ["notes", "Notes"]];
+  const shownOf = (session) => {
+    const on = session.tableCols || [];
+    return OPTIONAL.reduce((o, [k]) => ({ ...o, [k]: on.includes(k) || session.exercises.some((e) => `${e[k] || ""}`.trim()) }), {});
+  };
 
   function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress }) {
     const rootRef = useRef(null);
@@ -256,11 +285,16 @@
       edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises.push(freshRow(s)); });
     };
     // the day's columns in order, as pasted rows fill them
-    const colsOf = (session) => ["name", "sets", "reps", "int", "tempo", "rest", ...extraColsOf(session).map((l) => `x:${l}`), "notes"];
+    const colsOf = (session) => { const sh = shownOf(session); return ["name", "sets", "reps", "int", ...(sh.tempo ? ["tempo"] : []), ...(sh.rest ? ["rest"] : []), ...extraColsOf(session).map((l) => `x:${l}`), ...(sh.notes ? ["notes"] : [])]; };
     const colKey = (session, col) => { const m = /^x(\d+)$/.exec(col); return m ? `x:${extraColsOf(session)[Number(m[1])]}` : col; };
-    // "+ Column": Time, Distance, Speed or a box the coach names, on every exercise of one day (si) or of the week
+    // "+ Column": Tempo, Rest or Notes, or Time, Distance, Speed or a box the coach names, on every exercise of one
+    // day (si) or of the week
     const addCol = (si, what) => {
       const where = si == null ? "this week" : `in ${week.sessions[si].name || `Day ${si + 1}`}`;
+      if (OPTIONAL.some(([k]) => k === what)) {
+        edit((d) => (si == null ? d.weeks[wi].sessions : [d.weeks[wi].sessions[si]]).forEach((s) => { s.tableCols = [...new Set([...(s.tableCols || []), what])]; }));
+        return;
+      }
       const add = (label) => {
         if (!label) return;
         edit((d) => (si == null ? d.weeks[wi].sessions : [d.weeks[wi].sessions[si]]).forEach((s) => addColumn(s, label)));
@@ -276,9 +310,18 @@
       if (!filled) { drop(); return; }
       window.askConfirm({ title: `Remove the ${label} column?`, text: `${filled} exercise${filled === 1 ? " has" : "s have"} something in it in ${s.name || `Day ${si + 1}`}. Ctrl+Z undoes it.`, ok: "Remove", danger: true }).then((yes) => { if (yes) drop(); });
     };
+    // Tempo, Rest or Notes off a day: their values are cleared too (asked first when there are any)
+    const dropBase = (si, k, title) => {
+      const s = week.sessions[si];
+      const filled = s.exercises.filter((e) => `${e[k] || ""}`.trim()).length;
+      const drop = () => edit((d) => { const ds = d.weeks[wi].sessions[si]; ds.tableCols = (ds.tableCols || []).filter((x) => x !== k); ds.exercises.forEach((e) => { e[k] = ""; }); });
+      if (!filled) { drop(); return; }
+      window.askConfirm({ title: `Remove the ${title} column?`, text: `${filled} exercise${filled === 1 ? " has" : "s have"} something in it in ${s.name || `Day ${si + 1}`}, which will be cleared. Ctrl+Z undoes it.`, ok: "Remove", danger: true }).then((yes) => { if (yes) drop(); });
+    };
     const colMenu = (si) => (
       <select className="pt-addcol" value="" title={si == null ? "Add a column to every exercise on every day of this week" : "Add a column to every exercise in this day"} onChange={(e) => addCol(si, e.target.value)}>
         <option value="" disabled hidden>{si == null ? "+ Column on every day" : "+ Column"}</option>
+        {OPTIONAL.filter(([k]) => si == null || !shownOf(week.sessions[si])[k]).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         {["Time", "Distance", "Speed"].map((l) => <option key={l} value={l}>{l}</option>)}
         <option value="custom">Name your own…</option>
       </select>
@@ -350,7 +393,7 @@
     const [sel, setSel] = useState(null);
     const drag = useRef(null);
     const rowKeysOf = (session) => session.exercises.flatMap((ex, ei) => groupsOf(ex).map((g, gi) => `${ei}.${gi}`));
-    const colIdsOf = (session) => ["name", "sets", "reps", "int", "tempo", "rest", ...extraColsOf(session).map((l, i) => `x${i}`), "notes"];
+    const colIdsOf = (session) => colsOf(session).map((k) => (k.startsWith("x:") ? `x${extraColsOf(session).indexOf(k.slice(2))}` : k));
     const posOf = (el) => {
       const p = el && el.dataset && el.dataset.pt ? el.dataset.pt.split(":") : null;
       const s = p ? week.sessions[Number(p[0])] : null;
@@ -368,7 +411,7 @@
       for (let r = R.r0; r <= R.r1; r += 1) {
         const [ei, gi] = rk[r].split(".").map(Number);
         const line = R.c0 === 0 ? [gi === 0 ? labels[ei].replace(/\.$/, "") : ""] : [];
-        for (let c = R.c0; c <= R.c1; c += 1) { const el = cellAt(sel.si, rk[r], ci[c]); line.push(el ? `${el.value}`.replace(/[\t\r\n]+/g, " ") : ""); }
+        for (let c = R.c0; c <= R.c1; c += 1) { const el = cellAt(sel.si, rk[r], ci[c]); line.push(el ? `${el.tagName === "INPUT" ? el.value : el.dataset.v || ""}`.replace(/[\t\r\n]+/g, " ") : ""); }
         out.push(line.join("\t"));
       }
       return out.join("\n");
@@ -467,10 +510,16 @@
           const labels = window.exerciseLabels(session.exercises);
           const xcols = extraColsOf(session);
           const ex$ = (d, ei) => d.weeks[wi].sessions[si].exercises[ei];
-          const setEx = (ei, k, v) => edit((d) => { ex$(d, ei)[k] = v; });
+          // typing in Tempo, Rest or Notes keeps that column on the day, so clearing the last value doesn't take it away
+          const setEx = (ei, k, v) => edit((d) => {
+            ex$(d, ei)[k] = v;
+            const ds = d.weeks[wi].sessions[si];
+            if (OPTIONAL.some(([o]) => o === k) && !(ds.tableCols || []).includes(k)) ds.tableCols = [...(ds.tableCols || []), k];
+          });
           const setLine = (ei, gi, k, v) => edit((d) => { const e = ex$(d, ei); ensureGroups(e); e.groups[gi][k] = v; });
-          const rk = rowKeysOf(session), ci = colIdsOf(session);
+          const rk = rowKeysOf(session), ci = colIdsOf(session), sh = shownOf(session);
           const sc = (row, col) => selCls(si, rk, ci, row, col);
+          const baseHead = (k, title, cls) => <th className={cls}>{title}<button className="btn-link pt-xdrop" title={`Remove the ${title} column from this day`} onClick={() => dropBase(si, k, title)}>✕</button></th>;
           const cell = (ex, ei, k, props) => (
             <input {...props} className={`pt-cell ${(props && props.className) || ""}${sc(`${ei}.0`, k)}`} value={ex[k] || ""} data-pt={`${si}:${ei}.0:${k}`} onChange={(e) => setEx(ei, k, e.target.value)} />
           );
@@ -485,15 +534,17 @@
               <textarea className="program-warmup pt-warmup" rows={1} value={session.warmup || ""} placeholder="Warm-up (optional), shown above A1" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].warmup = v; }); }} />
               {/* wider than the day when it has many columns: the exercise column keeps at least 160px, and the table scrolls */}
               <div className="pt-scroll">
-              <table className="pt-table" style={{ minWidth: 34 + 140 + 72 + 70 + 76 + 72 * 2 + 86 * xcols.length + 130 + 22 }}>
+              <table className="pt-table" style={{ minWidth: 34 + 140 + 72 + 70 + 76 + 72 * ((sh.tempo ? 1 : 0) + (sh.rest ? 1 : 0)) + 86 * xcols.length + (sh.notes ? 130 : 0) + 22 }}>
                 <thead>
                   <tr>
                     <th className="pt-lab" /><th>Exercise</th><th className="pt-setsh">Sets</th><th className="pt-repsh">Reps</th><th className="pt-inth">Intensity</th>
-                    <th className="pt-sh">Tempo</th><th className="pt-sh">Rest</th>
+                    {sh.tempo && baseHead("tempo", "Tempo", "pt-sh")}
+                    {sh.rest && baseHead("rest", "Rest", "pt-sh")}
                     {xcols.map((l) => (
                       <th className="pt-xcol" key={l}>{l}<button className="btn-link pt-xdrop" title={`Remove the ${l} column from this day`} onClick={() => dropCol(si, l)}>✕</button></th>
                     ))}
-                    <th className="pt-noteh">Notes</th><th className="pt-del" />
+                    {sh.notes && baseHead("notes", "Notes", "pt-noteh")}
+                    <th className="pt-del" />
                   </tr>
                 </thead>
                 {session.exercises.map((ex, ei) => {
@@ -518,7 +569,7 @@
                                 {!linked && onProgress && <button className="pt-progress" tabIndex={-1} title={`Progress the ${letter} series across the weeks`} onClick={() => onProgress(si, letter)}>↗</button>}
                               </td>
                               <td rowSpan={n}>
-                                {cell(ex, ei, "name", { className: "pt-name", list: "exercise-library-names", placeholder: "Exercise", onFocus: () => onNameFocus && onNameFocus(wi, si, ei, ex.name), onBlur: () => onNameBlur && onNameBlur(wi, si, ei) })}
+                                <WrapCell value={ex.name} cell={`${si}:${ei}.0:name`} cls={`pt-name${sc(`${ei}.0`, "name")}`} list="exercise-library-names" placeholder="Exercise" onChange={(v) => setEx(ei, "name", v)} onFocus={() => onNameFocus && onNameFocus(wi, si, ei, ex.name)} onBlur={() => onNameBlur && onNameBlur(wi, si, ei)} />
                                 {!linked && (edtOn(ex) ? (
                                   <div className="pt-edt" title={`EDT: ${letter}1, ${letter}2… done back to back for this many minutes. The athlete gets a countdown and logs how many times through they got.`}>
                                     ⏱ EDT
@@ -555,8 +606,8 @@
                           </td>
                           {gi === 0 && (
                             <React.Fragment>
-                              <td rowSpan={n}>{cell(ex, ei, "tempo", { className: "pt-short", maxLength: 6 })}</td>
-                              <td rowSpan={n}>{cell(ex, ei, "rest", { className: "pt-short" })}</td>
+                              {sh.tempo && <td rowSpan={n}>{cell(ex, ei, "tempo", { className: "pt-short", maxLength: 6 })}</td>}
+                              {sh.rest && <td rowSpan={n}>{cell(ex, ei, "rest", { className: "pt-short" })}</td>}
                               {xcols.map((l, xi) => {
                                 const i = extraIndex(ex, l);
                                 return (
@@ -565,7 +616,7 @@
                                   </td>
                                 );
                               })}
-                              <td rowSpan={n}>{cell(ex, ei, "notes")}</td>
+                              {sh.notes && <td rowSpan={n}><WrapCell value={ex.notes} cell={`${si}:${ei}.0:notes`} cls={sc(`${ei}.0`, "notes")} placeholder="" onChange={(v) => setEx(ei, "notes", v)} /></td>}
                               <td className="pt-del" rowSpan={n}><button className="btn-link" title="Remove this exercise" tabIndex={-1} onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button></td>
                             </React.Fragment>
                           )}

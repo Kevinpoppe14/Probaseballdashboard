@@ -20,7 +20,7 @@
   // The weight itself is never part of the program; the athlete writes it in when doing the work.
   // Older programs stored a single sets / reps / load per exercise; normalize() turns those into one set group.
   const ProgramRx = {
-    UNITS: ["%", "RIR", "RPE", ""],
+    UNITS: ["%", "RIR", "RPE", "lb", "kg", ""],
     normalize(e) {
       if (Array.isArray(e.groups)) return e;
       const { sets, reps, load, loadUnit, ...rest } = e;
@@ -37,6 +37,7 @@
       if (unit === "%") return `${v.replace(/%$/, "")}%`;
       if (unit === "RIR") return `${v} RIR`;
       if (unit === "RPE") return `RPE ${v}`;
+      if (unit === "lb" || unit === "kg") return `${v} ${unit}`; // a set weight, written in by the coach
       return ""; // "No intensity": nothing shown even if a number was typed earlier
     },
     // just the sets and reps of one group: "5", or "3x1" for three sets of one

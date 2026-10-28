@@ -4048,3 +4048,12 @@ button.pt-label.on { color: var(--dst-red); }
 /* Table view: a highlighted block of cells (drag across, or Shift+click) */
 .pt-cell.pt-sel { background: rgba(165, 42, 52, 0.32) !important; border-color: rgba(165, 42, 52, 0.6); }
 .pt-dragging, .pt-dragging * { user-select: none; cursor: cell; }
+/* Table view: the exercise name and notes wrap (program_table.js WrapCell) */
+.pt-cell.pt-wrap { white-space: normal; overflow-wrap: anywhere; line-height: 1.3; min-height: 30px; cursor: text; }
+.pt-cell.pt-wrap:focus { outline: none; }
+.pt-ph { color: var(--text-dim); opacity: 0.6; font-weight: 400; }
+/* the progress emblem (↗), green */
+.program-editor .program-day .program-session-head .program-progress-btn, .pt-day-head .pt-day-progress { color: #fff !important; background: #16a34a; border-radius: 5px; padding: 0 6px !important; line-height: 1.4; }
+.program-editor .program-day .program-session-head .program-progress-btn:hover, .pt-day-head .pt-day-progress:hover { background: #15803d; }
+.pt-progress { color: #22c55e !important; opacity: 0.7; }
+.pt-table tbody:hover .pt-progress { opacity: 1; }

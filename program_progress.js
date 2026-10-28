@@ -46,7 +46,7 @@
     const shown = window.ProgramRx.intensityText(ex, g);
     const unit = window.ProgramRx.normalize(ex).intensityUnit;
     return (
-      <input className="pp-in pp-int" value={txt !== null ? txt : shown} placeholder={unit === "RPE" ? "RPE" : unit === "RIR" ? "RIR" : "%"} title="Intensity with its unit: 75%, RPE 8, 2 RIR"
+      <input className="pp-in pp-int" value={txt !== null ? txt : shown} placeholder={unit && unit !== "%" ? unit : "%"} title="Intensity with its unit: 75%, RPE 8, 2 RIR, or a weight: 135 lb, 60 kg"
         onChange={(e) => setTxt(e.target.value)} onBlur={() => { if (txt !== null && txt.trim() !== shown) onCommit(txt); setTxt(null); }} />
     );
   }

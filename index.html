@@ -1171,7 +1171,7 @@ function ExerciseLibrary({ sectionTabs }) {
 // ---- Training programs ----------------------------------------------------------------------
 // A program is a reusable template: weeks, each with sessions, each with exercises (sets / reps / load / rest).
 // Intensity is prescribed, never the weight itself: a percentage, reps in reserve (RIR), RPE, or nothing.
-const INTENSITY_UNITS = [["%", "% of max"], ["RIR", "RIR"], ["RPE", "RPE"], ["", "No intensity"]];
+const INTENSITY_UNITS = [["%", "% of max"], ["RIR", "RIR"], ["RPE", "RPE"], ["lb", "A set weight in pounds"], ["kg", "A set weight in kilograms"], ["", "No intensity"]];
 const newSetGroup = () => ({ sets: "", reps: "", intensity: "" });
 const newExercise = () => ({ id: `ex-${Math.random().toString(36).slice(2, 9)}`, name: "", tempo: "", intensityUnit: "%", groups: [newSetGroup()], rest: "", notes: "" });
 // Brings a program saved in the older single sets / reps / load format up to set groups (see ProgramRx in periodization.js).
@@ -1684,7 +1684,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
     const xs = draft.weeks[wi].sessions[si].exercises;
     const openAll = (f) => setOpened((o) => { const n = { ...o }; xs.forEach((ex, ei) => { n[`${ex.id || `${wi}-${si}-${ei}`}:${f}`] = true; }); return n; });
     if (what === "tempo" || what === "rest") { openAll(what); return; }
-    if (what === "%" || what === "RIR" || what === "RPE") {
+    if (what === "%" || what === "RIR" || what === "RPE" || what === "lb" || what === "kg") {
       edit((d) => d.weeks[wi].sessions[si].exercises.forEach((e) => { if (!e.groups.some((g) => `${g.intensity || ""}`.trim())) e.intensityUnit = what; }));
       openAll("int");
       return;
@@ -1910,6 +1910,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                       <option value="%">Percentage on every exercise</option>
                       <option value="RPE">RPE on every exercise</option>
                       <option value="RIR">RIR on every exercise</option>
+                      <option value="lb">Weight (lb) on every exercise</option>
+                      <option value="kg">Weight (kg) on every exercise</option>
                       <option value="x:Time">Time on every exercise</option>
                       <option value="x:Distance">Distance on every exercise</option>
                       <option value="x:Speed">Speed on every exercise</option>
@@ -2016,7 +2018,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                         // what the "+" adds: another line of sets, an intensity, tempo, rest, notes, or an extra box
                         const addField = (what) => {
                           if (what === "sets") edit((d) => { d.weeks[wi].sessions[si].exercises[ei].groups.push(newSetGroup()); });
-                          else if (what === "%" || what === "RIR" || what === "RPE") { setEx(ei, "intensityUnit", what); open("int"); }
+                          else if (what === "%" || what === "RIR" || what === "RPE" || what === "lb" || what === "kg") { setEx(ei, "intensityUnit", what); open("int"); }
                           else if (what === "notes") setNotesOpen(ex.id);
                           else if (what === "tempo" || what === "rest") open(what);
                           else if (what === "custom") {
@@ -2059,6 +2061,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                                       {!showInt && <option value="%">Percentage</option>}
                                       {!showInt && <option value="RIR">RIR</option>}
                                       {!showInt && <option value="RPE">RPE</option>}
+                                      {!showInt && <option value="lb">Weight (lb)</option>}
+                                      {!showInt && <option value="kg">Weight (kg)</option>}
                                       {!showTempo && <option value="tempo">Tempo</option>}
                                       {!showRest && <option value="rest">Rest</option>}
                                       {!hasExtra("Time") && <option value="x:Time">Time</option>}
