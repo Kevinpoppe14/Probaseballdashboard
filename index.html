@@ -1670,6 +1670,25 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
     return () => { document.removeEventListener("pointerdown", onDown, true); document.removeEventListener("keydown", onKey); };
   });
 
+  // The day's "+ all" menu: a box on every exercise in the day at once, instead of one exercise at a time with each
+  // exercise's own "+". Tempo and rest open an empty box on each; an intensity sets the unit (and opens the box) on
+  // those without one typed in yet; Time, Distance, Speed or a named box is added to each that doesn't have it.
+  const addToDay = (wi, si, what) => {
+    const xs = draft.weeks[wi].sessions[si].exercises;
+    const openAll = (f) => setOpened((o) => { const n = { ...o }; xs.forEach((ex, ei) => { n[`${ex.id || `${wi}-${si}-${ei}`}:${f}`] = true; }); return n; });
+    if (what === "tempo" || what === "rest") { openAll(what); return; }
+    if (what === "%" || what === "RIR" || what === "RPE") {
+      edit((d) => d.weeks[wi].sessions[si].exercises.forEach((e) => { if (!e.groups.some((g) => `${g.intensity || ""}`.trim())) e.intensityUnit = what; }));
+      openAll("int");
+      return;
+    }
+    const label = what === "custom" ? (window.prompt("Name the new box (for example Height, Load, Distance, Holds):") || "").trim().slice(0, 20) : what.replace(/^x:/, "");
+    if (!label) return;
+    edit((d) => d.weeks[wi].sessions[si].exercises.forEach((e) => {
+      const extras = Array.isArray(e.extras) ? e.extras : [];
+      if (!extras.some((x) => (x.label || "").toLowerCase() === label.toLowerCase())) e.extras = [...extras, { label, value: "" }];
+    }));
+  };
   const input = (value, onChange, props = {}) => (
     <input value={value || ""} onChange={(e) => onChange(e.target.value)} {...props} />
   );
@@ -1874,6 +1893,19 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                     >⠿</span>
                     <input type="checkbox" className="program-tick" title="Tick this whole day: to copy it (Ctrl+C), or as the day to paste into (Ctrl+V)" aria-label={`Select ${session.name || `Day ${si + 1}`}`} checked={dayTicked(wi, si)} onChange={() => toggleDay(wi, si)} />
                     {input(session.name, (v) => edit((d) => { d.weeks[wi].sessions[si].name = v; }), { className: "program-session-name", "aria-label": "Day name" })}
+                    {/* a box on every exercise in this day at once (addToDay) */}
+                    <select className="pe-day-more" value="" title="Add a box to every exercise in this day: tempo, rest, intensity, time, distance…" aria-label="Add a box to every exercise in this day" onChange={(e) => addToDay(wi, si, e.target.value)}>
+                      <option value="" disabled hidden>+ all</option>
+                      <option value="tempo">Tempo on every exercise</option>
+                      <option value="rest">Rest on every exercise</option>
+                      <option value="%">Percentage on every exercise</option>
+                      <option value="RPE">RPE on every exercise</option>
+                      <option value="RIR">RIR on every exercise</option>
+                      <option value="x:Time">Time on every exercise</option>
+                      <option value="x:Distance">Distance on every exercise</option>
+                      <option value="x:Speed">Speed on every exercise</option>
+                      <option value="custom">A box you name, on every exercise…</option>
+                    </select>
                     {/* the same move without dragging, for a tablet: one place earlier or later in the week */}
                     <button className="btn-link" title="Move this day earlier" aria-label="Move this day earlier" disabled={si === 0} onClick={() => moveDay(wi, si, wi, si - 1)}>‹</button>
                     <button className="btn-link" title="Move this day later" aria-label="Move this day later" disabled={si === week.sessions.length - 1} onClick={() => moveDay(wi, si, wi, si + 1)}>›</button>

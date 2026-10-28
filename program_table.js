@@ -12,8 +12,10 @@
 //     adding rows as needed. With a header row (Exercise, Sets, Reps, %, Tempo, Rest, Notes…) the columns are
 //     matched by name. A first column of labels (A1, A2, B1, or 1, 1, 2) sets the supersets; without one, rows
 //     between blank rows are supersetted together. "Copy for Sheets" copies a day the other way.
-//   - Time, Distance and other added boxes, EDT and Accumulate show under the Sets × Reps cell; they're edited in
-//     the Boxes view.
+//   - Tempo and Rest are always columns. "+ Column" adds Time, Distance, Speed or a box the coach names to every
+//     exercise in a day (or, above the days, every day of the week) at once; its header's ✕ takes it off the day.
+//     They're the same extra boxes the Boxes view's "+" adds one exercise at a time.
+//   - EDT and Accumulate show under the Sets × Reps cell; they're edited in the Boxes view.
 (function () {
   const { useState, useRef, useEffect } = React;
   const COLS = ["name", "rx", "tempo", "rest", "notes"];
@@ -67,13 +69,31 @@
   };
   const rxText = (ex) => window.ProgramRx.groups(ex).map((g) => window.ProgramRx.groupText(ex, g)).join(", ");
 
-  // what's shown under the Sets × Reps cell: the extra boxes, EDT and Accumulate (edited in the Boxes view)
+  // what's shown under the Sets × Reps cell: EDT and Accumulate (edited in the Boxes view)
   const moreText = (ex, blockFirst) => {
     const R = window.ProgramRx;
     const edt = blockFirst ? (ex.edt !== undefined && ex.edt !== 0 && `${ex.edt}` !== "" ? Number(ex.edt) : R.edtMinutes(ex)) : 0;
     const acc = ex.accumulate === true || (ex.groups || []).some((g) => R.accumulated(ex, g));
-    return [R.extrasText(ex), edt ? `EDT ${edt} min` : "", acc ? "Accumulate" : ""].filter(Boolean).join(" · ");
+    return [edt ? `EDT ${edt} min` : "", acc ? "Accumulate" : ""].filter(Boolean).join(" · ");
   };
+
+  // ---- extra columns: the boxes added with the Boxes view's "+" (Time, Distance, Speed, one named by the coach),
+  // kept on each exercise as extras [{ label, value }]. A day has a column for each label any of its exercises has.
+  const extrasOf = (ex) => (Array.isArray(ex.extras) ? ex.extras : []);
+  const extraColsOf = (session) => {
+    const seen = new Map();
+    session.exercises.forEach((ex) => extrasOf(ex).forEach((x) => { const l = (x.label || "").trim(); if (l && !seen.has(l.toLowerCase())) seen.set(l.toLowerCase(), l); }));
+    return [...seen.values()];
+  };
+  const extraIndex = (ex, label) => extrasOf(ex).findIndex((x) => (x.label || "").trim().toLowerCase() === label.toLowerCase());
+  const setExtra = (ex, label, value) => {
+    const i = extraIndex(ex, label);
+    if (i >= 0) ex.extras[i].value = value;
+    else ex.extras = [...extrasOf(ex), { label, value }];
+  };
+  // every exercise in the day gets the box (empty: a target to fill in, or for the athlete to write their own)
+  const addColumn = (session, label) => session.exercises.forEach((ex) => { if (extraIndex(ex, label) < 0) ex.extras = [...extrasOf(ex), { label, value: "" }]; });
+  const removeColumn = (session, label) => session.exercises.forEach((ex) => { if (extraIndex(ex, label) >= 0) ex.extras = ex.extras.filter((x) => (x.label || "").trim().toLowerCase() !== label.toLowerCase()); });
 
   // ---- pasting rows from a sheet ----------------------------------------------------------------------------
   const HEADS = [
@@ -89,7 +109,13 @@
     [/^rest(\s*\(.*\))?$/i, "rest"],
     [/^(notes?|cues?|comments?|coaching cues|coaching notes)$/i, "notes"],
   ];
-  const headOf = (c) => { const h = HEADS.find(([re]) => re.test((c || "").trim())); return h ? h[1] : null; };
+  // a header that's none of those but names one of the day's extra columns, or Time / Distance / Speed, fills that box
+  const headOf = (c, extraLabels) => {
+    const t = (c || "").trim(), h = HEADS.find(([re]) => re.test(t));
+    if (h) return h[1];
+    const x = (extraLabels || []).find((l) => l.toLowerCase() === t.toLowerCase()) || (/^(time|distance|speed)$/i.test(t) ? t[0].toUpperCase() + t.slice(1).toLowerCase() : null);
+    return x ? `x:${x}` : null;
+  };
   const blockKey = (l) => {
     const s = (l || "").trim().replace(/\.$/, "");
     const a = /^([A-Z]+)\d+$/i.exec(s);
@@ -97,16 +123,19 @@
     const n = /^(\d+)[a-z]?$/i.exec(s);
     return n ? n[1] : s;
   };
-  // tab-separated rows → [{ name, rx, sets, reps, int, rpe, rir, tempo, rest, notes, linked? }]
-  function parseSheet(text, startCol) {
+  // tab-separated rows → [{ name, rx, sets, reps, int, rpe, rir, tempo, rest, notes, "x:Time"…, linked? }]
+  // `cols` is the day's columns in order (COLS with its extra columns before Notes), `startCol` where the paste went
+  function parseSheet(text, startCol, cols) {
+    const dayCols = cols || COLS;
+    const extraLabels = dayCols.filter((k) => k.startsWith("x:")).map((k) => k.slice(2));
     const rows = text.split("\n").map((r) => r.split("\t").map((c) => c.trim()));
     let map, body = rows;
-    const head = rows[0].map(headOf);
+    const head = rows[0].map((c) => headOf(c, extraLabels));
     if (head.includes("name") && head.filter(Boolean).length >= 2) { map = head; body = rows.slice(1); } else {
       // by position from the cell pasted into; a first column of A1 / B2 or 1 / 1 / 2 is the superset column
       const filled = body.filter((r) => r.some(Boolean));
       const labelCol = startCol === 0 && filled.length > 0 && filled[0].length > 1 && filled.every((r) => LABEL_RE.test(r[0]) || NUM_RE.test(r[0]));
-      map = labelCol ? ["label", ...COLS] : COLS.slice(startCol);
+      map = labelCol ? ["label", ...dayCols] : dayCols.slice(startCol);
     }
     const recs = [];
     let gap = false, gaps = false;
@@ -135,6 +164,7 @@
       applyRx(e, /[x×]/i.test(reps) && !rec.sets ? `${reps}${int ? ` (${int})` : ""}` : `${rec.sets ? `${rec.sets}x` : ""}${reps}${int ? ` (${int})` : ""}`);
     }
     ["tempo", "rest", "notes"].forEach((k) => { if (rec[k] !== undefined) e[k] = rec[k]; });
+    Object.keys(rec).filter((k) => k.startsWith("x:")).forEach((k) => setExtra(e, k.slice(2), rec[k]));
     if (rec.linked !== undefined) e.linked = rec.linked;
   }
 
@@ -168,11 +198,36 @@
     const dayCells = (si) => [...rootRef.current.querySelectorAll(`[data-pt^="${si}:"]`)];
     const go = (el) => { if (!el) return false; el.focus(); if (el.select) el.select(); return true; };
     const at = (si, ei, col) => rootRef.current.querySelector(`[data-pt="${si}:${ei}:${col}"]`);
+    // a new row has the day's extra columns too, so the athlete gets the same boxes on every exercise
+    const freshRow = (session) => ({ ...newExercise(), extras: extraColsOf(session).map((label) => ({ label, value: "" })) });
     const addRow = (si, focus) => {
       const n = week.sessions[si].exercises.length;
       if (focus) pending.current = `${si}:${n}:name`;
-      edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); });
+      edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises.push(freshRow(s)); });
     };
+    // the day's columns in order, extra columns before Notes; a cell's data-pt names an extra column x0, x1…
+    const colsOf = (session) => ["name", "rx", "tempo", "rest", ...extraColsOf(session).map((l) => `x:${l}`), "notes"];
+    const colKey = (session, col) => { const m = /^x(\d+)$/.exec(col); return m ? `x:${extraColsOf(session)[Number(m[1])]}` : col; };
+    // "+ Column": Time, Distance, Speed or a box the coach names, on every exercise of one day (si) or of the week
+    const addCol = (si, what) => {
+      const label = what === "custom" ? (window.prompt("Name the new column (for example Height, Load, Holds):") || "").trim().slice(0, 20) : what;
+      if (!label) return;
+      edit((d) => (si == null ? d.weeks[wi].sessions : [d.weeks[wi].sessions[si]]).forEach((s) => addColumn(s, label)));
+      setNote(`${label} added to every exercise ${si == null ? "this week" : `in ${week.sessions[si].name || `Day ${si + 1}`}`}. Leave a box empty for the athlete to write in their own.`);
+    };
+    const dropCol = (si, label) => {
+      const s = week.sessions[si];
+      const filled = s.exercises.filter((ex) => { const i = extraIndex(ex, label); return i >= 0 && `${ex.extras[i].value || ""}`.trim(); }).length;
+      if (filled && !window.confirm(`Remove the ${label} column from ${s.name || `Day ${si + 1}`}? ${filled} exercise${filled === 1 ? " has" : "s have"} something in it. (Ctrl+Z undoes it.)`)) return;
+      edit((d) => removeColumn(d.weeks[wi].sessions[si], label));
+    };
+    const colMenu = (si, cls) => (
+      <select className={`pt-addcol ${cls || ""}`} value="" title={si == null ? "Add a column to every exercise on every day of this week" : "Add a column to every exercise in this day"} onChange={(e) => addCol(si, e.target.value)}>
+        <option value="" disabled hidden>{si == null ? "+ Column on every day" : "+ Column"}</option>
+        {["Time", "Distance", "Speed"].map((l) => <option key={l} value={l}>{l}</option>)}
+        <option value="custom">Name your own…</option>
+      </select>
+    );
 
     const onKey = (e) => {
       const t = e.target, key = t && t.dataset ? t.dataset.pt : null;
@@ -212,12 +267,13 @@
       e.preventDefault();
       const [s, r, col] = key.split(":");
       const si = Number(s), ei = Number(r);
-      const recs = parseSheet(text, Math.max(0, COLS.indexOf(col)));
+      const session = week.sessions[si], cols = colsOf(session);
+      const recs = parseSheet(text, Math.max(0, cols.indexOf(colKey(session, col))), cols);
       if (!recs.length) return;
       edit((d) => {
-        const xs = d.weeks[wi].sessions[si].exercises;
+        const s = d.weeks[wi].sessions[si], xs = s.exercises;
         recs.forEach((rec, i) => {
-          if (!xs[ei + i]) xs[ei + i] = newExercise();
+          if (!xs[ei + i]) xs[ei + i] = freshRow(s);
           applyRec(xs[ei + i], rec);
         });
       });
@@ -229,8 +285,13 @@
     const copyDay = (si) => {
       const s = week.sessions[si], labels = window.exerciseLabels(s.exercises);
       const clean = (v) => `${v || ""}`.replace(/[\t\r\n]+/g, " ").trim();
-      const lines = [["#", "Exercise", "Sets x Reps", "Tempo", "Rest", "Notes"].join("\t")];
-      s.exercises.forEach((ex, ei) => { if ((ex.name || "").trim() || rxText(ex)) lines.push([labels[ei].replace(/\.$/, ""), ex.name, rxText(ex), ex.tempo, ex.rest, ex.notes].map(clean).join("\t")); });
+      const xcols = extraColsOf(s);
+      const lines = [["#", "Exercise", "Sets x Reps", "Tempo", "Rest", ...xcols, "Notes"].join("\t")];
+      s.exercises.forEach((ex, ei) => {
+        if (!(ex.name || "").trim() && !rxText(ex)) return;
+        const xs = xcols.map((l) => { const i = extraIndex(ex, l); return i >= 0 ? ex.extras[i].value : ""; });
+        lines.push([labels[ei].replace(/\.$/, ""), ex.name, rxText(ex), ex.tempo, ex.rest, ...xs, ex.notes].map(clean).join("\t"));
+      });
       const text = lines.join("\n");
       const ok = () => setNote(`Copied ${s.name || `Day ${si + 1}`} (${lines.length - 1} row${lines.length === 2 ? "" : "s"}). Paste it into Google Sheets or Excel.`);
       const fallback = () => {
@@ -244,9 +305,13 @@
 
     return (
       <div className="pt-days" ref={rootRef} onKeyDown={onKey} onPaste={onPaste}>
-        {note && <div className="pt-note">{note}</div>}
+        <div className="pt-weekbar">
+          {colMenu(null)}
+          {note && <span className="pt-note">{note}</span>}
+        </div>
         {week.sessions.map((session, si) => {
           const labels = window.exerciseLabels(session.exercises);
+          const xcols = extraColsOf(session);
           const setEx = (ei, k, v) => edit((d) => { d.weeks[wi].sessions[si].exercises[ei][k] = v; });
           const cell = (ex, ei, k, props) => (
             <input {...props} className={`pt-cell ${(props && props.className) || ""}`} value={ex[k] || ""} data-pt={`${si}:${ei}:${k}`} onChange={(e) => setEx(ei, k, e.target.value)} />
@@ -255,13 +320,22 @@
             <div className="pt-day" key={si}>
               <div className="pt-day-head">
                 <input className="program-session-name" value={session.name || ""} aria-label="Day name" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].name = v; }); }} />
+                {colMenu(si)}
                 <button className="btn btn-small-grey" title="Copies this day's rows, to paste into Google Sheets or Excel" onClick={() => copyDay(si)}>Copy for Sheets</button>
                 <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
               </div>
               <textarea className="program-warmup pt-warmup" rows={1} value={session.warmup || ""} placeholder="Warm-up (optional), shown above A1" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].warmup = v; }); }} />
-              <table className="pt-table">
+              {/* wider than the day when it has many columns: the exercise column keeps at least 160px, and the table scrolls */}
+              <div className="pt-scroll">
+              <table className="pt-table" style={{ minWidth: 34 + 160 + 170 + 72 * 2 + 86 * xcols.length + 170 + 22 }}>
                 <thead>
-                  <tr><th className="pt-lab" /><th>Exercise</th><th>Sets × Reps</th><th>Tempo</th><th>Rest</th><th>Notes</th><th className="pt-del" /></tr>
+                  <tr>
+                    <th className="pt-lab" /><th>Exercise</th><th className="pt-rxh">Sets × Reps</th><th className="pt-sh">Tempo</th><th className="pt-sh">Rest</th>
+                    {xcols.map((l) => (
+                      <th className="pt-xcol" key={l}>{l}<button className="btn-link pt-xdrop" title={`Remove the ${l} column from this day`} onClick={() => dropCol(si, l)}>✕</button></th>
+                    ))}
+                    <th className="pt-noteh">Notes</th><th className="pt-del" />
+                  </tr>
                 </thead>
                 <tbody>
                   {session.exercises.map((ex, ei) => {
@@ -282,6 +356,14 @@
                         </td>
                         <td>{cell(ex, ei, "tempo", { className: "pt-short", maxLength: 6, placeholder: "" })}</td>
                         <td>{cell(ex, ei, "rest", { className: "pt-short", placeholder: "" })}</td>
+                        {xcols.map((l, xi) => {
+                          const i = extraIndex(ex, l);
+                          return (
+                            <td key={l}>
+                              <input className="pt-cell pt-short" value={i >= 0 ? ex.extras[i].value || "" : ""} data-pt={`${si}:${ei}:x${xi}`} title={`${l}: a target, or leave it empty for the athlete to write in their own`} onChange={(e) => { const v = e.target.value; edit((d) => setExtra(d.weeks[wi].sessions[si].exercises[ei], l, v)); }} />
+                            </td>
+                          );
+                        })}
                         <td>{cell(ex, ei, "notes", { placeholder: "" })}</td>
                         <td className="pt-del"><button className="btn-link" title="Remove this row" tabIndex={-1} onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button></td>
                       </tr>
@@ -289,6 +371,7 @@
                   })}
                 </tbody>
               </table>
+              </div>
               <button className="btn btn-small-grey pt-add" onClick={() => addRow(si, true)}>+ Add row</button>
             </div>
           );
