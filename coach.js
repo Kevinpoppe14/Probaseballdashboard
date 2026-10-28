@@ -1275,6 +1275,21 @@
   $("team-btn").addEventListener("click", () => { if (teamOpen) show(active); else openTeam(); });
   $("grp").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "__save__") saveGroup(); else if (v) loadGroup(v); });
   $("loc").addEventListener("change", (e) => { locFilter = e.target.value; try { localStorage.setItem(locKey(), locFilter); } catch (ex) { /* private window */ } $("search").value = ""; if (locFilter) $("search").focus(); search(); });
+  // the two side bars fold away for more room: the athletes (left) and the day summary (right), remembered here
+  const panes = (() => { try { return JSON.parse(localStorage.getItem("coachPanes") || "{}"); } catch (e) { return {}; } })();
+  const drawPanes = () => {
+    $("board").classList.toggle("side-closed", !!panes.side);
+    $("board").classList.toggle("pv-closed", !!panes.pv);
+    const t = $("pv-toggle");
+    t.textContent = panes.pv ? "‹" : "›";
+    t.title = panes.pv ? "Show the day summary" : "Hide the day summary";
+    t.setAttribute("aria-label", t.title);
+    try { localStorage.setItem("coachPanes", JSON.stringify(panes)); } catch (e) { /* private window */ }
+  };
+  $("side-close").addEventListener("click", () => { panes.side = true; drawPanes(); });
+  $("side-open").addEventListener("click", () => { panes.side = false; drawPanes(); });
+  $("pv-toggle").addEventListener("click", () => { panes.pv = !panes.pv; drawPanes(); });
+  drawPanes();
   $("search").addEventListener("input", search);
   $("search").addEventListener("focus", search);
   $("search").addEventListener("click", search);

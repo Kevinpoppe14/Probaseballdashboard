@@ -205,6 +205,23 @@
     .pv-row.no-label small { margin-left: 0; }
   }
 
+  /* the side bars fold away: the athletes to a slim edge on the left (‹ / ›), the day summary on the right (› / ‹) */
+  .side-close, .side-rail, .pv-toggle { display: none; }
+  @media (min-width: 781px) {
+    .side-close { display: block; margin-left: 4px; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border-radius: 7px; border: 1px solid #444; background: none; color: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
+    .side-close:hover, .pv-toggle:hover { border-color: #888; }
+    .board.side-closed { grid-template-columns: 30px 1fr; }
+    .board.side-closed .side > *:not(.side-rail) { display: none; }
+    .board.side-closed .side-rail { display: block; width: 100%; height: 100%; padding: 0; border: none; background: var(--panel); color: inherit; font-size: 20px; cursor: pointer; }
+    .board.side-closed .side-rail:hover { background: #262626; }
+  }
+  @media (min-width: 1000px) {
+    .pv-toggle { display: block; position: fixed; top: 10px; right: 12px; z-index: 5; width: 26px; height: 26px; padding: 0; border-radius: 7px; border: 1px solid #444; background: var(--panel); color: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
+    .board.pv-closed .preview { display: none; }
+    .board:not(:has(.stage .preview)) .pv-toggle { display: none; } /* only beside an athlete's program, where the summary is */
+    .board.pv-closed .stage { --page: min(680px, 100%); }
+    .board.pv-closed .stage iframe { left: 50%; transform: translateX(-50%); border-left: 1px solid var(--border); }
+  }
   /* phone: the athletes become a strip across the top */
   @media (max-width: 780px) {
     .board { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
@@ -244,7 +261,9 @@
 
 <div class="board" id="board" hidden>
   <aside class="side">
-    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
+    <!-- the side bar folds away to a slim edge (‹), and comes back from it (›); remembered on this device -->
+    <button class="side-rail" id="side-open" type="button" title="Show the athletes" aria-label="Show the athletes side bar">›</button>
+    <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a><button class="side-close" id="side-close" type="button" title="Hide the athletes (more room for the program)" aria-label="Hide the athletes side bar">‹</button></div>
     <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button></div>
     <div class="add">
       <select id="grp" aria-label="Groups"><option value="">Groups</option></select>
@@ -256,6 +275,8 @@
     <div class="side-foot"><span id="me"></span><button id="signout">Sign out</button></div>
   </aside>
   <main class="stage" id="stage"></main>
+  <!-- the day as plain text beside the program (wide screens) folds away too -->
+  <button class="pv-toggle" id="pv-toggle" type="button" title="Hide the day summary" aria-label="Hide the day summary">›</button>
 </div>
 
 <script crossorigin src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
