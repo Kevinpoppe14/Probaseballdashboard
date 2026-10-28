@@ -9360,8 +9360,17 @@ const TOURS = { team: { name: "home", steps: HOME_TOUR }, players: { name: "prof
 
 function App({ userEmail, onLogout }) {
   const deepLink = useMemo(() => readDeepLink(), []);
-  const [view, setView] = useState(deepLink ? "athlete" : "team");
-  const [selectedId, setSelectedId] = useState(deepLink ? deepLink.athlete : null);
+  // A refresh opens where the coach was: the page, athlete, profile tab and Programs screen are kept in the browser's
+  // history entry (see Back below), which survives reloading the page. A new tab, or a deep link, starts as usual;
+  // an athlete who's no longer there falls back to the Team Overview.
+  const resumed = useMemo(() => {
+    const s = deepLink ? null : window.history.state;
+    if (!s || !s.dst || !s.view) return null;
+    if (s.view === "athlete" && !window.AthleteStore.allAthletes().some((a) => String(a.id) === String(s.selectedId))) return null;
+    return s;
+  }, []); // eslint-disable-line
+  const [view, setView] = useState(deepLink ? "athlete" : resumed ? resumed.view : "team");
+  const [selectedId, setSelectedId] = useState(deepLink ? deepLink.athlete : resumed ? resumed.selectedId : null);
   const [positionFilter, setPositionFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("Active");
   const [leagueFilter, setLeagueFilter] = useState("All");
@@ -9387,8 +9396,8 @@ function App({ userEmail, onLogout }) {
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goFacilities = () => setView("facilities");
-  const [programsNav, setProgramsNav] = useState(PROGRAMS_NAV_HOME);
-  const goPrograms = () => { setProgramsNav(PROGRAMS_NAV_HOME); setView("programs"); };
+  const [programsNav, setProgramsNav] = useState(() => (resumed && resumed.programsNav) || PROGRAMS_NAV_HOME);
+  const goPrograms =() => { setProgramsNav(PROGRAMS_NAV_HOME); setView("programs"); };
   const goHelp = () => setView("help");
 
   const welcomeKey = `dstWelcomeSeen:${userEmail}`;
@@ -9425,13 +9434,13 @@ function App({ userEmail, onLogout }) {
 
   // Which tab the profile opens on: normally the Player Plan, or the tab an
   // "Edit plan" link on the team report (or whatever tab a deep link asked for).
-  const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : "");
+  const [profileTab, setProfileTab] = useState(deepLink ? deepLink.tab : resumed ? resumed.profileTab || "" : "");
   // Opening a different page or athlete should land at the top, not wherever the list was scrolled to.
   React.useEffect(() => { window.scrollTo(0, 0); }, [view, selectedId]);
 
   // Back: every page change (a different tab, or a different athlete) is recorded in the browser's history, so the
   // in-app Back button and the browser's own back button both return to the page that was open before.
-  const navIdx = React.useRef(0);
+  const navIdx = React.useRef(resumed && resumed.idx > 0 ? resumed.idx : 0); // after a refresh, Back still steps through the pages before it
   const navFromPop = React.useRef(false);
   const navFirst = React.useRef(true);
   // Screens inside the Programs page (which folder is open, which program is being edited or assigned) are part
@@ -9441,13 +9450,13 @@ function App({ userEmail, onLogout }) {
   const navNow = React.useRef({ view, selectedId, programsKey, tabKey });
   navNow.current = { view, selectedId, programsKey, tabKey };
   const navReplace = React.useRef(false); // set when a change should overwrite the current history entry (a renamed or deleted folder)
-  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoBack, setCanGoBack] = useState(navIdx.current > 0);
   const updateProgramsNav = (updater, opts) => {
     if (opts && opts.replace) navReplace.current = true;
     setProgramsNav(updater);
   };
   React.useEffect(() => {
-    window.history.replaceState({ dst: true, idx: 0, view, selectedId, profileTab, programsNav }, "");
+    window.history.replaceState({ dst: true, idx: navIdx.current, view, selectedId, profileTab, programsNav }, "");
     const onPop = (e) => {
       const s = e.state;
       if (!s || !s.dst) return;
