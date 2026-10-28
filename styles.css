@@ -3981,5 +3981,5 @@ button.pt-label.on { color: var(--dst-red); }
 .pt-xdrop:hover { opacity: 1; color: var(--danger) !important; }
 .pt-table .btn-link { color: var(--text-dim); padding: 6px 0; }
 /* the Boxes view's per-day "+ all" menu (a box on every exercise in the day) */
-.program-editor .program-day .program-session-head .pe-day-more { flex: 0 0 auto; font-size: 11px; padding: 1px 4px; border-radius: 5px; background: rgba(0, 0, 0, 0.25); color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
+.program-editor .program-day .program-session-head .pe-day-more { flex: 0 0 auto; width: 54px; min-width: 0; max-width: 54px; font-size: 11px; padding: 1px 4px; border-radius: 5px; background: rgba(0, 0, 0, 0.25); color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
 .pe-day-more option { color: #111; background: #fff; }
