@@ -98,7 +98,27 @@
     });
     const draftRef = React.useRef(draft);
     draftRef.current = draft;
-    const edit = (fn) => { if (onDirty) onDirty(); setDraft((d) => { const c = clone(d); fn(c); return c; }); };
+    // ---- undo and redo, as in the strength builder: every change can be stepped back with Ctrl+Z (or Undo) and
+    // forward with Ctrl+Y / Ctrl+Shift+Z; a burst of typing is one step. The history lasts while the builder is open.
+    const history = React.useRef({ past: [], future: [], at: 0 });
+    const edit = (fn) => {
+      if (onDirty) onDirty();
+      const h = history.current, now = Date.now();
+      if (!h.past.length || now - h.at > 700) { h.past.push(draftRef.current); if (h.past.length > 100) h.past.shift(); }
+      h.at = now;
+      h.future = [];
+      setDraft((d) => { const c = clone(d); fn(c); return c; });
+    };
+    const undo = () => { const h = history.current; if (!h.past.length) return; h.future.push(draftRef.current); h.at = 0; if (onDirty) onDirty(); setDraft(h.past.pop()); };
+    const redo = () => { const h = history.current; if (!h.future.length) return; h.past.push(draftRef.current); h.at = 0; if (onDirty) onDirty(); setDraft(h.future.pop()); };
+    const undoKeys = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = (e.key || "").toLowerCase();
+      if (k !== "z" && k !== "y") return;
+      e.preventDefault();
+      e.stopPropagation(); // the builder's, not the periodization chart's above it
+      if (k === "y" || e.shiftKey) redo(); else undo();
+    };
     const canSave = (draft.name || "").trim().length > 0;
 
     // ---- where the coach is working: a day is followed through the program, so clicking into Day 1 lights Day 1 in
@@ -176,10 +196,12 @@
       s.sections.forEach((x) => { if (x.name === oldName) x.name = name; });
       s.exercises.forEach((e) => { if (e.section === oldName) e.section = name; });
     }));
+    // asks in the app's own box (app_ask.js), then does it; Ctrl+Z undoes it afterwards too
+    const confirmThen = (o, fn) => (window.askConfirm ? window.askConfirm(o) : Promise.resolve(window.confirm(o.title))).then((yes) => { if (yes) fn(); });
     const removeSection = (si, name) => {
       const has = draftRef.current.weeks.some((w) => w.sessions[si] && w.sessions[si].exercises.some((e) => e.section === name));
-      if (has && !window.confirm(`Remove ${name} and its drills from this day in every week?`)) return;
-      edit((d) => sameDayEveryWeek(d, si, (s) => { s.sections = s.sections.filter((x) => x.name !== name); s.exercises = s.exercises.filter((e) => e.section !== name); }));
+      const go = () => edit((d) => sameDayEveryWeek(d, si, (s) => { s.sections = s.sections.filter((x) => x.name !== name); s.exercises = s.exercises.filter((e) => e.section !== name); }));
+      if (has) confirmThen({ title: `Remove ${name}?`, text: "It and its drills come off this day in every week. Ctrl+Z undoes it.", ok: "Remove", danger: true }, go); else go();
     };
     const moveSection = (si, name, by) => edit((d) => sameDayEveryWeek(d, si, (s) => {
       const i = s.sections.findIndex((x) => x.name === name), j = i + by;
@@ -224,7 +246,10 @@
     const copyPrevWeek = (wi) => {
       const w = draftRef.current.weeks[wi];
       const filled = w.sessions.some((s) => s.exercises.some((e) => (e.name || "").trim()));
-      if (filled && !window.confirm(`Replace everything in ${w.name || `week ${wi + 1}`} with a copy of ${draftRef.current.weeks[wi - 1].name || `week ${wi}`}?`)) return;
+      if (filled) { confirmThen({ title: `Replace ${w.name || `week ${wi + 1}`}?`, text: `Everything in it is replaced with a copy of ${draftRef.current.weeks[wi - 1].name || `week ${wi}`}. Ctrl+Z undoes it.`, ok: "Replace" }, () => copyPrevWeekNow(wi)); return; }
+      copyPrevWeekNow(wi);
+    };
+    const copyPrevWeekNow = (wi) => {
       if (fromProgression) {
         // each day takes the drills of the same weekday the week before (or the day in its place), keeping its own name and color
         edit((d) => d.weeks[wi].sessions.forEach((s, k) => {
@@ -254,10 +279,9 @@
     const copySection = (wi, si, name, how) => {
       const d0 = draftRef.current, tg = targetsOf(d0, wi, si, how);
       const n = sess(d0, wi, si).exercises.filter((e) => e.section === name && (e.name || "").trim()).length;
-      if (!tg.length) { window.alert("There are no days there to copy to."); return; }
+      if (!tg.length) { confirmThen({ title: "There are no days there to copy to.", ok: "OK" }, () => {}); return; }
       const filled = tg.filter(([wj, sj]) => sess(d0, wj, sj).exercises.some((e) => e.section === name && (e.name || "").trim())).length;
-      if (!window.confirm(`Copy ${name} (${n} drill${n === 1 ? "" : "s"}) to ${dayWord(tg.length)}?${filled ? ` ${dayWord(filled)} already ${filled === 1 ? "has" : "have"} drills in ${name}; they'll be replaced.` : ""}`)) return;
-      edit((d) => {
+      confirmThen({ title: `Copy ${name} (${n} drill${n === 1 ? "" : "s"}) to ${dayWord(tg.length)}?`, text: filled ? `${dayWord(filled)} already ${filled === 1 ? "has" : "have"} drills in ${name}; they'll be replaced. Ctrl+Z undoes it.` : "", ok: "Copy" }, () => edit((d) => {
         const s0 = sess(d, wi, si), at0 = s0.sections.findIndex((x) => x.name === name), sec0 = s0.sections[at0] || { name, time: "" };
         const drills = s0.exercises.filter((e) => e.section === name);
         tg.forEach(([wj, sj]) => {
@@ -268,17 +292,16 @@
           if (sec0.description) x.description = sec0.description; else delete x.description;
           s.exercises = s.exercises.filter((e) => e.section !== name).concat(drills.map((e) => ({ ...clone(e), id: uid() })));
         });
-      });
+      }));
     };
     const copyDay = (wi, si, how) => {
       const d0 = draftRef.current, tg = targetsOf(d0, wi, si, how);
-      if (!tg.length) { window.alert("There are no days there to copy to."); return; }
+      if (!tg.length) { confirmThen({ title: "There are no days there to copy to.", ok: "OK" }, () => {}); return; }
       const filled = tg.filter(([wj, sj]) => sess(d0, wj, sj).exercises.some((e) => (e.name || "").trim())).length;
-      if (!window.confirm(`Copy all of ${sess(d0, wi, si).name || "this day"} (every section and drill) to ${dayWord(tg.length)}?${filled ? ` ${dayWord(filled)} already ${filled === 1 ? "has" : "have"} drills; they'll be replaced.` : ""}`)) return;
-      edit((d) => {
+      confirmThen({ title: `Copy all of ${sess(d0, wi, si).name || "this day"} to ${dayWord(tg.length)}?`, text: `Every section and drill.${filled ? ` ${dayWord(filled)} already ${filled === 1 ? "has" : "have"} drills; they'll be replaced.` : ""} Ctrl+Z undoes it.`, ok: "Copy" }, () => edit((d) => {
         const src = sess(d, wi, si);
         tg.forEach(([wj, sj]) => { const s = sess(d, wj, sj), c = freshIds(src); s.sections = c.sections; s.exercises = c.exercises; });
-      });
+      }));
     };
     const copyMenu = (label, onPick, cls) => (
       <select className={`spd-copy ${cls || ""}`} value="" title={label} aria-label={label} onChange={(ev) => { const v = ev.target.value; ev.target.value = ""; if (v) onPick(v); }}>
@@ -287,13 +310,13 @@
       </select>
     );
     const addWeek = () => edit((d) => { const last = d.weeks[d.weeks.length - 1]; d.weeks.push({ name: `Week ${d.weeks.length + 1}`, sessions: last.sessions.map(freshIds) }); });
-    const removeWeek = (wi) => { if (draft.weeks.length > 1 && window.confirm(`Remove ${draft.weeks[wi].name || `week ${wi + 1}`}?`)) edit((d) => { d.weeks.splice(wi, 1); }); };
+    const removeWeek = (wi) => { if (draft.weeks.length > 1) confirmThen({ title: `Remove ${draft.weeks[wi].name || `week ${wi + 1}`}?`, text: "Ctrl+Z undoes it.", ok: "Remove", danger: true }, () => edit((d) => { d.weeks.splice(wi, 1); })); };
     const days = Math.max(...draft.weeks.map((w) => w.sessions.length));
     const addDay = () => edit((d) => d.weeks.forEach((w) => { if (w.sessions.length < 7) w.sessions.push(THROW ? newThrowingDay(w.sessions.length + 1) : REED ? newReedDay(w.sessions.length + 1) : newSpeedDay(w.sessions.length + 1)); }));
     const setLevel = (wi, si, level) => edit((d) => { sess(d, wi, si).level = level; });
     const removeDay = (si) => {
-      if (days <= 1 || !window.confirm(`Remove ${(draft.weeks[0].sessions[si] || {}).name || "this day"} from every week?`)) return;
-      edit((d) => d.weeks.forEach((w) => { w.sessions.splice(si, 1); }));
+      if (days <= 1) return;
+      confirmThen({ title: `Remove ${(draft.weeks[0].sessions[si] || {}).name || "this day"} from every week?`, text: "Ctrl+Z undoes it.", ok: "Remove", danger: true }, () => edit((d) => d.weeks.forEach((w) => { w.sessions.splice(si, 1); })));
     };
     const renameDay = (si, name) => edit((d) => sameDayEveryWeek(d, si, (s) => { s.name = name; }));
 
@@ -480,7 +503,7 @@
       const filled = s.exercises.filter((e) => { const i = xAt(e, label); return i >= 0 && `${e.extras[i].value || ""}`.trim(); }).length;
       const drop = () => edit((d) => sess(d, wi, si).exercises.forEach((e) => { if (Array.isArray(e.extras)) e.extras = e.extras.filter((x) => (x.label || "").trim().toLowerCase() !== label.toLowerCase()); }));
       if (!filled) { drop(); return; }
-      window.askConfirm({ title: `Remove the ${label} column?`, text: `${filled} drill${filled === 1 ? " has" : "s have"} something in it. Ctrl+Z isn't available here, so it's gone once removed.`, ok: "Remove", danger: true }).then((yes) => { if (yes) drop(); });
+      window.askConfirm({ title: `Remove the ${label} column?`, text: `${filled} drill${filled === 1 ? " has" : "s have"} something in it. Ctrl+Z undoes it.`, ok: "Remove", danger: true }).then((yes) => { if (yes) drop(); });
     };
     // up and down a column, like a sheet (Tab goes across as usual); the drill name's arrows stay with its suggestions
     const tableKeys = (ev) => {
@@ -495,6 +518,153 @@
       ev.preventDefault();
       if (to) { to.focus(); if (to.select) to.select(); } else if (k === "Enter") t.blur();
     };
+    // ---- highlighting a block of cells, as in a sheet (and as in the strength builder's Table view): drag across them,
+    // or click one and Shift+click another. Ctrl+C copies them as rows and columns for a sheet or another day,
+    // Ctrl+V pastes at the block's top-left cell (or at the cell clicked; rows past the last drill add drills), Ctrl+X
+    // cuts, Delete clears, Esc or a click elsewhere lets go. A cell's data-pt is "week.day:drill:column"; the rows are
+    // the day's drills in the order shown (drillOrder), the columns the day's (dayCols).
+    const [sel, setSel] = useState(null); // { wi, si, a: [row, col], b: [row, col] }
+    const drag = React.useRef(null);
+    const drillOrder = (s) => window.speedSections(s).flatMap((sec) => sec.series.flatMap((sr) => sr.drills.map((x) => x.index)));
+    const dayCols = (s) => ["name", "sets", "reps", "dist", ...(THROW || REED ? ["wt"] : []), ...xLabelsOf(s).map((l, i) => `x${i}`), "notes"];
+    const posOf = (el) => {
+      const p = el && el.dataset && el.dataset.pt ? el.dataset.pt.split(":") : null;
+      if (!p) return null;
+      const [wi, si] = p[0].split(".").map(Number), s = ((draftRef.current.weeks[wi] || {}).sessions || [])[si];
+      if (!s) return null;
+      const r = drillOrder(s).indexOf(Number(p[1])), c = dayCols(s).indexOf(p[2]);
+      return r < 0 || c < 0 ? null : { wi, si, r, c };
+    };
+    const box = (b) => ({ r0: Math.min(b.a[0], b.b[0]), r1: Math.max(b.a[0], b.b[0]), c0: Math.min(b.a[1], b.b[1]), c1: Math.max(b.a[1], b.b[1]) });
+    const multi = !!sel && (sel.a[0] !== sel.b[0] || sel.a[1] !== sel.b[1]);
+    const selCls = (wi, si, index, col) => {
+      if (!multi || sel.wi !== wi || sel.si !== si) return "";
+      const s = draft.weeks[wi].sessions[si], r = drillOrder(s).indexOf(index), c = dayCols(s).indexOf(col), R = box(sel);
+      return r >= R.r0 && r <= R.r1 && c >= R.c0 && c <= R.c1 ? " pt-sel" : "";
+    };
+    // a cell's value written into a drill (the columns as in dayCols)
+    const putCell = (s, e, col, v) => {
+      if (col === "name" || col === "notes") e[col] = v;
+      else if (col === "sets" || col === "reps") { e.groups = Array.isArray(e.groups) && e.groups.length ? e.groups : [{ sets: "", reps: "", intensity: "" }]; e.groups[0][col] = v; }
+      else if (col === "dist") e.distance = v;
+      else if (col === "wt") e.weight = THROW && /^\d+(\.\d+)?$/.test(v) ? `${v} oz` : v;
+      else if (/^x\d+$/.test(col)) {
+        const label = xLabelsOf(s)[Number(col.slice(1))];
+        if (!label) return;
+        e.extras = Array.isArray(e.extras) ? e.extras : [];
+        const i = xAt(e, label);
+        if (i >= 0) e.extras[i].value = v; else e.extras.push({ label, value: v });
+      }
+    };
+    const selText = () => {
+      const s = draft.weeks[sel.wi].sessions[sel.si], order = drillOrder(s), cs = dayCols(s), R = box(sel), out = [];
+      for (let r = R.r0; r <= R.r1; r += 1) {
+        const line = [];
+        for (let c = R.c0; c <= R.c1; c += 1) {
+          const el = rootRef.current && rootRef.current.querySelector(`[data-pt="${sel.wi}.${sel.si}:${order[r]}:${cs[c]}"]`);
+          line.push(el ? `${el.tagName === "INPUT" ? el.value : el.dataset.v || ""}`.replace(/[\t\r\n]+/g, " ") : "");
+        }
+        out.push(line.join("\t"));
+      }
+      return out.join("\n");
+    };
+    const clearSel = () => {
+      const { wi, si } = sel, s0 = draft.weeks[wi].sessions[si], order = drillOrder(s0), cs = dayCols(s0), R = box(sel);
+      edit((d) => { const s = sess(d, wi, si); for (let r = R.r0; r <= R.r1; r += 1) for (let c = R.c0; c <= R.c1; c += 1) { const e = s.exercises[order[r]]; if (e) putCell(s, e, cs[c], ""); } });
+    };
+    // rows from a sheet: across from the column pasted into and down the drills in order; rows past the last drill
+    // become new drills in its series (blank rows are skipped)
+    const pasteAt = (wi, si, index, col, text) => {
+      const s0 = draft.weeks[wi].sessions[si], order = drillOrder(s0), cs = dayCols(s0);
+      const r0 = Math.max(0, order.indexOf(index)), c0 = Math.max(0, cs.indexOf(col));
+      const rows = text.split("\n").map((r) => r.split("\t")).filter((r) => r.some((c) => c.trim()));
+      if (!rows.length) return;
+      edit((d) => {
+        const s = sess(d, wi, si), ord = [...order];
+        rows.forEach((cells, i) => {
+          let idx = ord[r0 + i];
+          if (idx == null) {
+            const last = s.exercises[ord[ord.length - 1]];
+            const drill = newDrill(last ? last.section : ((s.sections || [])[0] || {}).name || "Other", last ? last.series || "" : "");
+            if (THROW && !notThrows(drill.section)) drill.extras = [{ label: "Throws", value: "" }];
+            s.exercises.push(drill);
+            idx = s.exercises.length - 1;
+            ord.push(idx);
+          }
+          cells.forEach((v, j) => { if (cs[c0 + j]) putCell(s, s.exercises[idx], cs[c0 + j], v.trim()); });
+        });
+      });
+    };
+    const clipText = (ev) => ((ev.clipboardData || window.clipboardData).getData("text/plain") || "").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+    const tablePaste = (ev) => {
+      const t = ev.target, p = t && t.dataset && t.dataset.pt ? t.dataset.pt.split(":") : null;
+      if (!p) return;
+      const text = clipText(ev);
+      if (!/[\t\n]/.test(text)) return; // one cell: an ordinary paste into the box
+      ev.preventDefault();
+      const [wi, si] = p[0].split(".").map(Number);
+      if (rootRef.current) rootRef.current.focus({ preventScroll: true }); // out of the box, onto the builder, where Ctrl+Z undoes the paste
+      pasteAt(wi, si, Number(p[1]), p[2], text);
+    };
+    const tableDown = (ev) => {
+      const p = posOf(ev.target.closest && ev.target.closest("[data-pt]"));
+      if (!p) { if (sel) setSel(null); return; }
+      if (ev.shiftKey && sel && sel.wi === p.wi && sel.si === p.si) {
+        ev.preventDefault();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        setSel({ ...sel, b: [p.r, p.c] });
+        return;
+      }
+      drag.current = { wi: p.wi, si: p.si, a: [p.r, p.c], moved: false };
+      setSel({ wi: p.wi, si: p.si, a: [p.r, p.c], b: [p.r, p.c] });
+    };
+    const tableOver = (ev) => {
+      const g = drag.current;
+      if (!g) return;
+      const p = posOf(ev.target.closest && ev.target.closest("[data-pt]"));
+      if (!p || p.wi !== g.wi || p.si !== g.si || (!g.moved && p.r === g.a[0] && p.c === g.a[1])) return;
+      if (!g.moved) { g.moved = true; rootRef.current.classList.add("pt-dragging"); if (document.activeElement && rootRef.current.contains(document.activeElement) && document.activeElement !== rootRef.current) document.activeElement.blur(); }
+      const ws = window.getSelection && window.getSelection();
+      if (ws && ws.rangeCount) ws.removeAllRanges();
+      setSel({ wi: g.wi, si: g.si, a: g.a, b: [p.r, p.c] });
+    };
+    React.useEffect(() => {
+      const up = () => { drag.current = null; if (rootRef.current) rootRef.current.classList.remove("pt-dragging"); };
+      const down = (ev) => { if (!ev.target.closest || !ev.target.closest(".spt-table")) setSel(null); };
+      document.addEventListener("mouseup", up);
+      document.addEventListener("mousedown", down);
+      return () => { document.removeEventListener("mouseup", up); document.removeEventListener("mousedown", down); };
+    }, []);
+    React.useEffect(() => {
+      if (!multi) return undefined;
+      // nothing typed into: the highlighted cells are what Ctrl+C / V / X and Delete work on (the builder's root has
+      // the focus once the drag began, so the periodization chart above doesn't take these keys either)
+      const free = () => !document.activeElement || document.activeElement === document.body || document.activeElement === rootRef.current;
+      const keys = (ev) => {
+        if (!free()) return;
+        const k = (ev.key || "").toLowerCase();
+        if ((ev.ctrlKey || ev.metaKey) && (k === "c" || k === "v" || k === "x")) ev.stopPropagation();
+        else if ((ev.ctrlKey || ev.metaKey) && (k === "z" || k === "y")) { ev.preventDefault(); ev.stopPropagation(); if (k === "y" || ev.shiftKey) redo(); else undo(); }
+        else if (k === "escape") setSel(null);
+        else if (k === "delete" || k === "backspace") { ev.preventDefault(); ev.stopPropagation(); clearSel(); }
+      };
+      const copy = (ev) => { if (!free()) return; ev.clipboardData.setData("text/plain", selText()); ev.preventDefault(); };
+      const cut = (ev) => { if (!free()) return; ev.clipboardData.setData("text/plain", selText()); ev.preventDefault(); clearSel(); };
+      const paste = (ev) => {
+        if (!free()) return;
+        const text = clipText(ev);
+        if (!text) return;
+        ev.preventDefault();
+        const s = draft.weeks[sel.wi].sessions[sel.si], R = box(sel);
+        pasteAt(sel.wi, sel.si, drillOrder(s)[R.r0], dayCols(s)[R.c0], text);
+      };
+      window.addEventListener("keydown", keys, true);
+      document.addEventListener("copy", copy);
+      document.addEventListener("cut", cut);
+      document.addEventListener("paste", paste);
+      return () => { window.removeEventListener("keydown", keys, true); document.removeEventListener("copy", copy); document.removeEventListener("cut", cut); document.removeEventListener("paste", paste); };
+    });
+
     const tableDay = (s, wi, si) => {
       const sections = window.speedSections(s);
       const linked = THROW && s.tpDay != null;
@@ -502,7 +672,7 @@
       const xl = xLabelsOf(s);
       const Wrap = window.ProgramTableKit && window.ProgramTableKit.WrapCell;
       const cols = 3 + 1 + (THROW || REED ? 1 : 0) + xl.length + 1 + 1; // name, sets, reps, dist, weight?, extras, notes, tools
-      const cell = (e, index, col, value, onChange, props) => <input {...props} className={`pt-cell ${(props && props.className) || ""}`} value={value || ""} data-pt={`${si}:${index}:${col}`} onChange={(ev) => onChange(ev.target.value)} />;
+      const cell = (e, index, col, value, onChange, props) => <input {...props} className={`pt-cell ${(props && props.className) || ""}${selCls(wi, si, index, col)}`} value={value || ""} data-pt={`${wi}.${si}:${index}:${col}`} onChange={(ev) => onChange(ev.target.value)} />;
       const drillRow = (e, index, j, sr) => {
         const g = e.groups[0] || {};
         const unclear = !REED && (e.distance || "").trim() && !window.speedParse(e.distance);
@@ -510,14 +680,14 @@
           <tr key={e.id}>
             <td className="spt-name">
               {Wrap
-                ? <Wrap value={e.name} cell={`${si}:${index}:name`} cls="pt-name" list="exercise-library-names" placeholder="Drill" onChange={(v) => setDrill(wi, si, index, { name: v })} />
+                ? <Wrap value={e.name} cell={`${wi}.${si}:${index}:name`} cls={`pt-name${selCls(wi, si, index, "name")}`} list="exercise-library-names" placeholder="Drill" onChange={(v) => setDrill(wi, si, index, { name: v })} />
                 : cell(e, index, "name", e.name, (v) => setDrill(wi, si, index, { name: v }), { className: "pt-name", list: "exercise-library-names", placeholder: "Drill" })}
             </td>
             <td>{cell(e, index, "sets", g.sets, (v) => setGroup(wi, si, index, { sets: v }), { className: "pt-short", title: "Sets" })}</td>
             <td>{cell(e, index, "reps", g.reps, (v) => setGroup(wi, si, index, { reps: v }), { className: "pt-short", title: "Reps in each set" })}</td>
             <td>{cell(e, index, "dist", e.distance, (v) => setDrill(wi, si, index, { distance: v }), { className: `pt-short${unclear ? " spt-unclear" : ""}`, title: REED ? "Time for each rep, if it's timed: 30 s, 1:00" : THROW ? "Distance for each throw (90 ft, 120 ft), or a time" : "Distance or time for each rep: 10 yd, 120 ft, 30 m, 6 s, 1:00" })}</td>
             {(THROW || REED) && <td>{cell(e, index, "wt", e.weight, (v) => setDrill(wi, si, index, { weight: v }), { className: "pt-short", title: THROW ? "Ball weight: 5 oz, 7 oz, 225 g (empty for a regular baseball)" : "Weight, if it's loaded: 135 lb, 20 kg, a band color", onBlur: THROW ? (ev) => { const v = ev.target.value.trim(); if (/^\d+(\.\d+)?$/.test(v)) setDrill(wi, si, index, { weight: `${v} oz` }); } : undefined })}</td>}
-            {xl.map((l) => { const i = xAt(e, l); return <td key={l}>{cell(e, index, `x:${l}`, i >= 0 ? e.extras[i].value : "", (v) => setExtraLabel(wi, si, index, l, v), { className: "pt-short", title: `${l}: a target, or leave it empty for the athlete to write in their own` })}</td>; })}
+            {xl.map((l, xi) => { const i = xAt(e, l); return <td key={l}>{cell(e, index, `x${xi}`, i >= 0 ? e.extras[i].value : "", (v) => setExtraLabel(wi, si, index, l, v), { className: "pt-short", title: `${l}: a target, or leave it empty for the athlete to write in their own` })}</td>; })}
             <td>{cell(e, index, "notes", e.notes, (v) => setDrill(wi, si, index, { notes: v }), {})}</td>
             <td className="spt-tools">
               <button className="spd-x" tabIndex={-1} title="Move up" onClick={() => moveDrill(wi, si, index, -1)}>↑</button>
@@ -548,7 +718,7 @@
               ))}
             </div>
           )}
-          <div className="pt-scroll" onKeyDown={tableKeys}>
+          <div className="pt-scroll" onKeyDown={tableKeys} onPaste={tablePaste} onMouseDown={tableDown} onMouseOver={tableOver}>
             <table className="pt-table spt-table" style={{ minWidth: 150 + 56 * 2 + 72 + (THROW || REED ? 72 : 0) + 80 * xl.length + 130 + 70 }}>
               <thead>
                 <tr>
@@ -615,7 +785,7 @@
     };
 
     return (
-      <div className={`${embedded ? "" : "panel "}program-editor spd-editor ${THROW ? "thr-editor" : ""} ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} tabIndex={-1}>
+      <div className={`${embedded ? "" : "panel "}program-editor spd-editor ${THROW ? "thr-editor" : ""} ${zoomMode === "fit" ? "program-fit" : ""}`} ref={rootRef} tabIndex={-1} onKeyDown={undoKeys}>
         <datalist id="exercise-library-names">
           {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
         </datalist>
@@ -632,6 +802,8 @@
           </span>
           {/* always there (hidden until something is dimmed), so its showing up never moves the program mid-click */}
           <button className="btn btn-small-grey program-show-all" style={focus ? undefined : { visibility: "hidden" }} disabled={!focus} tabIndex={focus ? undefined : -1} onClick={() => setFocus(null)}>Show everything at full brightness</button>
+          <button className="btn btn-small-grey" disabled={!history.current.past.length} title="Undo the last change (Ctrl+Z)" onClick={undo}>↶ Undo</button>
+          <button className="btn btn-small-grey" disabled={!history.current.future.length} title="Redo (Ctrl+Y)" onClick={redo}>↷ Redo</button>
           {autoSave && <span className="timestamp-note">{saveState === "saved" ? (savedId.current ? "Saved" : "") : saveState === "pending" ? "Saving…" : "Give it a name to save"}</span>}
           {onSaveAndAssign && <button className="btn btn-assign" disabled={!canSave} onClick={() => canSave && onSaveAndAssign(manualRec())}>Save &amp; assign to athletes or a group</button>}
           {onSave && <button className="btn btn-primary" disabled={!canSave} onClick={() => canSave && onSave(manualRec())}>Save program</button>}
