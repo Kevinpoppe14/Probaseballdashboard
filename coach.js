@@ -65,6 +65,22 @@
     if (teamOpen) { if (!active) active = id; remember(); openTeam(); return; }
     show(id);
   }
+  // several at once (Add all for a location): as add, staying on whoever was being looked at, or the first one added
+  function addAll(ids) {
+    const fresh = ids.filter((id) => !picked.includes(id));
+    if (!fresh.length) return;
+    picked.push(...fresh);
+    loadDone();
+    $("search").value = "";
+    $("results").hidden = true;
+    $("search").blur();
+    if (!active) active = fresh[0];
+    if (kpiOpen) { remember(); openKpi(); return; }
+    if (speedOpen) { remember(); openSpeed(); return; }
+    if (logOpen) { remember(); openLog(); return; }
+    if (teamOpen) { remember(); openTeam(); return; }
+    show(active);
+  }
   function remove(id) {
     picked = picked.filter((x) => x !== id);
     const f = frames.get(id);
@@ -1054,8 +1070,13 @@
     const none = pool.some((a) => picked.includes(a.id) && (!q || a.name.toLowerCase().includes(q)))
       ? (q ? "Already on the board." : "Everyone here is already on the board.")
       : `No active athlete matches that${locFilter ? ` at ${locFilter}` : ""}.`;
+    // "Add all": everyone listed (a whole location, or every match for what's typed) onto the board in one go; anyone
+    // not there today comes off with their ✕ on the board
+    const all = hits.length > 1
+      ? el("button", { class: "result result-all", onclick: () => addAll(hits.map((a) => a.id)) }, `+ Add all ${hits.length}`, el("small", null, q ? `everyone matching “${$("search").value.trim()}”${locFilter ? ` at ${locFilter}` : ""}` : `everyone at ${locFilter} not on the board yet`))
+      : null;
     box.replaceChildren(...(hits.length
-      ? hits.map((a) => el("button", { class: "result", onclick: () => add(a.id) }, lastFirst(a.name), el("small", null, a.sub)))
+      ? [all, ...hits.map((a) => el("button", { class: "result", onclick: () => add(a.id) }, lastFirst(a.name), el("small", null, a.sub)))].filter(Boolean)
       : [el("div", { class: "result none" }, none)]));
     box.hidden = false;
   }
