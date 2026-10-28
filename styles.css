@@ -4100,3 +4100,13 @@ button.pt-label.on { color: var(--dst-red); }
 .spt-table .spt-sec-head .spd-copy { background: rgba(0, 0, 0, 0.25); border-color: rgba(255, 255, 255, 0.35); }
 .spt-table .spt-sec .spd-sec-desc { background: rgba(0, 0, 0, 0.25); color: #fff; }
 .spt-table tr.spt-colhead > th { text-align: left; font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-dim); background: var(--panel); padding: 3px 6px; border-bottom: 1px solid var(--cell-line); }
+/* a throwing day's header bar in its intensity's color (Low green, Medium yellow, High red, Off grey), lettering for contrast */
+.thr-day { --thr-head: #6b7280; --thr-ink: #fff; }
+.thr-day.thr-low { --thr-head: #34a853; --thr-ink: #fff; }
+.thr-day.thr-med { --thr-head: #fbbc04; --thr-ink: #1a1a1a; }
+.thr-day.thr-high { --thr-head: #ea4335; --thr-ink: #fff; }
+.thr-day > .pt-day-head, .program-editor .thr-day .program-session-head { background: var(--thr-head) !important; }
+.thr-day > .pt-day-head .program-session-name, .thr-day > .pt-day-head .thr-day-name,
+.program-editor .thr-day .program-session-head .program-session-name, .program-editor .thr-day .program-session-head .thr-day-name { color: var(--thr-ink) !important; border-bottom-color: color-mix(in srgb, var(--thr-ink) 45%, transparent) !important; font-weight: 700; }
+.thr-day > .pt-day-head .btn-link, .program-editor .thr-day .program-session-head .btn-link, .thr-day > .pt-day-head .spd-copy, .program-editor .thr-day .program-session-head .spd-copy { color: var(--thr-ink) !important; }
+.thr-day > .pt-day-head .pt-addcol, .thr-day > .pt-day-head .spd-copy, .program-editor .thr-day .program-session-head .spd-copy { background: rgba(0, 0, 0, 0.18); color: var(--thr-ink); border-color: color-mix(in srgb, var(--thr-ink) 40%, transparent); }
