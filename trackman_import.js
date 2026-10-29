@@ -79,6 +79,63 @@
     return best;
   };
 
+  // The Location chart (plate location, in feet, catcher's view): its dots, in the order drawn, which is pitch order,
+  // placed in feet from the chart's own tick labels. Pitches with no location (not fully tracked) have no dot.
+  function locationDots(items, dots) {
+    const title = items.find((t) => t.s === "Location");
+    if (!title) return null;
+    const below = items.filter((t) => t.y < title.y - 4 && (t.s === "Release" || t.s === "Movement"));
+    const bottom = below.length ? Math.max(...below.filter((t) => t.x >= title.x - 10).map((t) => t.y), -Infinity) : -Infinity;
+    const ticks = items.filter((t) => t.x >= title.x - 10 && t.y < title.y - 4 && t.y > bottom + 4 && /^-?\d+(\.\d+)?$/.test(t.s))
+      .map((t) => ({ v: Number(t.s), cx: t.x + (t.w || 0) / 2, cy: t.y + (t.h || 7) * 0.36 }));
+    if (ticks.length < 4) return null;
+    // the bottom row of numbers is the side axis; the right-hand column is the height axis
+    const rowY = Math.min(...ticks.map((t) => t.cy));
+    const xs = ticks.filter((t) => Math.abs(t.cy - rowY) < 2);
+    const colX = Math.max(...ticks.map((t) => t.cx));
+    const ys = ticks.filter((t) => Math.abs(t.cx - colX) < 4 && Math.abs(t.cy - rowY) >= 2);
+    if (xs.length < 2 || ys.length < 2) return null;
+    const fit = (pts, k) => { const a = pts[0], b = pts[pts.length - 1]; const m = (b.v - a.v) / (b[k] - a[k]); return (u) => a.v + (u - a[k]) * m; };
+    xs.sort((a, b) => a.cx - b.cx); ys.sort((a, b) => a.cy - b.cy);
+    const sideAt = fit(xs, "cx"), heightAt = fit(ys, "cy");
+    const left = title.x - 10, right = colX - 4, low = bottom > -Infinity ? bottom + 4 : rowY - 20, high = title.y - 4; // dots can sit lower than the side axis numbers
+    const out = [];
+    dots.forEach((d) => {
+      if (d.x < left || d.x > right || d.y < low || d.y > high) return;
+      const last = out[out.length - 1];
+      if (last && Math.abs(last.x - d.x) < 0.3 && Math.abs(last.y - d.y) < 0.3) return; // a dot's outline, drawn over its fill
+      out.push({ x: d.x, y: d.y, color: d.color, side: Math.round(sideAt(d.x) * 100) / 100, height: Math.round(heightAt(d.y) * 100) / 100 });
+    });
+    return out.length ? out : null;
+  }
+  // Each location dot's pitch: the dots run in pitch order, skipping pitches with no movement, so they're matched by
+  // color along the pitches; a dot is only given to a pitch when every possible matching agrees (earliest = latest).
+  function placePitches(pitches, located, typeOfColor) {
+    const cand = pitches.filter((p) => p.ivb != null && p.hb != null && p.type);
+    const dts = located.map((d) => typeOfColor(d.color));
+    const early = [], late = [];
+    let j = 0;
+    for (let i = 0; i < dts.length; i++) { while (j < cand.length && cand[j].type !== dts[i]) j++; if (j >= cand.length) return 0; early.push(j++); }
+    j = cand.length - 1;
+    for (let i = dts.length - 1; i >= 0; i--) { while (j >= 0 && cand[j].type !== dts[i]) j--; if (j < 0) return 0; late[i] = j--; }
+    let placed = 0;
+    dts.forEach((t, i) => { if (early[i] === late[i]) { const p = cand[early[i]]; p.plateHeight = located[i].height; p.plateSide = located[i].side; placed++; } });
+    return placed;
+  }
+  // Vertical approach angle, estimated: the pitch's path from release to the front of the plate with gravity, the lift
+  // its IVB implies, and a typical slowdown from drag, reaching the plate height the Location chart shows.
+  // Negative is downward; flatter (closer to 0) on a fastball is what's usually wanted up in the zone.
+  function vaaOf(p) {
+    if (p.speed == null || p.ivb == null || p.relHeight == null || p.plateHeight == null) return null;
+    const ext = p.extension != null ? p.extension : 6;
+    const d = 60.5 - ext - 17 / 12, v0 = p.speed * 1.46667;
+    const t = d / (v0 * 0.96), vyPlate = v0 * 0.92;
+    const az = -32.174 + (2 * (p.ivb / 12)) / (t * t);
+    const vz0 = (p.plateHeight - p.relHeight - 0.5 * az * t * t) / t;
+    const vzPlate = vz0 + az * t;
+    return Math.round((Math.atan2(vzPlate, vyPlate) * 180 / Math.PI) * 100) / 100;
+  }
+
   const UNTAGGED = /^(undefined|unknown|untagged|none|other)?$/i;
   const STAT_KEYS = ["qty", "speedMin", "speedMax", "speedAvg", "spinMin", "spinMax", "spinAvg", "ivbMaxAbs", "hbAvg", "hbMaxAbs", "vbMaxAbs", "relHeight", "relSide", "extension"];
   // the pitch table's columns, by the start of their header
@@ -90,13 +147,14 @@
     const doc = await lib.getDocument({ data }).promise;
     const out = { athleteName: "", facility: "", sessionType: "", date: "", summary: [], pitches: [], source: "trackman-pdf" };
     const palette = []; // { color, type } from the legends and the summary table's dots
-    let cols = null;
+    let cols = null, located = null;
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p);
       const tc = await page.getTextContent();
-      const items = tc.items.map((i) => ({ s: i.str.trim(), x: i.transform[4], y: i.transform[5], h: i.height }));
+      const items = tc.items.map((i) => ({ s: i.str.trim(), x: i.transform[4], y: i.transform[5], h: i.height, w: i.width }));
       const dots = dotsOf(await page.getOperatorList(), lib.OPS);
       const lines = linesOf(items);
+      if (!located) located = locationDots(items, dots);
       // the header: "Ryan Hendrix | Pitching practice | 21 Jan 2026", under the facility's name
       if (!out.date) {
         const i = lines.findIndex((l) => l.items.some((t) => DATE_RE.test(t.s)));
@@ -154,6 +212,12 @@
       if (UNTAGGED.test(pt.type)) pt.type = "";
     });
     out.pitches.sort((a, b) => a.no - b.no);
+    // plate location from the Location chart, and from it each pitch's vertical approach angle
+    if (located && palette.length) {
+      const typeOfColor = (c) => { let best = null; palette.forEach((q) => { const dd = dist(q.color, c); if (!best || dd < best.d) best = { d: dd, type: q.type }; }); return best && best.d < 60 ? best.type : ""; };
+      out.located = placePitches(out.pitches, located, typeOfColor);
+    }
+    out.pitches.forEach((pt) => { const v = vaaOf(pt); if (v != null) pt.vaa = v; });
     if (!out.pitches.length && !out.summary.length) throw new Error("This doesn't look like a TrackMan pitching report: no pitch table was found in it.");
     return out;
   }

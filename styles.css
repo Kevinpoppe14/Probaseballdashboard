@@ -4156,7 +4156,7 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-table td, .bp-table th { white-space: nowrap; text-align: center; }
 .bp-table td:first-child, .bp-table th:first-child { text-align: left; }
 .bp-trend td small { opacity: 0.6; }
-.bp-plot { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.bp-plot { width: 100%; max-width: 520px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .bp-plot .bp-grid { stroke: var(--chart-grid); stroke-width: 1; }
 .bp-plot .bp-axis { stroke: var(--chart-axis); stroke-width: 1; }
 .bp-plot .bp-tick, .bp-plot .bp-axis-label { fill: var(--text-dim); font-size: 9px; }
@@ -4181,3 +4181,57 @@ button.pt-label.on { color: var(--dst-red); }
 .thr-plan-now { background: var(--badge-good-bg); color: var(--good); }
 .thr-plan-next { background: var(--badge-info-bg); color: var(--info); }
 .thr-plan-done { background: var(--surface-muted); color: var(--text-dim); }
+/* Bullpens: the two charts side by side (click a pitch for its card), the session / all toggle, the spin balls */
+.bp-scope { margin: 16px 0 4px; }
+.bp-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; margin-top: 10px; align-items: start; }
+.bp-chart h3 { margin: 0 0 6px; font-size: 14px; }
+.bp-chart h3 small { font-weight: 400; color: var(--text-dim); margin-left: 4px; }
+.bp-pick { grid-column: 1 / -1; }
+.bp-pick-card { padding: 12px 14px; border: 1px solid var(--dst-red); border-radius: 10px; background: var(--surface-muted); max-width: 640px; }
+.bp-pick-card h3 { margin: 0 0 6px; }
+.bp-pick-card p { margin: 2px 0; font-size: 13px; color: var(--text-dim); }
+.bp-pick-tag { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; font-weight: 600; }
+.bp-pick-actions { display: flex; gap: 8px; }
+.bp-pt { cursor: pointer; }
+.bp-pt:hover { stroke-width: 2.5; }
+.bp-pt.on { stroke: var(--text); stroke-width: 2; }
+.bp-picked-row td { background: rgba(165, 42, 52, 0.18); }
+.bp-removed { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; color: var(--text-dim); }
+.bp-arsenal { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.bp-arsenal h3 { margin: 0 0 10px; font-size: 14px; }
+.bp-balls { display: flex; flex-wrap: wrap; gap: 22px; }
+.bp-ball { width: 150px; text-align: center; }
+.bp-ball svg { width: 120px; height: 120px; display: block; margin: 4px auto; }
+.bp-ball-type { font-weight: 800; font-size: 15px; }
+.bp-ball-stats { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-dim); }
+.bp-ball-stats b { color: var(--text); font-size: 15px; }
+.bp-seam { fill: none; stroke: #b3202c; stroke-width: 1.4; }
+.bp-stitch { fill: none; stroke: #c8303c; stroke-width: 5; stroke-dasharray: 1.2 3.2; }
+.bp-seams { animation: bp-spin linear infinite; }
+@keyframes bp-spin { from { transform: translateY(0); } to { transform: translateY(-88px); } }
+@media (prefers-reduced-motion: reduce) { .bp-seams { animation: none; } }
+/* Bullpens: the report's movable modules (drag by ⋮⋮, half or full width, fold away) and the clicked pitch's card */
+.bp-session-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bp-mods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px; }
+.bp-mod { grid-column: span 2; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 10px 12px 12px; min-width: 0; }
+.bp-mod.half { grid-column: span 1; }
+.bp-mod.over { outline: 2px dashed var(--dst-red); outline-offset: 2px; }
+.bp-mod.closed { padding-bottom: 10px; }
+.bp-mod-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bp-mod-head h3 { margin: 0; font-size: 14px; flex: 1; min-width: 0; }
+.bp-mod-head h3 small { font-weight: 400; color: var(--text-dim); margin-left: 4px; }
+.bp-mod-grip { cursor: grab; color: var(--text-dim); font-size: 14px; letter-spacing: -2px; padding: 2px 4px; user-select: none; }
+.bp-mod-grip:hover { color: var(--text); }
+.bp-mod-btn { height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text-dim); font-size: 12px; cursor: pointer; }
+.bp-mod-btn:hover { color: var(--text); border-color: var(--text-dim); }
+.bp-mod-body { margin-top: 10px; }
+.bp-mod .bp-scope { margin: 0; }
+.bp-mod .bp-scope .pill-tab { padding: 3px 10px; font-size: 12px; }
+.bp-mod .bp-plot { max-width: 100%; display: block; margin: 0 auto; }
+.bp-mod:not(.half) .bp-plot { max-width: 560px; }
+.bp-notes-box { width: 100%; box-sizing: border-box; }
+.bp-pick-pop { position: fixed; right: 20px; bottom: 20px; z-index: 40; width: 320px; max-width: calc(100vw - 32px); padding: 12px 14px; border: 1px solid var(--dst-red); border-radius: 10px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+.bp-pick-pop h3 { margin: 0 0 6px; font-size: 15px; }
+.bp-pick-pop h3 small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+.bp-pick-pop p { margin: 2px 0; font-size: 13px; color: var(--text-dim); }
+@media (max-width: 900px) { .bp-mod.half { grid-column: span 2; } }
