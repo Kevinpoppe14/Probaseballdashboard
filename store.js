@@ -713,6 +713,10 @@
   function getPitchingAssessments(athleteId) {
     return assessmentsOf(athleteId, "pitching");
   }
+  // TrackMan bullpen sessions (bullpens.js), kind "bullpen"
+  function getBullpens(athleteId) {
+    return assessmentsOf(athleteId, "bullpen");
+  }
   // monthly re-assessments (reassessment.js), kind "reassess"
   function getReassessments(athleteId) {
     return assessmentsOf(athleteId, "reassess");
@@ -1283,6 +1287,7 @@
     deleteNote,
     getAssessments,
     getPitchingAssessments,
+    getBullpens,
     getBodyCompSheets,
     getNutritionPlan,
     getNutritionPrefs,

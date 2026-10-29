@@ -63,6 +63,8 @@
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
+<script src="trackman_import.js"></script>
+<script type="text/babel" data-presets="react" src="bullpens.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
 <script type="text/babel" data-presets="react" src="bodycomp_sheet.js"></script>
@@ -4061,7 +4063,7 @@ const HELP_SECTIONS = [
   {
     title: "Player profile tabs",
     items: [
-      "Player Plan, Programming, Statcast Metrics, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition, and Pitching for pitchers), Throwing Progression, Training Log, and Remote Equipment Access for remote athletes.",
+      "Player Plan, Programming, Statcast Metrics, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers (Pitching Assessment, Bullpens from TrackMan reports, and Throwing: their throwing programs and Throwing Progression) or Throwing Progression for everyone else, Training Log, and Remote Equipment Access for remote athletes.",
       "Player Plan: contact info (with mobile, Text and Call), goals and the action plan, then the periodization timeline. Print / Save PDF and Email to Athlete for the plan are here.",
       "Programming: the same timeline with the Programming Workbook right under it: every phase's program, one tab per phase. See \"Programs on an athlete's plan\" below.",
       "Performance Metrics: force plate trends with a summary of what's moving, plus graphs of the performance tests from assessments once a test has two results.",
@@ -6931,8 +6933,45 @@ function ProfileNameEdit({ athlete, onDataChange }) {
   );
 }
 
+// The Pitching tab's Throwing view: any throwing program on the pitcher's plan (a block whose program is built in
+// the throwing layout, or sits in a Throwing lane), with its weeks, above their Throwing Progression. Open takes you
+// to that block on the Programming tab.
+function ThrowingProgramsPanel({ athlete, onOpen }) {
+  const S = window.AthleteStore;
+  const plan = S.getPeriodization(athlete.id);
+  const programs = S.allPrograms();
+  const lanes = (plan && plan.lanes) || [];
+  const day = (wk) => { const d = new Date(`${plan.startDate}T00:00:00`); d.setDate(d.getDate() + wk * 7); return d; };
+  const nowWk = plan && plan.startDate ? Math.floor((Date.now() - new Date(`${plan.startDate}T00:00:00`).getTime()) / (7 * 864e5)) : -1;
+  const rows = ((plan && plan.blocks) || []).map((b) => {
+    const p = b.programId ? programs.find((x) => String(x.id) === String(b.programId)) : null;
+    const lane = lanes.find((l) => l.id === b.lane);
+    return { b, p, lane };
+  }).filter(({ p, lane }) => (p && p.layout === "throwing") || (lane && /throw/i.test(lane.name || "")))
+    .sort((x, y) => x.b.start - y.b.start);
+  const md = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (
+    <div className="panel">
+      <h2>Throwing programs <small>on {athlete.name}'s plan</small></h2>
+      {!plan || !rows.length
+        ? <p className="assess-row-note">No throwing program on the plan yet. Put one in a Throwing row on the Player Plan (build one under Programs › Build a throwing program).</p>
+        : rows.map(({ b, p, lane }) => {
+          const when = nowWk >= b.start && nowWk < b.start + b.len ? "Now" : nowWk < b.start ? "Coming up" : "Done";
+          return (
+            <div key={b.id} className="thr-plan-row">
+              <span className={`thr-plan-when thr-plan-${when === "Now" ? "now" : when === "Done" ? "done" : "next"}`}>{when}</span>
+              <span className="thr-plan-name">{p ? p.name : b.label || "No program yet"}<small>{lane ? ` · ${lane.name}` : ""} · weeks {b.start + 1}–{b.start + b.len} ({md(day(b.start))} – {md(new Date(day(b.start + b.len).getTime() - 864e5))})</small></span>
+              <button className="btn btn-secondary" onClick={() => onOpen({ laneId: b.lane, blockId: b.id })}>Open</button>
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
 // the tabs grouped under Assessments on a player profile
-const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "pitching"];
+const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp"];
+const PITCHING_TABS = ["pitching", "bullpens", "throwing"]; // pitchers only: the Pitching tab (everyone else has Throwing Progression on its own)
 const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan, and the meal log
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
@@ -6940,13 +6979,15 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   const isPitcher = ((getPeople().find((a) => a.id === athleteId) || {}).position || "") === "Pitcher";
   // (likewise Equipment Access, which only exists for DST Remote Training athletes)
   const isRemote = ((getPeople().find((a) => a.id === athleteId) || {}).dstLocation || "") === "DST Remote Training";
-  const activeTab = (tab === "pitching" && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
+  const activeTab = ((tab === "pitching" || tab === "bullpens") && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [programOpen, setProgramOpen] = useState(null); // { laneId, blockId } to open the Programming tab at, from the plan
   // which assessment tab was open last, so the Assessments tab goes back to it
   const [lastAssessTab, setLastAssessTab] = useState("assessment");
   React.useEffect(() => { if (ASSESSMENT_TABS.includes(activeTab)) setLastAssessTab(activeTab); }, [activeTab]);
+  const [lastPitchTab, setLastPitchTab] = useState("pitching"); // likewise for the Pitching tab
+  React.useEffect(() => { if (PITCHING_TABS.includes(activeTab)) setLastPitchTab(activeTab); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
   const athlete = getPeople().find((a) => a.id === athleteId);
@@ -7014,10 +7055,13 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} data-tab="performance" onClick={() => setActiveTab("performance")}>Performance Metrics</button>
         {/* Assessments: the biomechanical assessment, body composition and (for pitchers) the pitching assessment,
             each a tab of its own in the row underneath; it opens on whichever of them was open last */}
-        <button className={`pill-tab ${ASSESSMENT_TABS.includes(activeTab) ? "active" : ""}`} data-tab="assessments" onClick={() => setActiveTab(ASSESSMENT_TABS.includes(lastAssessTab) && (lastAssessTab !== "pitching" || isPitcher) ? lastAssessTab : "assessment")}>Assessments</button>
+        <button className={`pill-tab ${ASSESSMENT_TABS.includes(activeTab) ? "active" : ""}`} data-tab="assessments" onClick={() => setActiveTab(ASSESSMENT_TABS.includes(lastAssessTab) ? lastAssessTab : "assessment")}>Assessments</button>
         {/* Nutrition: the plan, and the meal log from the athlete's phone */}
         <button className={`pill-tab ${NUTRITION_TABS.includes(activeTab) ? "active" : ""}`} data-tab="nutrition-group" onClick={() => setActiveTab(NUTRITION_TABS.includes(activeTab) ? activeTab : "nutrition")}>Nutrition</button>
-        <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
+        {/* a pitcher's Pitching tab: their pitching assessment, TrackMan bullpens and throwing, in the row underneath */}
+        {isPitcher
+          ? <button className={`pill-tab ${PITCHING_TABS.includes(activeTab) ? "active" : ""}`} data-tab="pitching-group" onClick={() => setActiveTab(PITCHING_TABS.includes(lastPitchTab) ? lastPitchTab : "pitching")}>Pitching</button>
+          : <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>}
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
         {/* remote athletes only: what they have to train with, which their programs are checked against */}
         {isRemote && <button className={`pill-tab ${activeTab === "equipment" ? "active" : ""}`} data-tab="equipment" onClick={() => setActiveTab("equipment")}>Remote Equipment Access</button>}
@@ -7027,7 +7071,13 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical</button>
           <button className={`pill-tab ${activeTab === "reassess" ? "active" : ""}`} data-tab="reassess" onClick={() => setActiveTab("reassess")}>Re-Assessment</button>
           <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
-          {isPitcher && <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching</button>}
+        </div>
+      )}
+      {isPitcher && PITCHING_TABS.includes(activeTab) && (
+        <div className="pill-tabs profile-subtabs no-print">
+          <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>
+          <button className={`pill-tab ${activeTab === "bullpens" ? "active" : ""}`} data-tab="bullpens" onClick={() => setActiveTab("bullpens")}>Bullpens</button>
+          <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing</button>
         </div>
       )}
       {NUTRITION_TABS.includes(activeTab) && (
@@ -7118,7 +7168,9 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           {window.PitchingAssessmentTab && <window.PitchingAssessmentTab athlete={athlete} />}
         </div>
       )}
+      {isPitcher && activeTab === "bullpens" && window.BullpensTab && <window.BullpensTab athlete={athlete} />}
       <div className={activeTab === "throwing" ? "" : "tab-hidden"}>
+        {isPitcher && <ThrowingProgramsPanel athlete={athlete} onOpen={(nav) => { setProgramOpen(nav); setActiveTab("programming"); }} />}
         {window.ThrowingProgressionTab && <window.ThrowingProgressionTab athlete={athlete} />}
       </div>
       {/* only built while it is open, so it reads the latest log each time */}

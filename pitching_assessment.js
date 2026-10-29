@@ -128,8 +128,10 @@
     );
   }
 
-  function PitchingForm({ record, athlete, onSave, printTitle }) {
+  function PitchingForm({ record, athlete, onSave, printTitle, applyRef }) {
     const [rec, setRec] = useState(record);
+    // lets the tab change the open assessment (a TrackMan import), saved like any other change
+    if (applyRef) applyRef.current = (fn) => setRec((prev) => fn(JSON.parse(JSON.stringify(prev))));
     const saveTimer = useRef(null);
     const first = useRef(true);
     // Saves a moment after each change, and straight away if the form closes or the page is left before then.
@@ -281,8 +283,62 @@
     );
   }
 
+  // A TrackMan report's pitch types, matched to the assessment's pitch rows; anything else goes in the two Other rows
+  const SLOTS = [[/^(fastball|four[- ]?seam|4[- ]?seam)/i, 0], [/^(sinker|two[- ]?seam|2[- ]?seam)/i, 1], [/^cutter/i, 2], [/^change/i, 3], [/^split/i, 4], [/curve/i, 5], [/^slider/i, 6], [/^sweeper/i, 7], [/^slurve/i, 8]];
+  function movementFrom(session) {
+    const rows = [], others = [9, 10];
+    window.BullpenKit.typeStats(session).filter((s) => s.type !== "Untagged" && s.ivb != null && s.hb != null).forEach((s) => {
+      const hit = SLOTS.find(([re]) => re.test(s.type));
+      const slot = hit ? hit[1] : others.shift();
+      if (slot != null && !rows.some((r) => r.slot === slot)) rows.push({ slot, type: s.type, ivb: s.ivb, hb: s.hb });
+    });
+    const fast = window.BullpenKit.typeStats(session).filter((s) => window.BullpenKit.FASTBALLS.test(s.type) && s.speedMax != null);
+    const velo = fast.length ? Math.max(...fast.map((s) => s.speedMax)) : null;
+    return { rows, velo };
+  }
+
   function PitchingAssessmentTab({ athlete }) {
     const store = window.AthleteStore;
+    const applyRef = useRef(null);
+    const fileRef = useRef(null);
+    const [importing, setImporting] = useState(false);
+    const [importMsg, setImportMsg] = useState("");
+    // Import TrackMan PDF: the session is saved to Bullpens, then (when an assessment is open) its average IVB and HB
+    // by pitch type can go into the Pitch Movement table, and its top fastball velo into Initial Velo: Mound if empty
+    const importPdf = async (e) => {
+      const files = [...(e.target.files || [])];
+      e.target.value = "";
+      if (!files.length || !window.BullpenKit) return;
+      setImporting(true); setImportMsg("Reading…");
+      const res = await window.BullpenKit.importReports(athlete, files);
+      let extra = res.saved.length ? " It's on the Bullpens tab." : "";
+      const session = res.saved[res.saved.length - 1];
+      if (session && record && applyRef.current) {
+        const fill = movementFrom(session);
+        if (fill.rows.length) {
+          const ok = await window.askConfirm({
+            title: "Fill in this assessment?",
+            text: `Put the ${fmtDate(session.date)} bullpen's average break into Pitch Movement (${fill.rows.map((r) => `${r.type} ${r.ivb} IVB / ${r.hb} HB`).join(", ")})${fill.velo != null ? `, and ${fill.velo} mph into Initial Velo: Mound if it's empty` : ""}? Numbers already there for those pitches are replaced.`,
+            ok: "Fill it in",
+          });
+          if (ok) {
+            applyRef.current((r) => {
+              fill.rows.forEach((row) => {
+                const p = r.pitches[row.slot];
+                if (!p) return;
+                p.ivb = String(row.ivb); p.hzb = String(row.hb);
+                if (row.slot >= 9) p.name = row.type;
+              });
+              if (fill.velo != null && !String(r.velo.initialMound || "").trim()) r.velo.initialMound = String(fill.velo);
+              return r;
+            });
+            extra += " Pitch movement filled in.";
+          }
+        }
+      }
+      setImportMsg(`${window.BullpenKit.resultText(res) || "Nothing imported."}${extra}`);
+      setImporting(false);
+    };
     const [list, setList] = useState(() => store.getPitchingAssessments(athlete.id));
     const [selectedId, setSelectedId] = useState(() => { const l = store.getPitchingAssessments(athlete.id); return l.length ? l[l.length - 1].id : null; });
     const found = list.find((a) => a.id === selectedId) || null;
@@ -371,6 +427,9 @@
           <div className="assess-toolbar">
             <button className="btn btn-primary" onClick={addNew}>+ New Pitching Assessment</button>
             {record && <button className="btn btn-secondary" onClick={() => { preparePrint(); window.print(); }}>Print / Save PDF</button>}
+            {window.BullpenKit && <button className="btn btn-secondary" disabled={importing} title="A TrackMan Pitching practice PDF: saved to Bullpens, and its average break can fill in this assessment" onClick={() => fileRef.current && fileRef.current.click()}>{importing ? "Importing…" : "Import TrackMan PDF"}</button>}
+            <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={importPdf} />
+            {importMsg && <span className="assess-row-note" role="status">{importMsg}</span>}
           </div>
           {list.length > 0 && <p className="timestamp-note">{list.length} pitching assessment{list.length === 1 ? "" : "s"} on file for {athlete.name}.</p>}
         </div>
@@ -382,6 +441,7 @@
               record={record}
               athlete={athlete}
               onSave={handleSave}
+              applyRef={applyRef}
               printTitle={(
                 <div className="assess-print-title print-only-block">
                   <h1 className="report-title">{athlete.name} &mdash; Pitching Assessment</h1>

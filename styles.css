@@ -4146,3 +4146,38 @@ button.pt-label.on { color: var(--dst-red); }
 .ft-removed summary { cursor: pointer; font-weight: 600; opacity: 0.8; }
 .ft-removed-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border, #2a2a2a); }
 .ft-removed-row small { opacity: 0.65; margin-left: 6px; }
+
+/* Pitching tab › Bullpens: TrackMan sessions (bullpens.js) */
+.bp-counts { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 4px 0 12px; font-size: 13px; }
+.bp-count b { margin-left: 4px; }
+.bp-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 1px solid rgba(0, 0, 0, 0.35); }
+.bp-top { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.bp-table-wrap { overflow-x: auto; }
+.bp-table td, .bp-table th { white-space: nowrap; text-align: center; }
+.bp-table td:first-child, .bp-table th:first-child { text-align: left; }
+.bp-trend td small { opacity: 0.6; }
+.bp-plot { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.bp-plot .bp-grid { stroke: var(--chart-grid); stroke-width: 1; }
+.bp-plot .bp-axis { stroke: var(--chart-axis); stroke-width: 1; }
+.bp-plot .bp-tick, .bp-plot .bp-axis-label { fill: var(--text-dim); font-size: 9px; }
+.bp-pitches { margin-top: 14px; }
+.bp-pitches summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+.bp-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 8px; font-size: 13px; min-height: 32px; }
+.bp-tag { font-size: 13px; padding: 3px 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); border-radius: 6px; }
+.bp-type-cell { text-align: left !important; }
+.bp-untagged { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--badge-warn-bg); color: var(--warn); font-size: 13px; font-weight: 600; }
+.bp-untagged-row td { background: rgba(245, 158, 11, 0.08); }
+.bp-untagged-row .bp-tag { border-color: var(--warn); }
+.bp-notes { margin-top: 14px; }
+.bp-notes textarea { width: 100%; box-sizing: border-box; }
+@media (max-width: 900px) { .bp-top { grid-template-columns: minmax(0, 1fr); } }
+
+/* Pitching tab › Throwing: throwing programs on the plan */
+.thr-plan-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.thr-plan-row:last-child { border-bottom: none; }
+.thr-plan-name { flex: 1; min-width: 0; font-weight: 600; }
+.thr-plan-name small { font-weight: 400; color: var(--text-dim); }
+.thr-plan-when { flex: 0 0 auto; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 6px; }
+.thr-plan-now { background: var(--badge-good-bg); color: var(--good); }
+.thr-plan-next { background: var(--badge-info-bg); color: var(--info); }
+.thr-plan-done { background: var(--surface-muted); color: var(--text-dim); }
