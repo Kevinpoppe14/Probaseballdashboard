@@ -4260,3 +4260,16 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-comp-table a { color: inherit; text-decoration: underline; text-decoration-color: var(--text-dim); }
 .bp-comp-me td { font-weight: 700; background: var(--overlay-soft); }
 .bp-dst-tag { margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 700; background: var(--dst-red); color: #fff; }
+/* Bullpens: a spinning ball opened large */
+.bp-ball-canvas.zoomable { cursor: zoom-in; }
+.bp-zoom { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.65); padding: 16px; }
+.bp-zoom-card { width: 560px; max-width: 100%; max-height: calc(100vh - 32px); overflow: auto; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+.bp-zoom-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bp-zoom-close { margin-left: auto; }
+.bp-zoom-body { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px 0 6px; }
+.bp-zoom-step { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-muted); color: var(--text); font-size: 22px; line-height: 1; cursor: pointer; flex: 0 0 auto; }
+.bp-ball.big { width: auto; max-width: 400px; }
+.bp-ball.big .bp-ball-type { font-size: 22px; }
+.bp-ball.big .bp-ball-stats { font-size: 14px; }
+.bp-ball.big .bp-ball-stats b { font-size: 20px; }
+.bp-ball.big canvas { max-width: 100%; height: auto !important; aspect-ratio: 1; }

@@ -8,6 +8,7 @@
 
   const WHATS_NEW = [
     // ---- week of Oct 26 - Nov 1, 2026 ----
+    { date: "2026-10-29", area: "Dashboard", title: "Bullpens: zoom in on a pitch's spin", detail: "Click a spinning ball to open it large, with pause, speed and pitcher or catcher view, and arrows to step through the arsenal. The balls now start from behind the pitcher, and the seams sit a little more open." },
     { date: "2026-10-29", area: "Dashboard", title: "Bullpen comps against MLB and DST", detail: "A Comps section on each bullpen: for every pitch type, its MLB percentile for velo, IVB, arm-side run, spin and release height (same pitch, same throwing hand, from Baseball Savant), and the closest MLB and DST pitchers by shape, with a match score." },
     { date: "2026-10-29", area: "Dashboard", title: "Throws and bats on player profiles", detail: "The ✎ beside a player's name now sets which hand he throws and bats with, shown in the profile header as B/T R/R. Players linked to MLB fill it in on their own." },
     { date: "2026-10-29", area: "Dashboard", title: "Bullpens: spin from either side, paused or slowed", detail: "The spinning balls can be paused, slowed (¼× to 2×) and seen from the catcher or from behind the pitcher, with the spin direction and tilt arrow right for each side. Sinkers and two-seamers spin with a two-seam orientation, everything else four-seam." },

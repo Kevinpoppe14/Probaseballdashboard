@@ -131,7 +131,7 @@
   // and gyro (100% minus efficiency) split the axis between them: 100% efficient spins straight end over end toward the
   // tilt; a 40% slider is 60% gyro, mostly "bullet" spin, turning around the line it's thrown on. Far slower than life.
   const SEAM = (() => {
-    const a = 0.62, b = 0.38, c = 2 * Math.sqrt(a * b); // a + b = 1 keeps the curve on the ball
+    const a = 0.67, b = 0.33, c = 2 * Math.sqrt(a * b); // a + b = 1 keeps the curve on the ball; a smaller b opens up the horseshoes
     const P = (t) => [a * Math.cos(t) + b * Math.cos(3 * t), a * Math.sin(t) - b * Math.sin(3 * t), c * Math.sin(2 * t)];
     const N = 3000, pts = [], len = [0];
     for (let i = 0; i <= N; i++) pts.push(P((i / N) * 2 * Math.PI));
@@ -228,7 +228,7 @@
   }
 
   // `ctl` is { paused, speed (x the default), pov ("catcher" | "pitcher") }, shared by every ball on the page
-  function SpinBall({ s, ctl }) {
+  function SpinBall({ s, ctl, size = 132, onZoom }) {
     const ref = useRef(null);
     const live = useRef(ctl);
     live.current = ctl;
@@ -237,7 +237,7 @@
     useEffect(() => {
       const cv = ref.current;
       if (!cv) return undefined;
-      const size = 132, dpr = window.devicePixelRatio || 1;
+      const dpr = window.devicePixelRatio || 1;
       cv.width = size * dpr; cv.height = size * dpr;
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -270,13 +270,13 @@
       }) : null;
       if (io) io.observe(cv);
       return () => { cancelAnimationFrame(raf); raf = 0; if (io) io.disconnect(); kick.current = null; };
-    }, [s.type, s.spinAvg, s.tilt, s.spinEff]); // eslint-disable-line
+    }, [s.type, s.spinAvg, s.tilt, s.spinEff, size]); // eslint-disable-line
     useEffect(() => { if (kick.current) kick.current(); }, [ctl.paused, ctl.speed, ctl.pov]);
     const active = s.spinAvg != null && s.spinEff != null ? Math.round((s.spinAvg * s.spinEff) / 100) : null;
     return (
-      <div className="bp-ball">
+      <div className={`bp-ball${size > 200 ? " big" : ""}`}>
         <div className="bp-ball-type" style={{ color: colorOf(s.type) }}>{s.type}</div>
-        <canvas ref={ref} className="bp-ball-canvas" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}, ${isTwoSeam(s.type) ? "two" : "four"}-seam, ${ctl.pov === "pitcher" ? "pitcher's" : "catcher's"} view`} />
+        <canvas ref={ref} className={`bp-ball-canvas${onZoom ? " zoomable" : ""}`} style={{ width: size, height: size }} title={onZoom ? "Click to zoom in" : undefined} onClick={onZoom || undefined} role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}, ${isTwoSeam(s.type) ? "two" : "four"}-seam, ${ctl.pov === "pitcher" ? "pitcher's" : "catcher's"} view`} />
         <div className="bp-ball-stats">
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
           <span>Tilt {s.tilt != null ? tiltText(s.tilt) : "–"}</span>
@@ -472,10 +472,17 @@
     const [focus, setFocus] = useState([]); // pitch types picked in the charts' key; the others dim (none picked: all show)
     // the spinning balls: paused or not, how fast, and from whose side (speed and side remembered on this computer)
     const [spinCtl, setSpinCtlState] = useState(() => {
-      try { const v = JSON.parse(localStorage.getItem("bullpenSpin") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "pitcher" ? "pitcher" : "catcher" }; } catch (e) { /* private window */ }
-      return { paused: false, speed: 1, pov: "catcher" };
+      try { const v = JSON.parse(localStorage.getItem("bullpenSpin2") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "catcher" ? "catcher" : "pitcher" }; } catch (e) { /* private window */ }
+      return { paused: false, speed: 1, pov: "pitcher" };
     });
-    const setSpinCtl = (patch) => setSpinCtlState((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin", JSON.stringify({ speed: n.speed, pov: n.pov })); } catch (e) { /* not remembered */ } return n; });
+    const setSpinCtl = (patch) => setSpinCtlState((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin2", JSON.stringify({ speed: n.speed, pov: n.pov })); } catch (e) { /* not remembered */ } return n; });
+    const [zoomBall, setZoomBall] = useState(null); // the pitch type whose ball is open large
+    useEffect(() => {
+      if (!zoomBall) return undefined;
+      const esc = (e) => { if (e.key === "Escape") setZoomBall(null); };
+      document.addEventListener("keydown", esc);
+      return () => document.removeEventListener("keydown", esc);
+    }, [zoomBall]);
     const toggleFocus = (t) => setFocus((f) => (f.includes(t) ? f.filter((x) => x !== t) : [...f, t]));
     const tagOptions = [...new Set([...TAG_TYPES, ...(session.pitches || []).map((p) => p.type).filter(Boolean)])].sort(byType);
     const retag = async (nos, value, sid) => {
@@ -534,6 +541,18 @@
       </span>
     ) : null;
     const spinStats = stats.filter((s) => s.spinAvg != null && s.type !== UNTAGGED);
+    const spinControls = (
+      <span className="bp-spin-ctl">
+        <button type="button" className="bp-mod-btn" onClick={() => setSpinCtl({ paused: !spinCtl.paused })}>{spinCtl.paused ? "▶ Play" : "❚❚ Pause"}</button>
+        <select className="bp-tag" value={spinCtl.speed} aria-label="Spin speed" onChange={(e) => setSpinCtl({ speed: Number(e.target.value) })}>
+          <option value={0.25}>Speed ¼×</option><option value={0.5}>Speed ½×</option><option value={1}>Speed 1×</option><option value={2}>Speed 2×</option>
+        </select>
+        <span className="pill-tabs bp-scope" role="group" aria-label="Seen from">
+          <button type="button" className={`pill-tab ${spinCtl.pov === "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "pitcher" })}>Pitcher</button>
+          <button type="button" className={`pill-tab ${spinCtl.pov !== "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "catcher" })}>Catcher</button>
+        </span>
+      </span>
+    );
     const modules = {
       types: {
         title: "Pitch types",
@@ -586,22 +605,11 @@
       },
       spin: spinStats.length ? {
         title: "Spin by pitch type", sub: spinCtl.pov === "pitcher" ? "pitcher's view" : "catcher's view",
-        extra: (
-          <span className="bp-spin-ctl">
-            <button type="button" className="bp-mod-btn" onClick={() => setSpinCtl({ paused: !spinCtl.paused })}>{spinCtl.paused ? "▶ Play" : "❚❚ Pause"}</button>
-            <select className="bp-tag" value={spinCtl.speed} aria-label="Spin speed" onChange={(e) => setSpinCtl({ speed: Number(e.target.value) })}>
-              <option value={0.25}>Speed ¼×</option><option value={0.5}>Speed ½×</option><option value={1}>Speed 1×</option><option value={2}>Speed 2×</option>
-            </select>
-            <span className="pill-tabs bp-scope" role="group" aria-label="Seen from">
-              <button type="button" className={`pill-tab ${spinCtl.pov !== "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "catcher" })}>Catcher</button>
-              <button type="button" className={`pill-tab ${spinCtl.pov === "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "pitcher" })}>Pitcher</button>
-            </span>
-          </span>
-        ),
+        extra: spinControls,
         body: (
           <React.Fragment>
-            <div className="bp-balls">{spinStats.map((s) => <SpinBall key={s.type} s={s} ctl={spinCtl} />)}</div>
-            <p className="timestamp-note">Each ball turns on its pitch's average spin axis, seen from the catcher or from behind the pitcher, faster for more spin (though far slower than the real thing). The arrow is the way the spin moves the ball as seen from that side; TrackMan's tilt is the pitcher's clock (12:00 is straight backspin). Sinkers and two-seamers spin with a two-seam orientation, everything else four-seam. Spin efficiency and gyro add up to 100%: 100% efficient is pure backspin or sidespin, 0% is all gyro (bullet spin, the axis pointing at the catcher), and the ball's axis leans by that split. Active spin (spin × efficiency) is the part that moves the ball; gyro spin is the rest, turning it like a bullet.</p>
+            <div className="bp-balls">{spinStats.map((s) => <SpinBall key={s.type} s={s} ctl={spinCtl} onZoom={() => setZoomBall(s.type)} />)}</div>
+            <p className="timestamp-note">Each ball turns on its pitch's average spin axis, seen from behind the pitcher or from the catcher, faster for more spin (though far slower than the real thing). The arrow is the way the spin moves the ball as seen from that side; TrackMan's tilt is the pitcher's clock (12:00 is straight backspin). Sinkers and two-seamers spin with a two-seam orientation, everything else four-seam. Spin efficiency and gyro add up to 100%: 100% efficient is pure backspin or sidespin, 0% is all gyro (bullet spin, the axis pointing at the catcher), and the ball's axis leans by that split. Active spin (spin × efficiency) is the part that moves the ball; gyro spin is the rest, turning it like a bullet. Click a ball to zoom in.</p>
           </React.Fragment>
         ),
       } : null,
@@ -702,6 +710,27 @@
             );
           })}
         </div>
+        {zoomBall && (() => {
+          const i = spinStats.findIndex((s) => s.type === zoomBall);
+          if (i < 0) return null;
+          const step = (d) => setZoomBall(spinStats[(i + d + spinStats.length) % spinStats.length].type);
+          return (
+            <div className="bp-zoom" onMouseDown={(e) => { if (e.target === e.currentTarget) setZoomBall(null); }}>
+              <div className="bp-zoom-card" role="dialog" aria-label={`${zoomBall} spin, zoomed in`}>
+                <div className="bp-zoom-head">
+                  {spinControls}
+                  <button type="button" className="bp-mod-btn bp-zoom-close" onClick={() => setZoomBall(null)}>✕ Close</button>
+                </div>
+                <div className="bp-zoom-body">
+                  {spinStats.length > 1 && <button type="button" className="bp-zoom-step" aria-label="Previous pitch type" onClick={() => step(-1)}>‹</button>}
+                  <SpinBall key={`zoom-${zoomBall}`} s={spinStats[i]} ctl={spinCtl} size={380} />
+                  {spinStats.length > 1 && <button type="button" className="bp-zoom-step" aria-label="Next pitch type" onClick={() => step(1)}>›</button>}
+                </div>
+                <p className="timestamp-note">{spinCtl.pov === "pitcher" ? "From behind the pitcher" : "From the catcher"}. The arrow is the way the spin moves the ball. Esc or a click outside closes it.</p>
+              </div>
+            </div>
+          );
+        })()}
         {pk && (
           <div className="bp-pick-pop" role="dialog" aria-label={`Pitch ${pk.no}`}>
             <h3><span className="bp-dot" style={{ background: pk.type ? colorOf(pk.type) : "transparent" }} />Pitch #{pk.no}{all ? <small> {shortDate((sessions.find((s) => s.id === pk.sid) || {}).date)}</small> : null}</h3>
