@@ -266,7 +266,7 @@
     return OPTIONAL.reduce((o, [k]) => ({ ...o, [k]: on.includes(k) || session.exercises.some((e) => `${e[k] || ""}`.trim()) }), {});
   };
 
-  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress }) {
+  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress, reedPicker }) {
     const rootRef = useRef(null);
     const pending = useRef(null); // the cell to move into once a new row is drawn
     const [note, setNote] = useState("");
@@ -575,6 +575,8 @@
                               </td>
                               <td rowSpan={n}>
                                 <WrapCell value={ex.name} cell={`${si}:${ei}.0:name`} cls={`pt-name${sc(`${ei}.0`, "name")}`} list="exercise-library-names" placeholder="Exercise" onChange={(v) => setEx(ei, "name", v)} onFocus={() => onNameFocus && onNameFocus(wi, si, ei, ex.name)} onBlur={() => onNameBlur && onNameBlur(wi, si, ei)} />
+                                {/* a Re-Ed placeholder ("Re-Ed", "Corrective"…) in an athlete's program: pick one of their re-ed drills */}
+                                {reedPicker && reedPicker(wi, si, ei, ex, "pt-reed")}
                                 {!linked && (edtOn(ex) ? (
                                   <div className="pt-edt" title={`EDT: ${letter}1, ${letter}2… done back to back for this many minutes. The athlete gets a countdown and logs how many times through they got.`}>
                                     ⏱ EDT

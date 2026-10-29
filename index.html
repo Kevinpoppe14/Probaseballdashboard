@@ -1398,6 +1398,32 @@ function ProgramEditor(props) {
   if (props.initial && props.initial.layout === "reed" && window.SpeedProgramEditor) return <window.SpeedProgramEditor {...props} kind="reed" />; // a re-education program: the same builder, in re-ed sections
   return props.initial && window.isSpeedProgram(props.initial) && window.SpeedProgramEditor ? <window.SpeedProgramEditor {...props} /> : <StandardProgramEditor {...props} />;
 }
+// A placeholder for the athlete's own re-ed work in a program template: "Re-Ed", "RE-ED", "Re-Education", "Insert
+// Re-Ed", "Corrective(s)", "Mobility", "Mobility Drill", "Re-Ed Exercise"… (see StandardProgramEditor's reedPicker)
+const REED_PLACEHOLDER = /^(insert\s+(an?\s+)?)?(re-?ed(ucation)?s?|correctives?|mobility)(\s+(drills?|exercises?|work))?\.?$/i;
+const isReedPlaceholder = (name) => REED_PLACEHOLDER.test((name || "").trim());
+// An athlete's re-ed drills: the exercises in the programs on their plan that are re-education programs (layout
+// "reed") or sit in a Re-Ed / Correctives / Mobility row, each once, with its sets and reps there and the section
+// (or phase) it's in to group the list by
+function reedDrillsFor(athlete) {
+  const S = window.AthleteStore, plan = athlete && S.getPeriodization ? S.getPeriodization(athlete.id) : null;
+  if (!plan) return [];
+  const laneName = (id) => ((plan.lanes || []).find((l) => l.id === id) || {}).name || "";
+  const seen = new Set(), out = [];
+  (plan.blocks || []).forEach((b) => {
+    const p = b.programId ? S.allPrograms().find((x) => x.id === b.programId) : null;
+    if (!p || !(p.layout === "reed" || /re-?ed|correct|mobility|rehab/i.test(laneName(b.lane)))) return;
+    (p.weeks || []).forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => {
+      const name = (e.name || "").trim(), key = name.toLowerCase();
+      if (!name || isReedPlaceholder(name) || seen.has(key)) return;
+      seen.add(key);
+      const g = (e.groups || [])[0] || {};
+      out.push({ name, sets: `${g.sets || ""}`.trim(), reps: `${g.reps || ""}`.trim(), group: e.section || b.label || p.name });
+    })));
+  });
+  return out;
+}
+
 function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, pdfAthlete }) {
   const [draft, setDraft] = useState(() => { const d = JSON.parse(JSON.stringify(initial || { name: "", description: "", weeks: [newWeek(1)] })); d.weeks = normalizeProgramWeeks(d.weeks); return d; });
   // ---- undo and redo ---------------------------------------------------------------------------------
@@ -1469,7 +1495,47 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
     const a = swapAsk;
     setSwapAsk(null);
     if (!a || !weeks.length) return;
-    edit((d) => weeks.forEach((i) => swapMatches(d.weeks[i], a.si, a.oldName, a.spot).forEach((k) => { d.weeks[i].sessions[a.si].exercises[k].name = a.newName; })));
+    edit((d) => weeks.forEach((i) => swapMatches(d.weeks[i], a.si, a.oldName, a.spot).forEach((k) => {
+      const e = d.weeks[i].sessions[a.si].exercises[k];
+      e.name = a.newName;
+      if (a.fill) fillFromDrill(e, a.fill); // a re-ed drill picked for a placeholder: its sets and reps where the week had none
+    })));
+    // a re-ed drill put in more than one week: the series opens across the weeks, to set each week's sets and reps
+    if (a.progress && window.ProgramProgressDialog) setProgress({ si: a.si, letter: a.progress });
+  };
+
+  // ---- Re-Ed placeholders: in an athlete's own program (on their plan), an exercise named "Re-Ed", "RE-ED",
+  // "Re-Education", "Insert Re-Ed", "Corrective", "Mobility Drill" and the like offers a pick of that athlete's
+  // re-ed drills, from the Re-Ed programs on their plan (reedDrillsFor). Picking one asks, as a swap does, whether
+  // it's for every week, this week and the ones after, or just this one; for more than one week the series then
+  // opens across the weeks (the progress pop-up) to set each week's sets and reps.
+  const reedDrills = pdfAthlete ? reedDrillsFor(pdfAthlete) : null; // null: a template, with no athlete
+  const fillFromDrill = (e, drill) => {
+    const blank = !(e.groups || []).some((g) => `${g.sets || ""}${g.reps || ""}`.replace(/x/gi, "").trim());
+    if (blank && `${drill.sets || ""}${drill.reps || ""}`.trim()) { e.groups = [{ sets: drill.sets || "", reps: drill.reps || "", intensity: "" }]; if (!e.intensityUnit || e.intensityUnit === "%") e.intensityUnit = ""; }
+  };
+  const pickReed = (wi, si, ei, drill) => {
+    const xs = draft.weeks[wi].sessions[si].exercises, oldName = (xs[ei].name || "").trim();
+    const spot = window.exerciseLabels(xs)[ei];
+    edit((d) => { const e = d.weeks[wi].sessions[si].exercises[ei]; e.name = drill.name; fillFromDrill(e, drill); });
+    const others = draft.weeks.map((w, i) => i).filter((i) => i !== wi && swapMatches(draft.weeks[i], si, oldName, spot).length);
+    if (others.length) setSwapAsk({ si, oldName, newName: drill.name, spot, earlier: others.filter((i) => i < wi), later: others.filter((i) => i > wi), fill: drill, progress: spot.replace(/\d+\.$/, "") });
+  };
+  const reedPicker = (wi, si, ei, ex, cls) => {
+    if (!reedDrills || !isReedPlaceholder(ex.name)) return null;
+    const first = (pdfAthlete.name || "").split(" ")[0] || "this athlete";
+    if (!reedDrills.length) return <div className={`reed-none ${cls || ""}`} title="Build a Re-Education program on their plan (a Re-Ed row) and its drills show here">No re-ed drills on {first}'s plan yet</div>;
+    const groups = [...new Set(reedDrills.map((x) => x.group))];
+    return (
+      <select className={`reed-pick ${cls || ""}`} value="" title={`Put one of ${first}'s re-ed drills here`} onChange={(e) => { const drill = reedDrills[Number(e.target.value)]; if (drill) pickReed(wi, si, ei, drill); }}>
+        <option value="" disabled hidden>{`Pick ${first}'s re-ed ▾`}</option>
+        {groups.map((g) => (
+          <optgroup key={g} label={g}>
+            {reedDrills.map((x, i) => (x.group === g ? <option key={i} value={i}>{x.name}{`${x.sets || ""}${x.reps || ""}`.trim() ? ` — ${x.sets ? `${x.sets}x` : ""}${x.reps || ""}` : ""}</option> : null))}
+          </optgroup>
+        ))}
+      </select>
+    );
   };
   const canSave = (draft.name || "").trim().length > 0;
 
@@ -1863,6 +1929,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
               onNameFocus={(w, s, e, name) => { nameAtFocus.current = { wi: w, si: s, ei: e, name }; }}
               onNameBlur={(w, s, e) => offerSwapForward(w, s, e)}
               onProgress={window.ProgramProgressDialog ? (s, letter) => setProgress({ si: s, letter: letter || null }) : null}
+              reedPicker={reedDrills ? reedPicker : null}
             />
           ) : (
           /* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),
@@ -2002,6 +2069,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                         )}
                         <button className="btn-link" title="Remove exercise" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.splice(ei, 1); })}>✕</button>
                       </div>
+                      {/* a Re-Ed placeholder in an athlete's program: pick one of their re-ed drills */}
+                      {reedPicker(wi, si, ei, ex, "pe-reed")}
                       {/* Set lines: each is sets x reps, and an intensity when the exercise has one, so it can change set to
                           set. Intensity, tempo, rest and notes are optional: each shows once it has something in it, or after
                           the "+" at the end of the first line, so most exercises are a single short row. */}
