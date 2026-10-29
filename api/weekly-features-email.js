@@ -1,6 +1,6 @@
 // Weekly "What's new" email: every Monday around 9am Central, all year, every coach who has a dashboard login
 // gets the new additions to the phone app, the program builder, Coach Mode and the dashboard from the past seven
-// days, grouped by area. The additions are written by hand in whats_new.js (newest first); a week with none sends
+// days (the Monday to Sunday before), grouped by area. The additions are written by hand in whats_new.js (newest first); a week with none sends
 // nothing. Like api/weekly-roster-email.js: TWO cron entries in vercel.json (14:00 and 15:00 UTC Mondays), one
 // for each side of the Central-time DST change, and only the one that lands on 9am Chicago time sends; an app_meta
 // marker (lastWeeklyFeaturesEmailDate) keeps it to one send a week. Sent from Kevin's Gmail, as the digest is.
@@ -138,11 +138,13 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // the week before: Monday to Sunday, ending yesterday (the same weeks the dashboard's What's new page shows)
     const days = Math.max(1, Math.min(60, Number(q.days) || 7));
-    const groups = entriesFor(today, days);
-    const first = new Date(new Date(`${today}T12:00:00Z`).getTime() - (days - 1) * 864e5);
+    const last = new Date(new Date(`${today}T12:00:00Z`).getTime() - 864e5), lastIso = last.toISOString().slice(0, 10);
+    const groups = entriesFor(lastIso, days);
+    const first = new Date(last.getTime() - (days - 1) * 864e5);
     const fmt = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-    const rangeText = `${fmt(first)} – ${fmt(new Date(`${today}T12:00:00Z`))}`;
+    const rangeText = `${fmt(first)} – ${fmt(last)}`;
     const html = buildHtml({ groups, rangeText });
     if (preview) { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.status(200).send(html); return; }
     if (!groups.length) { res.status(200).json({ ok: true, sent: 0, reason: "nothing new in the past week" }); return; }
