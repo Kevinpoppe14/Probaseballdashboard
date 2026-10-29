@@ -37,8 +37,11 @@
   // time for each rep (in `distance`, which also takes a time: "30 s", "1:00") and a weight ("135 lb", in `weight`).
   // The athlete's app shows them in their sections and series like a speed day.
   const REED_SECTIONS = ["Tissue Prep", "Upper Body Re-Education", "Lower Body Re-Education", "Movement Re-Education"];
-  const newReedDay = (n) => ({ name: `Day ${n}`, sections: REED_SECTIONS.map((name) => ({ name, time: "" })), exercises: [] });
-  const newReedProgram = (weeks = 4, days = 3) => ({ name: "", description: "", layout: "reed", tags: [], nextProgramIds: [], weeks: Array.from({ length: weeks }, (_, w) => ({ name: `Week ${w + 1}`, sessions: Array.from({ length: days }, (_, d) => newReedDay(d + 1)) })) });
+  // a re-ed program is one day, done every day ("Daily", daily: true on the program): the athlete's app shows it each
+  // day, fresh, for as long as its Re-Ed phase on the plan runs (see itemsAt in athlete.js); a week can be added to
+  // change it partway
+  const newReedDay = (n) => ({ name: n === 1 ? "Daily" : `Day ${n}`, sections: REED_SECTIONS.map((name) => ({ name, time: "" })), exercises: [] });
+  const newReedProgram = (weeks = 1, days = 1) => ({ name: "", description: "", layout: "reed", daily: true, tags: [], nextProgramIds: [], weeks: Array.from({ length: weeks }, (_, w) => ({ name: `Week ${w + 1}`, sessions: Array.from({ length: days }, (_, d) => newReedDay(d + 1)) })) });
   // the boxes a throwing drill can ask the athlete to fill in from the app (a target typed here shows beside the box):
   // the throws they actually made (on every throwing drill to start with), and where it applies a distance or velocity
   const THROW_BOXES = ["Throws", "Distance", "Velo"]; // (the phone asks for distance in ft and velo in mph; plain labels, as each box is saved under its label)
@@ -164,7 +167,7 @@
     });
 
     // ---- saving: the same autosave as the standard builder (a moment after each change, and on leaving) ----
-    const recOf = (d) => ({ name: (d.name || "").trim(), description: (d.description || "").trim(), layout: LAYOUT, weeks: d.weeks, nextProgramIds: d.nextProgramIds || [], tags: d.tags || [] });
+    const recOf = (d) => ({ name: (d.name || "").trim(), description: (d.description || "").trim(), layout: LAYOUT, ...(REED ? { daily: true } : {}), weeks: d.weeks, nextProgramIds: d.nextProgramIds || [], tags: d.tags || [] });
     const savedId = React.useRef(initial && initial.id ? initial.id : null);
     const lastSaved = React.useRef(JSON.stringify(recOf(draft)));
     const [saveState, setSaveState] = useState("saved");
@@ -846,7 +849,7 @@
           ? <p className="timestamp-note">{fromProgression
             ? "One day for each throwing day on the progression above, named and colored from it (green Low, yellow Medium, red High): change a day's intensity or throws up there and it follows here. Fill in each day's drills: sets x reps (the prescribed throws), the distance, and a ball weight in oz or g for weighted balls. Each drill asks the athlete for the throws they made; add Distance (ft) or Velo (mph) with the + where it applies, with a target if you like. Use ⧉ on a section or a day to copy it to the other days this week, the same day in later weeks, or every day from this week on."
             : "Each day has an intensity for the week (green Low, yellow Medium, red High, or off), which colors it here and in the athlete's app. Drills take sets x reps (the prescribed throws), a distance, and a ball weight in oz or g; each asks the athlete for the throws they made, and the + adds Distance or Velo (mph) where it applies. Use ⧉ on a section or a day to copy it to other days."}</p>
-          : REED ? <p className="timestamp-note">Each day is in sections (Tissue Prep, Upper Body, Lower Body and Movement Re-Education: rename, add or remove them), and inside a section, series of drills, as on a speed day. A drill takes sets, reps, a time for each rep if it's timed, and a weight if it's loaded; the + adds more boxes. Use ⧉ on a section or a day to copy it to other days.</p>
+          : REED ? <p className="timestamp-note">A re-education program is one day, done every day: the athlete's app shows it fresh each day for as long as its Re-Ed phase on the plan runs (add a week only to change it partway). The day is in sections (Tissue Prep, Upper Body, Lower Body and Movement Re-Education: rename, add or remove them), and inside a section, series of drills, as on a speed day. A drill takes sets, reps, a time for each rep if it's timed, and a weight if it's loaded; the + adds more boxes. Use ⧉ on a section or a day to copy it to other days.</p>
           : <p className="timestamp-note">Click into a day to work on it: that day lights up in every week and the other days dim, so you can progress it through the program, and the section you're in is highlighted in each week. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>}
         {draft.weeks.map((w, wi) => (
           <div className="program-week" key={wi}>
@@ -864,7 +867,7 @@
         {!fromProgression && (
           <div className="program-day-actions spd-bottom">
             <button className="btn btn-secondary" onClick={addWeek} title="Add a week, copied from the last one">+ Add week</button>
-            {days < 7 && <button className="btn btn-secondary" onClick={addDay} title="Add a day to every week">+ Add day</button>}
+            {days < 7 && !REED && <button className="btn btn-secondary" onClick={addDay} title="Add a day to every week">+ Add day</button>}
           </div>
         )}
       </div>

@@ -786,7 +786,7 @@
               }
               // and a Re-Ed / Correctives row's starts as a re-education program (sections and series)
               if (Kit && Kit.newReedProgram && /re-?ed|correct/i.test(lane.name || "")) {
-                const fresh = Kit.newReedProgram(Math.max(1, block.len), 3);
+                const fresh = Kit.newReedProgram(1, 1); // one day, done every day for the length of the block
                 return { ...fresh, name: withLast(block.label || lane.name) };
               }
               return { name: withLast(block.label || lane.name), description: "", weeks: weeksToLength([kit.newWeek(1)], block.len) };
@@ -1413,7 +1413,7 @@
         if (!program) { if (b.len !== before.len || (b.label || "") !== (before.label || "")) touched = true; continue; } // an empty tab's builder starts from the block
         const changes = {};
         const weeks = (program.weeks || []).length;
-        if (b.len !== before.len && weeks !== b.len) {
+        if (b.len !== before.len && weeks !== b.len && !program.daily) { // (a daily re-ed program repeats for the block's length: its weeks stay as they are)
           if (b.len < weeks && loggedFrom(athlete.id, next, program, b.len)
             && !window.confirm(`Shorten "${program.name}" to ${b.len} week${b.len === 1 ? "" : "s"}? Something is already logged in the week${weeks - b.len === 1 ? "" : "s"} that would be removed.`)) return null;
           changes.weeks = weeksToLength(program.weeks, b.len);
@@ -1502,7 +1502,7 @@
       if (program) {
         patch.assignedBy = window.AthleteStore.currentUserEmail();
         patch.label = blockLabelFor(athlete, program.name);
-        if ((program.weeks || []).length) patch.len = program.weeks.length;
+        if ((program.weeks || []).length && !program.daily) patch.len = program.weeks.length; // (a daily re-ed program runs for as long as its block, whatever its own weeks)
       }
       const b = planRef.current.blocks.find((x) => x.id === blockId);
       if (b && Object.keys(patch).every((k) => k === "assignedBy" ? !!b.assignedBy || !patch.assignedBy : b[k] === patch[k])) return; // nothing changes (an autosave of the same program)

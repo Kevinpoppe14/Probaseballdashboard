@@ -369,6 +369,8 @@
     return effective[id];
   };
   const parseISO = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+  // today as 20261029, for a daily program's day (itemsAt)
+  const todayTag = () => { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`; };
   const currentWeek = () => {
     const days = Math.round((new Date(new Date().toDateString()) - parseISO(plan.startDate)) / 864e5);
     return Math.max(0, Math.min(plan.weeks - 1, Math.floor(days / 7)));
@@ -381,6 +383,16 @@
       const lane = (plan.lanes || []).find((l) => l.id === b.lane);
       if (!program || !lane || !(program.weeks || []).length) return null;
       const n = (wk - b.start) % program.weeks.length;
+      if (program.daily) {
+        // A daily program (a re-ed program: one day, done every day for as long as its block runs): today's copy of
+        // the day, its exercises with today's date in front of their ids, so whatever is written in, ticked off or
+        // swapped today is kept for today and the day starts fresh tomorrow (the keys pass the log check: up to 60
+        // characters before the |). A swap made today applies to today's copy only.
+        const tag = todayTag();
+        const day = { ...program.weeks[n], sessions: (program.weeks[n].sessions || []).map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, id: `${tag}~${e.id}` })) })) };
+        const week = window.applyOverrides({ ...program, weeks: [day] }, overrides[program.id]).weeks[0];
+        return { block: b, lane, program, week, weekNo: n + 1, dayTag: tag };
+      }
       return { block: b, lane, program, week: program.weeks[n], weekNo: n + 1 };
     })
     .filter(Boolean)
@@ -1145,7 +1157,7 @@
   // only folds that way. A logged session folds every block. Tapping a folded block opens it again. The Done taps
   // are kept on this phone.
   const openBlocks = new Set(); // folded blocks opened again with a tap, until the page is reloaded
-  const doneKey = (item, si) => `blocksDone:${token || coachId}:${item.program.id}:${item.weekNo}:${si}`;
+  const doneKey = (item, si) => `blocksDone:${token || coachId}:${item.program.id}:${item.weekNo}:${si}${item.dayTag ? `:${item.dayTag}` : ""}`; // (a daily program's, that day's)
   const tappedDone = (item, si) => { try { return JSON.parse(localStorage.getItem(doneKey(item, si)) || "[]"); } catch (e) { return []; } };
   function foldable(item, si, b) {
     const pid = item.program.id, id = `${pid}|${item.weekNo}|${si}|${b.letter}`;
@@ -1454,7 +1466,7 @@
   // "Log session" at the end of a day marks that day of that program week as done. The mark is kept in the
   // same log as the weights, under a key of its own, so the coach's Training Log can show it with its time.
   // If some sets have no weight yet, a sheet asks for them first; the athlete can fill them in or skip.
-  const sessionKey = (item, si) => `session-${item.weekNo - 1}-${si}|0`;
+  const sessionKey = (item, si) => `session-${item.weekNo - 1}-${si}${item.dayTag ? `-${item.dayTag}` : ""}|0`; // (a daily program's, that day's: done again tomorrow)
   // Coach Mode can finish the day showing here for a whole group at once ("Log session for everyone"): it asks
   // each athlete's page to mark its current day done, exactly as the Log session button does, without the
   // prompt for missing weights. `shown` is the day this page last drew.
