@@ -57,6 +57,7 @@
 <script src="holiday.js"></script>
 <script src="tour.js"></script>
 <script src="program_rx.js"></script>
+<script src="whats_new.js"></script>
 <script src="program_pdf.js"></script>
 <script type="text/babel" data-presets="react" src="app_ask.js"></script>
 <script type="text/babel" data-presets="react" src="periodization.js"></script>
@@ -4144,6 +4145,57 @@ function HelpPage() {
   );
 }
 
+// What's new: the additions to the dashboard, the program builder, Coach Mode and the athletes' app, newest week
+// first, from whats_new.js (the same list the Monday "What's new" email to the coaches sends from).
+function WhatsNewPage() {
+  const kit = window.WhatsNew || { WHATS_NEW: [], AREAS: [] };
+  // the Monday of an entry's week, as the email's weeks run (Monday to Sunday)
+  const mondayOf = (iso) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; };
+  const fmt = (d, opts) => d.toLocaleDateString("en-US", opts || { month: "short", day: "numeric" });
+  const weeks = [];
+  kit.WHATS_NEW.forEach((e) => {
+    const m = mondayOf(e.date), key = m.toISOString().slice(0, 10);
+    let w = weeks.find((x) => x.key === key);
+    if (!w) { w = { key, monday: m, items: [] }; weeks.push(w); }
+    w.items.push(e);
+  });
+  weeks.sort((a, b) => b.monday - a.monday);
+  const ICON = { "Phone app": "📱", "Program builder": "🏋️", "Coach Mode": "📋", Dashboard: "🖥️" };
+  return (
+    <div className="panel whats-new">
+      <h2>What's new <small>New in the dashboard, the program builder, Coach Mode and the athletes' app</small></h2>
+      <p className="whats-new-intro">Each Monday the coaches get these by email too, for the week before.</p>
+      {!weeks.length && <p className="whats-new-intro">Nothing listed yet.</p>}
+      {weeks.map((w) => {
+        const sunday = new Date(w.monday); sunday.setDate(sunday.getDate() + 6);
+        const areas = [...kit.AREAS, ...[...new Set(w.items.map((e) => e.area))].filter((a) => !kit.AREAS.includes(a))];
+        return (
+          <section className="whats-new-week" key={w.key}>
+            <h3>Week of {fmt(w.monday)} – {fmt(sunday)}<span>{w.items.length} addition{w.items.length === 1 ? "" : "s"}</span></h3>
+            {areas.map((area) => {
+              const items = w.items.filter((e) => e.area === area);
+              if (!items.length) return null;
+              return (
+                <div className="whats-new-area" key={area}>
+                  <h4>{ICON[area] || "•"} {area}</h4>
+                  {items.map((e, i) => (
+                    <div className="whats-new-item" key={i}>
+                      <strong>{e.title}</strong>
+                      <p>{e.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+// the newest addition's date, for the top bar's "What's new" dot
+const latestWhatsNew = () => ((window.WhatsNew && window.WhatsNew.WHATS_NEW) || []).reduce((m, e) => (e.date > m ? e.date : m), "");
+
 // Shown once per person per browser on first login; "Help" in the top bar reopens the full guide.
 function WelcomeModal({ onClose, onOpenGuide }) {
   return (
@@ -4173,7 +4225,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4235,6 +4287,11 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
           <span className="topbar-account-email">{userEmail}</span>
           {FROM_APP && <a className="btn-link" style={{ marginRight: 10 }} href="athlete.html">Back to my app</a>}
           {onTour && <button className="btn-link" style={{ marginRight: 10 }} onClick={onTour} title="Take a guided tour of this page">Tour</button>}
+          {onGoWhatsNew && (
+            <button className="btn-link whats-new-link" style={{ marginRight: 10 }} onClick={onGoWhatsNew} title={whatsNewUnseen ? "New additions since you last looked" : "What's new in the dashboard and the app"}>
+              What's new{whatsNewUnseen ? <span className="whats-new-dot" aria-label="new" /> : null}
+            </button>
+          )}
           <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoHelp}>Help</button>
           <button className="btn-link" onClick={onLogout}>Log out</button>
         </div>
@@ -9401,6 +9458,11 @@ function App({ userEmail, onLogout }) {
   const [programsNav, setProgramsNav] = useState(() => (resumed && resumed.programsNav) || PROGRAMS_NAV_HOME);
   const goPrograms =() => { setProgramsNav(PROGRAMS_NAV_HOME); setView("programs"); };
   const goHelp = () => setView("help");
+  // What's new: its top-bar dot shows until the coach has opened the page since the newest addition (per login, per browser)
+  const whatsNewKey = `whatsNewSeen:${userEmail}`;
+  const [whatsNewSeen, setWhatsNewSeen] = useState(() => { try { return localStorage.getItem(whatsNewKey) || ""; } catch (e) { return ""; } });
+  const whatsNewUnseen = latestWhatsNew() > whatsNewSeen;
+  const goWhatsNew = () => { const l = latestWhatsNew(); setWhatsNewSeen(l); try { localStorage.setItem(whatsNewKey, l); } catch (e) { /* private window */ } setView("whatsnew"); };
 
   const welcomeKey = `dstWelcomeSeen:${userEmail}`;
   const [showWelcome, setShowWelcome] = useState(() => {
@@ -9524,6 +9586,8 @@ function App({ userEmail, onLogout }) {
         showFacilities={locationFilter === CUBS_LOCATION_LABEL}
         onGoPrograms={goPrograms}
         onGoHelp={goHelp}
+        onGoWhatsNew={goWhatsNew}
+        whatsNewUnseen={whatsNewUnseen}
         onTour={playTour}
         userEmail={userEmail}
         onLogout={onLogout}
@@ -9588,6 +9652,7 @@ function App({ userEmail, onLogout }) {
         {view === "facilities" && <OffseasonFacilitiesPage />}
         {view === "programs" && <ProgramsPage nav={programsNav} setNav={updateProgramsNav} />}
         {view === "help" && <HelpPage />}
+        {view === "whatsnew" && <WhatsNewPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}
       </div>
       <div className="footer-note">

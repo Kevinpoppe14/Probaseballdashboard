@@ -4110,3 +4110,15 @@ button.pt-label.on { color: var(--dst-red); }
 .program-editor .thr-day .program-session-head .program-session-name, .program-editor .thr-day .program-session-head .thr-day-name { color: var(--thr-ink) !important; border-bottom-color: color-mix(in srgb, var(--thr-ink) 45%, transparent) !important; font-weight: 700; }
 .thr-day > .pt-day-head .btn-link, .program-editor .thr-day .program-session-head .btn-link, .thr-day > .pt-day-head .spd-copy, .program-editor .thr-day .program-session-head .spd-copy { color: var(--thr-ink) !important; }
 .thr-day > .pt-day-head .pt-addcol, .thr-day > .pt-day-head .spd-copy, .program-editor .thr-day .program-session-head .spd-copy { background: rgba(0, 0, 0, 0.18); color: var(--thr-ink); border-color: color-mix(in srgb, var(--thr-ink) 40%, transparent); }
+/* What's new (WhatsNewPage in index.html, from whats_new.js) */
+.whats-new-link { position: relative; }
+.whats-new-dot { position: absolute; top: -3px; right: -8px; width: 8px; height: 8px; border-radius: 50%; background: var(--dst-red); box-shadow: 0 0 0 2px var(--bg); }
+.whats-new-intro { color: var(--text-dim); margin: 0 0 6px; font-size: 13px; }
+.whats-new-week { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.whats-new-week h3 { margin: 0 0 4px; font-size: 17px; display: flex; align-items: baseline; gap: 10px; }
+.whats-new-week h3 span { font-size: 12px; font-weight: 500; color: var(--text-dim); }
+.whats-new-area { margin-top: 12px; }
+.whats-new-area h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dst-red); }
+.whats-new-item { padding: 6px 0 8px 12px; border-left: 3px solid var(--border); margin-bottom: 6px; max-width: 820px; }
+.whats-new-item strong { display: block; font-size: 14.5px; }
+.whats-new-item p { margin: 3px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-dim); }

@@ -8,6 +8,7 @@
 
   const WHATS_NEW = [
     // ---- week of Oct 22-28, 2026 ----
+    { date: "2026-10-28", area: "Dashboard", title: "What's new, in the top bar", detail: "Everything new in the dashboard, the program builder, Coach Mode and the athletes' app, week by week. A red dot shows when there's something you haven't seen, and the same list comes by email every Monday." },
     { date: "2026-10-28", area: "Program builder", title: "Table view is now the standard", detail: "Programs open as a spreadsheet: one row per exercise with Sets, Reps and Intensity cells. Tab, Enter and the arrow keys move between cells like Google Sheets. Boxes is still one click away, and your choice is remembered." },
     { date: "2026-10-28", area: "Program builder", title: "Copy and paste like a sheet", detail: "Drag across cells (or Shift+click) to highlight a block, then Ctrl+C, Ctrl+V, Ctrl+X or Delete. Rows copied from Google Sheets or Excel paste straight in, and a 1, 1, 2, 2 or A1, A2 column sets the supersets." },
     { date: "2026-10-28", area: "Program builder", title: "Color-coded blocks", detail: "A1, A2 and A3 share a color and an outline box, B gets the next color, and so on. Rows line up across the days, so every A2 sits level with the other days' A2." },
