@@ -96,7 +96,9 @@
 
   // A scatter chart on a grid with its zero lines: a small dot per pitch (click one to tag or remove it) and a ringed
   // dot at each pitch type's average. Used for movement (HB by IVB) and release point (side by height).
-  function ScatterChart({ pts, avgs, xr, yr, step, xLabel, yLabel, label, unit, picked, onPick, tip }) {
+  function ScatterChart({ pts, avgs, xr, yr, step, xLabel, yLabel, label, unit, picked, onPick, tip, focus }) {
+    const dim = (t) => focus && focus.length > 0 && !focus.includes(t || UNTAGGED); // a pitch type the key isn't showing
+    const ordered = [...pts].sort((a, b) => (dim(a.type) ? 0 : 1) - (dim(b.type) ? 0 : 1));
     const W = 420, H = Math.round(420 * Math.min(1.2, Math.max(0.75, (yr[1] - yr[0]) / (xr[1] - xr[0])))), P = 30;
     const x = (v) => P + ((v - xr[0]) / (xr[1] - xr[0])) * (W - 2 * P), y = (v) => H - P - ((v - yr[0]) / (yr[1] - yr[0])) * (H - 2 * P);
     const ticks = (r) => { const out = []; for (let t = Math.ceil(r[0] / step) * step; t <= r[1] + 1e-9; t += step) out.push(Math.round(t * 100) / 100); return out; };
@@ -109,10 +111,10 @@
         {ticks(yr).filter((t) => t !== y0).map((t) => <text key={`yl${t}`} x={x(x0) - 4} y={y(t) + 3} className="bp-tick" textAnchor="end">{t}</text>)}
         <text x={W / 2} y={H - 3} className="bp-axis-label" textAnchor="middle">{xLabel}</text>
         <text x={9} y={H / 2} className="bp-axis-label" textAnchor="middle" transform={`rotate(-90 9 ${H / 2})`}>{yLabel}</text>
-        {avgs.map((a) => <circle key={`a${a.type}`} cx={x(a.x)} cy={y(a.y)} r={8} fill={colorOf(a.type)} fillOpacity="0.85" stroke="var(--text)" strokeWidth="1.5" pointerEvents="none" />)}
-        {pts.map((p) => (
+        {avgs.map((a) => <circle key={`a${a.type}`} cx={x(a.x)} cy={y(a.y)} r={8} fill={colorOf(a.type)} fillOpacity="0.85" opacity={dim(a.type) ? 0.12 : 1} stroke="var(--text)" strokeWidth="1.5" pointerEvents="none" />)}
+        {ordered.map((p) => (
           <circle key={p.key} className={`bp-pt${picked === p.key ? " on" : ""}`} cx={x(p.x)} cy={y(p.y)} r={picked === p.key ? 7 : 5}
-            fill={p.type ? colorOf(p.type) : "transparent"} fillOpacity={picked === p.key ? 1 : 0.5} stroke={p.type ? colorOf(p.type) : "var(--warn)"} strokeWidth={p.type ? 1 : 1.5}
+            fill={p.type ? colorOf(p.type) : "transparent"} fillOpacity={picked === p.key ? 1 : 0.5} stroke={p.type ? colorOf(p.type) : "var(--warn)"} strokeWidth={p.type ? 1 : 1.5} opacity={dim(p.type) && picked !== p.key ? 0.12 : 1}
             onClick={() => onPick(picked === p.key ? null : p.key)}>
             <title>{p.dateLabel ? `${p.dateLabel} ` : ""}#{p.no} {p.type || "Untagged"}: {tip(p)}. Click to tag or remove.</title>
           </circle>
@@ -281,6 +283,8 @@
     const untagged = live.filter((p) => !p.type).length;
     const [checked, setChecked] = useState([]);
     const [picked, setPicked] = useState(null); // the pitch clicked on a chart
+    const [focus, setFocus] = useState([]); // pitch types picked in the charts' key; the others dim (none picked: all show)
+    const toggleFocus = (t) => setFocus((f) => (f.includes(t) ? f.filter((x) => x !== t) : [...f, t]));
     const tagOptions = [...new Set([...TAG_TYPES, ...(session.pitches || []).map((p) => p.type).filter(Boolean)])].sort(byType);
     const retag = async (nos, value, sid) => {
       let type = value;
@@ -311,10 +315,24 @@
     const chartStats = all ? typeStats({ pitches: chartPitches }) : stats;
     const mv = chartPitches.filter((p) => typeof p.hb === "number" && typeof p.ivb === "number").map((p) => ({ ...p, x: p.hb, y: p.ivb }));
     const mvR = Math.max(25, Math.ceil(Math.max(0, ...mv.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y)))) / 5) * 5 + 5);
-    const rl = chartPitches.filter((p) => typeof p.relSide === "number" && typeof p.relHeight === "number").map((p) => ({ ...p, x: p.relSide, y: p.relHeight }));
+    const rl = chartPitches.filter((p) => typeof p.relSide === "number" && typeof p.relHeight === "number").map((p) => ({ ...p, x: -p.relSide, y: p.relHeight })); // mirrored: TrackMan's release side is the pitcher's, this is the catcher's view
     const rlX = rangeOf(rl.map((p) => p.x), [-4, 4], 1), rlY = rangeOf(rl.map((p) => p.y), [0, 7], 1);
     const pk = picked != null ? chartPitches.find((p) => p.key === picked) : null;
 
+    // the charts' pitch key: click a type to bring it forward (the others dim), click more to add them, again to drop one
+    const pitchKey = (
+      <div className="bp-key" role="group" aria-label="Pitch types on the charts">
+        {chartStats.map((s) => {
+          const on = focus.includes(s.type), off = focus.length > 0 && !on;
+          return (
+            <button key={s.type} type="button" className={`bp-key-chip${on ? " on" : ""}${off ? " off" : ""}`} aria-pressed={on} title={on ? `Stop picking out ${s.type}` : `Pick out ${s.type}`} onClick={() => toggleFocus(s.type)}>
+              <span className="bp-dot" style={{ background: s.type === UNTAGGED ? "transparent" : colorOf(s.type) }} />{s.type} <small>{s.qty}</small>
+            </button>
+          );
+        })}
+        {focus.length > 0 && <button type="button" className="bp-key-all" onClick={() => setFocus([])}>Show all</button>}
+      </div>
+    );
     // ---- the report's modules, which a coach can arrange: drag one by its ⋮⋮, make it half or full width, fold it
     // away. The arrangement is kept per coach on this computer.
     const scopeToggle = many ? (
@@ -354,9 +372,10 @@
         title: "Movement", sub: all ? `every session, ${mv.length} pitches` : "", extra: scopeToggle,
         body: (
           <React.Fragment>
+            {pitchKey}
             <ScatterChart pts={mv} avgs={chartStats.filter((s) => s.ivb != null && s.hb != null && s.type !== UNTAGGED).map((s) => ({ type: s.type, x: s.hb, y: s.ivb }))}
               xr={[-mvR, mvR]} yr={[-mvR, mvR]} step={10} xLabel="Horz. break (in)" yLabel="Induced vert. break (in)" label="Movement: horizontal break by induced vertical break, one dot per pitch"
-              picked={picked} onPick={setPicked} tip={(p) => `${p.ivb} IVB, ${p.hb} HB, ${p.speed} mph`} />
+              picked={picked} onPick={setPicked} focus={focus} tip={(p) => `${p.ivb} IVB, ${p.hb} HB, ${p.speed} mph`} />
             <p className="timestamp-note">Click a pitch to see it, change its type or take it out. Ringed dots are each type's average.</p>
           </React.Fragment>
         ),
@@ -365,9 +384,10 @@
         title: "Release point", sub: all ? "catcher's view, every session" : "catcher's view", extra: scopeToggle,
         body: (
           <React.Fragment>
-            <ScatterChart pts={rl} avgs={chartStats.filter((s) => s.relHeight != null && s.relSide != null && s.type !== UNTAGGED).map((s) => ({ type: s.type, x: s.relSide, y: s.relHeight }))}
+            {pitchKey}
+            <ScatterChart pts={rl} avgs={chartStats.filter((s) => s.relHeight != null && s.relSide != null && s.type !== UNTAGGED).map((s) => ({ type: s.type, x: -s.relSide, y: s.relHeight }))}
               xr={rlX} yr={rlY} step={1} xLabel="Release side (ft)" yLabel="Release height (ft)" label="Release point: release side by release height, one dot per pitch"
-              picked={picked} onPick={setPicked} tip={(p) => `${ftIn(p.relHeight)} high, ${ftIn(p.relSide)} side`} />
+              picked={picked} onPick={setPicked} focus={focus} tip={(p) => `${ftIn(p.relHeight)} high, ${ftIn(p.relSide)} side`} />
             <p className="timestamp-note">Click a pitch to see it, change its type or take it out. Ringed dots are each type's average.</p>
           </React.Fragment>
         ),
