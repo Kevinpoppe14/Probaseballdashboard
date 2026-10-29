@@ -8,6 +8,7 @@
 
   const WHATS_NEW = [
     // ---- week of Oct 26 - Nov 1, 2026 ----
+    { date: "2026-10-29", area: "Dashboard", title: "Edit a player from their profile", detail: "The ✎ beside a player's name on their profile edits their name, jersey number, league, team and DST location, the same as the pencil on the roster." },
     { date: "2026-10-29", area: "Phone app", title: "Re-Ed is one daily routine", detail: "A re-education program is now built as one day. Athletes see it as \"Daily\" in their app every day, fresh each morning, for as long as the Re-Ed phase on their plan runs, or until it's changed." },
     { date: "2026-10-29", area: "Dashboard", title: "Scrap a player's program and start over", detail: "On a player's Programming tab, Scrap and start over deletes the program you were building for that phase and empties the phase, ready to build again or load a saved program. A shared template is only taken off the phase, never deleted." },
     { date: "2026-10-29", area: "Dashboard", title: "More from Kyle Kleeman: NFL Intensification v2", detail: "The other version of his NFL Intensification block (Lineman and Skill, 3 weeks, four days a week) is in Programs › Strength › NFL Intensification." },

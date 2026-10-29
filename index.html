@@ -6844,6 +6844,43 @@ function ActivitySignature({ activity, className }) {
   return <div className={`activity-signature no-print ${className || ""}`}>{parts.join(" · ")}</div>;
 }
 
+// The player's name at the top of their profile, with ✎ beside it: the same edits as the pencil on the roster (name
+// and jersey number, saved with Save; league, team and DST location, which save as they're picked). Position, status
+// and the photo sit in the header already.
+function ProfileNameEdit({ athlete, onDataChange }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(athlete.name);
+  const [jersey, setJersey] = useState(hasJersey(athlete) ? athlete.jersey : "");
+  const start = () => { setName(athlete.name); setJersey(hasJersey(athlete) ? athlete.jersey : ""); setOpen(true); };
+  const save = () => {
+    if (!name.trim()) return;
+    window.AthleteStore.updateAthlete(athlete.id, { name: name.trim(), jersey: jersey.trim() || "--" });
+    setOpen(false);
+    onDataChange();
+  };
+  return (
+    <React.Fragment>
+      <h2>
+        {lastFirstName(athlete.name)} <GoalBadges athleteId={athlete.id} />
+        {!open && <button className="profile-edit-btn no-print" onClick={start} title={`Edit ${athlete.name}`} aria-label={`Edit ${athlete.name}`}>&#9998;</button>}
+      </h2>
+      {open && (
+        <div className="profile-edit no-print" onKeyDown={(e) => { if (e.key === "Enter" && e.target.tagName === "INPUT") save(); if (e.key === "Escape") setOpen(false); }}>
+          <label><span>Name</span><input className="inline-select" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="First Last" /></label>
+          <label><span>Jersey #</span><input className="inline-select" value={jersey} onChange={(e) => setJersey(e.target.value)} placeholder="#" style={{ width: 70 }} /></label>
+          <label><span>League</span><LeagueSelect athlete={athlete} onChanged={onDataChange} /></label>
+          <label><span>Team</span><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></label>
+          <label><span>DST location</span><LocationSelect athlete={athlete} onChanged={onDataChange} /></label>
+          <span className="profile-edit-actions">
+            <button className="btn btn-primary" disabled={!name.trim()} onClick={save}>Save</button>
+            <button className="btn-link" onClick={() => setOpen(false)}>Cancel</button>
+          </span>
+        </div>
+      )}
+    </React.Fragment>
+  );
+}
+
 // the tabs grouped under Assessments on a player profile
 const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp", "pitching"];
 const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan, and the meal log
@@ -6879,7 +6916,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <TeamLogo team={athlete.team} />
           <ProfilePhoto athlete={athlete} />
           <div>
-            <h2>{lastFirstName(athlete.name)} <GoalBadges athleteId={athlete.id} /></h2>
+            <ProfileNameEdit key={athlete.id} athlete={athlete} onDataChange={onDataChange} />
             <div className="pos">
               <span className="print-only">{athlete.position}</span>
               {athlete.league ? ` · ${athlete.league}` : ""}

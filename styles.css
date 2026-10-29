@@ -4129,3 +4129,11 @@ button.pt-label.on { color: var(--dst-red); }
 .reed-none { margin: 2px 6px 5px; font-size: 11px; color: var(--text-dim); font-style: italic; }
 /* the plan's program panel: Scrap and start over (periodization.js PlanProgramTabs) */
 .ppt-note .ppt-scrap { color: var(--danger); font-weight: 600; margin-right: 12px; }
+/* a player profile: ✎ beside the name, and its edit panel (ProfileNameEdit in index.html) */
+.profile-edit-btn { margin-left: 8px; padding: 0 6px; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 14px; line-height: 1.6; cursor: pointer; vertical-align: middle; }
+.profile-edit-btn:hover { color: var(--text); border-color: var(--text-dim); }
+.profile-edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 6px 0 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); max-width: 760px; }
+.profile-edit label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.profile-edit label > span { font-weight: 600; }
+.profile-edit .profile-edit-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.profile-edit .profile-edit-actions .btn { margin: 0; padding: 5px 14px; }
