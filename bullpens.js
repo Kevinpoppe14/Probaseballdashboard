@@ -126,8 +126,8 @@
   // The seam is the ball's actual figure-eight curve on the sphere, with its 108 double stitches in a herringbone,
   // drawn each frame as the ball turns (only the half facing you). The axis, as the catcher sees it: the tilt sets
   // which way the spin pushes the ball (12:00 = pure backspin, the face rolling straight up), and spin efficiency
-  // sets how far the axis leans toward the catcher (gyro): 100% spins straight end over end toward the tilt; a 40%
-  // slider is about 66° gyro, mostly "bullet" spin, turning around the line it's thrown on. Far slower than life.
+  // and gyro (100% minus efficiency) split the axis between them: 100% efficient spins straight end over end toward the
+  // tilt; a 40% slider is 60% gyro, mostly "bullet" spin, turning around the line it's thrown on. Far slower than life.
   const SEAM = (() => {
     const a = 0.62, b = 0.38, c = 2 * Math.sqrt(a * b); // a + b = 1 keeps the curve on the ball
     const P = (t) => [a * Math.cos(t) + b * Math.cos(3 * t), a * Math.sin(t) - b * Math.sin(3 * t), c * Math.sin(2 * t)];
@@ -155,7 +155,7 @@
   const mulM = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
   const app = (M, v) => [M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2], M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2], M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]];
   const BASE = mulM(rotM([0, 1, 0], 0.5), rotM([1, 0, 0], 1.1)); // how the ball starts: a horseshoe toward you
-  const gyroOf = (eff) => (eff == null ? null : Math.round((Math.acos(Math.max(0, Math.min(1, eff / 100))) * 180) / Math.PI));
+  const gyroOf = (eff) => (eff == null ? null : Math.max(0, Math.min(100, Math.round(100 - eff)))); // gyro % is what efficiency leaves
 
   function drawBall(ctx, size, M, color, tiltRad) {
     const cx = size / 2, cy = size / 2, r = size * 0.38;
@@ -214,10 +214,10 @@
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       // the spin axis: the part that moves the ball (across the face you see, square to the tilt), leaned toward the
-      // catcher by the gyro angle
+      // catcher by its share of gyro
       const th = tiltRad != null ? tiltRad : 0, m = [Math.sin(th), Math.cos(th), 0];
       const tr = [-m[1], m[0], 0]; // z x m: the backspin-style axis for this tilt
-      const gy = Math.sqrt(Math.max(0, 1 - eff * eff));
+      const gy = 1 - eff;
       const u0 = [tr[0] * eff, tr[1] * eff, -gy], ul = Math.hypot(u0[0], u0[1], u0[2]) || 1, u = u0.map((v) => v / ul);
       const revPerSec = s.spinAvg ? s.spinAvg / 2400 : 0;
       const still = !revPerSec || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -241,13 +241,13 @@
     return (
       <div className="bp-ball">
         <div className="bp-ball-type" style={{ color: colorOf(s.type) }}>{s.type}</div>
-        <canvas ref={ref} className="bp-ball-canvas" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}° gyro` : ""}`} />
+        <canvas ref={ref} className="bp-ball-canvas" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}`} />
         <div className="bp-ball-stats">
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
           <span>Tilt {s.tilt != null ? tiltText(s.tilt) : "–"}</span>
-          <span>Spin eff. {s.spinEff != null ? `${s.spinEff}%` : "–"}{gyro != null ? ` · ${gyro}° gyro` : ""}</span>
+          <span>Spin eff. {s.spinEff != null ? `${s.spinEff}%` : "–"}{gyro != null ? ` · ${gyro}% gyro` : ""}</span>
           {active != null && <span>Active ≈ {active} rpm</span>}
-          {active != null && <span>Gyro ≈ {Math.round(s.spinAvg * Math.sqrt(Math.max(0, 1 - eff * eff)))} rpm</span>}
+          {active != null && <span>Gyro ≈ {s.spinAvg - active} rpm</span>}
         </div>
       </div>
     );
@@ -377,7 +377,7 @@
         body: (
           <React.Fragment>
             <div className="bp-balls">{spinStats.map((s) => <SpinBall key={s.type} s={s} />)}</div>
-            <p className="timestamp-note">Each ball turns on its pitch's average spin axis as the catcher sees it, faster for more spin (though far slower than the real thing). The arrow is the tilt, the way the spin moves the ball (12:00 is straight backspin). Spin efficiency sets the gyro angle, how far the axis points at the catcher: 100% is pure backspin or sidespin, lower is more bullet spin. Active spin (spin × efficiency) is the part that moves the ball; gyro spin (spin × sine of the gyro angle) turns it like a bullet and adds little movement.</p>
+            <p className="timestamp-note">Each ball turns on its pitch's average spin axis as the catcher sees it, faster for more spin (though far slower than the real thing). The arrow is the tilt, the way the spin moves the ball (12:00 is straight backspin). Spin efficiency and gyro add up to 100%: 100% efficient is pure backspin or sidespin, 0% is all gyro (bullet spin, the axis pointing at the catcher), and the ball's axis leans by that split. Active spin (spin × efficiency) is the part that moves the ball; gyro spin is the rest, turning it like a bullet.</p>
           </React.Fragment>
         ),
       } : null,
