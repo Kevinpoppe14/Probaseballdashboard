@@ -1409,16 +1409,22 @@ function reedDrillsFor(athlete) {
   const S = window.AthleteStore, plan = athlete && S.getPeriodization ? S.getPeriodization(athlete.id) : null;
   if (!plan) return [];
   const laneName = (id) => ((plan.lanes || []).find((l) => l.id === id) || {}).name || "";
+  // the Re-Ed program running this week comes first (marked current), then the plan's others, earliest first
+  const start = plan.startDate ? new Date(`${plan.startDate}T00:00:00`) : null;
+  const wk = start ? Math.floor((Date.now() - start.getTime()) / (7 * 864e5)) : -1;
+  const isNow = (b) => wk >= b.start && wk < b.start + b.len;
+  const blocks = [...(plan.blocks || [])].sort((a, b) => (isNow(b) ? 1 : 0) - (isNow(a) ? 1 : 0) || a.start - b.start);
   const seen = new Set(), out = [];
-  (plan.blocks || []).forEach((b) => {
+  blocks.forEach((b) => {
     const p = b.programId ? S.allPrograms().find((x) => x.id === b.programId) : null;
     if (!p || !(p.layout === "reed" || /re-?ed|correct|mobility|rehab/i.test(laneName(b.lane)))) return;
+    const tag = isNow(b) ? " (current)" : ` (${b.label || p.name})`;
     (p.weeks || []).forEach((w) => (w.sessions || []).forEach((s) => (s.exercises || []).forEach((e) => {
       const name = (e.name || "").trim(), key = name.toLowerCase();
       if (!name || isReedPlaceholder(name) || seen.has(key)) return;
       seen.add(key);
       const g = (e.groups || [])[0] || {};
-      out.push({ name, sets: `${g.sets || ""}`.trim(), reps: `${g.reps || ""}`.trim(), group: e.section || b.label || p.name });
+      out.push({ name, sets: `${g.sets || ""}`.trim(), reps: `${g.reps || ""}`.trim(), group: `${e.section || "Re-Ed"}${tag}` });
     })));
   });
   return out;
@@ -1524,16 +1530,25 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const reedPicker = (wi, si, ei, ex, cls) => {
     if (!reedDrills || !isReedPlaceholder(ex.name)) return null;
     const first = (pdfAthlete.name || "").split(" ")[0] || "this athlete";
-    if (!reedDrills.length) return <div className={`reed-none ${cls || ""}`} title="Build a Re-Education program on their plan (a Re-Ed row) and its drills show here">No re-ed drills on {first}'s plan yet</div>;
+    if (!reedDrills.length) return <div className={`reed-none ${cls || ""}`} title="Build a Re-Education program on their plan (a Re-Ed row) and its drills show here">No re-ed program on {first}'s plan yet: type the exercise in above</div>;
     const groups = [...new Set(reedDrills.map((x) => x.group))];
+    // overriding it: the exercise's own name box, with the placeholder selected so typing replaces it
+    const typeOwn = (sel) => {
+      const host = sel.closest("td, .program-ex"), box = host && host.querySelector('[data-pt$=":name"], [data-cell="name"]');
+      if (!box) return;
+      box.focus();
+      if (box.click) box.click();
+      setTimeout(() => { const a = document.activeElement; if (a && a.select) a.select(); }, 30);
+    };
     return (
-      <select className={`reed-pick ${cls || ""}`} value="" title={`Put one of ${first}'s re-ed drills here`} onChange={(e) => { const drill = reedDrills[Number(e.target.value)]; if (drill) pickReed(wi, si, ei, drill); }}>
+      <select className={`reed-pick ${cls || ""}`} value="" title={`Put one of ${first}'s re-ed drills here, or type your own`} onChange={(e) => { const v = e.target.value; if (v === "__type__") { typeOwn(e.target); return; } const drill = reedDrills[Number(v)]; if (drill) pickReed(wi, si, ei, drill); }}>
         <option value="" disabled hidden>{`Pick ${first}'s re-ed ▾`}</option>
         {groups.map((g) => (
           <optgroup key={g} label={g}>
             {reedDrills.map((x, i) => (x.group === g ? <option key={i} value={i}>{x.name}{`${x.sets || ""}${x.reps || ""}`.trim() ? ` — ${x.sets ? `${x.sets}x` : ""}${x.reps || ""}` : ""}</option> : null))}
           </optgroup>
         ))}
+        <option value="__type__">✎ Type something else…</option>
       </select>
     );
   };
