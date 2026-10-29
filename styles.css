@@ -4244,3 +4244,4 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-key-chip.on { border-color: var(--text); background: var(--panel); box-shadow: 0 0 0 1px var(--text) inset; }
 .bp-key-chip.off { opacity: 0.45; }
 .bp-key-all { height: 28px; padding: 0 10px; border-radius: 14px; border: none; background: none; color: var(--text-dim); font-size: 12px; text-decoration: underline; cursor: pointer; }
+.bp-spin-ctl { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }

@@ -156,10 +156,34 @@
   };
   const mulM = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
   const app = (M, v) => [M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2], M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2], M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]];
-  const BASE = mulM(rotM([0, 1, 0], 0.5), rotM([1, 0, 0], 1.1)); // how the ball starts: a horseshoe toward you
+  // How the seams sit on the spin axis: a four-seam ball turns about the axis through its seam loops' poles (four
+  // seams cross the band of fastest spin each turn); a two-seam ball about the diagonal where only two do.
+  const SEAM_AXIS = { four: [0, 0, 1], two: [Math.SQRT1_2, Math.SQRT1_2, 0] };
+  const isTwoSeam = (t) => /sinker|two|2[- ]?seam/i.test(String(t || ""));
+  // the rotation that carries unit vector a onto unit vector b
+  const alignM = (a, b) => {
+    const d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    if (d > 0.99999) return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let ax = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let l = Math.hypot(ax[0], ax[1], ax[2]);
+    if (l < 1e-6) { ax = Math.abs(a[0]) < 0.9 ? [0, -a[2], a[1]] : [-a[2], 0, a[0]]; l = Math.hypot(ax[0], ax[1], ax[2]); }
+    return rotM(ax.map((v) => v / l), Math.acos(Math.max(-1, Math.min(1, d))));
+  };
   const gyroOf = (eff) => (eff == null ? null : Math.max(0, Math.min(100, Math.round(100 - eff)))); // gyro % is what efficiency leaves
+  // The spin axis in the catcher's frame (x to the catcher's right, y up, z toward the catcher). TrackMan's tilt is
+  // the pitcher's clock, so a righty's 1:30 runs to the catcher's left. The transverse part makes the face the catcher
+  // sees roll toward that movement; gyro (100% minus efficiency) leans the axis onto the line of flight.
+  function spinAxis(tiltMin, effPct) {
+    const th = tiltMin != null ? (tiltMin / 720) * 2 * Math.PI : 0;
+    const m = [-Math.sin(th), Math.cos(th), 0]; // movement, catcher's frame
+    const tr = [-m[1], m[0], 0]; // z x m
+    const e = effPct != null ? Math.max(0, Math.min(1, effPct / 100)) : 1;
+    const u = [tr[0] * e, tr[1] * e, 1 - e], l = Math.hypot(u[0], u[1], u[2]) || 1;
+    return u.map((v) => v / l);
+  }
+  const POV_M = { catcher: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], pitcher: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]] }; // from behind the pitcher: turned around
 
-  function drawBall(ctx, size, M, color, tiltRad) {
+  function drawBall(ctx, size, M, color, arrowRad) {
     const cx = size / 2, cy = size / 2, r = size * 0.38;
     ctx.clearRect(0, 0, size, size);
     // the leather: lit from the upper left, darker toward the edge
@@ -194,19 +218,21 @@
     });
     // a soft rim
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.strokeStyle = "rgba(0, 0, 0, 0.28)"; ctx.lineWidth = 1; ctx.stroke();
-    // which way the spin moves it (the tilt), just outside the ball
-    if (tiltRad != null) {
-      const d = r + size * 0.06, w = size * 0.035, sx = Math.sin(tiltRad), sy = -Math.cos(tiltRad);
+    // which way the spin moves the ball, as seen from this side, just outside the ball
+    if (arrowRad != null) {
+      const d = r + size * 0.06, w = size * 0.035, sx = Math.sin(arrowRad), sy = -Math.cos(arrowRad);
       const tipX = cx + sx * (d + w * 1.6), tipY = cy + sy * (d + w * 1.6), bx = cx + sx * d, by = cy + sy * d;
       ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(bx - sy * w, by + sx * w); ctx.lineTo(bx + sy * w, by - sx * w); ctx.closePath();
       ctx.fillStyle = color; ctx.fill();
     }
   }
 
-  function SpinBall({ s }) {
+  // `ctl` is { paused, speed (x the default), pov ("catcher" | "pitcher") }, shared by every ball on the page
+  function SpinBall({ s, ctl }) {
     const ref = useRef(null);
-    const tiltRad = s.tilt != null ? (s.tilt / 720) * 2 * Math.PI : null;
-    const eff = s.spinEff != null ? Math.max(0, Math.min(1, s.spinEff / 100)) : 1;
+    const live = useRef(ctl);
+    live.current = ctl;
+    const kick = useRef(null);
     const gyro = gyroOf(s.spinEff);
     useEffect(() => {
       const cv = ref.current;
@@ -215,35 +241,42 @@
       cv.width = size * dpr; cv.height = size * dpr;
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // the spin axis: the part that moves the ball (across the face you see, square to the tilt), leaned toward the
-      // catcher by its share of gyro
-      const th = tiltRad != null ? tiltRad : 0, m = [Math.sin(th), Math.cos(th), 0];
-      const tr = [-m[1], m[0], 0]; // z x m: the backspin-style axis for this tilt
-      const gy = 1 - eff;
-      const u0 = [tr[0] * eff, tr[1] * eff, -gy], ul = Math.hypot(u0[0], u0[1], u0[2]) || 1, u = u0.map((v) => v / ul);
-      const revPerSec = s.spinAvg ? s.spinAvg / 2400 : 0;
-      const still = !revPerSec || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-      let raf = 0, t0 = null, visible = true;
-      const frame = (ts) => {
-        if (t0 == null) t0 = ts;
-        const ang = still ? 0.6 : ((ts - t0) / 1000) * revPerSec * 2 * Math.PI;
-        drawBall(ctx, size, mulM(rotM(u, ang), BASE), colorOf(s.type), tiltRad);
-        if (!still && visible) raf = requestAnimationFrame(frame);
+      const u = spinAxis(s.tilt, s.spinEff);
+      const seamAxis = isTwoSeam(s.type) ? SEAM_AXIS.two : SEAM_AXIS.four;
+      const start = mulM(alignM(seamAxis, u), rotM(seamAxis, 0.6)); // the seams set on the axis, turned a little for a good first look
+      const thRad = s.tilt != null ? (s.tilt / 720) * 2 * Math.PI : null;
+      const revPerSec = s.spinAvg ? s.spinAvg / 9600 : 0; // at 1x, a quarter of a turn a second per 2400 rpm (life is ~40 turns a second)
+      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let raf = 0, last = null, ang = 0, visible = true;
+      const paint = () => {
+        const pov = live.current.pov === "pitcher" ? "pitcher" : "catcher";
+        const arrow = thRad == null ? null : pov === "pitcher" ? thRad : -thRad; // the pitcher's clock, or the catcher's mirror of it
+        drawBall(ctx, size, mulM(POV_M[pov], mulM(rotM(u, ang), start)), colorOf(s.type), arrow);
       };
+      const moving = () => !reduce && revPerSec > 0 && visible && !live.current.paused;
+      const frame = (ts) => {
+        raf = 0;
+        if (last != null) ang += ((ts - last) / 1000) * revPerSec * (live.current.speed || 1) * 2 * Math.PI;
+        last = ts;
+        paint();
+        if (moving()) raf = requestAnimationFrame(frame); else last = null;
+      };
+      // a change of pause, speed or side: repaint now and carry on (or stay put) from where it is
+      kick.current = () => { if (!raf) { last = null; raf = requestAnimationFrame(frame); } };
       raf = requestAnimationFrame(frame);
-      // only turns while on screen
       const io = window.IntersectionObserver ? new IntersectionObserver((entries) => {
-        const was = visible; visible = entries[0].isIntersecting;
-        if (visible && !was && !still) raf = requestAnimationFrame(frame);
+        visible = entries[0].isIntersecting;
+        if (visible) kick.current();
       }) : null;
       if (io) io.observe(cv);
-      return () => { cancelAnimationFrame(raf); if (io) io.disconnect(); };
+      return () => { cancelAnimationFrame(raf); raf = 0; if (io) io.disconnect(); kick.current = null; };
     }, [s.type, s.spinAvg, s.tilt, s.spinEff]); // eslint-disable-line
+    useEffect(() => { if (kick.current) kick.current(); }, [ctl.paused, ctl.speed, ctl.pov]);
     const active = s.spinAvg != null && s.spinEff != null ? Math.round((s.spinAvg * s.spinEff) / 100) : null;
     return (
       <div className="bp-ball">
         <div className="bp-ball-type" style={{ color: colorOf(s.type) }}>{s.type}</div>
-        <canvas ref={ref} className="bp-ball-canvas" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}`} />
+        <canvas ref={ref} className="bp-ball-canvas" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}, ${isTwoSeam(s.type) ? "two" : "four"}-seam, ${ctl.pov === "pitcher" ? "pitcher's" : "catcher's"} view`} />
         <div className="bp-ball-stats">
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
           <span>Tilt {s.tilt != null ? tiltText(s.tilt) : "–"}</span>
@@ -284,6 +317,12 @@
     const [checked, setChecked] = useState([]);
     const [picked, setPicked] = useState(null); // the pitch clicked on a chart
     const [focus, setFocus] = useState([]); // pitch types picked in the charts' key; the others dim (none picked: all show)
+    // the spinning balls: paused or not, how fast, and from whose side (speed and side remembered on this computer)
+    const [spinCtl, setSpinCtlState] = useState(() => {
+      try { const v = JSON.parse(localStorage.getItem("bullpenSpin") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "pitcher" ? "pitcher" : "catcher" }; } catch (e) { /* private window */ }
+      return { paused: false, speed: 1, pov: "catcher" };
+    });
+    const setSpinCtl = (patch) => setSpinCtlState((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin", JSON.stringify({ speed: n.speed, pov: n.pov })); } catch (e) { /* not remembered */ } return n; });
     const toggleFocus = (t) => setFocus((f) => (f.includes(t) ? f.filter((x) => x !== t) : [...f, t]));
     const tagOptions = [...new Set([...TAG_TYPES, ...(session.pitches || []).map((p) => p.type).filter(Boolean)])].sort(byType);
     const retag = async (nos, value, sid) => {
@@ -393,11 +432,23 @@
         ),
       },
       spin: spinStats.length ? {
-        title: "Spin by pitch type",
+        title: "Spin by pitch type", sub: spinCtl.pov === "pitcher" ? "pitcher's view" : "catcher's view",
+        extra: (
+          <span className="bp-spin-ctl">
+            <button type="button" className="bp-mod-btn" onClick={() => setSpinCtl({ paused: !spinCtl.paused })}>{spinCtl.paused ? "▶ Play" : "❚❚ Pause"}</button>
+            <select className="bp-tag" value={spinCtl.speed} aria-label="Spin speed" onChange={(e) => setSpinCtl({ speed: Number(e.target.value) })}>
+              <option value={0.25}>Speed ¼×</option><option value={0.5}>Speed ½×</option><option value={1}>Speed 1×</option><option value={2}>Speed 2×</option>
+            </select>
+            <span className="pill-tabs bp-scope" role="group" aria-label="Seen from">
+              <button type="button" className={`pill-tab ${spinCtl.pov !== "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "catcher" })}>Catcher</button>
+              <button type="button" className={`pill-tab ${spinCtl.pov === "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "pitcher" })}>Pitcher</button>
+            </span>
+          </span>
+        ),
         body: (
           <React.Fragment>
-            <div className="bp-balls">{spinStats.map((s) => <SpinBall key={s.type} s={s} />)}</div>
-            <p className="timestamp-note">Each ball turns on its pitch's average spin axis as the catcher sees it, faster for more spin (though far slower than the real thing). The arrow is the tilt, the way the spin moves the ball (12:00 is straight backspin). Spin efficiency and gyro add up to 100%: 100% efficient is pure backspin or sidespin, 0% is all gyro (bullet spin, the axis pointing at the catcher), and the ball's axis leans by that split. Active spin (spin × efficiency) is the part that moves the ball; gyro spin is the rest, turning it like a bullet.</p>
+            <div className="bp-balls">{spinStats.map((s) => <SpinBall key={s.type} s={s} ctl={spinCtl} />)}</div>
+            <p className="timestamp-note">Each ball turns on its pitch's average spin axis, seen from the catcher or from behind the pitcher, faster for more spin (though far slower than the real thing). The arrow is the way the spin moves the ball as seen from that side; TrackMan's tilt is the pitcher's clock (12:00 is straight backspin). Sinkers and two-seamers spin with a two-seam orientation, everything else four-seam. Spin efficiency and gyro add up to 100%: 100% efficient is pure backspin or sidespin, 0% is all gyro (bullet spin, the axis pointing at the catcher), and the ball's axis leans by that split. Active spin (spin × efficiency) is the part that moves the ball; gyro spin is the rest, turning it like a bullet.</p>
           </React.Fragment>
         ),
       } : null,
