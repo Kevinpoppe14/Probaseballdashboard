@@ -603,7 +603,11 @@
     // The builder saving itself as it is edited (see autoSave in ProgramEditor): like save, but the builder stays as
     // it is, so typing carries on. `rec.id` is the program the builder last saved to (the block's own, or the shared
     // one it opened with, which gets copied for the athlete the first time).
+    // set while a program is being scrapped: the builder's last save as it closes is skipped, or it would make the
+    // program again (and put it back on the block) the moment it was deleted
+    const scrapping = useRef(false);
     const autoSave = (rec) => {
+      if (scrapping.current) return null;
       const current = rec.id ? programById(rec.id) : null;
       const next = { ...(current || {}), ...rec, name: withLast(rec.name), athleteId: athlete.id, folder: ((current || program || {}).folder) || "" };
       if (!isOwnProgram(current, athlete)) { delete next.id; if (current) next.basedOn = current.id; }
@@ -730,7 +734,31 @@
             )}
             {program && !own && <span>Shared program. Saving here makes {athlete.name}'s own copy, “{withLast(program.name)}”, and leaves the shared one unchanged.</span>}
             {program && <ProgramSearch onPick={insertProgram} />}
-            {program && <button className="btn-link" style={{ marginLeft: "auto" }} onClick={() => { if (!dirty || window.confirm("Unlink this program and lose your unsaved changes?")) { onLinkProgram(block.id, null); reload(); } }}>Unlink from this block</button>}
+            {/* Scrap and start over: the athlete's own program on this phase is deleted and the phase is empty again,
+                ready to build afresh or fill from a saved program. A shared program, or one this athlete also has on
+                another phase, is only taken off this phase (the program itself stays). */}
+            {program && (() => {
+              const elsewhere = plan.blocks.some((b) => b.id !== block.id && b.programId === program.id);
+              const canDelete = own && !elsewhere;
+              const logged = Object.values((store.programLogFor(athlete.id, plan) || {})[program.id] || {}).filter(Boolean).length;
+              const scrap = () => window.askConfirm({
+                title: canDelete ? `Scrap “${program.name}”?` : `Start ${block.label || "this phase"} over?`,
+                text: canDelete
+                  ? `The program is deleted and ${block.label || "this phase"} goes back to empty, ready to build again or fill from a saved program.${logged ? ` ${logged} logged ${logged === 1 ? "entry" : "entries"} on it will no longer show.` : ""} This can't be undone.`
+                  : `${block.label || "This phase"} goes back to empty, ready to build again. ${own ? "The program is also on another phase of the plan, so it's kept for that one." : "The shared program stays in the library, unchanged."}`,
+                ok: canDelete ? "Delete and start over" : "Start over",
+                danger: true,
+              }).then((yes) => {
+                if (!yes) return;
+                scrapping.current = true;
+                if (canDelete) store.deleteProgram(program.id);
+                onLinkProgram(block.id, null);
+                reload();
+                setTimeout(() => { scrapping.current = false; }, 800);
+              });
+              return <button className="btn-link ppt-scrap" style={{ marginLeft: "auto" }} title={canDelete ? "Delete this program and start this phase again from empty" : "Take this program off this phase and start it again from empty"} onClick={scrap}>Scrap and start over</button>;
+            })()}
+            {program && <button className="btn-link" onClick={() => { if (!dirty || window.confirm("Unlink this program and lose your unsaved changes?")) { onLinkProgram(block.id, null); reload(); } }}>Unlink from this block</button>}
           </div>
         )}
 

@@ -4127,3 +4127,5 @@ button.pt-label.on { color: var(--dst-red); }
 .reed-pick option, .reed-pick optgroup { color: #111; background: #fff; }
 .reed-pick.pe-reed { margin: 4px 0 2px; }
 .reed-none { margin: 2px 6px 5px; font-size: 11px; color: var(--text-dim); font-style: italic; }
+/* the plan's program panel: Scrap and start over (periodization.js PlanProgramTabs) */
+.ppt-note .ppt-scrap { color: var(--danger); font-weight: 600; margin-right: 12px; }

@@ -7,6 +7,9 @@
   const AREAS = ["Phone app", "Program builder", "Coach Mode", "Dashboard"]; // the order they appear in the email
 
   const WHATS_NEW = [
+    // ---- week of Oct 26 - Nov 1, 2026 ----
+    { date: "2026-10-29", area: "Dashboard", title: "Scrap a player's program and start over", detail: "On a player's Programming tab, Scrap and start over deletes the program you were building for that phase and empties the phase, ready to build again or load a saved program. A shared template is only taken off the phase, never deleted." },
+    { date: "2026-10-29", area: "Dashboard", title: "More from Kyle Kleeman: NFL Intensification v2", detail: "The other version of his NFL Intensification block (Lineman and Skill, 3 weeks, four days a week) is in Programs › Strength › NFL Intensification." },
     // ---- week of Oct 22-28, 2026 ----
     { date: "2026-10-28", area: "Dashboard", title: "Kyle Kleeman's NFL Intensification programs", detail: "Two new 3-week programs in Programs › Strength › NFL Intensification, one for linemen and one for skill players. Their Corrective lines pick from each athlete's own re-ed drills once the program is on a player's plan." },
     { date: "2026-10-28", area: "Program builder", title: "Re-Ed placeholders pick from the athlete's own drills", detail: "In a player's program, an exercise named Re-Ed, Corrective, Insert Re-Ed, Mobility Drill and the like gets a pick list of that player's re-ed drills, their current Re-Ed program first, or type in anything else. Choose this week only or every week after, and for more than one week the series opens across the weeks to set the sets and reps." },
