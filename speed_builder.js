@@ -36,7 +36,7 @@
   // ---- re-education programs: the same builder (layout "reed"), with re-ed sections, and each drill's sets, reps, a
   // time for each rep (in `distance`, which also takes a time: "30 s", "1:00") and a weight ("135 lb", in `weight`).
   // The athlete's app shows them in their sections and series like a speed day.
-  const REED_SECTIONS = ["Warm-up", "Re-Education", "Accessory", "Core Stability"];
+  const REED_SECTIONS = ["Tissue Prep", "Upper Body Re-Education", "Lower Body Re-Education", "Movement Re-Education"];
   const newReedDay = (n) => ({ name: `Day ${n}`, sections: REED_SECTIONS.map((name) => ({ name, time: "" })), exercises: [] });
   const newReedProgram = (weeks = 4, days = 3) => ({ name: "", description: "", layout: "reed", tags: [], nextProgramIds: [], weeks: Array.from({ length: weeks }, (_, w) => ({ name: `Week ${w + 1}`, sessions: Array.from({ length: days }, (_, d) => newReedDay(d + 1)) })) });
   // the boxes a throwing drill can ask the athlete to fill in from the app (a target typed here shows beside the box):
@@ -77,6 +77,24 @@
       return { name: prev.name || `Week ${wi + 1}`, sessions };
     });
     return out;
+  }
+
+  // A section's or a series' name: typed freely, and renamed (in every week, for a section) once the box is left or
+  // Enter is pressed; Esc puts it back. Renaming on every key moved the section's drills about mid-word (an empty
+  // name for a moment, or one matching another section) and redrew the box under the cursor.
+  function NameBox({ value, onCommit, className, label, title }) {
+    const [txt, setTxt] = useState(null);
+    return (
+      <input
+        className={className}
+        value={txt !== null ? txt : value}
+        aria-label={label}
+        title={title}
+        onChange={(e) => setTxt(e.target.value)}
+        onBlur={() => { const v = txt !== null ? txt.trim() : null; if (v && v !== value) onCommit(v); setTxt(null); }}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") { const box = e.currentTarget; setTxt(null); setTimeout(() => box.blur(), 0); } }}
+      />
+    );
   }
 
   function SpeedProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, cancelLabel, onSaveAndAssign, autoSave, kind, embedded }) {
@@ -359,9 +377,9 @@
             const on = focus && focus.si === si && focus.sec;
             const cls = on ? (focus.sec === sec.name ? "sec-focused" : "sec-dimmed") : "";
             return (
-              <div className={`spd-section ${cls}`} key={sec.name} onMouseDown={(e) => { e.stopPropagation(); at(si, sec.name); }} onFocusCapture={() => at(si, sec.name)}>
+              <div className={`spd-section ${cls}`} key={k} onMouseDown={(e) => { e.stopPropagation(); at(si, sec.name); }} onFocusCapture={() => at(si, sec.name)}>
                 <div className="spd-section-head">
-                  <input className="spd-sec-name" value={sec.name} aria-label="Section name" title="The section's name is the same in every week" onChange={(e) => renameSection(si, sec.name, e.target.value)} />
+                  <NameBox className="spd-sec-name" value={sec.name} label="Section name" title="The section's name is the same in every week (saved when you click away or press Enter)" onCommit={(v) => renameSection(si, sec.name, v)} />
                   <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => setTime(wi, si, sec.name, e.target.value)} />
                   <span className="spd-sec-tools">
                     {copyMenu(`Copy ${sec.name} (its drills, time and description) to other days`, (how) => copySection(wi, si, sec.name, how))}
@@ -375,8 +393,8 @@
                   ? <textarea className="spd-sec-desc" rows={2} value={sec.description} placeholder="Description (shows at the top of this section in the app)" autoFocus={!sec.description} onChange={(e) => setSectionField(wi, si, sec.name, "description", e.target.value)} />
                   : <button className="btn-link spd-add" onClick={() => setOpened((o) => ({ ...o, [`desc|${wi}|${si}|${sec.name}`]: true }))}>+ Description</button>}
                 {sec.series.map((sr, j) => (
-                  <div className={`spd-series${sr.name ? " named" : ""}`} key={`${sr.name}|${j}`}>
-                    {sr.name && <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, si, sec.name, sr.name, e.target.value)} />}
+                  <div className={`spd-series${sr.name ? " named" : ""}`} key={j}>
+                    {sr.name && <NameBox className="spd-series-name" value={sr.name} label="Series name" onCommit={(v) => renameSeries(wi, si, sec.name, sr.name, v)} />}
                     {sr.drills.map(({ e, index }) => {
                       const g = e.groups[0] || {};
                       const parsed = window.speedParse(e.distance);
@@ -731,12 +749,12 @@
               {sections.map((sec, k) => {
                 let colorAt = 0;
                 return (
-                  <React.Fragment key={sec.name}>
+                  <React.Fragment key={k}>
                     <tbody className="spt-sec">
                       <tr>
                         <td colSpan={cols}>
                           <div className="spt-sec-head">
-                            <input className="spd-sec-name" value={sec.name} aria-label="Section name" title="The section's name is the same in every week" onChange={(e) => renameSection(si, sec.name, e.target.value)} />
+                            <NameBox className="spd-sec-name" value={sec.name} label="Section name" title="The section's name is the same in every week (saved when you click away or press Enter)" onCommit={(v) => renameSection(si, sec.name, v)} />
                             <input className="spd-time" value={sec.time} placeholder="Time" aria-label={`Time for ${sec.name}`} onChange={(e) => setTime(wi, si, sec.name, e.target.value)} />
                             {copyMenu(`Copy ${sec.name} (its drills, time and description) to other days`, (how) => copySection(wi, si, sec.name, how))}
                             <button className="spd-x" title="Move this section up" disabled={k === 0} onClick={() => moveSection(si, sec.name, -1)}>↑</button>
@@ -762,11 +780,11 @@
                       // a named series is boxed in a color of its own; drills outside a series aren't
                       const color = sr.name ? SERIES_COLORS[colorAt++ % SERIES_COLORS.length] : null;
                       return (
-                        <tbody key={`${sr.name}|${j}`} className={color ? "spt-series pt-boxed" : "spt-loose"} style={color ? { "--blk": color } : undefined}>
+                        <tbody key={j} className={color ? "spt-series pt-boxed" : "spt-loose"} style={color ? { "--blk": color } : undefined}>
                           {sr.name && (
                             <tr className="spt-ser-head">
                               <td colSpan={cols}>
-                                <input className="spd-series-name" value={sr.name} aria-label="Series name" onChange={(e) => renameSeries(wi, si, sec.name, sr.name, e.target.value)} />
+                                <NameBox className="spd-series-name" value={sr.name} label="Series name" onCommit={(v) => renameSeries(wi, si, sec.name, sr.name, v)} />
                                 <button className="btn-link spd-add" onClick={() => addDrill(wi, si, sec.name, sr.name)}>+ Drill in this series</button>
                               </td>
                             </tr>
@@ -828,7 +846,7 @@
           ? <p className="timestamp-note">{fromProgression
             ? "One day for each throwing day on the progression above, named and colored from it (green Low, yellow Medium, red High): change a day's intensity or throws up there and it follows here. Fill in each day's drills: sets x reps (the prescribed throws), the distance, and a ball weight in oz or g for weighted balls. Each drill asks the athlete for the throws they made; add Distance (ft) or Velo (mph) with the + where it applies, with a target if you like. Use ⧉ on a section or a day to copy it to the other days this week, the same day in later weeks, or every day from this week on."
             : "Each day has an intensity for the week (green Low, yellow Medium, red High, or off), which colors it here and in the athlete's app. Drills take sets x reps (the prescribed throws), a distance, and a ball weight in oz or g; each asks the athlete for the throws they made, and the + adds Distance or Velo (mph) where it applies. Use ⧉ on a section or a day to copy it to other days."}</p>
-          : REED ? <p className="timestamp-note">Each day is in sections (Warm-up, Re-Education, Accessory, Core Stability: rename, add or remove them), and inside a section, series of drills, as on a speed day. A drill takes sets, reps, a time for each rep if it's timed, and a weight if it's loaded; the + adds more boxes. Use ⧉ on a section or a day to copy it to other days.</p>
+          : REED ? <p className="timestamp-note">Each day is in sections (Tissue Prep, Upper Body, Lower Body and Movement Re-Education: rename, add or remove them), and inside a section, series of drills, as on a speed day. A drill takes sets, reps, a time for each rep if it's timed, and a weight if it's loaded; the + adds more boxes. Use ⧉ on a section or a day to copy it to other days.</p>
           : <p className="timestamp-note">Click into a day to work on it: that day lights up in every week and the other days dim, so you can progress it through the program, and the section you're in is highlighted in each week. A day's name and its sections are the same in every week; times, drills, sets and distances are set week by week (Copy previous week starts a week from the one before).</p>}
         {draft.weeks.map((w, wi) => (
           <div className="program-week" key={wi}>
