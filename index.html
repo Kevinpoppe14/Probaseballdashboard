@@ -6899,14 +6899,33 @@ function ActivitySignature({ activity, className }) {
 // The player's name at the top of their profile, with ✎ beside it: the same edits as the pencil on the roster (name
 // and jersey number, saved with Save; league, team and DST location, which save as they're picked). Position, status
 // and the photo sit in the header already.
+// "B/T R/R", or just the one that's known, for the profile header
+const batsThrows = (a) => (a.bats && a.throws ? `B/T ${a.bats}/${a.throws}` : a.throws ? `Throws ${a.throws}` : a.bats ? `Bats ${a.bats}` : "");
+
 function ProfileNameEdit({ athlete, onDataChange }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(athlete.name);
   const [jersey, setJersey] = useState(hasJersey(athlete) ? athlete.jersey : "");
-  const start = () => { setName(athlete.name); setJersey(hasJersey(athlete) ? athlete.jersey : ""); setOpen(true); };
+  const [throws, setThrows] = useState(athlete.throws || ""); // R or L (the Bullpens comps use it)
+  const [bats, setBats] = useState(athlete.bats || ""); // R, L or S
+  // a player linked to MLB before hands were kept: fill them in from MLB's player record the first time the profile opens
+  React.useEffect(() => {
+    if (!athlete.mlbamId || (athlete.throws && athlete.bats)) return;
+    let off = false;
+    fetch(`https://statsapi.mlb.com/api/v1/people/${athlete.mlbamId}`).then((r) => (r.ok ? r.json() : null)).then((j) => {
+      const p = j && j.people && j.people[0];
+      if (off || !p) return;
+      const patch = {};
+      if (!athlete.throws && p.pitchHand && /^[RL]$/.test(p.pitchHand.code)) patch.throws = p.pitchHand.code;
+      if (!athlete.bats && p.batSide && /^[RLS]$/.test(p.batSide.code)) patch.bats = p.batSide.code;
+      if (Object.keys(patch).length) { window.AthleteStore.updateAthlete(athlete.id, patch); onDataChange(); }
+    }).catch(() => { /* offline: left for next time */ });
+    return () => { off = true; };
+  }, [athlete.id, athlete.mlbamId]); // eslint-disable-line
+  const start = () => { setName(athlete.name); setJersey(hasJersey(athlete) ? athlete.jersey : ""); setThrows(athlete.throws || ""); setBats(athlete.bats || ""); setOpen(true); };
   const save = () => {
     if (!name.trim()) return;
-    window.AthleteStore.updateAthlete(athlete.id, { name: name.trim(), jersey: jersey.trim() || "--" });
+    window.AthleteStore.updateAthlete(athlete.id, { name: name.trim(), jersey: jersey.trim() || "--", throws, bats });
     setOpen(false);
     onDataChange();
   };
@@ -6920,6 +6939,8 @@ function ProfileNameEdit({ athlete, onDataChange }) {
         <div className="profile-edit no-print" onKeyDown={(e) => { if (e.key === "Enter" && e.target.tagName === "INPUT") save(); if (e.key === "Escape") setOpen(false); }}>
           <label><span>Name</span><input className="inline-select" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="First Last" /></label>
           <label><span>Jersey #</span><input className="inline-select" value={jersey} onChange={(e) => setJersey(e.target.value)} placeholder="#" style={{ width: 70 }} /></label>
+          <label><span>Throws</span><select className="inline-select" value={throws} onChange={(e) => setThrows(e.target.value)}><option value="">–</option><option value="R">Right</option><option value="L">Left</option></select></label>
+          <label><span>Bats</span><select className="inline-select" value={bats} onChange={(e) => setBats(e.target.value)}><option value="">–</option><option value="R">Right</option><option value="L">Left</option><option value="S">Switch</option></select></label>
           <label><span>League</span><LeagueSelect athlete={athlete} onChanged={onDataChange} /></label>
           <label><span>Team</span><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></label>
           <label><span>DST location</span><LocationSelect athlete={athlete} onChanged={onDataChange} /></label>
@@ -7012,6 +7033,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
               <span className="print-only">{athlete.position}</span>
               {athlete.league ? ` · ${athlete.league}` : ""}
               {athlete.team ? ` · ${athlete.team}` : ""}
+              {batsThrows(athlete) ? ` · ${batsThrows(athlete)}` : ""}
             </div>
             <span className="no-print" style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 4 }}>
               <PositionSelect athlete={athlete} onChanged={onDataChange} />
@@ -7597,6 +7619,9 @@ function applyMlbMatch(athlete, cand) {
     const pos = mapMlbPosition(cand.primaryPosition && cand.primaryPosition.abbreviation);
     if (pos) patch.position = pos;
   }
+  // throwing hand and batting side, unless a coach already set them
+  if (!athlete.throws && cand.pitchHand && /^[RL]$/.test(cand.pitchHand.code)) patch.throws = cand.pitchHand.code;
+  if (!athlete.bats && cand.batSide && /^[RLS]$/.test(cand.batSide.code)) patch.bats = cand.batSide.code;
   window.AthleteStore.updateAthlete(athlete.id, patch);
 }
 
