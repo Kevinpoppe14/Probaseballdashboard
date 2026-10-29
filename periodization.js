@@ -1883,7 +1883,7 @@
         {/* the Programming tab shows just the timeline and the program builder; the rest is on the Player Plan */}
         {mode === "plan" && <PlanHeader athlete={athlete} plan={plan} extra={headerExtra} />}
 
-        {mode === "plan" && <AthletePhoneLink athlete={athlete} />}
+        {/* (the athlete's phone link sits under Contact Info at the top of the profile: window.AthletePhoneLink) */}
 
         {/* goals and the action plan come first on screen; printed, they stay after the timeline (see .period-goals-slot) */}
         {mode === "plan" && (<div className="period-goals-slot">
@@ -2222,4 +2222,5 @@
   // planProgress alone (not a component) for the roster page's program-status flag — see
   // ProgramStatusBadge in index.html — so it doesn't have to re-derive "what week is it" itself.
   window.PeriodizationLib = { planProgress, assignProgram, mondayOfToday };
+  window.AthletePhoneLink = AthletePhoneLink; // shown under Contact Info on the profile (index.html)
 })();

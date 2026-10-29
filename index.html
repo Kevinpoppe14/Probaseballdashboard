@@ -6989,6 +6989,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
 
       <div className={activeTab === "plan" ? "" : "tab-hidden"}>
       <ContactInfoPanel athlete={athlete} onChanged={onDataChange} />
+      {/* their phone link (open, copy, text it to them, reset), right under their contact info */}
+      {window.AthletePhoneLink && <window.AthletePhoneLink athlete={athlete} />}
       {athlete.rosterGroup === CUBS_ROSTER_GROUP && (
         <div className="offseason-row">
           <OffseasonFacilityPanel athlete={athlete} onChanged={onDataChange} />
