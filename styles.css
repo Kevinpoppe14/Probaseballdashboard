@@ -4273,3 +4273,7 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-ball.big .bp-ball-stats { font-size: 14px; }
 .bp-ball.big .bp-ball-stats b { font-size: 20px; }
 .bp-ball.big canvas { max-width: 100%; height: auto !important; aspect-ratio: 1; }
+.bp-show { margin-left: auto; }
+.bp-show .pill-tab { padding: 3px 10px; font-size: 12px; }
+.bp-plot .bp-avg-label { fill: var(--text); font-size: 12px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.bp-plot .bp-avg-leader { stroke: var(--text-dim); stroke-width: 1; }
