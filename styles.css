@@ -4137,3 +4137,12 @@ button.pt-label.on { color: var(--dst-red); }
 .profile-edit label > span { font-weight: 600; }
 .profile-edit .profile-edit-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .profile-edit .profile-edit-actions .btn { margin: 0; padding: 5px 14px; }
+
+/* Performance Metrics: taking a bad force plate test out, and the Removed tests list to put one back */
+.ft-x { width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-dim, #9aa0a6); font-size: 13px; cursor: pointer; }
+.ft-x:hover { color: #ef4444; border-color: #ef4444; }
+.ft-x:disabled { opacity: 0.4; cursor: default; }
+.ft-removed { margin-top: 12px; font-size: 13px; }
+.ft-removed summary { cursor: pointer; font-weight: 600; opacity: 0.8; }
+.ft-removed-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border, #2a2a2a); }
+.ft-removed-row small { opacity: 0.65; margin-left: 6px; }

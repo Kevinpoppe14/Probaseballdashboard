@@ -339,7 +339,7 @@
     // right now (see activityFromRow) — every table has the underlying columns from the migration,
     // so this is just a matter of reading them here if that ever needs to extend to more tables.
     athletes.forEach((r) => next.customAthletes.push({ ...r.data, _activity: activityFromRow(r, emailById) }));
-    forceTests.forEach((r) => next.forceTests.push(r.data));
+    forceTests.forEach((r) => { next.forceTests.push(r.data); forceRowIds.set(r.data, r.id); }); // row ids kept so a bad test can be removed
     bodyComp.forEach((r) => { next.bodyComp.push(r.data); bodyCompRowIds.set(r.data, r.id); }); // row ids kept so a scan can be edited
     manualWellness.forEach((r) => next.manualWellness.push(r.data));
     notes.forEach((r) => next.notes.push(r.data));
@@ -576,7 +576,49 @@
     const record = { ...entry };
     state.forceTests.push(record);
     persistLocal();
-    syncInsert("force_tests", randomId(), record.athleteId, record);
+    const rowId = randomId();
+    forceRowIds.set(record, rowId);
+    syncInsert("force_tests", rowId, record.athleteId, record);
+  }
+  // Removing a bad force plate test (the table on Performance Metrics): its row is deleted, so no graph, email or
+  // athlete app shows it any more, and a full copy goes on app_meta "removedForceTests" so it can be put back.
+  // The Hawkin sync (api/sync-hawkin.js) reads that list too and won't bring a removed day back.
+  const forceRowIds = new WeakMap(); // test record -> force_tests row id
+  async function readRemovedForceTests() {
+    const { data, error } = await sb().from("app_meta").select("value").eq("key", "removedForceTests").maybeSingle();
+    if (error) throw error;
+    return data && Array.isArray(data.value) ? data.value : [];
+  }
+  async function getRemovedForceTests(athleteId) {
+    return (await readRemovedForceTests()).filter((r) => r.athleteId === athleteId);
+  }
+  // `test` is one getForceTests handed out; resolves false when it can't be matched to its saved row
+  async function removeForceTest(test, by) {
+    const rec = test && test.__record;
+    const rowId = rec && forceRowIds.get(rec);
+    if (!rec || !rowId) return false;
+    const list = await readRemovedForceTests(); // read fresh, so two coaches removing at once both stick
+    list.push({ rowId, athleteId: rec.athleteId, date: rec.date, removedAt: new Date().toISOString(), by: by || "", record: rec });
+    const { error: metaErr } = await sb().from("app_meta").upsert({ key: "removedForceTests", value: list });
+    if (metaErr) throw metaErr;
+    const { error } = await sb().from("force_tests").delete().eq("id", String(rowId));
+    if (error) throw error;
+    state.forceTests = state.forceTests.filter((e) => e !== rec);
+    persistLocal();
+    return true;
+  }
+  async function restoreForceTest(rowId) {
+    const list = await readRemovedForceTests();
+    const item = list.find((r) => r.rowId === rowId);
+    if (!item) return false;
+    const { error } = await sb().from("force_tests").upsert({ id: String(rowId), athlete_id: String(item.athleteId), data: item.record });
+    if (error) throw error;
+    const { error: metaErr } = await sb().from("app_meta").upsert({ key: "removedForceTests", value: list.filter((r) => r !== item) });
+    if (metaErr) throw metaErr;
+    state.forceTests.push(item.record);
+    forceRowIds.set(item.record, rowId);
+    persistLocal();
+    return true;
   }
 
   function addBodyComp(entry) {
@@ -767,7 +809,7 @@
   function getForceTests(athleteId) {
     return state.forceTests
       .filter((e) => e.athleteId === athleteId)
-      .map(normalizeForceTest)
+      .map((e) => Object.defineProperty(normalizeForceTest(e), "__record", { value: e })) // hidden: which saved test it is, for removeForceTest
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
@@ -1220,6 +1262,9 @@
     deleteBodyComp,
     getManualWellness,
     getForceTests,
+    getRemovedForceTests,
+    removeForceTest,
+    restoreForceTest,
     getBodyComp,
     getWellnessSeries,
     computeWellnessComposite,

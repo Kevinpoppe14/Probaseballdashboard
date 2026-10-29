@@ -8,6 +8,8 @@
 
   const WHATS_NEW = [
     // ---- week of Oct 26 - Nov 1, 2026 ----
+    { date: "2026-10-29", area: "Coach Mode", title: "Drag athletes into your order", detail: "Grab the ⋮⋮ beside a name on the board, in Team today or in Group Testing and drag it up or down (along the strip on a phone). The order sticks everywhere in Coach Mode, so the testing sheet runs in the order the group goes through." },
+    { date: "2026-10-29", area: "Dashboard", title: "Take out a bad force plate test", detail: "On Performance Metrics, the ✕ at the end of a test row removes it (two people on the plates, a stumble). It comes off the graphs, the trends and the athlete's app, the Hawkin sync won't bring it back, and Removed tests under the table puts it back if you change your mind." },
     { date: "2026-10-29", area: "Phone app", title: "Steadier progress graphs", detail: "A tiny change (a body weight 0.02 lb lighter, say) no longer stretches to fill the graph and look like a big drop, and the numbers up the side always read differently instead of repeating." },
     { date: "2026-10-29", area: "Phone app", title: "Back to the program while the EDT clock runs", detail: "On an EDT block, \"▾ Back to the program\" (or a tap outside the timer) shrinks it to a bar across the top of the screen. The clock keeps running, and the bar has its own − and +1 set, so athletes can check their reps and weights without restarting. Open brings the full timer back; Done · log it logs the sets as before." },
     { date: "2026-10-29", area: "Dashboard", title: "Edit a player from their profile", detail: "The ✎ beside a player's name on their profile edits their name, jersey number, league, team and DST location, the same as the pencil on the roster." },

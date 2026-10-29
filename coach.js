@@ -32,6 +32,53 @@
   const byId = (id) => athletes.find((a) => a.id === id);
   const lastFirst = (name) => { const p = (name || "").trim().split(/\s+/); return p.length > 1 ? `${p[p.length - 1]}, ${p.slice(0, -1).join(" ")}` : name || ""; };
 
+  // ---- drag to reorder -----------------------------------------------------------------------------
+  // The ⋮⋮ grip on a row (the board, Team today, Group Testing) drags that athlete up or down (along the strip on a
+  // phone). The row moves as it's dragged; letting go makes that the board's order, so every screen follows it.
+  const grip = (name) => el("span", { class: "grip", title: "Drag to move", "aria-label": `Drag to move ${name}`, onpointerdown: startDrag }, "⋮⋮");
+  const scroller = (n) => {
+    for (; n && n !== document.body; n = n.parentElement) { const o = getComputedStyle(n); if (/(auto|scroll)/.test(o.overflowY + o.overflowX) && (n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)) return n; }
+    return document.scrollingElement;
+  };
+  function startDrag(e) {
+    if (e.button) return;
+    const g = e.currentTarget, row = g.closest("[data-row]"), box = row && row.parentElement;
+    if (!box) return;
+    e.preventDefault();
+    const rowsOf = () => [...box.children].filter((r) => r.dataset.row);
+    const first = rowsOf();
+    const across = first.length > 1 && Math.abs(first[0].getBoundingClientRect().top - first[1].getBoundingClientRect().top) < 4; // the phone strip
+    const sc = scroller(box);
+    row.classList.add("dragging");
+    const move = (ev) => {
+      const at = across ? ev.clientX : ev.clientY;
+      const others = rowsOf().filter((r) => r !== row);
+      const before = others.find((r) => { const b = r.getBoundingClientRect(); return across ? at < b.left + b.width / 2 : at < b.top + b.height / 2; });
+      if (before) { if (row.nextElementSibling !== before) box.insertBefore(row, before); }
+      else if (others.length && others[others.length - 1].nextElementSibling !== row) others[others.length - 1].after(row);
+      // near an edge of a list that scrolls, keep scrolling
+      const r = sc === document.scrollingElement ? { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth } : sc.getBoundingClientRect();
+      if (across) { if (at < r.left + 40) sc.scrollLeft -= 14; else if (at > r.right - 40) sc.scrollLeft += 14; }
+      else if (at < r.top + 40) sc.scrollTop -= 14; else if (at > r.bottom - 40) sc.scrollTop += 14;
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end);
+      row.classList.remove("dragging");
+      const order = rowsOf().map((r) => r.dataset.row);
+      if (order.join("|") !== picked.join("|")) reorder(order);
+    };
+    // on the window, not the grip: moving the row in the page drops a pointer capture, and the letting go with it
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end);
+  }
+  function reorder(order) {
+    picked = [...order.filter((id) => picked.includes(id)), ...picked.filter((id) => !order.includes(id))];
+    remember();
+    draw();
+    if (teamOpen) drawTeam();
+    if (kpiOpen) drawKpi();
+    if (logOpen) drawLog();
+  }
+
   // ---- the athlete list and the picked athlete's page ----------------------------------------------
   // an athlete's page, made the first time it is needed and kept while they are on the board
   function ensureFrame(id) {
@@ -105,7 +152,8 @@
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
       const done = doneToday.has(id);
-      return el("div", { class: `who${id === active && !kpiOpen && !speedOpen && !logOpen && !teamOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
+      return el("div", { "data-row": id, class: `who${id === active && !kpiOpen && !speedOpen && !logOpen && !teamOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
+        grip(a.name),
         el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, done ? "✓ " : "", a.name), el("small", null, done ? `Done today${a.sub ? ` · ${a.sub}` : ""}` : a.sub)),
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
     }));
@@ -317,11 +365,11 @@
     };
     const rows = picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete" }, o = d && d[id];
-      if (!o) return el("div", { class: "team-row" }, el("span", { class: "team-name" }, a.name), el("span", { class: "team-cell dim" }, "Loading…"));
+      if (!o) return el("div", { class: "team-row", "data-row": id }, el("span", { class: "team-who" }, grip(a.name), el("span", { class: "team-name" }, a.name)), el("span", { class: "team-cell dim" }, "Loading…"));
       const t = o.target ? (o.rest ? o.target.rest : o.target.train) || o.target.train : null;
       const msg = o.msg ? `${o.msg.seen_at ? "Seen" : "Sent"} ${when(o.msg.created_at)}` : "";
-      return el("div", { class: "team-row" },
-        el("button", { class: "team-name", title: "Open their program", onclick: () => show(id) }, a.name),
+      return el("div", { class: "team-row", "data-row": id },
+        el("span", { class: "team-who" }, grip(a.name), el("button", { class: "team-name", title: "Open their program", onclick: () => show(id) }, a.name)),
         el("span", { class: `team-cell ${o.lifted ? "ok" : o.sets ? "mid" : "dim"}`, "data-h": "Lift" }, o.lifted ? "✓ Lifted" : o.sets ? `${o.sets} set${o.sets === 1 ? "" : "s"} in` : "Not yet"),
         (() => {
           const t = throwToday(a);
@@ -505,7 +553,7 @@
         // Enter goes down the column, as in a spreadsheet
         onkeydown: (e) => { if (e.key !== "Enter") return; e.preventDefault(); const next = e.target.closest("tr").nextElementSibling; const box = next && next.querySelector(`input[data-col="${i}"]`); if (box) box.focus(); else e.target.blur(); },
       })));
-      return el("tr", null, el("th", { scope: "row" }, a.name), cells, best, avg, pr, pastAvg);
+      return el("tr", { "data-row": aid }, el("th", { scope: "row" }, el("span", { class: "kpi-who" }, grip(a.name), a.name)), cells, best, avg, pr, pastAvg);
     });
     const table = el("table", { class: "kpi-sheet" },
       el("thead", null, el("tr", null,

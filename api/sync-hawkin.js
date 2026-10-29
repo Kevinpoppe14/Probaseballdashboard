@@ -310,6 +310,10 @@ module.exports = async (req, res) => {
     if (touchedAthleteIds.length) {
       const existingRows = await sbSelect(serviceKey, "force_tests", `select=athlete_id,data&athlete_id=in.(${touchedAthleteIds.join(",")})`);
       const existingKeys = new Set(existingRows.map((r) => `${r.athlete_id}|${r.data.date}`));
+      // a test a coach removed as bad data (Performance Metrics, app_meta "removedForceTests") stays out
+      const removedRows = await sbSelect(serviceKey, "app_meta", "select=value&key=eq.removedForceTests");
+      const removed = removedRows[0] && Array.isArray(removedRows[0].value) ? removedRows[0].value : [];
+      removed.forEach((r) => existingKeys.add(`${String(r.athleteId)}|${r.date}`));
       candidateRows = candidateRows.filter((r) => !existingKeys.has(`${r.athlete_id}|${r.data.date}`));
     }
 

@@ -6470,9 +6470,54 @@ function PositionalProfilePanel({ athlete, planView = false, compact = false }) 
   );
 }
 
-function ForcePlatePanel({ athleteId, range }) {
+function ForcePlatePanel({ athleteId, range, onChanged }) {
   const { grid, axis } = useChartColors();
   const theme = useTheme();
+  // a bad test (two people on the plates, a stumble) can be taken out from the table, and put back from the
+  // Removed tests list under it (AthleteStore.removeForceTest)
+  const [removed, setRemoved] = useState(null);
+  const [ftBusy, setFtBusy] = useState(false);
+  const [ftMsg, setFtMsg] = useState("");
+  const loadRemoved = () => window.AthleteStore.getRemovedForceTests(athleteId).then(setRemoved, () => setRemoved([]));
+  React.useEffect(() => { setRemoved(null); setFtMsg(""); loadRemoved(); }, [athleteId]); // eslint-disable-line
+  const ftDay = (k) => { const d = new Date(`${k}T00:00:00`); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
+  const ftLine = (t) => [typeof t.systemWeight === "number" ? `${fmt2(t.systemWeight / N_TO_LBF)} lb` : null, t.jumpHeight != null ? `jump ${fmt2(t.jumpHeight)} in` : "no jump height"].filter(Boolean).join(", ");
+  const removeTest = async (t) => {
+    const ok = await window.askConfirm({ title: `Remove the ${ftDay(t.date)} test?`, text: `${ftLine(t)}. It comes off the graphs, the trends and the athlete's app, and the Hawkin sync won't bring it back. It's kept under Removed tests below the table, where you can put it back.`, ok: "Remove", danger: true });
+    if (!ok) return;
+    setFtBusy(true); setFtMsg("");
+    try {
+      const done = await window.AthleteStore.removeForceTest(t, window.AthleteStore.currentUserEmail());
+      setFtMsg(done ? `Removed the ${ftDay(t.date)} test.` : "Couldn't find that test's saved copy. Reload the page and try again.");
+      if (done) { await loadRemoved(); if (onChanged) onChanged(); }
+    } catch (e) { setFtMsg("Couldn't remove it. Check your connection and try again."); }
+    setFtBusy(false);
+  };
+  const restoreTest = async (r) => {
+    setFtBusy(true); setFtMsg("");
+    try {
+      const done = await window.AthleteStore.restoreForceTest(r.rowId);
+      setFtMsg(done ? `Put back the ${ftDay(r.date)} test.` : "That test was already put back.");
+      await loadRemoved(); if (onChanged) onChanged();
+    } catch (e) { setFtMsg("Couldn't put it back. Check your connection and try again."); }
+    setFtBusy(false);
+  };
+  const removedList = (
+    <React.Fragment>
+      {ftMsg && <p className="timestamp-note no-print" role="status" style={{ marginTop: 10 }}>{ftMsg}</p>}
+      {removed && removed.length > 0 && (
+        <details className="ft-removed no-print">
+          <summary>Removed tests ({removed.length})</summary>
+          {removed.map((r) => (
+            <div key={r.rowId} className="ft-removed-row">
+              <span>{ftDay(r.date)} · {ftLine(r.record || {})} <small>removed {ftDay(String(r.removedAt).slice(0, 10))}{r.by ? ` by ${r.by}` : ""}</small></span>
+              <button className="btn btn-secondary" disabled={ftBusy} onClick={() => restoreTest(r)}>Put back</button>
+            </div>
+          ))}
+        </details>
+      )}
+    </React.Fragment>
+  );
   const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
   const refLineColor = theme === "light" ? "#555555" : "#fff";
   const chartLineColor = isCubsOnlyAthlete(getPeople().find((a) => a.id === athleteId)) ? CUBS_CHART_COLOR : DST_CHART_COLOR;
@@ -6486,6 +6531,7 @@ function ForcePlatePanel({ athleteId, range }) {
           No force plate tests on file for this athlete yet. Sync or import them from Hawkin Dynamics on the
           Import page (bottom bar).
         </div>
+        {removedList}
       </div>
     );
   }
@@ -6496,6 +6542,7 @@ function ForcePlatePanel({ athleteId, range }) {
         <div className="empty-state">
           No force plate tests in this date range ({allTests.length} on file overall) — try a longer range.
         </div>
+        {removedList}
       </div>
     );
   }
@@ -6566,6 +6613,7 @@ function ForcePlatePanel({ athleteId, range }) {
             <th>Total Impulse</th>
             <th>Braking RFD</th>
             <th>Concentric Impulse</th>
+            <th aria-label="Remove"></th>
           </tr>
         </thead>
         <tbody>
@@ -6583,10 +6631,12 @@ function ForcePlatePanel({ athleteId, range }) {
               <td>{fmt2(t.totalImpulse) ?? "—"}</td>
               <td>{fmt2(t.brakingRfd) ?? "—"}</td>
               <td>{fmt2(t.concentricImpulse) ?? "—"}</td>
+              <td><button className="ft-x" title="Remove this test (bad data)" aria-label={`Remove the ${shortDate(t.date)} test`} disabled={ftBusy} onClick={() => removeTest(t)}>✕</button></td>
             </tr>
           ))}
         </tbody>
       </table>
+      {removedList}
     </div>
   );
 }
@@ -7027,7 +7077,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         </div>
         <PositionalProfilePanel athlete={athlete} />
         <RangeSelector range={perfRange} onChange={setPerfRange} />
-        <ForcePlatePanel athleteId={athlete.id} range={perfRange} />
+        <ForcePlatePanel athleteId={athlete.id} range={perfRange} onChanged={onDataChange} />
         {/* performance tests from the biomechanical assessments and re-assessments, once there are two results */}
         {window.AssessmentTrends && <window.AssessmentTrends athleteId={athlete.id} only="performance" title="Assessment performance tests" hint="from biomechanical assessments and re-assessments; blanks are left out" />}
       </div>
