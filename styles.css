@@ -4200,7 +4200,7 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-arsenal { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 .bp-arsenal h3 { margin: 0 0 10px; font-size: 14px; }
 .bp-balls { display: flex; flex-wrap: wrap; gap: 22px; }
-.bp-ball { width: 150px; text-align: center; }
+.bp-ball { width: 160px; text-align: center; }
 .bp-ball svg { width: 120px; height: 120px; display: block; margin: 4px auto; }
 .bp-ball-type { font-weight: 800; font-size: 15px; }
 .bp-ball-stats { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-dim); }
@@ -4235,3 +4235,4 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-pick-pop h3 small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
 .bp-pick-pop p { margin: 2px 0; font-size: 13px; color: var(--text-dim); }
 @media (max-width: 900px) { .bp-mod.half { grid-column: span 2; } }
+.bp-ball-canvas { width: 132px; height: 132px; display: block; margin: 0 auto; }

@@ -4,7 +4,7 @@
 // store.js). The tab shows velocity by pitch type across sessions, and for one session its pitch types, a movement
 // plot and every pitch. The Pitching Assessment's own import (pitching_assessment.js) saves here too.
 (function () {
-  const { useState, useRef } = React;
+  const { useState, useRef, useEffect } = React;
 
   const uid = () => `bp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const fmtDate = (key) => { if (!key) return "No date"; const d = new Date(`${key}T00:00:00`); return isNaN(d) ? key : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); };
@@ -122,43 +122,132 @@
   }
   const rangeOf = (vals, min, pad) => { const a = Math.min(min[0], ...vals.map((v) => v - pad)), b = Math.max(min[1], ...vals.map((v) => v + pad)); return [Math.floor(a), Math.ceil(b)]; };
 
-  // The arsenal's spin: a ball per pitch type with its seams turning toward the pitch's tilt (as the catcher sees it:
-  // 12:00 is pure backspin, the face moving straight up), faster the more it spins, and the figures under it.
-  function SpinBall({ s }) {
-    const id = `bp${String(s.type).replace(/[^a-z0-9]/gi, "")}${Math.round(s.spinAvg || 0)}`;
-    const angle = s.tilt != null ? (s.tilt / 720) * 360 : 0;
-    const dur = s.spinAvg ? Math.max(0.35, Math.min(4, 2400 / s.spinAvg)) : 0;
-    const P = 44; // one seam period
-    const seams = [];
-    for (let k = -3; k <= 3; k++) {
-      const yk = k * P, bend = k % 2 ? 14 : -14;
-      const d = `M -48 ${yk + bend * 0.2} C -22 ${yk - bend}, 22 ${yk - bend}, 48 ${yk + bend * 0.2}`;
-      seams.push(<path key={`s${k}`} d={d} className="bp-seam" />, <path key={`t${k}`} d={d} className="bp-stitch" />);
+  // ---- the arsenal's spin: a real-looking baseball per pitch type, turning on the pitch's own spin axis ----------
+  // The seam is the ball's actual figure-eight curve on the sphere, with its 108 double stitches in a herringbone,
+  // drawn each frame as the ball turns (only the half facing you). The axis, as the catcher sees it: the tilt sets
+  // which way the spin pushes the ball (12:00 = pure backspin, the face rolling straight up), and spin efficiency
+  // sets how far the axis leans toward the catcher (gyro): 100% spins straight end over end toward the tilt; a 40%
+  // slider is about 66° gyro, mostly "bullet" spin, turning around the line it's thrown on. Far slower than life.
+  const SEAM = (() => {
+    const a = 0.62, b = 0.38, c = 2 * Math.sqrt(a * b); // a + b = 1 keeps the curve on the ball
+    const P = (t) => [a * Math.cos(t) + b * Math.cos(3 * t), a * Math.sin(t) - b * Math.sin(3 * t), c * Math.sin(2 * t)];
+    const N = 3000, pts = [], len = [0];
+    for (let i = 0; i <= N; i++) pts.push(P((i / N) * 2 * Math.PI));
+    for (let i = 1; i <= N; i++) len.push(len[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]));
+    const even = (m) => {
+      const out = [];
+      let j = 0;
+      for (let k = 0; k < m; k++) {
+        const s = (k / m) * len[N];
+        while (j < N - 1 && len[j + 1] < s) j++;
+        const p = pts[j], q = pts[j + 1], T = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], tl = Math.hypot(T[0], T[1], T[2]) || 1;
+        const t = T.map((v) => v / tl), S = [p[1] * t[2] - p[2] * t[1], p[2] * t[0] - p[0] * t[2], p[0] * t[1] - p[1] * t[0]]; // across the seam
+        out.push({ p, t, S });
+      }
+      return out;
+    };
+    return { line: even(260), stitches: even(108) };
+  })();
+  const rotM = (u, a) => { // rotation by a about unit axis u
+    const x = u[0], y = u[1], z = u[2], c = Math.cos(a), s = Math.sin(a), k = 1 - c;
+    return [[c + x * x * k, x * y * k - z * s, x * z * k + y * s], [y * x * k + z * s, c + y * y * k, y * z * k - x * s], [z * x * k - y * s, z * y * k + x * s, c + z * z * k]];
+  };
+  const mulM = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+  const app = (M, v) => [M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2], M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2], M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]];
+  const BASE = mulM(rotM([0, 1, 0], 0.5), rotM([1, 0, 0], 1.1)); // how the ball starts: a horseshoe toward you
+  const gyroOf = (eff) => (eff == null ? null : Math.round((Math.acos(Math.max(0, Math.min(1, eff / 100))) * 180) / Math.PI));
+
+  function drawBall(ctx, size, M, color, tiltRad) {
+    const cx = size / 2, cy = size / 2, r = size * 0.38;
+    ctx.clearRect(0, 0, size, size);
+    // the leather: lit from the upper left, darker toward the edge
+    const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.1, cx, cy, r);
+    g.addColorStop(0, "#ffffff"); g.addColorStop(0.55, "#f3f0e8"); g.addColorStop(0.88, "#d9d4c8"); g.addColorStop(1, "#b5afa2");
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.fillStyle = g; ctx.fill();
+    const X = (v) => cx + v[0] * r, Y = (v) => cy - v[1] * r;
+    const off = (p, S, t, a, b) => [p[0] + S[0] * a + t[0] * b, p[1] + S[1] * a + t[1] * b, p[2] + S[2] * a + t[2] * b];
+    // the seam's two edges in the leather
+    ctx.lineCap = "round";
+    [0.022, -0.022].forEach((w) => {
+      ctx.beginPath();
+      let pen = false;
+      SEAM.line.forEach(({ p, t, S }) => {
+        if (app(M, p)[2] < 0.02) { pen = false; return; }
+        const q = app(M, off(p, S, t, w, 0));
+        if (pen) ctx.lineTo(X(q), Y(q)); else { ctx.moveTo(X(q), Y(q)); pen = true; }
+      });
+      ctx.strokeStyle = "rgba(150, 140, 125, 0.55)"; ctx.lineWidth = Math.max(0.6, r * 0.014); ctx.stroke();
+    });
+    // the stitches: a red slash each side of the seam, angled into a herringbone
+    ctx.lineWidth = Math.max(1, r * 0.04);
+    SEAM.stitches.forEach(({ p, t, S }) => {
+      const z = app(M, p)[2];
+      if (z < 0.03) return;
+      const alpha = Math.min(1, z * 4) * (0.7 + 0.3 * z);
+      ctx.strokeStyle = `rgba(196, 30, 42, ${alpha.toFixed(3)})`;
+      [1, -1].forEach((side) => {
+        const a = app(M, off(p, S, t, side * 0.115, -0.035)), b = app(M, off(p, S, t, side * 0.035, 0.025));
+        ctx.beginPath(); ctx.moveTo(X(a), Y(a)); ctx.lineTo(X(b), Y(b)); ctx.stroke();
+      });
+    });
+    // a soft rim
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.strokeStyle = "rgba(0, 0, 0, 0.28)"; ctx.lineWidth = 1; ctx.stroke();
+    // which way the spin moves it (the tilt), just outside the ball
+    if (tiltRad != null) {
+      const d = r + size * 0.06, w = size * 0.035, sx = Math.sin(tiltRad), sy = -Math.cos(tiltRad);
+      const tipX = cx + sx * (d + w * 1.6), tipY = cy + sy * (d + w * 1.6), bx = cx + sx * d, by = cy + sy * d;
+      ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(bx - sy * w, by + sx * w); ctx.lineTo(bx + sy * w, by - sx * w); ctx.closePath();
+      ctx.fillStyle = color; ctx.fill();
     }
+  }
+
+  function SpinBall({ s }) {
+    const ref = useRef(null);
+    const tiltRad = s.tilt != null ? (s.tilt / 720) * 2 * Math.PI : null;
+    const eff = s.spinEff != null ? Math.max(0, Math.min(1, s.spinEff / 100)) : 1;
+    const gyro = gyroOf(s.spinEff);
+    useEffect(() => {
+      const cv = ref.current;
+      if (!cv) return undefined;
+      const size = 132, dpr = window.devicePixelRatio || 1;
+      cv.width = size * dpr; cv.height = size * dpr;
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // the spin axis: the part that moves the ball (across the face you see, square to the tilt), leaned toward the
+      // catcher by the gyro angle
+      const th = tiltRad != null ? tiltRad : 0, m = [Math.sin(th), Math.cos(th), 0];
+      const tr = [-m[1], m[0], 0]; // z x m: the backspin-style axis for this tilt
+      const gy = Math.sqrt(Math.max(0, 1 - eff * eff));
+      const u0 = [tr[0] * eff, tr[1] * eff, -gy], ul = Math.hypot(u0[0], u0[1], u0[2]) || 1, u = u0.map((v) => v / ul);
+      const revPerSec = s.spinAvg ? s.spinAvg / 2400 : 0;
+      const still = !revPerSec || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      let raf = 0, t0 = null, visible = true;
+      const frame = (ts) => {
+        if (t0 == null) t0 = ts;
+        const ang = still ? 0.6 : ((ts - t0) / 1000) * revPerSec * 2 * Math.PI;
+        drawBall(ctx, size, mulM(rotM(u, ang), BASE), colorOf(s.type), tiltRad);
+        if (!still && visible) raf = requestAnimationFrame(frame);
+      };
+      raf = requestAnimationFrame(frame);
+      // only turns while on screen
+      const io = window.IntersectionObserver ? new IntersectionObserver((entries) => {
+        const was = visible; visible = entries[0].isIntersecting;
+        if (visible && !was && !still) raf = requestAnimationFrame(frame);
+      }) : null;
+      if (io) io.observe(cv);
+      return () => { cancelAnimationFrame(raf); if (io) io.disconnect(); };
+    }, [s.type, s.spinAvg, s.tilt, s.spinEff]); // eslint-disable-line
     const active = s.spinAvg != null && s.spinEff != null ? Math.round((s.spinAvg * s.spinEff) / 100) : null;
     return (
       <div className="bp-ball">
         <div className="bp-ball-type" style={{ color: colorOf(s.type) }}>{s.type}</div>
-        <svg viewBox="-50 -50 100 100" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}`}>
-          <defs>
-            <clipPath id={`${id}c`}><circle r="40" /></clipPath>
-            <radialGradient id={`${id}g`} cx="38%" cy="32%" r="72%"><stop offset="0%" stopColor="#fff" stopOpacity="0.85" /><stop offset="50%" stopColor="#fff" stopOpacity="0" /><stop offset="100%" stopColor="#000" stopOpacity="0.5" /></radialGradient>
-          </defs>
-          <circle r="40" fill="#f2eee4" />
-          <g clipPath={`url(#${id}c)`}>
-            <g transform={`rotate(${angle})`}>
-              <g className={dur ? "bp-seams" : ""} style={dur ? { animationDuration: `${dur}s` } : null}>{seams}</g>
-            </g>
-          </g>
-          <circle r="40" fill={`url(#${id}g)`} pointerEvents="none" />
-          <circle r="40" fill="none" stroke="rgba(0,0,0,0.35)" strokeWidth="1" />
-          {s.tilt != null && <g transform={`rotate(${angle})`}><path d="M 0 -44 L -4 -38 L 4 -38 Z" fill={colorOf(s.type)} /></g>}
-        </svg>
+        <canvas ref={ref} className="bp-ball-canvas" role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}° gyro` : ""}`} />
         <div className="bp-ball-stats">
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
           <span>Tilt {s.tilt != null ? tiltText(s.tilt) : "–"}</span>
-          <span>Spin eff. {s.spinEff != null ? `${s.spinEff}%` : "–"}</span>
+          <span>Spin eff. {s.spinEff != null ? `${s.spinEff}%` : "–"}{gyro != null ? ` · ${gyro}° gyro` : ""}</span>
           {active != null && <span>Active ≈ {active} rpm</span>}
+          {active != null && <span>Gyro ≈ {Math.round(s.spinAvg * Math.sqrt(Math.max(0, 1 - eff * eff)))} rpm</span>}
         </div>
       </div>
     );
@@ -288,7 +377,7 @@
         body: (
           <React.Fragment>
             <div className="bp-balls">{spinStats.map((s) => <SpinBall key={s.type} s={s} />)}</div>
-            <p className="timestamp-note">Each ball turns toward its pitch's average tilt as the catcher sees it (12:00 is straight backspin), faster for more spin, though far slower than the real thing. Active spin is spin times spin efficiency: the part that moves the ball.</p>
+            <p className="timestamp-note">Each ball turns on its pitch's average spin axis as the catcher sees it, faster for more spin (though far slower than the real thing). The arrow is the tilt, the way the spin moves the ball (12:00 is straight backspin). Spin efficiency sets the gyro angle, how far the axis points at the catcher: 100% is pure backspin or sidespin, lower is more bullet spin. Active spin (spin × efficiency) is the part that moves the ball; gyro spin (spin × sine of the gyro angle) turns it like a bullet and adds little movement.</p>
           </React.Fragment>
         ),
       } : null,
