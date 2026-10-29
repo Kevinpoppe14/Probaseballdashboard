@@ -1719,11 +1719,17 @@
     let t0 = Math.min(...pts.map((p) => p.t)), t1 = Math.max(...pts.map((p) => p.t));
     if (t0 === t1) { t0 -= 86400000; t1 += 86400000; }
     let lo = Math.min(...pts.map((p) => p.v)), hi = Math.max(...pts.map((p) => p.v));
-    const pad = (hi - lo) * 0.15 || Math.max(1, Math.abs(hi) * 0.05);
+    // at least 3% of the value top to bottom, so a 0.02 lb wobble draws flat instead of filling the graph
+    const minSpan = Math.max((Math.abs(lo + hi) / 2) * 0.03, 0.01);
+    if (hi - lo < minSpan) { const mid = (lo + hi) / 2; lo = mid - minSpan / 2; hi = mid + minSpan / 2; }
+    const pad = (hi - lo) * 0.15;
     lo -= pad; hi += pad;
     const x = (v) => l + ((v - t0) / (t1 - t0)) * (w - l - r), y = (v) => t + (1 - (v - lo) / (hi - lo)) * (h - t - b);
     const fmt = (v) => `${Math.round(v * 10) / 10}${unit === "%" ? "%" : ""}`;
-    const grid = [0, 0.5, 1].map((f) => { const v = lo + (hi - lo) * f; return `<line x1="${l}" x2="${w - r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="bc-grid"/><text x="${l - 5}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end" class="bc-axis">${fmt(v)}</text>`; }).join("");
+    // the axis gets as many decimals as it takes for its three labels to differ
+    const step = (hi - lo) / 2, dp = step >= 10 ? 0 : step >= 1 ? 1 : step >= 0.1 ? 2 : 3;
+    const tick = (v) => `${Number(v.toFixed(dp))}${unit === "%" ? "%" : ""}`;
+    const grid = [0, 0.5, 1].map((f) => { const v = lo + (hi - lo) * f; return `<line x1="${l}" x2="${w - r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="bc-grid"/><text x="${l - 5}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end" class="bc-axis">${tick(v)}</text>`; }).join("");
     const poly = (ps) => (ps.length > 1 ? `<polyline points="${ps.map((q) => `${x(q.t).toFixed(1)},${y(q.v).toFixed(1)}`).join(" ")}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : "");
     let joined = "";
     if (joinAll) {

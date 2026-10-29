@@ -8,6 +8,7 @@
 
   const WHATS_NEW = [
     // ---- week of Oct 26 - Nov 1, 2026 ----
+    { date: "2026-10-29", area: "Phone app", title: "Steadier progress graphs", detail: "A tiny change (a body weight 0.02 lb lighter, say) no longer stretches to fill the graph and look like a big drop, and the numbers up the side always read differently instead of repeating." },
     { date: "2026-10-29", area: "Phone app", title: "Back to the program while the EDT clock runs", detail: "On an EDT block, \"▾ Back to the program\" (or a tap outside the timer) shrinks it to a bar across the top of the screen. The clock keeps running, and the bar has its own − and +1 set, so athletes can check their reps and weights without restarting. Open brings the full timer back; Done · log it logs the sets as before." },
     { date: "2026-10-29", area: "Dashboard", title: "Edit a player from their profile", detail: "The ✎ beside a player's name on their profile edits their name, jersey number, league, team and DST location, the same as the pencil on the roster." },
     { date: "2026-10-29", area: "Phone app", title: "Re-Ed is one daily routine", detail: "A re-education program is now built as one day. Athletes see it as \"Daily\" in their app every day, fresh each morning, for as long as the Re-Ed phase on their plan runs, or until it's changed." },
