@@ -464,7 +464,9 @@
       info.cues ? el("div", { class: "cues" }, info.cues) : null));
     overlay.className = "overlay show";
   };
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeVideo(); });
+  // a tap outside the sheet closes it; outside a timer it shrinks the timer to its bar instead (openTimer), so the
+  // clock keeps going
+  overlay.addEventListener("click", (e) => { if (e.target !== overlay) return; const s = overlay.firstElementChild; if (s && s.__minimize) s.__minimize(); else closeVideo(); });
   // A home-screen app can sit open in the background for days. Coming back to it after 15 minutes or more (or on a
   // new day) reloads it, so a program assigned since then shows. Not while something is being typed or a sheet is
   // open, or with weights still waiting to save.
@@ -935,7 +937,13 @@
   //  "edt": an EDT block. One countdown for the block, and a +1 button for each time through (a set).
   // Closing it hands the counts ([left or only, right]) to opts.onDone, which fills in the log boxes. The screen
   // is kept awake while it runs, where the phone allows it.
+  // A timer can be shrunk to a bar pinned at the top of the screen (▾ Back to the program, or a tap outside it):
+  // the clock keeps running while the athlete scrolls the program, say to check an EDT block's reps, with the time,
+  // the sets done and − / +1 set on the bar, and Open to bring the timer back. One timer at a time: starting
+  // another finishes the one on the bar (logging what it counted).
+  let activeTimer = null;
   function openTimer(name, seconds, sides, opts) {
+    if (activeTimer) activeTimer.finish();
     const o = opts || {}, acc = o.mode === "acc", edt = o.mode === "edt";
     let left = seconds, running = false, tick = null, round = 1, last = 0, lock = null;
     const counts = [0, 0];
@@ -948,6 +956,10 @@
     const reset = el("button", null, "Reset");
     const plus = edt ? el("button", { class: "timer-plus", onclick: () => { counts[0] += 1; draw(); } }, "+1 set") : null;
     const minus = edt ? el("button", { class: "timer-minus", "aria-label": "One set less", onclick: () => { counts[0] = Math.max(0, counts[0] - 1); draw(); } }, "−") : null;
+    // the bar at the top while the timer is shrunk (see activeTimer above)
+    let mini = null;
+    const miniFace = el("span", { class: "mini-face" });
+    const miniCount = el("span", { class: "mini-count" });
     const awake = async (on) => {
       try {
         if (on && !lock && navigator.wakeLock) lock = await navigator.wakeLock.request("screen");
@@ -968,6 +980,12 @@
       } else {
         go.textContent = running ? "Pause" : left <= 0 ? (round < rounds ? "Other side" : "Again") : left < seconds ? "Resume" : "Start";
         if (edt) count.textContent = `${counts[0]} set${counts[0] === 1 ? "" : "s"} done`;
+      }
+      if (mini) {
+        miniFace.textContent = left <= 0 ? "Time" : `${clock(left)}${running ? "" : " ⏸"}`;
+        mini.classList.toggle("ending", left <= 3 && running);
+        mini.classList.toggle("done", left <= 0);
+        miniCount.textContent = edt ? `${counts[0]} set${counts[0] === 1 ? "" : "s"}` : count.textContent;
       }
     };
     const run = () => {
@@ -991,19 +1009,48 @@
     };
     go.addEventListener("click", run);
     reset.addEventListener("click", () => { stop(); left = seconds; round = 1; counts[0] = 0; counts[1] = 0; draw(); });
-    const close = () => {
+    // finishing: the clock stops, what was counted is logged, and the sheet (or the bar) goes
+    const finish = () => {
       stop(); awake(false);
       if (o.onDone && (counts[0] || counts[1])) o.onDone(counts.slice());
-      closeVideo();
+      if (mini) { mini.remove(); mini = null; document.body.classList.remove("timer-on"); }
+      if (activeTimer === api) activeTimer = null;
     };
-    draw();
-    overlay.replaceChildren(el("div", { class: "sheet timer-sheet" },
+    const close = () => { finish(); closeVideo(); };
+    const sheet = el("div", { class: "sheet timer-sheet" },
       el("button", { class: "close", "aria-label": "Close", onclick: close }, "×"),
       el("h2", null, name),
       o.hint ? el("div", { class: "timer-hint" }, o.hint) : null,
       label, face, (acc || edt) ? count : null,
       edt ? el("div", { class: "timer-sets" }, minus, plus) : null,
-      el("div", { class: "swap-actions" }, go, reset, el("button", { onclick: close }, (acc || edt) ? "Done · log it" : "Done"))));
+      el("div", { class: "swap-actions" }, go, reset, el("button", { onclick: close }, (acc || edt) ? "Done · log it" : "Done")),
+      el("button", { class: "timer-min", onclick: () => minimize() }, "▾ Back to the program (the timer keeps running)"));
+    // shrunk to the bar: the sheet goes, the clock doesn't
+    const minimize = () => {
+      overlay.className = "overlay"; overlay.replaceChildren();
+      if (!mini) {
+        mini = el("div", { class: "timer-mini", role: "status" },
+          el("button", { class: "mini-open", title: "Open the timer", onclick: () => expand() }, el("strong", null, name), miniFace),
+          edt ? el("span", { class: "mini-sets" },
+            el("button", { class: "mini-minus", "aria-label": "One set less", onclick: () => { counts[0] = Math.max(0, counts[0] - 1); draw(); } }, "−"),
+            miniCount,
+            el("button", { class: "mini-plus", onclick: () => { counts[0] += 1; draw(); } }, "+1 set")) : (acc ? miniCount : null),
+          el("button", { class: "mini-expand", onclick: () => expand() }, "Open"));
+        document.body.appendChild(mini); document.body.classList.add("timer-on");
+      }
+      draw();
+    };
+    const expand = () => {
+      if (mini) { mini.remove(); mini = null; document.body.classList.remove("timer-on"); }
+      overlay.replaceChildren(sheet);
+      overlay.className = "overlay show";
+      draw();
+    };
+    sheet.__minimize = minimize; // a tap outside the sheet shrinks it (the overlay's click handler)
+    const api = { finish };
+    activeTimer = api;
+    draw();
+    overlay.replaceChildren(sheet);
     overlay.className = "overlay show";
   }
   // the timer button for a set group, when its reps (or the exercise's Time box) are a time

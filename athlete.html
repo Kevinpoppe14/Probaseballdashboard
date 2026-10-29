@@ -663,6 +663,20 @@
   video.clip { display: block; width: 100%; max-height: 70vh; background: #000; border-radius: 10px; }
   .cues { font-size: 14px; white-space: pre-wrap; margin-top: 12px; }
   .sheet a { color: var(--text); }
+  /* a timer shrunk to a bar at the top (openTimer in athlete.js): the clock keeps going while the program scrolls */
+  .timer-min { display: block; width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px; border: 1px dashed var(--line); background: none; color: var(--dim); font-size: 14px; font-weight: 600; }
+  .timer-mini { position: fixed; left: 8px; right: 8px; top: calc(6px + env(safe-area-inset-top)); z-index: 25; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--panel-2); border: 2px solid var(--accent); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+  body.timer-on .top { padding-top: calc(70px + env(safe-area-inset-top)); } /* room for the bar above the week arrows */
+  .timer-mini.ending { border-color: var(--gold); }
+  .timer-mini.done { border-color: var(--good); }
+  .timer-mini .mini-open { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 0; background: none; border: none; color: var(--text); text-align: left; }
+  .timer-mini .mini-open strong { font-size: 11px; font-weight: 700; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .timer-mini .mini-face { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .timer-mini .mini-sets { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .timer-mini .mini-count { font-size: 13px; font-weight: 700; min-width: 44px; text-align: center; }
+  .timer-mini button.mini-minus, .timer-mini button.mini-plus, .timer-mini button.mini-expand { height: 36px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 14px; font-weight: 700; }
+  .timer-mini button.mini-plus { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .timer-mini button.mini-minus { width: 36px; padding: 0; }
 </style>
 </head>
 <body>
