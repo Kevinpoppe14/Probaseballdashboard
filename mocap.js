@@ -15,7 +15,7 @@
   const TASKS = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
   // the larger, slower, more accurate of the pose models (better on a fast arm), and the standard one to fall back on
   const MODELS = ["https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task", "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task"];
-  const MAX_FRAMES = 700;
+  const MAX_FRAMES = 900; // at most this many frames of a clip are analyzed (a long high-speed clip is thinned evenly)
 
   const el = (tag, attrs, ...kids) => {
     const n = document.createElement(tag);
@@ -35,14 +35,13 @@
 
   // ---- the pose model, loaded once ----------------------------------------------------------------------------
   let modelP = null;
-  let clock = 0; // the model wants ever-increasing timestamps, across every video it's shown
   function model() {
     if (!modelP) {
       modelP = (async () => {
         const vision = await import(`${TASKS}/vision_bundle.mjs`);
         const files = await vision.FilesetResolver.forVisionTasks(`${TASKS}/wasm`);
         const make = (delegate, path) => vision.PoseLandmarker.createFromOptions(files, {
-          baseOptions: { modelAssetPath: path, delegate }, runningMode: "VIDEO", numPoses: 1,
+          baseOptions: { modelAssetPath: path, delegate }, runningMode: "IMAGE", numPoses: 1,
           minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
         });
         for (const path of MODELS) for (const delegate of ["GPU", "CPU"]) { try { return await make(delegate, path); } catch (e) { /* the next way */ } }
@@ -104,17 +103,42 @@
     const fps = d.length ? 1 / d[Math.floor(d.length / 2)] : 30;
     return [24, 25, 30, 48, 50, 60, 120, 240].reduce((best, f) => (Math.abs(f - fps) < Math.abs(best - fps) ? f : best), 30);
   }
-  // every frame from t0 to t1 through the model: { t (file seconds), p: [[x px, y px, visibility] × 33], w: [[x, y, z] m × 33] }
+  // Every frame from t0 to t1 through the model: { t (file seconds), p: [[x px, y px, visibility] × 33], w: [[x, y, z] m
+  // × 33] }. Each frame is looked at fresh (the model's own frame-to-frame following lags a fast arm, or loses it when
+  // the hand leaves the area it was watching), on a crop around where he was the frame before, with plenty of room for
+  // the arm to reach into, so he fills more of what the model sees. If he isn't found there, the whole frame is tried.
   async function track(v, t0, t1, fps, onProgress) {
     const lm = await model();
     const step = Math.max(1 / fps, (t1 - t0) / MAX_FRAMES);
     const W = v.videoWidth, H = v.videoHeight, out = [];
+    const crop = document.createElement("canvas"), cctx = crop.getContext("2d");
+    let box = null;
     for (let t = t0, i = 0; t <= t1 + 1e-6; t += step, i++) {
       await seek(v, t);
-      clock += 10;
-      const res = lm.detectForVideo(v, clock);
+      let res = null, bx = 0, by = 0, bw = W, bh = H;
+      if (box) {
+        ({ x: bx, y: by, w: bw, h: bh } = box);
+        const sc = Math.min(1, 1024 / Math.max(bw, bh));
+        crop.width = Math.max(16, Math.round(bw * sc)); crop.height = Math.max(16, Math.round(bh * sc));
+        cctx.drawImage(v, bx, by, bw, bh, 0, 0, crop.width, crop.height);
+        res = lm.detect(crop);
+        if (!(res.landmarks && res.landmarks[0])) res = null;
+      }
+      if (!res) { bx = 0; by = 0; bw = W; bh = H; res = lm.detect(v); }
       const p = res.landmarks && res.landmarks[0], w = res.worldLandmarks && res.worldLandmarks[0];
-      out.push({ t, p: p ? p.map((q) => [q.x * W, q.y * H, q.visibility == null ? 1 : q.visibility]) : null, w: w ? w.map((q) => [q.x, q.y, q.z]) : null });
+      const pts = p ? p.map((q) => [bx + q.x * bw, by + q.y * bh, q.visibility == null ? 1 : q.visibility]) : null;
+      out.push({ t, p: pts, w: w ? w.map((q) => [q.x, q.y, q.z]) : null });
+      // where to look next frame: a square around his body, 1.8 times its size, so a fast arm or a long stride stays in
+      if (pts) {
+        const seen = pts.filter((q) => q[2] > 0.3);
+        const xs = seen.map((q) => q[0]), ys = seen.map((q) => q[1]);
+        if (xs.length > 8) {
+          const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+          const side = Math.min(Math.max(W, H), Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.8);
+          const x = Math.max(0, Math.min(W - side, cx - side / 2)), y = Math.max(0, Math.min(H - side, cy - side / 2));
+          box = { x, y, w: Math.min(side, W - x), h: Math.min(side, H - y) };
+        } else box = null;
+      } else box = null;
       if (i % 5 === 0) onProgress((t - t0) / Math.max(1e-6, t1 - t0));
     }
     return { frames: out, W, H, step };
@@ -151,7 +175,7 @@
         for (let k = last + 1; k < n; k++) raw[k] = raw[last];
         // then a running median about 30 ms wide: the model loses a fast-moving arm for a frame or three (blur, or the
         // arm crossing the body), and a median drops those jumps where an average would smear them into false speed
-        const half = Math.max(1, Math.round(medianFrames / 2));
+        const half = Math.max(1, Math.floor(medianFrames / 2));
         if (half > 0) { const src = raw.slice(); for (let i = 0; i < n; i++) { const win = src.slice(Math.max(0, i - half), Math.min(n, i + half + 1)).sort((a, b) => a - b); raw[i] = win[Math.floor(win.length / 2)]; } }
         const s = Math.max(0.6, sigmaFrames), R = Math.ceil(s * 2.5), wts = [];
         for (let k = -R; k <= R; k++) wts.push(Math.exp(-(k * k) / (2 * s * s)));
@@ -227,11 +251,13 @@
   // seconds (a 30 fps file of 240 fps slow-mo runs 8× slow).
   function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual }) {
     const S = sidesOf(throws), n = side.frames.length;
-    const sig = Math.max(0.6, captureFps / 120);
-    const med = Math.max(3, Math.round(captureFps * 0.03)); // frames in about 30 ms
-    const pts = clean(side.frames, "p", sig, med), wpts = clean(side.frames, "w", sig, med);
     const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
     const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
+    // smoothing goes by the frames actually analyzed each real second (a long high-speed clip is thinned)
+    const perSec = dt > 0 ? 1 / dt : captureFps;
+    const sig = Math.max(0.6, perSec / 120);
+    const med = Math.max(3, Math.round(perSec * 0.02)); // frames in about 20 ms: enough to drop a glitch, too short to dull the arm
+    const pts = clean(side.frames, "p", sig, med), wpts = clean(side.frames, "w", sig, med);
     const fr = (sec) => Math.max(1, Math.round(sec / Math.max(dt, 1e-4))); // a time as a number of frames
     const m = manual || {};
     // the moments, each found after the one before (a moment set by hand moves the ones after it along with it):
@@ -397,6 +423,7 @@
     ctx.fillStyle = "#fff";
     [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach((i) => { ctx.beginPath(); ctx.arc(q[i][0] * sx, q[i][1] * sy, 3.5, 0, 2 * Math.PI); ctx.fill(); });
   }
+  const setupName = (s) => (s === "two" ? "Two cameras" : s === "edger" ? "Edgertronic" : "One camera");
   const EV_LABEL = { LL: "Leg lift", FS: "Foot strike", MER: "Max layback", BR: "Release" };
   // a small line chart of one curve through the delivery, with the moments marked
   function chart(title, unit, ys, tReal, events, color, extra) {
@@ -424,7 +451,8 @@
 
   // the kinematic sequence: pelvis, trunk, upper arm and elbow speeds on one chart around foot strike and release, each
   // segment's peak dotted, with the peaks and their timing in a table under it
-  function sequenceBlock(R) {
+  // (onSeek, given, makes a click on the chart jump the video there; the block's setCursor(i) moves a line to frame i)
+  function sequenceBlock(R, onSeek) {
     const S = R.series, ev = R.events, tR = R.tReal;
     const lines = [[S.pelvisV, true], [S.trunkV, true], [S.armV, false], [S.elbowV, false]].map(([ys, abs], k) => ({ ...R.seq[k], ys: ys.map((v) => (v == null ? null : abs ? Math.abs(v) : Math.max(0, v))) }));
     // from a little before foot strike to a little after release
@@ -447,6 +475,18 @@
     });
     lines.forEach((l) => add("polyline", { points: idx.map((i) => (l.ys[i] == null ? null : `${X(tR[i]).toFixed(1)},${Y(l.ys[i]).toFixed(1)}`)).filter(Boolean).join(" "), fill: "none", stroke: l.color, "stroke-width": 2.5 }));
     lines.forEach((l) => { if (l.i < 0 || l.ys[l.i] == null || tR[l.i] < from || tR[l.i] > to) return; add("circle", { cx: X(tR[l.i]), cy: Y(l.ys[l.i]), r: 4.5, fill: l.color, stroke: "#fff", "stroke-width": 1.5 }); });
+    // where the video is: a line that follows playback and the frame slider
+    const cursor = add("line", { x1: -10, x2: -10, y1: 6, y2: H - padB, stroke: "var(--mc-text)", "stroke-width": 1.5, opacity: 0.85 });
+    const setCursor = (i) => { const t = tR[i]; if (t == null || t < from || t > to) { cursor.setAttribute("x1", -10); cursor.setAttribute("x2", -10); return; } const x = X(t); cursor.setAttribute("x1", x); cursor.setAttribute("x2", x); };
+    if (onSeek) {
+      s.style.cursor = "pointer";
+      s.addEventListener("click", (e) => {
+        const b = s.getBoundingClientRect(), x = ((e.clientX - b.left) / b.width) * W;
+        const t = from + ((x - padL) / (W - padL - 10)) * (to - from);
+        let best = 0; tR.forEach((tt, i) => { if (Math.abs(tt - t) < Math.abs(tR[best] - t)) best = i; });
+        onSeek(best);
+      });
+    }
     const table = el("table", { class: "mc-table mc-seq-table" },
       el("thead", null, el("tr", null, el("th", null, "Segment"), el("th", null, "Peak speed"), el("th", null, "After foot strike"), el("th", null, "Before release"))),
       el("tbody", null, lines.map((l) => el("tr", null,
@@ -455,12 +495,14 @@
         el("td", null, l.fromFS == null ? "–" : `${l.fromFS} ms`),
         el("td", null, l.beforeBR == null ? "–" : `${l.beforeBR} ms`)))));
     const est = R.rotSource === "estimate";
-    return el("div", { class: "mc-seq" },
+    const block = el("div", { class: "mc-seq" },
       el("div", { class: "mc-chart-title" }, "Kinematic sequence ", el("small", null, "°/s, from a little before foot strike to just after release"),
         el("span", { class: `mc-seq-flag ${R.inOrder ? "good" : "bad"}` }, R.inOrder ? "In order: hips → trunk → arm → elbow" : "Out of order")),
       el("div", { class: "mc-legend" }, lines.map((l) => el("span", null, el("span", { class: "mc-swatch", style: `background:${l.color}` }), l.name))),
       s, table,
       el("p", { class: "mc-hint" }, `Each segment should reach its fastest after the one before it and faster than it (hips, trunk, arm, elbow). ${est ? "Pelvis and trunk here are the pose model's 3D estimate from one camera; the two-camera setup measures them. " : ""}Upper arm and elbow come from the 3D estimate: the upper arm's swing stands in for the shoulder, since video can't see its internal rotation.`));
+    block.setCursor = setCursor;
+    return block;
   }
 
   // ---- how to film -----------------------------------------------------------------------------------------------
@@ -473,6 +515,7 @@
     ["Whole body, the whole delivery", "His whole body in frame from his set through the follow-through, with a little room around him, feet included. One pitch per clip: start just before he comes set and stop after the follow-through."],
     ["Light and clothes", "Bright, even light with the sun not behind him. Fitted clothes (no baggy hoodie or jacket) and a background that isn't the same color as his uniform make the points easier to find."],
     ["Slo-Mo speed", "Check Settings › Camera › Record Slo-mo: iPhones come set to 120 fps; choose 240 if it's offered. Whatever it's on, choose the same under Recorded at here (the report warns if the timing looks off). In Photos, Edit the clip so the slow part covers the whole delivery, from leg lift to follow-through."],
+    ["Edgertronic", "An Edgertronic (or any high-speed camera) at 500 to 1000 fps makes the arm's numbers the most trustworthy: it hardly moves between frames. Frame him wide enough for his whole body from the set through the follow-through (not tight on the hand, as for spin), from the open side, square to the line to the plate, then choose Edgertronic and enter the frame rate it was set to."],
     ["Filming from here", "Film it now opens the phone's camera and brings the clip straight back, but a web page can't start Slo-Mo, so it films at normal speed: fine for stride, leg and trunk angles, rough for arm and rotation timing. For those, film in the Camera app's Slo-Mo and Choose a video."],
   ];
 
@@ -480,11 +523,12 @@
   function mount(root, opts) {
     const athlete = opts.athlete || {};
     const hKey = `mocapHeight:${athlete.id}`;
-    const state = { setup: "one", throws: athlete.throws || "R", heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", captureFps: "auto", side: null, behind: null, result: null, busy: "" };
+    const state = { setup: "one", throws: athlete.throws || "R", heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
     root.classList.add("mc");
     const fileState = (key) => ({ file: null, video: null, fps: 30, start: 0, end: 0, tracked: null });
 
     const render = () => {
+      if (state.stopPlay) { const sp = state.stopPlay; state.stopPlay = null; try { sp(); } catch (e) { /* the old view is gone anyway */ } }
       root.replaceChildren(...[
         el("div", { class: "mc-head" }, el("h2", null, "Motion Capture ", el("small", null, athlete.name || "")),
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.showHow = !state.showHow; render(); } }, state.showHow ? "Hide filming tips" : "How to film it")),
@@ -518,7 +562,7 @@
         return el("div", { class: "mc-file" },
           el("div", { class: "mc-file-label" }, el("b", null, label), el("span", null, hint)),
           el("div", { class: "mc-row" },
-            el("button", { type: "button", class: "mc-btn", disabled: !!state.busy, onclick: () => film.click() }, f ? "Film it again" : "Film it now"),
+            state.setup === "edger" ? null : el("button", { type: "button", class: "mc-btn", disabled: !!state.busy, onclick: () => film.click() }, f ? "Film it again" : "Film it now"),
             el("button", { type: "button", class: "mc-btn ghost", disabled: !!state.busy, onclick: () => choose.click() }, f ? "Choose another video" : "Choose a video"),
             f ? el("span", { class: "mc-hint" }, f.file.name) : null),
           el("p", { class: "mc-hint" }, "Film it now opens the camera and brings the clip right back, but at normal speed (a web page can't start Slo-Mo), so the arm and rotation timing is rougher. For the best numbers, film it in the Camera app's Slo-Mo at 240 fps, then Choose a video."),
@@ -528,15 +572,20 @@
       return el("div", { class: "mc-setup" },
         el("div", { class: "mc-row" },
           el("span", { class: "mc-seg", role: "group", "aria-label": "Camera setup" },
-            el("button", { type: "button", class: `mc-seg-btn${state.setup === "one" ? " on" : ""}`, onclick: () => { state.setup = "one"; render(); } }, "One camera (open side)"),
-            el("button", { type: "button", class: `mc-seg-btn${state.setup === "two" ? " on" : ""}`, onclick: () => { state.setup = "two"; render(); } }, "Two cameras (open side + behind)"))),
+            el("button", { type: "button", class: `mc-seg-btn${state.setup === "one" ? " on" : ""}`, onclick: () => { toPhone("one"); } }, "One camera (open side)"),
+            el("button", { type: "button", class: `mc-seg-btn${state.setup === "edger" ? " on" : ""}`, onclick: () => { state.setup = "edger"; state.captureFps = String(state.edgerFps); render(); } }, "Edgertronic (open side)"),
+            el("button", { type: "button", class: `mc-seg-btn${state.setup === "two" ? " on" : ""}`, onclick: () => { toPhone("two"); } }, "Two cameras (open side + behind)"))),
         el("div", { class: "mc-row" },
           el("label", null, "Throws", el("select", { onchange: (e) => { state.throws = e.target.value; } }, el("option", { value: "R", selected: state.throws === "R" }, "Right"), el("option", { value: "L", selected: state.throws === "L" }, "Left"))),
           el("label", null, "Height (in)", el("input", { type: "number", inputmode: "decimal", min: 48, max: 90, step: 0.5, value: state.heightIn, placeholder: "e.g. 74", oninput: (e) => { state.heightIn = Number(e.target.value) || ""; try { localStorage.setItem(hKey, String(state.heightIn)); } catch (x) { /* not remembered */ } } })),
-          el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; } },
-            [["auto", "The file's own speed"], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t))))),
+          state.setup === "edger"
+            ? el("label", null, "Edgertronic frame rate (fps)", el("input", { type: "number", inputmode: "numeric", min: 120, max: 20000, step: 10, value: state.edgerFps, oninput: (e) => { state.edgerFps = Number(e.target.value) || 1000; state.captureFps = String(state.edgerFps); } }))
+            : el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; } },
+              [["auto", "The file's own speed"], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t))))),
         el("p", { class: "mc-hint" }, "Height is needed for center-of-mass speed. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down."),
-        pick("side", "Open side video", "Square to the line to the plate, on the side his chest faces in his set"),
+        state.setup === "edger"
+          ? pick("side", "Edgertronic video", "From the open side, square to the line to the plate, with his whole body in frame (not zoomed in on the hand)")
+          : pick("side", "Open side video", "Square to the line to the plate, on the side his chest faces in his set"),
         state.setup === "two" ? pick("behind", "Behind video", "Directly behind him, on the line through home plate") : null,
         state.error ? el("p", { class: "mc-err" }, state.error) : null,
         el("div", { class: "mc-row" },
@@ -561,6 +610,10 @@
         el("p", { class: "mc-hint" }, "Trim to the delivery: from just before he comes set to just after the follow-through."));
     }
 
+    // frames analyzed per real second: the capture rate, or less where a long clip was thinned
+    const perSecOf = (f, cap) => { const fr = f.tracked.frames, step = fr.length > 1 ? fr[1].t - fr[0].t : 1 / f.fps; return cap / (step * f.fps); };
+    // back to a phone setup: the Edgertronic's frame rate doesn't carry over
+    const toPhone = (setup) => { state.setup = setup; if (Number(state.captureFps) >= 500) state.captureFps = "auto"; render(); };
     const scaleOf = (f) => { const cap = state.captureFps === "auto" ? f.fps : Number(state.captureFps); return f.fps / cap; };
     async function run() {
       state.error = "";
@@ -584,7 +637,7 @@
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
       state.result = analyze({
-        side: applyEdits(state.side.tracked, state.edits, cap), behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
+        side: applyEdits(state.side.tracked, state.edits, perSecOf(state.side, cap)), behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
       state.cap = cap;
@@ -724,17 +777,62 @@
           });
         }
       };
+      let seqEl = null; // the kinematic sequence, whose line follows the frame showing
+      const show = (i) => { // the frame's caption, slider and line on the sequence, once its picture is drawn
+        const ev = Object.entries(R.events).find(([, j]) => j === i);
+        const edited = state.edits && state.edits[i] ? " · dots moved here" : "";
+        caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}${edited}`;
+        slider.value = i;
+        if (seqEl) seqEl.setCursor(i);
+      };
       const paint = (i) => {
         state.frame = i;
         painting = painting.then(async () => {
           if (f.video) { await seek(f.video, tr.frames[i].t); sctx.drawImage(f.video, 0, 0, still.width, still.height); }
           else { sctx.fillStyle = "#111"; sctx.fillRect(0, 0, still.width, still.height); } // no video kept: the skeleton alone
           draw(i);
-          const ev = Object.entries(R.events).find(([, j]) => j === i);
-          const edited = state.edits && state.edits[i] ? " · dots moved here" : "";
-          caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}${edited}`;
+          show(i);
         });
       };
+      // playing it: the video itself plays (at the speed picked, 1x being the clip's own slowed-down speed) and each
+      // frame drawn takes the tracked points nearest its moment; without a kept video the skeleton plays on its own
+      const nearest = (t) => { let lo = 0, hi = tr.frames.length - 1; while (lo < hi) { const md = (lo + hi) >> 1; if (tr.frames[md].t < t) lo = md + 1; else hi = md; } return lo > 0 && Math.abs(tr.frames[lo - 1].t - t) < Math.abs(tr.frames[lo].t - t) ? lo - 1 : lo; };
+      let playing = null;
+      const playBtn = el("button", { type: "button", class: "mc-btn small", onclick: () => (playing ? stopPlay() : startPlay()) }, "▶ Play");
+      function stopPlay() {
+        if (!playing) return;
+        cancelAnimationFrame(playing.raf);
+        if (f.video) f.video.pause();
+        playing = null;
+        playBtn.textContent = "▶ Play";
+        paint(state.frame || 0); // settle on the exact frame
+      }
+      function startPlay() {
+        const last = tr.frames.length - 1, tEnd = tr.frames[last].t;
+        let i = state.frame || 0;
+        if (i >= last) i = 0;
+        playBtn.textContent = "❚❚ Pause";
+        const step = (t) => {
+          if (t >= tEnd) { state.frame = last; stopPlay(); return; }
+          const j = nearest(t);
+          if (f.video) sctx.drawImage(f.video, 0, 0, still.width, still.height); else { sctx.fillStyle = "#111"; sctx.fillRect(0, 0, still.width, still.height); }
+          state.frame = j; draw(j); show(j);
+          playing.raf = requestAnimationFrame(loop);
+        };
+        let loop;
+        if (f.video) {
+          f.video.currentTime = tr.frames[i].t; f.video.playbackRate = state.playSpeed; f.video.muted = true;
+          f.video.play().catch(() => {});
+          loop = () => step(f.video.ended ? tEnd : f.video.currentTime);
+        } else {
+          const t0 = tr.frames[i].t, c0 = performance.now();
+          loop = (now) => step(t0 + ((now - c0) / 1000) * state.playSpeed);
+        }
+        playing = { raf: requestAnimationFrame(loop) };
+      }
+      state.stopPlay = stopPlay; // a redraw of the page stops it
+      const speedSel = el("select", { "aria-label": "Playback speed", onchange: (e) => { state.playSpeed = Number(e.target.value); if (playing && f.video) f.video.playbackRate = state.playSpeed; } },
+        [0.25, 0.5, 0.75, 1, 1.25, 1.5].map((v) => el("option", { value: v, selected: state.playSpeed === v }, `${v}×`)));
       // dragging a dot (Fix points on): grab the nearest joint, move it, and on letting go the numbers are worked out again
       const toVideo = (e) => { const b = canvas.getBoundingClientRect(), s = canvas.width / b.width; return [((e.clientX - b.left) * s) / k, ((e.clientY - b.top) * s) / k]; };
       canvas.addEventListener("pointerdown", (e) => {
@@ -759,10 +857,12 @@
       canvas.addEventListener("pointerup", drop);
       canvas.addEventListener("pointercancel", () => { drag = null; draw(state.frame || 0); });
       if (state.fixing) canvas.classList.add("fixing");
-      slider.addEventListener("input", () => paint(Number(slider.value)));
-      const go = (i) => { slider.value = i; paint(i); };
+      slider.addEventListener("input", () => { if (playing) { cancelAnimationFrame(playing.raf); if (f.video) f.video.pause(); playing = null; playBtn.textContent = "▶ Play"; } paint(Number(slider.value)); });
+      const go = (i) => { if (playing) { cancelAnimationFrame(playing.raf); if (f.video) f.video.pause(); playing = null; playBtn.textContent = "▶ Play"; } slider.value = i; paint(i); };
+      seqEl = sequenceBlock(R, go);
       setTimeout(() => paint(state.frame || 0), 0);
       const evBtns = el("div", { class: "mc-row" },
+        playBtn, el("label", { class: "mc-speed" }, "Speed", speedSel),
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.max(0, (state.frame || 0) - 1)) }, "◀"),
         Object.entries(R.events).map(([key, i]) => el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(i) }, EV_LABEL[key])),
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.min(R.n - 1, (state.frame || 0) + 1)) }, "▶"));
@@ -805,10 +905,10 @@
       return el("div", { class: "mc-results" }, f.video, state.behind && state.behind.video,
         el("div", { class: "mc-row" },
           el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, saved ? "← Back" : "← Another video"),
-          el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${state.setup === "two" ? "Two cameras" : "One camera"} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
+          el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${setupName(state.setup)} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
         timing,
         canvas, slider, caption, evBtns, fixDots, fix,
-        sequenceBlock(R),
+        seqEl,
         el("div", { class: "mc-grid" }, table, charts),
         el("p", { class: "mc-hint" }, R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
@@ -852,7 +952,7 @@
       }
       return el("div", { class: "mc-results" },
         el("div", { class: "mc-row" }, el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, "← Back"),
-          el("span", { class: "mc-hint" }, `Saved session, ${rec.date} · ${rec.setup === "two" ? "Two cameras" : "One camera"} · timing at ${rec.captureFps} fps`)),
+          el("span", { class: "mc-hint" }, `Saved session, ${rec.date} · ${setupName(rec.setup)} · timing at ${rec.captureFps} fps`)),
         el("p", { class: "mc-hint" }, "This session was saved before the full tracking was kept, so here's what was saved of it, worked out with the analysis as it was then. Analyze the video again for the full report with the skeleton (and the newer, better-placed moments)."),
         seq, metricsTable(metrics), rec.note ? el("p", null, el("b", null, "Notes: "), rec.note) : null);
     }
@@ -866,7 +966,7 @@
       return el("div", { class: "mc-history" }, el("h3", null, "Saved sessions"),
         el("div", { class: "mc-scroll" }, el("table", { class: "mc-table" },
           el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"), el("th", null, ""))),
-          el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, r.setup === "two" ? "2 cams" : "1 cam"),
+          el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, setupName(r.setup)),
             keys.map((key) => el("td", null, r.metrics && r.metrics[key] != null ? String(r.metrics[key]) : "–")), el("td", { class: "mc-note-cell" }, r.note || ""),
             el("td", { class: "mc-row-btns" },
               el("button", { type: "button", class: "mc-btn ghost small", onclick: () => openSaved(r) }, "Open report"),

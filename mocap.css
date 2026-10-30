@@ -70,3 +70,5 @@
 .mc-canvas.fixing { cursor: crosshair; touch-action: none; }
 .mc-warn { margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid #b7791f; background: rgba(183, 121, 31, 0.12); font-size: 13px; color: var(--mc-text); }
 .mc-warn .mc-btn { margin-left: 6px; }
+.mc-speed { flex-direction: row !important; align-items: center; gap: 6px !important; }
+.mc-speed select { min-width: 0; height: 32px; }
