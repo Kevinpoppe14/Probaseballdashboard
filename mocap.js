@@ -52,14 +52,41 @@
 
   // ---- reading a video ------------------------------------------------------------------------------------------
   const once = (target, ev) => new Promise((ok) => target.addEventListener(ev, ok, { once: true }));
+  // Opens a chosen video so its frames can be read. It goes on the page (out of sight) at once: Safari on an iPhone
+  // or iPad won't load a video that isn't. And it doesn't wait forever: a video whose picture the browser can't decode
+  // (an iPhone's High Efficiency format in Chrome on Windows, often) never says it's ready, so after a while, or once
+  // it's clear there's no picture, it says what to do instead.
+  const CANT_PLAY = "This browser can't show that video's picture. On the iPhone or iPad, set Settings › Camera › Formats to Most Compatible and film it again, or open the dashboard in Safari (or on the phone itself) to analyze this one.";
   async function openVideo(file) {
     const v = document.createElement("video");
-    v.muted = true; v.playsInline = true; v.preload = "auto"; v.crossOrigin = "anonymous";
+    v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = "auto";
+    v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("webkit-playsinline", "");
+    v.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none";
+    document.body.append(v);
     v.src = URL.createObjectURL(file);
-    await Promise.race([once(v, "loadeddata"), new Promise((_, bad) => v.addEventListener("error", () => bad(new Error("This browser can't play that video. On the iPhone, set Settings › Camera › Formats to Most Compatible, or open the dashboard in Safari.")), { once: true }))]);
-    return v;
+    v.load();
+    try {
+      await new Promise((ok, bad) => {
+        const timer = setTimeout(() => bad(new Error(file.size > 400 * 1048576 ? `That video is ${Math.round(file.size / 1048576)} MB and didn't open. Trim it to just the pitch in Photos first (Edit, then drag the ends in), then choose it again.` : CANT_PLAY)), 25000);
+        v.addEventListener("loadedmetadata", () => { clearTimeout(timer); ok(); }, { once: true });
+        v.addEventListener("error", () => { clearTimeout(timer); bad(new Error(CANT_PLAY)); }, { once: true });
+      });
+      if (!v.videoWidth || !v.videoHeight) throw new Error(CANT_PLAY); // sound but no picture
+      await seek(v, 0.01); // the first frame, decoded and ready to draw
+      if (v.readyState < 2) throw new Error(CANT_PLAY);
+      return v;
+    } catch (e) {
+      v.remove();
+      throw e;
+    }
   }
-  const seek = (v, t) => new Promise((ok) => { const done = () => { v.removeEventListener("seeked", done); ok(); }; v.addEventListener("seeked", done); v.currentTime = Math.max(0, Math.min(t, (v.duration || t) - 0.001)); });
+  // to time t (file seconds), once the frame there is ready, or after a few seconds whatever happens
+  const seek = (v, t) => new Promise((ok) => {
+    const done = () => { clearTimeout(timer); v.removeEventListener("seeked", done); ok(); };
+    const timer = setTimeout(done, 4000);
+    v.addEventListener("seeked", done);
+    v.currentTime = Math.max(0, Math.min(t, (v.duration || t) - 0.001));
+  });
   // the file's own frame rate: play a moment and see how far apart its frames are
   async function fileFps(v) {
     if (!v.requestVideoFrameCallback) return 30;
@@ -394,6 +421,7 @@
     ["Whole body, the whole delivery", "His whole body in frame from his set through the follow-through, with a little room around him, feet included. One pitch per clip: start just before he comes set and stop after the follow-through."],
     ["Light and clothes", "Bright, even light with the sun not behind him. Fitted clothes (no baggy hoodie or jacket) and a background that isn't the same color as his uniform make the points easier to find."],
     ["Slo-Mo speed", "In Photos, Edit the clip so the slow part covers the whole delivery, from leg lift to follow-through. Then choose the clip here and say it was 240 fps slow motion."],
+    ["Filming from here", "Film it now opens the phone's camera and brings the clip straight back, but a web page can't start Slo-Mo, so it films at normal speed: fine for stride, leg and trunk angles, rough for arm and rotation timing. For those, film in the Camera app's Slo-Mo and Choose a video."],
   ];
 
   // ---- the tool ------------------------------------------------------------------------------------------------------
@@ -415,22 +443,34 @@
     };
 
     function setupForm() {
+      // a video for one camera: filmed now (the phone's camera opens and hands the clip straight back) or chosen from
+      // the library (a Slo-Mo clip filmed in the Camera app: a web page can't start the camera in Slo-Mo)
       const pick = (key, label, hint) => {
         const f = state[key];
+        const take = async (e) => {
+          const file = e.target.files && e.target.files[0];
+          e.target.value = "";
+          if (!file) return;
+          state.busy = "Opening the video…"; state.error = ""; render();
+          try {
+            const fs = fileState(key);
+            if (state[key] && state[key].video) state[key].video.remove(); // the one it replaces
+            fs.file = file; fs.video = await openVideo(file); fs.fps = await fileFps(fs.video);
+            fs.start = 0; fs.end = fs.video.duration || 0;
+            state[key] = fs; state.busy = "";
+          } catch (err) { state.busy = ""; state.error = err.message || String(err); }
+          render();
+        };
+        const film = el("input", { type: "file", accept: "video/*", capture: "environment", hidden: true, onchange: take });
+        const choose = el("input", { type: "file", accept: "video/*", hidden: true, onchange: take });
         return el("div", { class: "mc-file" },
-          el("label", { class: "mc-file-label" }, el("b", null, label), el("span", null, hint),
-            el("input", { type: "file", accept: "video/*", onchange: async (e) => {
-              const file = e.target.files && e.target.files[0];
-              if (!file) return;
-              state.busy = "Opening the video…"; render();
-              try {
-                const fs = fileState(key);
-                fs.file = file; fs.video = await openVideo(file); fs.fps = await fileFps(fs.video);
-                fs.start = 0; fs.end = fs.video.duration || 0;
-                state[key] = fs; state.busy = "";
-              } catch (err) { state.busy = ""; state.error = err.message || String(err); }
-              render();
-            } })),
+          el("div", { class: "mc-file-label" }, el("b", null, label), el("span", null, hint)),
+          el("div", { class: "mc-row" },
+            el("button", { type: "button", class: "mc-btn", disabled: !!state.busy, onclick: () => film.click() }, f ? "Film it again" : "Film it now"),
+            el("button", { type: "button", class: "mc-btn ghost", disabled: !!state.busy, onclick: () => choose.click() }, f ? "Choose another video" : "Choose a video"),
+            f ? el("span", { class: "mc-hint" }, f.file.name) : null),
+          el("p", { class: "mc-hint" }, "Film it now opens the camera and brings the clip right back, but at normal speed (a web page can't start Slo-Mo), so the arm and rotation timing is rougher. For the best numbers, film it in the Camera app's Slo-Mo at 240 fps, then Choose a video."),
+          film, choose,
           f ? trimmer(f) : null);
       };
       return el("div", { class: "mc-setup" },
@@ -456,7 +496,7 @@
     // the part of the clip to analyze: scrub, then set its start and end
     function trimmer(f) {
       const v = f.video;
-      v.className = "mc-preview"; v.controls = true;
+      v.className = "mc-preview"; v.controls = true; v.style.cssText = ""; // out of hiding, into the page where it's shown
       const label = el("span", { class: "mc-hint" });
       const show = () => { label.textContent = `Analyzing ${f.start.toFixed(2)}s to ${f.end.toFixed(2)}s of ${(v.duration || 0).toFixed(2)}s · the file runs at ${f.fps} fps`; };
       show();
@@ -499,6 +539,8 @@
 
     function results() {
       const R = state.result, f = state.side, tr = f.tracked;
+      // the video stays on the page, out of sight, so its frames can still be drawn (Safari on an iPhone needs that)
+      f.video.controls = false; f.video.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none";
       const canvas = el("canvas", { class: "mc-canvas" });
       const maxW = Math.min(900, root.clientWidth || 900);
       const k = Math.min(1, maxW / tr.W);
@@ -544,7 +586,7 @@
         S.comV ? chart("Center-of-mass speed toward the plate", "m/s", S.comV, R.tReal, R.events, "#8ac926") : null);
       const note = el("textarea", { class: "mc-note", rows: 2, placeholder: "Notes on this delivery…" });
       const saveMsg = el("span", { class: "mc-status" });
-      return el("div", { class: "mc-results" },
+      return el("div", { class: "mc-results" }, f.video,
         el("div", { class: "mc-row" },
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.result = null; state.manual = null; render(); } }, "← Another video"),
           el("span", { class: "mc-hint" }, `${state.setup === "two" ? "Two cameras" : "One camera"} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}`)),
