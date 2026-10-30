@@ -220,31 +220,29 @@
   };
 
   // ---- dots moved by hand ------------------------------------------------------------------------------------------
-  // A coach can drag a body point to where the joint really is on any frame. Each fix is kept as where the point
-  // belongs on that frame; the frames either side (about 25 ms) are shifted by the same amount, fading out, so the path
-  // stays smooth (and the glitch filter keeps it). Only the side view's 2D points are moved: the speeds of the upper arm
-  // and elbow come from the model's 3D estimate, which a drag on a picture can't correct.
-  function applyEdits(tr, edits, fps) {
-    const keys = Object.keys(edits || {}).map(Number);
-    if (!keys.length) return tr;
-    const K = Math.max(2, Math.round(fps * 0.025));
-    const frames = tr.frames.map((f) => ({ ...f, p: f.p ? f.p.map((q) => q.slice()) : null }));
+  // A coach can drag a body point to where the joint really is on any frame. The fix is laid on after the smoothing,
+  // so the point lands exactly where it was put; the frames either side (about 25 ms) are shifted the same way, fading
+  // out, so the path stays smooth. Only the side view's 2D points move: the upper arm's speed comes from the model's
+  // 3D estimate, which a drag on a picture can't correct.
+  function applyEdits(pts, edits, K) {
     const byJoint = {};
-    keys.forEach((f) => Object.entries(edits[f] || {}).forEach(([j, xy]) => { (byJoint[j] = byJoint[j] || []).push([f, xy]); }));
+    Object.keys(edits || {}).forEach((f) => Object.entries(edits[f] || {}).forEach(([j, xy]) => { (byJoint[j] = byJoint[j] || []).push([Number(f), xy]); }));
     Object.entries(byJoint).forEach(([jj, list]) => {
       const j = Number(jj);
-      const shifts = list.map(([f, xy]) => { const q = tr.frames[f] && tr.frames[f].p ? tr.frames[f].p[j] : null; return { f, x: xy[0], y: xy[1], dx: q ? xy[0] - q[0] : 0, dy: q ? xy[1] - q[1] : 0 }; });
-      frames.forEach((fr, i) => {
-        if (!fr.p) return;
+      const shifts = list.filter(([f]) => pts[f]).map(([f, xy]) => ({ f, x: xy[0], y: xy[1], dx: xy[0] - pts[f][j][0], dy: xy[1] - pts[f][j][1] }));
+      const moves = pts.map(() => null);
+      pts.forEach((q, i) => {
         let best = null;
         shifts.forEach((s) => { const d = Math.abs(s.f - i); if (d <= K && (!best || d < best.d)) best = { s, d }; });
-        if (!best) return;
-        if (best.d === 0) { fr.p[j] = [best.s.x, best.s.y, 1]; return; }
-        const w = 1 - best.d / (K + 1);
-        fr.p[j] = [fr.p[j][0] + best.s.dx * w, fr.p[j][1] + best.s.dy * w, Math.max(fr.p[j][2], 0.9)];
+        if (best) moves[i] = best;
+      });
+      moves.forEach((b, i) => {
+        if (!b) return;
+        if (b.d === 0) { pts[i][j] = [b.s.x, b.s.y, 1]; return; }
+        const w = 1 - b.d / (K + 1);
+        pts[i][j] = [pts[i][j][0] + b.s.dx * w, pts[i][j][1] + b.s.dy * w, pts[i][j][2]];
       });
     });
-    return { ...tr, frames };
   }
 
   // a Gaussian smoothing of one series (s frames wide), skipping gaps
@@ -257,7 +255,7 @@
   // ---- the analysis ---------------------------------------------------------------------------------------------
   // side: tracked open-side video; behind: tracked behind video or null. timeScale turns file seconds into real
   // seconds (a 30 fps file of 240 fps slow-mo runs 8× slow).
-  function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual }) {
+  function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual, edits }) {
     const S = sidesOf(throws), n = side.frames.length;
     const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
     const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
@@ -266,6 +264,7 @@
     const sig = Math.max(0.6, perSec / 120);
     const med = Math.max(3, Math.round(perSec * 0.02)); // frames in about 20 ms: enough to drop a glitch, too short to dull the arm
     const pts = clean(side.frames, "p", sig, med), wpts = clean(side.frames, "w", sig, med);
+    if (edits && Object.keys(edits).length) applyEdits(pts, edits, Math.max(2, Math.round(perSec * 0.025)));
     const fr = (sec) => Math.max(1, Math.round(sec / Math.max(dt, 1e-4))); // a time as a number of frames
     const m = manual || {};
     // the moments, each found after the one before (a moment set by hand moves the ones after it along with it):
@@ -627,8 +626,6 @@
         el("p", { class: "mc-hint" }, "Trim to the delivery: from just before he comes set to just after the follow-through."));
     }
 
-    // frames analyzed per real second: the capture rate, or less where a long clip was thinned
-    const perSecOf = (f, cap) => { const fr = f.tracked.frames, step = fr.length > 1 ? fr[1].t - fr[0].t : 1 / f.fps; return cap / (step * f.fps); };
     // back to a phone setup: the Edgertronic's frame rate doesn't carry over
     const toPhone = (setup) => { state.setup = setup; if (Number(state.captureFps) >= 500) state.captureFps = "auto"; render(); };
     const scaleOf = (f) => { const cap = state.captureFps === "auto" ? f.fps : Number(state.captureFps); return f.fps / cap; };
@@ -654,7 +651,7 @@
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
       state.result = analyze({
-        side: applyEdits(state.side.tracked, state.edits, perSecOf(state.side, cap)), behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
+        side: state.side.tracked, edits: state.edits, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
       state.cap = cap;
