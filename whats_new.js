@@ -8,6 +8,7 @@
 
   const WHATS_NEW = [
     // ---- week of Oct 26 - Nov 1, 2026 ----
+    { date: "2026-10-29", area: "Dashboard", title: "Bullpen comps: are they good pitches?", detail: "Each MLB comp now shows how that pitch did in games: usage, whiff %, put-away %, xwOBA and run value per 100 pitches (Baseball Savant), shaded red for better than most of that pitch and blue for worse, with a line averaging the closest comps. Pitchers linked to MLB get their own game numbers beside the bullpen, and a new MLB arsenal section with every pitch they threw that season." },
     { date: "2026-10-29", area: "Dashboard", title: "Bullpens: pitches, averages or both", detail: "A switch over the movement and release charts shows every pitch with each type's average, just the pitches, or just the averages (labeled, so the arsenal's shape reads at a glance)." },
     { date: "2026-10-29", area: "Dashboard", title: "Bullpens: zoom in on a pitch's spin", detail: "Click a spinning ball to open it large, with pause, speed and pitcher or catcher view, and arrows to step through the arsenal. The balls now start from behind the pitcher, and the seams sit a little more open." },
     { date: "2026-10-29", area: "Dashboard", title: "Bullpen comps against MLB and DST", detail: "A Comps section on each bullpen: for every pitch type, its MLB percentile for velo, IVB, arm-side run, spin and release height (same pitch, same throwing hand, from Baseball Savant), and the closest MLB and DST pitchers by shape, with a match score." },
