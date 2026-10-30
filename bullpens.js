@@ -201,10 +201,11 @@
   const mirrorM = (u) => [0, 1, 2].map((i) => [0, 1, 2].map((j) => (i === j ? 1 : 0) - 2 * u[i] * u[j]));
 
   // ---- what's printed on the ball, all in the navy of an MLB ball's stamps -----------------------------------------
-  // On the sweet spot (the narrow waist between the seams), "★ OFFICIAL ★ / DYNAMIC SPORTS TRAINING" over Kevin Poppe's
+  // On the sweet spot (the narrow waist between the seams), "★ OFFICIAL ★ / DYNAMIC SPORTS TRAINING" over Kevin Poppe's own
   // signature; above the seam beyond it, "Pitching" in a script like Rawlings'; below the other seam, a navy plate
   // with the DST logo cut out of it. Each is drawn once into an alpha map, then painted onto the turning sphere pixel
-  // by pixel (each pixel on the ball traced back to the ball's own surface, and into the stamp laid flat there).
+  // by pixel (each pixel on the ball traced back to the ball's own surface, and into the stamp as printed there: flat
+  // as seen square-on, so its lines run straight when it faces you, the way a stamp on a real ball does).
   const INK = [27, 42, 92];
   const sweet = [0, 0, 1], up = [Math.SQRT1_2, Math.SQRT1_2, 0], across = [Math.SQRT1_2, -Math.SQRT1_2, 0];
   // a stamp laid on the ball `deg` degrees from the sweet spot, toward the "Pitching" side (negative: the other way)
@@ -213,9 +214,9 @@
     return { d: [up[0] * Math.sin(a), up[1] * Math.sin(a), Math.cos(a)], R: across, U: [up[0] * Math.cos(a), up[1] * Math.cos(a), -Math.sin(a)], hw, hh };
   };
   const DECALS = [
-    { ...placed(0, 0.6, 0.32), key: "stamp" },
-    { ...placed(50, 0.6, 0.19), key: "script" },
-    { ...placed(-53, 0.24, 0.13), key: "plate" },
+    { ...placed(0, 0.6, 0.373), key: "stamp" },
+    { ...placed(53, 0.46, 0.18), key: "script" },
+    { ...placed(-53, 0.29, 0.158), key: "plate" },
   ];
   const decalMaps = {}; // key -> { w, h, a: alpha 0..1 }, once the fonts and logo are in
   const alphaMap = (w, h, draw) => {
@@ -242,9 +243,11 @@
     if (decalsReady) return decalsReady;
     const logo = new Image();
     const logoIn = new Promise((ok) => { logo.onload = ok; logo.onerror = ok; logo.src = "assets/dst-logo.png"; });
+    const sig = new Image(); // Kevin's own signature: light strokes on black (assets/signature.jpg)
+    const sigIn = new Promise((ok) => { sig.onload = ok; sig.onerror = ok; sig.src = "assets/signature.jpg"; });
     const fonts = document.fonts ? Promise.all(["800 96px 'Barlow Condensed'", "150px Yellowtail", "120px 'Mrs Saint Delafield'"].map((f) => document.fonts.load(f).catch(() => null))) : Promise.resolve();
-    decalsReady = Promise.all([logoIn, fonts]).then(() => {
-      decalMaps.stamp = alphaMap(900, 480, (g, w) => {
+    decalsReady = Promise.all([logoIn, sigIn, fonts]).then(() => {
+      decalMaps.stamp = alphaMap(900, 560, (g, w) => {
         g.textAlign = "center"; g.textBaseline = "alphabetic";
         g.font = "800 112px 'Barlow Condensed', 'Arial Narrow', sans-serif";
         const ow = g.measureText("OFFICIAL").width;
@@ -252,13 +255,33 @@
         star(g, w / 2 - ow / 2 - 50, 92, 30); star(g, w / 2 + ow / 2 + 50, 92, 30);
         g.font = "800 100px 'Barlow Condensed', 'Arial Narrow', sans-serif";
         fitText(g, "DYNAMIC SPORTS TRAINING", w / 2, 255, 880);
-        g.font = "150px 'Mrs Saint Delafield', 'Brush Script MT', cursive";
-        fitText(g, "Kevin Poppe", w / 2, 410, 520);
+        if (sig.naturalWidth) {
+          // the signature as written: its strokes (the light parts of the picture) become ink, thickened a little so
+          // they still show at the size of the ball
+          const sx = 280, sy = 10, sw = sig.naturalWidth > 820 ? 540 : sig.naturalWidth, sh = Math.min(335, sig.naturalHeight);
+          const dh = 250, dw = Math.round((dh * sw) / sh), t = document.createElement("canvas");
+          t.width = dw; t.height = dh;
+          const tg = t.getContext("2d"), R = 3;
+          tg.globalCompositeOperation = "lighten";
+          for (let ox = -R; ox <= R; ox++) for (let oy = -R; oy <= R; oy++) if (ox * ox + oy * oy <= R * R) tg.drawImage(sig, sx, sy, sw, sh, ox, oy, dw, dh);
+          const id = tg.getImageData(0, 0, dw, dh), p = id.data;
+          for (let i = 0; i < p.length; i += 4) { const l = Math.max(p[i], p[i + 1], p[i + 2]); p[i] = INK[0]; p[i + 1] = INK[1]; p[i + 2] = INK[2]; p[i + 3] = Math.max(0, Math.min(255, (l - 45) * 2.2)); }
+          tg.putImageData(id, 0, 0);
+          g.drawImage(t, (w - dw) / 2, 282);
+        } else {
+          g.font = "150px 'Mrs Saint Delafield', 'Brush Script MT', cursive";
+          fitText(g, "Kevin Poppe", w / 2, 420, 520);
+        }
       });
-      decalMaps.script = alphaMap(720, 230, (g, w) => {
+      decalMaps.script = alphaMap(600, 235, (g, w) => {
         g.textAlign = "center";
         g.font = "190px Yellowtail, 'Brush Script MT', cursive";
-        fitText(g, "Pitching", w / 2, 175, 690);
+        // a heavier pen than the font's own: the same letters, outlined in ink as well as filled
+        const tw = g.measureText("Pitching").width, k = Math.min(1, 560 / tw);
+        g.save(); g.translate(w / 2, 172); g.scale(k, 1);
+        g.lineWidth = 5; g.lineJoin = "round"; g.strokeStyle = g.fillStyle;
+        g.strokeText("Pitching", 0, 0); g.fillText("Pitching", 0, 0);
+        g.restore();
       });
       decalMaps.plate = alphaMap(440, 240, (g, w, h) => {
         const rr = 26;
@@ -291,8 +314,8 @@
       // where it lands on screen: its outline and middle, turned with the ball
       let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, seen = false;
       for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
-        const g = [dc.d[0] + dc.R[0] * dc.hw * i / 2 + dc.U[0] * dc.hh * j / 2, dc.d[1] + dc.R[1] * dc.hw * i / 2 + dc.U[1] * dc.hh * j / 2, dc.d[2] + dc.R[2] * dc.hw * i / 2 + dc.U[2] * dc.hh * j / 2];
-        const l = Math.hypot(g[0], g[1], g[2]), v = app(M, [g[0] / l, g[1] / l, g[2] / l]);
+        const a = (dc.hw * i) / 2, b = (dc.hh * j) / 2, c = Math.sqrt(Math.max(0, 1 - a * a - b * b));
+        const v = app(M, [0, 1, 2].map((k) => dc.R[k] * a + dc.U[k] * b + dc.d[k] * c));
         if (v[2] > 0) seen = true;
         const px = (cx + v[0] * r) * sc, py = (cy - v[1] * r) * sc;
         x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
@@ -311,7 +334,7 @@
           const q0 = M[0][0] * X + M[1][0] * Y + M[2][0] * Z, q1 = M[0][1] * X + M[1][1] * Y + M[2][1] * Z, q2 = M[0][2] * X + M[1][2] * Y + M[2][2] * Z;
           const dot = q0 * dc.d[0] + q1 * dc.d[1] + q2 * dc.d[2];
           if (dot < 0.3) continue;
-          const u = flip * (q0 * dc.R[0] + q1 * dc.R[1] + q2 * dc.R[2]) / dot / dc.hw, v = (q0 * dc.U[0] + q1 * dc.U[1] + q2 * dc.U[2]) / dot / dc.hh;
+          const u = (flip * (q0 * dc.R[0] + q1 * dc.R[1] + q2 * dc.R[2])) / dc.hw, v = (q0 * dc.U[0] + q1 * dc.U[1] + q2 * dc.U[2]) / dc.hh;
           if (u <= -1 || u >= 1 || v <= -1 || v >= 1) continue;
           const tx = ((u + 1) / 2) * (TW - 1), ty = ((1 - v) / 2) * (TH - 1), ix = tx | 0, iy = ty | 0, fx = tx - ix, fy = ty - iy;
           const k = iy * TW + ix;
