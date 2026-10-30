@@ -1786,6 +1786,7 @@
       window.MoCap.mount(box, {
         athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
+        onDelete: async (rec) => { store.deleteAssessment(rec.id); },
         history: () => (store.getMocap ? store.getMocap(athlete.id) : []),
       });
       return () => box.replaceChildren();

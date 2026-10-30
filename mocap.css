@@ -64,3 +64,6 @@
 .mc-legend > span { display: inline-flex; align-items: center; gap: 5px; }
 .mc-swatch { display: inline-block; width: 12px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .mc-seq-table { max-width: 640px; margin-top: 6px; }
+.mc-keep { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; color: var(--mc-dim); }
+.mc-row-btns { white-space: nowrap; }
+.mc-row-btns .mc-btn { margin-right: 4px; }

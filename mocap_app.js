@@ -101,7 +101,12 @@
         const record = { ...rec, athleteId: /^\d+$/.test(String(p.id)) ? Number(p.id) : p.id };
         const res = await sb.from("assessments").upsert({ id: rec.id, athlete_id: String(p.id), data: record });
         if (res.error) throw new Error("check your connection and try again");
-        history = [...history, record];
+        history = [...history.filter((h) => h.id !== record.id), record];
+      },
+      onDelete: async (rec) => {
+        const res = await sb.from("assessments").delete().eq("id", rec.id);
+        if (res.error) throw new Error("check your connection and try again");
+        history = history.filter((h) => h.id !== rec.id);
       },
     });
   }

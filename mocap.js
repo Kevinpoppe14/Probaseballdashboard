@@ -63,11 +63,11 @@
     v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("webkit-playsinline", "");
     v.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none";
     document.body.append(v);
-    v.src = URL.createObjectURL(file);
+    v.src = typeof file === "string" ? file : URL.createObjectURL(file); // a chosen file, or the link to a kept one
     v.load();
     try {
       await new Promise((ok, bad) => {
-        const timer = setTimeout(() => bad(new Error(file.size > 400 * 1048576 ? `That video is ${Math.round(file.size / 1048576)} MB and didn't open. Trim it to just the pitch in Photos first (Edit, then drag the ends in), then choose it again.` : CANT_PLAY)), 25000);
+        const timer = setTimeout(() => bad(new Error((file.size || 0) > 400 * 1048576 ? `That video is ${Math.round(file.size / 1048576)} MB and didn't open. Trim it to just the pitch in Photos first (Edit, then drag the ends in), then choose it again.` : CANT_PLAY)), 25000);
         v.addEventListener("loadedmetadata", () => { clearTimeout(timer); ok(); }, { once: true });
         v.addEventListener("error", () => { clearTimeout(timer); bad(new Error(CANT_PLAY)); }, { once: true });
       });
@@ -181,6 +181,13 @@
     return [x / m, y / m];
   };
 
+  // a Gaussian smoothing of one series (s frames wide), skipping gaps
+  const smoothSeries = (xs, s) => xs.map((_, i) => {
+    let sum = 0, ws = 0;
+    for (let k = -Math.ceil(2.5 * s); k <= Math.ceil(2.5 * s); k++) { const v = xs[i + k]; if (v == null || !Number.isFinite(v)) continue; const w = Math.exp(-(k * k) / (2 * s * s)); sum += v * w; ws += w; }
+    return ws ? sum / ws : null;
+  });
+
   // ---- the analysis ---------------------------------------------------------------------------------------------
   // side: tracked open-side video; behind: tracked behind video or null. timeScale turns file seconds into real
   // seconds (a 30 fps file of 240 fps slow-mo runs 8× slow).
@@ -190,31 +197,37 @@
     const pts = clean(side.frames, "p", sig), wpts = clean(side.frames, "w", sig);
     const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
     const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
-    // his height on screen, from the first frames (standing in his set): floor to nose is about 91% of height
-    const early = pts.slice(0, Math.max(3, Math.round(n * 0.08)));
-    const floorY = (q) => Math.max(q[S.lead.heel][1], q[S.drive.heel][1], q[S.lead.toe][1], q[S.drive.toe][1]);
-    const Hpx = early.reduce((s, q) => s + (floorY(q) - q[P.nose][1]), 0) / early.length / 0.91;
-    // which way the plate is on screen: the way the lead foot travels
-    const leadFootX = pts.map((q) => (q[S.lead.an][0] + q[S.lead.heel][0]) / 2);
-    const dir = leadFootX[n - 1] - leadFootX[0] >= 0 ? 1 : -1;
-    // the moments: peak leg lift (lead knee highest), foot strike (lead foot down and planted), max layback (throwing
-    // hand furthest back behind the elbow), release (throwing hand fastest)
+    const fr = (sec) => Math.max(1, Math.round(sec / Math.max(dt, 1e-4))); // a time as a number of frames
+    const m = manual || {};
+    // the moments, each found after the one before (a moment set by hand moves the ones after it along with it):
+    // peak leg lift: the lead knee at its highest
     const kneeY = pts.map((q) => q[S.lead.kn][1]);
-    let LL = argBest(kneeY, 0, Math.round(n * 0.75), (a, b) => a < b);
+    const LL = m.LL != null ? m.LL : argBest(kneeY, 0, Math.round(n * 0.75), (a, b) => a < b);
+    // his height on screen, while he stands tall from the set to the top of his leg lift: floor to nose is about 91%
+    const floorY = (q) => Math.max(q[S.lead.heel][1], q[S.drive.heel][1], q[S.lead.toe][1], q[S.drive.toe][1]);
+    const tall = pts.slice(0, Math.max(3, LL + 1)).map((q) => floorY(q) - q[P.nose][1]).sort((a, b) => a - b);
+    const Hpx = tall[Math.floor(tall.length * 0.75)] / 0.91;
+    // which way the plate is on screen: the way the lead foot travels
+    const leadFootX = pts.map((q) => (q[S.lead.an][0] + q[S.lead.heel][0] + q[S.lead.toe][0]) / 3);
+    const dir = leadFootX[n - 1] - leadFootX[0] >= 0 ? 1 : -1;
+    // foot strike: the lead foot down at the end of its stride. A foot that slides out low is near the ground long
+    // before it lands, so it also has to have gone almost all the way out (97% of its full stride) and be settling.
     const footY = pts.map((q) => (q[S.lead.heel][1] + q[S.lead.toe][1] + q[S.lead.an][1]) / 3);
     const groundY = Math.max(...footY.slice(LL));
-    const footVx = deriv(leadFootX, dt);
-    let FS = -1;
-    for (let i = LL + 1; i < n; i++) if (footY[i] >= groundY - 0.015 * Hpx && Math.abs(footVx[i] || 0) < 0.6 * Hpx) { FS = i; break; }
-    if (FS < 0) FS = argBest(footY, LL, n - 1, (a, b) => a > b);
+    const travel = leadFootX.map((x) => dir * (x - leadFootX[LL]));
+    const fullStride = Math.max(...travel.slice(LL));
+    const footSpeed = deriv(leadFootX, dt).map((v) => Math.abs(v || 0));
+    let FS = m.FS != null ? m.FS : -1;
+    if (FS < 0) for (let i = LL + 1; i < n; i++) if (travel[i] >= 0.97 * fullStride && footY[i] >= groundY - 0.03 * Hpx && footSpeed[i] < 0.8 * Hpx) { FS = i; break; }
+    if (FS < 0) FS = argBest(travel, LL, n - 1, (a, b) => a > b);
+    // release: the throwing hand fastest, from 70 to 280 ms after foot strike (usual foot strike to release is 130-180)
     const wr = pts.map((q) => q[S.arm.wr]);
     const wrVy = deriv(wr.map((q) => q[1]), dt);
-    const wrSpeed = deriv(wr.map((q) => q[0]), dt).map((vx, i) => Math.hypot(vx || 0, wrVy[i] || 0));
-    const brWindow = Math.round(0.45 / Math.max(dt, 1e-4));
-    let BR = argBest(wrSpeed, FS, FS + brWindow, (a, b) => a > b);
-    const layback = pts.map((q) => dir * (q[S.arm.wr][0] - q[S.arm.el][0]));
-    let MER = argBest(layback, FS, Math.max(FS, BR), (a, b) => a < b);
-    if (manual) { if (manual.LL != null) LL = manual.LL; if (manual.FS != null) FS = manual.FS; if (manual.MER != null) MER = manual.MER; if (manual.BR != null) BR = manual.BR; }
+    const wrSpeed = smoothSeries(deriv(wr.map((q) => q[0]), dt).map((vx, i) => Math.hypot(vx || 0, wrVy[i] || 0)), sig);
+    const BR = m.BR != null ? m.BR : argBest(wrSpeed, FS + fr(0.07), FS + fr(0.28), (a, b) => a > b);
+    // max layback: the hand furthest back behind the elbow, between foot strike and just before release
+    const layback = smoothSeries(pts.map((q) => dir * (q[S.arm.wr][0] - q[S.arm.el][0])), sig);
+    const MER = m.MER != null ? m.MER : argBest(layback, FS + fr(0.03), Math.max(FS + fr(0.03), BR - fr(0.008)), (a, b) => a < b);
 
     // curves through the delivery
     const kneeFlex = pts.map((q) => { const a = angleAt(q[S.lead.hip], q[S.lead.kn], q[S.lead.an]); return a == null ? null : 180 - a; });
@@ -222,7 +235,7 @@
     const elbowFlex = pts.map((q) => { const a = angleAt(q[S.arm.sh], q[S.arm.el], q[S.arm.wr]); return a == null ? null : 180 - a; });
     const shAbd = pts.map((q) => { const h = mid(q[P.lHip], q[P.rHip]), s = mid(q[P.lSh], q[P.rSh]); return angleAt([h[0], h[1]], q[S.arm.sh], q[S.arm.el]); });
     const mPerPx = heightIn ? (heightIn * 0.0254) / Hpx : null;
-    const comX = pts.map((q) => comOf(q)[0]);
+    const comX = smoothSeries(pts.map((q) => comOf(q)[0]), sig * 2); // speeds come from differences, so smoothed more
     const comV = mPerPx ? deriv(comX, dt).map((v) => (v == null ? null : dir * v * mPerPx)) : null;
 
     // the turn of the hips and shoulders (degrees, in the ground plane), and so separation and rotation speeds
@@ -235,16 +248,17 @@
       const bn = bpts.length;
       const bEarly = bpts.slice(0, Math.max(3, Math.round(bn * 0.08)));
       const bH = bEarly.reduce((s, q) => s + (floorY(q) - q[P.nose][1]), 0) / bEarly.length / 0.91;
-      // line the two up at foot strike (found the same way in the behind view, or set by hand)
-      const bFootY = bpts.map((q) => (q[S.lead.heel][1] + q[S.lead.toe][1] + q[S.lead.an][1]) / 3);
+      // line the two up: roughly at the top of the leg lift (the lead knee highest in both), then exactly at release,
+      // the throwing hand's fastest moment, sharp from any side
       const bKnee = bpts.map((q) => q[S.lead.kn][1]);
       const bLL = argBest(bKnee, 0, Math.round(bn * 0.75), (a, b) => a < b);
-      const bGround = Math.max(...bFootY.slice(bLL));
-      let bFS = -1;
-      for (let i = bLL + 1; i < bn; i++) if (bFootY[i] >= bGround - 0.015 * bH) { bFS = i; break; }
-      if (manual && manual.bFS != null) bFS = manual.bFS;
-      if (bFS < 0) bFS = bLL;
-      const offset = tReal[FS] - bT[bFS];
+      const rough = tReal[LL] - bT[bLL];
+      const bWr = bpts.map((q) => q[S.arm.wr]);
+      const bVy = deriv(bWr.map((q) => q[1]), dt);
+      const bSpeed = smoothSeries(deriv(bWr.map((q) => q[0]), dt).map((vx, i) => Math.hypot(vx || 0, bVy[i] || 0)), sig);
+      const near = (t) => { let k = 0; while (k < bn - 1 && bT[k] < t) k++; return k; };
+      const bBR = argBest(bSpeed, near(tReal[BR] - rough - 0.15), near(tReal[BR] - rough + 0.15), (a, b) => a > b);
+      const offset = bBR >= 0 ? tReal[BR] - bT[bBR] : rough;
       const at = (t) => { // the behind view's points at real time t (on the side view's clock)
         const x = t - offset;
         let k = 0;
@@ -264,11 +278,13 @@
       trunk = unwrap(wpts.map((q) => deg(Math.atan2(q[P.rSh][2] - q[P.lSh][2], q[P.rSh][0] - q[P.lSh][0]))));
     }
     const sep = pelvis.map((p, i) => (p == null || trunk[i] == null ? null : wrapDeg(p - trunk[i])));
-    const pelvisV = deriv(pelvis, dt), trunkV = deriv(trunk, dt);
+    // the turns' speeds, from the angles smoothed a little more (a difference of noisy angles is noisier still)
+    const pelvisV = deriv(smoothSeries(pelvis, sig * 2), dt), trunkV = deriv(smoothSeries(trunk, sig * 2), dt);
     const sepMaxI = argBest(sep.map((x) => (x == null ? null : Math.abs(x))), LL, BR, (a, b) => a > b);
-    const peakTo = Math.min(n - 1, BR + Math.round(0.05 / Math.max(dt, 1e-4))); // the turns peak by just after release
-    const pvI = argBest(pelvisV.map((x) => (x == null ? null : Math.abs(x))), LL, peakTo, (a, b) => a > b);
-    const tvI = argBest(trunkV.map((x) => (x == null ? null : Math.abs(x))), LL, peakTo, (a, b) => a > b);
+    // each segment's peak looked for where it comes: the hips around foot strike, the trunk from foot strike to just
+    // after release (the arm's and elbow's below)
+    const pvI = argBest(pelvisV.map((x) => (x == null ? null : Math.abs(x))), FS - fr(0.1), BR + fr(0.02), (a, b) => a > b);
+    const tvI = argBest(trunkV.map((x) => (x == null ? null : Math.abs(x))), FS - fr(0.05), BR + fr(0.03), (a, b) => a > b);
     const ms = (i, j) => (i < 0 || j < 0 ? null : Math.round((tReal[j] - tReal[i]) * 1000));
     // the arm's part of the sequence, from the pose model's 3D points: how fast the upper arm swings (its direction
     // turning, whichever way) and how fast the elbow straightens. Video can't see the shoulder's internal rotation (the
@@ -276,13 +292,13 @@
     const v3 = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     const unit3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
     const ang3 = (u, v) => deg(Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]))));
-    const smooth1 = (xs, s) => xs.map((_, i) => { let sum = 0, ws = 0; for (let k = -Math.ceil(2.5 * s); k <= Math.ceil(2.5 * s); k++) { const v = xs[i + k]; if (v == null || !Number.isFinite(v)) continue; const w = Math.exp(-(k * k) / (2 * s * s)); sum += v * w; ws += w; } return ws ? sum / ws : null; });
     const upper = wpts.map((q) => unit3(v3(q[S.arm.sh], q[S.arm.el])));
-    const armV = smooth1(upper.map((u, i) => { const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1); return hi > lo ? ang3(upper[lo], upper[hi]) / ((hi - lo) * dt) : null; }), sig);
-    const elbow3 = wpts.map((q) => 180 - ang3(unit3(v3(q[S.arm.el], q[S.arm.sh])), unit3(v3(q[S.arm.el], q[S.arm.wr]))));
-    const elbowV = smooth1(deriv(elbow3, dt).map((v) => (v == null ? null : -v)), sig); // straightening counts as +
-    const avI = argBest(armV, FS, peakTo, (a, b) => a > b);
-    const evI = argBest(elbowV, FS, peakTo, (a, b) => a > b);
+    const armV = smoothSeries(upper.map((u, i) => { const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1); return hi > lo ? ang3(upper[lo], upper[hi]) / ((hi - lo) * dt) : null; }), sig);
+    const elbow3 = smoothSeries(wpts.map((q) => 180 - ang3(unit3(v3(q[S.arm.el], q[S.arm.sh])), unit3(v3(q[S.arm.el], q[S.arm.wr])))), sig * 2);
+    const elbowV = smoothSeries(deriv(elbow3, dt).map((v) => (v == null ? null : -v)), sig); // straightening counts as +
+    // the upper arm swings through around release; the elbow straightens from max layback to release
+    const avI = argBest(armV, MER - fr(0.03), BR + fr(0.03), (a, b) => a > b);
+    const evI = argBest(elbowV, MER - fr(0.01), BR + fr(0.015), (a, b) => a > b);
     // the kinematic sequence: each segment's peak speed and when it comes, which should run hips, trunk, arm, elbow
     const seq = [["Pelvis", pelvisV, pvI, "#2ec4b6"], ["Trunk", trunkV, tvI, "#ff4d5e"], ["Upper arm", armV, avI, "#ff9f1c"], ["Elbow extension", elbowV, evI, "#c77dff"]]
       .map(([name, ys, i, color]) => ({ name, color, i, peak: i < 0 || ys[i] == null ? null : Math.round(Math.abs(ys[i])), fromFS: ms(FS, i), beforeBR: i < 0 ? null : Math.round((tReal[BR] - tReal[i]) * 1000) }));
@@ -437,7 +453,7 @@
         el("div", { class: "mc-head" }, el("h2", null, "Motion Capture ", el("small", null, athlete.name || "")),
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.showHow = !state.showHow; render(); } }, state.showHow ? "Hide filming tips" : "How to film it")),
         state.showHow ? el("ol", { class: "mc-how" }, HOW_TO.map(([t, d]) => el("li", null, el("b", null, t), " ", d))) : null,
-        state.result ? results() : setupForm(),
+        state.result ? results() : state.summary ? summaryView(state.summary) : setupForm(),
         historyBlock(),
       ].filter(Boolean));
     };
@@ -537,10 +553,107 @@
       state.cap = cap;
     }
 
+    // ---- keeping a session ------------------------------------------------------------------------------------------
+    // Saving keeps the record (numbers, moments, thinned curves) with the pitcher's other records, and the tracked body
+    // points (and, if wanted, the video) in the private "mocap" storage (supabase/migration_032_mocap.sql), so the full
+    // report can be opened again anywhere, worked out afresh each time with the analysis as it is then.
+    const STORE = "mocap";
+    const sbc = () => window.supabaseClient;
+    const pack = (tr) => ({
+      W: tr.W, H: tr.H, t: tr.frames.map((f) => Math.round(f.t * 10000) / 10000),
+      p: tr.frames.map((f) => (f.p ? f.p.map((q) => [Math.round(q[0]), Math.round(q[1]), Math.round(q[2] * 100)]) : null)),
+      w: tr.frames.map((f) => (f.w ? f.w.map((q) => q.map((x) => Math.round(x * 1000))) : null)),
+    });
+    const unpack = (o) => ({ W: o.W, H: o.H, frames: o.t.map((t, i) => ({ t, p: o.p[i] ? o.p[i].map((q) => [q[0], q[1], q[2] / 100]) : null, w: o.w[i] ? o.w[i].map((q) => q.map((x) => x / 1000)) : null })) });
+    const pathsOf = (rec) => (rec && rec.store ? [rec.store.path, rec.store.sideVideo, rec.store.behindVideo].filter(Boolean) : []);
+    async function saveSession(note, keepVideo) {
+      const R = state.result, S = R.series, was = state.saved;
+      const id = was ? was.id : `mc-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      let store = was && was.store ? { ...was.store } : null, warn = "";
+      if (!store) {
+        try {
+          const path = `${athlete.id}/${id}.json`;
+          const body = JSON.stringify({ v: 1, side: pack(state.side.tracked), behind: state.setup === "two" && state.behind ? pack(state.behind.tracked) : null });
+          const up = await sbc().storage.from(STORE).upload(path, new Blob([body], { type: "application/json" }), { contentType: "application/json", upsert: true });
+          if (up.error) throw up.error;
+          store = { path, sideFps: state.side.fps, behindFps: state.behind ? state.behind.fps : null };
+          if (keepVideo) {
+            for (const [key, f] of [["side", state.side], ["behind", state.setup === "two" ? state.behind : null]]) {
+              if (!f || !f.file || !f.file.size) continue;
+              const ext = (((f.file.name || "").match(/\.(\w{2,4})$/) || [])[1] || "mp4").toLowerCase();
+              const vp = `${athlete.id}/${id}-${key}.${ext}`;
+              const r2 = await sbc().storage.from(STORE).upload(vp, f.file, { contentType: f.file.type || (ext === "mov" ? "video/quicktime" : "video/mp4"), upsert: true });
+              if (r2.error) warn = " The video didn't upload (too big for storage, most likely), so the report will reopen with the skeleton but not the video.";
+              else store[`${key}Video`] = vp;
+            }
+          }
+        } catch (e) {
+          store = null;
+          warn = /bucket not found/i.test((e && e.message) || "") ? " Only the summary will reopen until supabase/migration_032_mocap.sql is run." : " The tracking couldn't be stored, so only the summary will reopen later.";
+        }
+      }
+      if (store) store.manual = state.manual || null;
+      const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
+      const rec = {
+        id, kind: "mocap", athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
+        setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, captureFps: state.cap, rotSource: R.rotSource,
+        metrics: Object.fromEntries(R.metrics.map((m) => [m.key, m.value])),
+        labels: Object.fromEntries(R.metrics.map((m) => [m.key, [m.label, m.unit, m.range]])),
+        events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)])),
+        series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), armV: thin(S.armV), elbowV: thin(S.elbowV), comV: thin(S.comV) },
+        sequence: R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })), inOrder: R.inOrder,
+        note, files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean), store,
+      };
+      await opts.onSave(rec);
+      state.saved = rec;
+      return warn;
+    }
+    // a saved session, opened again: the full report when its tracking was kept, otherwise what was saved of it
+    async function openSaved(rec) {
+      state.error = "";
+      if (!rec.store || !rec.store.path) { state.summary = rec; state.result = null; render(); window.scrollTo && root.scrollIntoView({ block: "start" }); return; }
+      state.busy = "Opening the saved session…"; state.result = null; state.summary = null; render();
+      try {
+        const dl = await sbc().storage.from(STORE).download(rec.store.path);
+        if (dl.error) throw dl.error;
+        const data = JSON.parse(await dl.data.text());
+        const vid = async (p) => {
+          if (!p) return null;
+          const s = await sbc().storage.from(STORE).createSignedUrl(p, 3600);
+          if (s.error || !s.data) return null;
+          try { return await openVideo(s.data.signedUrl); } catch (e) { return null; }
+        };
+        state.setup = rec.setup || "one"; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.captureFps = String(rec.captureFps || "auto");
+        state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
+        state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
+        state.manual = rec.store.manual || null;
+        state.saved = rec;
+        compute();
+        state.frame = state.result.events.FS;
+        state.busy = "";
+      } catch (e) {
+        state.busy = ""; state.result = null; state.saved = null;
+        state.error = `Couldn't open that session (${(e && e.message) || e}).`;
+      }
+      render();
+      root.scrollIntoView({ block: "start" });
+    }
+    async function removeSaved(rec) {
+      const q = { title: `Delete the ${rec.date || ""} session?`, text: "Its numbers, curves and any kept video are deleted. This can't be undone.", ok: "Delete", danger: true };
+      const ok = window.askConfirm ? await window.askConfirm(q) : window.confirm(`${q.title} ${q.text}`);
+      if (!ok) return;
+      const paths = pathsOf(rec);
+      if (paths.length) await sbc().storage.from(STORE).remove(paths).catch(() => null);
+      try { if (opts.onDelete) await opts.onDelete(rec); } catch (e) { state.error = `Couldn't delete it (${(e && e.message) || e}).`; }
+      if ((state.saved && state.saved.id === rec.id) || (state.summary && state.summary.id === rec.id)) { state.saved = null; state.summary = null; state.result = null; state.side = null; state.behind = null; state.manual = null; }
+      render();
+    }
+    const backToStart = () => { if (state.side && state.side.video) state.side.video.remove(); if (state.behind && state.behind.video) state.behind.video.remove(); state.result = null; state.summary = null; state.saved = null; state.manual = null; state.side = null; state.behind = null; render(); };
+
     function results() {
       const R = state.result, f = state.side, tr = f.tracked;
       // the video stays on the page, out of sight, so its frames can still be drawn (Safari on an iPhone needs that)
-      f.video.controls = false; f.video.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none";
+      if (f.video) { f.video.controls = false; f.video.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none"; }
       const canvas = el("canvas", { class: "mc-canvas" });
       const maxW = Math.min(900, root.clientWidth || 900);
       const k = Math.min(1, maxW / tr.W);
@@ -552,8 +665,8 @@
       const paint = (i) => {
         state.frame = i;
         painting = painting.then(async () => {
-          await seek(f.video, tr.frames[i].t);
-          ctx.drawImage(f.video, 0, 0, canvas.width, canvas.height);
+          if (f.video) { await seek(f.video, tr.frames[i].t); ctx.drawImage(f.video, 0, 0, canvas.width, canvas.height); }
+          else { ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height); } // no video kept: the skeleton alone
           drawSkeleton(ctx, R.pts[i], k, k, state.throws);
           const ev = Object.entries(R.events).find(([, j]) => j === i);
           caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}`;
@@ -566,17 +679,15 @@
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.max(0, (state.frame || 0) - 1)) }, "◀"),
         Object.entries(R.events).map(([key, i]) => el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(i) }, EV_LABEL[key])),
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.min(R.n - 1, (state.frame || 0) + 1)) }, "▶"));
-      // a moment found in the wrong place can be set by hand, to the frame showing
+      // a moment found in the wrong place can be set by hand, to the frame showing (the moments after it follow)
       const fix = el("div", { class: "mc-row mc-fix" }, el("span", { class: "mc-hint" }, "Moment in the wrong place? Go to the right frame and set it:"),
-        Object.keys(R.events).map((key) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { state.manual = { ...(state.manual || {}), [key]: state.frame }; compute(); render(); } }, `${EV_LABEL[key]} here`)),
+        Object.keys(R.events).map((key) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => {
+          const order = ["LL", "FS", "MER", "BR"], keep = {};
+          order.slice(0, order.indexOf(key)).forEach((kk) => { if (state.manual && state.manual[kk] != null) keep[kk] = state.manual[kk]; });
+          state.manual = { ...keep, [key]: state.frame }; compute(); render();
+        } }, `${EV_LABEL[key]} here`)),
         state.manual ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { state.manual = null; compute(); render(); } }, "Back to automatic") : null);
-      const table = el("table", { class: "mc-table" },
-        el("thead", null, el("tr", null, el("th", null, ""), el("th", null, "His"), el("th", null, "Usual range"))),
-        el("tbody", null, R.metrics.map((m) => {
-          const [lo, hi] = (m.range || "").split("–").map(Number);
-          const out = m.value != null && Number.isFinite(lo) && Number.isFinite(hi) && (m.value < lo || m.value > hi);
-          return el("tr", { title: m.note }, el("td", null, m.label, el("small", null, m.note)), el("td", { class: out ? "mc-out" : "" }, m.value == null ? "–" : `${m.value} ${m.unit}`), el("td", null, m.range ? `${m.range} ${m.unit.replace(/^° .*/, "°")}` : ""));
-        })));
+      const table = metricsTable(R.metrics);
       const S = R.series;
       const charts = el("div", { class: "mc-charts" },
         chart("Lead knee flexion", "°", S.kneeFlex, R.tReal, R.events, "#3fa7ff"),
@@ -585,38 +696,65 @@
         chart(`Rotation speed${R.rotSource === "estimate" ? " (estimate)" : ""}`, "°/s", S.pelvisV.map((x) => (x == null ? null : Math.abs(x))), R.tReal, R.events, "#2ec4b6", { ys: S.trunkV.map((x) => (x == null ? null : Math.abs(x))), color: "#ff4d5e", label: "trunk (pelvis in teal)" }),
         S.comV ? chart("Center-of-mass speed toward the plate", "m/s", S.comV, R.tReal, R.events, "#8ac926") : null);
       const note = el("textarea", { class: "mc-note", rows: 2, placeholder: "Notes on this delivery…" });
+      note.value = state.saved ? state.saved.note || "" : "";
+      const keep = el("input", { type: "checkbox", checked: true });
       const saveMsg = el("span", { class: "mc-status" });
-      return el("div", { class: "mc-results" }, f.video,
+      const saved = state.saved;
+      return el("div", { class: "mc-results" }, f.video, state.behind && state.behind.video,
         el("div", { class: "mc-row" },
-          el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.result = null; state.manual = null; render(); } }, "← Another video"),
-          el("span", { class: "mc-hint" }, `${state.setup === "two" ? "Two cameras" : "One camera"} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}`)),
+          el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, saved ? "← Back" : "← Another video"),
+          el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${state.setup === "two" ? "Two cameras" : "One camera"} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
         canvas, slider, caption, evBtns, fix,
         sequenceBlock(R),
         el("div", { class: "mc-grid" }, table, charts),
         el("p", { class: "mc-hint" }, R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
-          : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at foot strike. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
-        opts.onSave ? el("div", { class: "mc-save" }, note, el("div", { class: "mc-row" },
-          el("button", { type: "button", class: "mc-btn", onclick: async () => {
-            saveMsg.textContent = "Saving…";
-            const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
-            const rec = {
-              id: `mc-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, kind: "mocap", athleteId: athlete.id, date: new Date().toISOString().slice(0, 10),
-              setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, captureFps: state.cap, rotSource: R.rotSource,
-              metrics: Object.fromEntries(R.metrics.map((m) => [m.key, m.value])),
-              labels: Object.fromEntries(R.metrics.map((m) => [m.key, [m.label, m.unit, m.range]])),
-              events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)])),
-              series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), armV: thin(S.armV), elbowV: thin(S.elbowV), comV: thin(S.comV) },
-              sequence: R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })), inOrder: R.inOrder,
-              note: note.value.trim(), files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean),
-            };
-            try { await opts.onSave(rec); saveMsg.textContent = "Saved."; state.savedTick = Date.now(); const h = root.querySelector(".mc-history"); if (h) h.replaceWith(historyBlock()); }
-            catch (err) { saveMsg.textContent = `Couldn't save: ${err.message || err}`; }
-          } }, "Save this session"), saveMsg)) : null,
+          : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at release. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
+        opts.onSave ? el("div", { class: "mc-save" }, note,
+          saved ? null : el("label", { class: "mc-keep" }, keep, " Also keep the video, to replay it with the skeleton later (needs room in storage)"),
+          el("div", { class: "mc-row" },
+            el("button", { type: "button", class: "mc-btn", onclick: async () => {
+              saveMsg.textContent = "Saving…";
+              try {
+                const warn = await saveSession(note.value.trim(), keep.checked);
+                saveMsg.textContent = `${saved ? "Changes saved." : "Saved."}${warn}`;
+                const h = root.querySelector(".mc-history"); if (h) h.replaceWith(historyBlock());
+              } catch (err) { saveMsg.textContent = `Couldn't save: ${(err && err.message) || err}`; }
+            } }, saved ? "Save changes" : "Save this session"), saveMsg)) : null,
       );
     }
+    // the numbers, each beside its usual range (out of it in amber)
+    function metricsTable(metrics) {
+      return el("table", { class: "mc-table" },
+        el("thead", null, el("tr", null, el("th", null, ""), el("th", null, "His"), el("th", null, "Usual range"))),
+        el("tbody", null, metrics.map((m) => {
+          const [lo, hi] = (m.range || "").split("–").map(Number);
+          const out = typeof m.value === "number" && Number.isFinite(lo) && Number.isFinite(hi) && (m.value < lo || m.value > hi);
+          return el("tr", { title: m.note || "" }, el("td", null, m.label, m.note ? el("small", null, m.note) : null), el("td", { class: out ? "mc-out" : "" }, m.value == null ? "–" : `${m.value} ${m.unit || ""}`), el("td", null, m.range ? `${m.range} ${(m.unit || "").replace(/^° .*/, "°")}` : ""));
+        })));
+    }
+    // a session saved before the tracking was kept: what was saved of it, numbers and the sequence
+    function summaryView(rec) {
+      const L = rec.labels || {}, S = rec.series || {};
+      const metrics = Object.entries(rec.metrics || {}).map(([key, value]) => { const [label, unit, range] = L[key] || [key, "", ""]; return { key, label, value, unit, range }; });
+      let seq = null;
+      if (S.t && S.pelvisV) {
+        const near = (ms) => { let k = 0, best = Infinity; S.t.forEach((x, i) => { const d = Math.abs(x - ms); if (d < best) { best = d; k = i; } }); return k; };
+        const colors = ["#2ec4b6", "#ff4d5e", "#ff9f1c", "#c77dff"], blank = S.t.map(() => null);
+        seq = sequenceBlock({
+          tReal: S.t.map((ms) => ms / 1000), events: Object.fromEntries(Object.entries(rec.events || {}).map(([kk, ms]) => [kk, near(ms)])),
+          series: { pelvisV: S.pelvisV, trunkV: S.trunkV || blank, armV: S.armV || blank, elbowV: S.elbowV || blank },
+          seq: (rec.sequence || []).map((s, i) => ({ ...s, color: colors[i], i: s.fromFS == null ? -1 : near(s.fromFS) })), inOrder: !!rec.inOrder, rotSource: rec.rotSource,
+        });
+      }
+      return el("div", { class: "mc-results" },
+        el("div", { class: "mc-row" }, el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, "← Back"),
+          el("span", { class: "mc-hint" }, `Saved session, ${rec.date} · ${rec.setup === "two" ? "Two cameras" : "One camera"} · timing at ${rec.captureFps} fps`)),
+        el("p", { class: "mc-hint" }, "This session was saved before the full tracking was kept, so here's what was saved of it, worked out with the analysis as it was then. Analyze the video again for the full report with the skeleton (and the newer, better-placed moments)."),
+        seq, metricsTable(metrics), rec.note ? el("p", null, el("b", null, "Notes: "), rec.note) : null);
+    }
 
-    // saved sessions, newest first, with the main numbers side by side
+    // saved sessions, newest first, with the main numbers side by side; open one for its report, or delete it
     function historyBlock() {
       const list = (opts.history ? opts.history() || [] : []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || String(b.id).localeCompare(String(a.id)));
       if (!list.length) return el("div", { class: "mc-history" });
@@ -624,9 +762,12 @@
       const labelOf = (key) => { const r = list.find((x) => x.labels && x.labels[key]); return r ? r.labels[key][0].replace(/ \(estimate\)$/, "") : key; };
       return el("div", { class: "mc-history" }, el("h3", null, "Saved sessions"),
         el("div", { class: "mc-scroll" }, el("table", { class: "mc-table" },
-          el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"))),
-          el("tbody", null, list.slice(0, 12).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, r.setup === "two" ? "2 cams" : "1 cam"),
-            keys.map((key) => el("td", null, r.metrics && r.metrics[key] != null ? String(r.metrics[key]) : "–")), el("td", { class: "mc-note-cell" }, r.note || "")))))));
+          el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"), el("th", null, ""))),
+          el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, r.setup === "two" ? "2 cams" : "1 cam"),
+            keys.map((key) => el("td", null, r.metrics && r.metrics[key] != null ? String(r.metrics[key]) : "–")), el("td", { class: "mc-note-cell" }, r.note || ""),
+            el("td", { class: "mc-row-btns" },
+              el("button", { type: "button", class: "mc-btn ghost small", onclick: () => openSaved(r) }, "Open report"),
+              opts.onDelete ? el("button", { type: "button", class: "mc-btn ghost small", title: "Delete this session", "aria-label": `Delete the ${r.date} session`, onclick: () => removeSaved(r) }, "✕") : null)))))));
     }
 
     render();
