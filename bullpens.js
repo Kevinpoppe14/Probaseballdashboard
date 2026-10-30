@@ -252,7 +252,7 @@
         // OFFICIAL a little smaller than the line under it and slanted, between stars as tall as its capitals
         g.font = "800 104px 'Barlow Condensed', 'Arial Narrow', sans-serif";
         const om = g.measureText("OFFICIAL"), ow = om.width, cap = om.actualBoundingBoxAscent || 73, base = 112;
-        g.save(); g.translate(w / 2, base); g.transform(1, 0, -0.2, 1, 0, 0); g.fillText("OFFICIAL", 0, 0); g.restore();
+        g.save(); g.translate(w / 2, base); g.transform(1, 0, -0.12, 1, 0, 0); g.fillText("OFFICIAL", 0, 0); g.restore();
         const sr = cap / (1 + Math.cos(Math.PI / 5)), sy = base - cap + sr; // a star's top point to its feet is its height
         star(g, w / 2 - ow / 2 - 30 - sr, sy, sr); star(g, w / 2 + ow / 2 + 30 + sr, sy, sr);
         g.font = "800 118px 'Barlow Condensed', 'Arial Narrow', sans-serif";
