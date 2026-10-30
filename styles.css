@@ -4282,3 +4282,37 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-show .pill-tab { padding: 3px 10px; font-size: 12px; }
 .bp-plot .bp-avg-label { fill: var(--text); font-size: 12px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
 .bp-plot .bp-avg-leader { stroke: var(--text-dim); stroke-width: 1; }
+
+/* Bullpens: Edgertronic video synced to the pitches (bullpen_video.js) */
+.bp-video-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 4px 0 12px; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+.bp-video-label { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; }
+.bp-video-plan { flex: 1 1 100%; }
+.bp-video-plan p { margin: 4px 0; font-size: 13px; }
+.bp-video-warn { color: var(--warning, #d9822b); }
+.bp-video-n { width: 64px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-muted); color: var(--text); }
+.bp-video-actions { display: flex; gap: 8px; margin-top: 6px; }
+.bp-link { border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
+.bp-cam { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-muted); color: var(--text); cursor: pointer; line-height: 1; }
+.bp-cam:hover { border-color: var(--dst-red); color: var(--dst-red); }
+.bp-cam.with-text { padding: 6px 10px; font-weight: 600; font-size: 13px; }
+.bp-cam-icon { flex: 0 0 auto; }
+.bp-video-card { width: 980px; }
+.bp-video-title { margin: 0; font-size: 16px; }
+.bp-video-title small { font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+.bp-video-stage { display: flex; align-items: center; gap: 10px; justify-content: center; margin: 10px 0; min-height: 200px; }
+.bp-video { flex: 1 1 auto; min-width: 0; max-width: 100%; max-height: calc(100vh - 240px); border-radius: 10px; background: #000; }
+.bp-video-ctl { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.bp-video-loop { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.bp-video-shift { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+
+/* A profile section's sub-tabs drawn as tabs (an underlined strip), not pill buttons: the Pitching tab's */
+.profile-subtabs.section-tabs { gap: 0; margin: -8px 0 16px; padding: 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.profile-subtabs.section-tabs .pill-tab { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; margin-bottom: -1px; padding: 9px 18px; font-size: 13.5px; color: var(--text-dim); }
+.profile-subtabs.section-tabs .pill-tab:hover { color: var(--text); }
+.profile-subtabs.section-tabs .pill-tab.active { background: none; color: var(--text); border-bottom-color: var(--dst-red); }
+
+/* the Statcast tab's Savant arsenal: spin and comps sections */
+.bp-savant-sec { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.bp-savant-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+.bp-savant-head h3 { margin: 0; font-size: 15px; }
+.bp-savant-head h3 small { font-weight: 400; color: var(--text-dim); margin-left: 4px; }

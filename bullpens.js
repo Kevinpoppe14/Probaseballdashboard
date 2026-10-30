@@ -302,6 +302,58 @@
     );
   }
 
+  // the spinning balls' controls, shared by every ball on a page: paused or not, how fast, and from whose side (speed
+  // and side remembered on this computer)
+  function useSpinCtl() {
+    const [ctl, setCtl] = useState(() => {
+      try { const v = JSON.parse(localStorage.getItem("bullpenSpin2") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "catcher" ? "catcher" : "pitcher" }; } catch (e) { /* private window */ }
+      return { paused: false, speed: 1, pov: "pitcher" };
+    });
+    const set = (patch) => setCtl((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin2", JSON.stringify({ speed: n.speed, pov: n.pov })); } catch (e) { /* not remembered */ } return n; });
+    return [ctl, set];
+  }
+  function SpinControls({ ctl, set }) {
+    return (
+      <span className="bp-spin-ctl">
+        <button type="button" className="bp-mod-btn" onClick={() => set({ paused: !ctl.paused })}>{ctl.paused ? "▶ Play" : "❚❚ Pause"}</button>
+        <select className="bp-tag" value={ctl.speed} aria-label="Spin speed" onChange={(e) => set({ speed: Number(e.target.value) })}>
+          <option value={0.25}>Speed ¼×</option><option value={0.5}>Speed ½×</option><option value={1}>Speed 1×</option><option value={2}>Speed 2×</option>
+        </select>
+        <span className="pill-tabs bp-scope" role="group" aria-label="Seen from">
+          <button type="button" className={`pill-tab ${ctl.pov === "pitcher" ? "active" : ""}`} onClick={() => set({ pov: "pitcher" })}>Pitcher</button>
+          <button type="button" className={`pill-tab ${ctl.pov !== "pitcher" ? "active" : ""}`} onClick={() => set({ pov: "catcher" })}>Catcher</button>
+        </span>
+      </span>
+    );
+  }
+  // one pitch type's ball, large, with ‹ › through the rest of `list`; `onType(null)` closes it
+  function SpinZoom({ list, type, onType, ctl, set }) {
+    useEffect(() => {
+      const esc = (e) => { if (e.key === "Escape") onType(null); };
+      document.addEventListener("keydown", esc);
+      return () => document.removeEventListener("keydown", esc);
+    }, []); // eslint-disable-line
+    const i = list.findIndex((s) => s.type === type);
+    if (i < 0) return null;
+    const step = (d) => onType(list[(i + d + list.length) % list.length].type);
+    return (
+      <div className="bp-zoom" onMouseDown={(e) => { if (e.target === e.currentTarget) onType(null); }}>
+        <div className="bp-zoom-card" role="dialog" aria-label={`${type} spin, zoomed in`}>
+          <div className="bp-zoom-head">
+            <SpinControls ctl={ctl} set={set} />
+            <button type="button" className="bp-mod-btn bp-zoom-close" onClick={() => onType(null)}>✕ Close</button>
+          </div>
+          <div className="bp-zoom-body">
+            {list.length > 1 && <button type="button" className="bp-zoom-step" aria-label="Previous pitch type" onClick={() => step(-1)}>‹</button>}
+            <SpinBall key={`zoom-${type}`} s={list[i]} ctl={ctl} size={380} />
+            {list.length > 1 && <button type="button" className="bp-zoom-step" aria-label="Next pitch type" onClick={() => step(1)}>›</button>}
+          </div>
+          <p className="timestamp-note">{ctl.pov === "pitcher" ? "From behind the pitcher" : "From the catcher"}. The arrow is the way the spin moves the ball. Esc or a click outside closes it.</p>
+        </div>
+      </div>
+    );
+  }
+
   // ---- comps: where each pitch sits among MLB pitchers (Baseball Savant) and DST's own bullpens ------------------
   // For each pitch type in the session: its MLB percentile for velo, IVB, horizontal break, spin and release height
   // (same pitch type, same throwing hand, one season), and the closest pitchers by that shape, MLB and DST together.
@@ -357,16 +409,25 @@
   }
   // a pitcher's own MLB arsenal that season, most used first: each pitch's shape (when he threw 50) and results, with
   // the same pitch from every other pitcher of his hand to rank it against
+  // (and each pitch's spin direction and active spin, as tilt and spinEff)
   async function mlbArsenal(id, hand, year) {
     const ars = await arsenalStats(year);
     const his = [...ars.entries()].filter(([k]) => k.split("|")[0] === String(id)).map(([k, res]) => ({ code: k.split("|")[1], res }));
-    const lists = await Promise.all(his.map((m) => mlbPitchers([m.code], year).catch(() => [])));
+    const [lists, dirs] = await Promise.all([
+      Promise.all(his.map((m) => mlbPitchers([m.code], year).catch(() => []))),
+      Promise.all(his.map((m) => spinDirs(m.code, year))),
+    ]);
     return his.map((m, i) => {
       const shape = lists[i].find((p) => p.id === String(id)) || {};
+      const dir = dirs[i].find((r) => String(r.player_id) === String(id));
       const h = hand || shape.hand;
-      return { ...shape, code: m.code, res: m.res, pool: lists[i].filter((p) => p.id !== String(id) && (!h || p.hand === h)).map((p) => p.res) };
+      const spin = dir ? { tilt: num(dir.hawkeye_measured_clock_minutes), spinEff: dir.active_spin != null && dir.active_spin !== "" ? Math.round(num(dir.active_spin) * 100) : null, spinRate: num(dir.spin_rate) } : {};
+      return { ...shape, ...spin, code: m.code, res: m.res, pool: lists[i].filter((p) => p.id !== String(id) && (!h || p.hand === h)).map((p) => p.res) };
     }).sort((a, b) => (b.res.usage || 0) - (a.res.usage || 0));
   }
+  // Savant's spin direction leaderboard for one pitch type: each pitcher's spin, the direction it moves the ball (from
+  // behind the pitcher, as clock minutes: the same as TrackMan's tilt) and active spin (a fraction)
+  const spinDirs = (code, year) => savantCsv(`${SAVANT}spin-direction-pitches?year=${year}&min=1&sort=11&sortDir=asc&pitch_type=${code}&throws=&playerName=&team=&pov=Pit&csv=true`).catch(() => []);
   // how each pitch did, as Savant reports it; `good` says which way is better for the pitcher (run value is the
   // pitcher's: plus is runs saved)
   const RESULTS = [
@@ -413,8 +474,13 @@
   const pctOf = (v, list) => { const xs = list.filter((x) => x != null); if (v == null || xs.length < 10) return null; return Math.round((xs.filter((x) => x < v).length / xs.length) * 100); };
   const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th"}`;
 
-  function CompsModule({ athlete, stats }) {
-    const [season, setSeason] = useState(defaultSeason);
+  // `stats` is a bullpen's pitch types (typeStats), or, given `season`, the pitcher's own MLB arsenal that season
+  // (each with its results as `res`), compared with everyone else's
+  function CompsModule({ athlete, stats, season: fixed, mlbId }) {
+    const fromMlb = fixed != null;
+    const myId = String(mlbId || athlete.mlbamId || "");
+    const [picked, setSeason] = useState(defaultSeason);
+    const season = fromMlb ? fixed : picked;
     const [hand, setHandState] = useState(athlete.throws || "");
     const [data, setData] = useState({}); // pitch type -> { list, error }
     const [loading, setLoading] = useState(false);
@@ -432,8 +498,8 @@
           const next = Object.fromEntries(pairs);
           setArs(arsMap);
           // the pitcher's own hand, from Savant, when they're on it and it isn't set yet
-          if (!hand && athlete.mlbamId) {
-            const me = pairs.flatMap((p) => p[1].list).find((p) => p.id === String(athlete.mlbamId));
+          if (!hand && myId) {
+            const me = pairs.flatMap((p) => p[1].list).find((p) => p.id === myId);
             if (me && me.hand) setHand(me.hand);
           }
           setData(next); setLoading(false);
@@ -448,23 +514,25 @@
             <button type="button" className={`pill-tab ${h === "R" ? "active" : ""}`} onClick={() => setHand("R")}>Throws R</button>
             <button type="button" className={`pill-tab ${h === "L" ? "active" : ""}`} onClick={() => setHand("L")}>Throws L</button>
           </span>
-          <select className="bp-tag" value={season} aria-label="MLB season" onChange={(e) => setSeason(Number(e.target.value))}>
-            {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
-          </select>
+          {!fromMlb && (
+            <select className="bp-tag" value={season} aria-label="MLB season" onChange={(e) => setSeason(Number(e.target.value))}>
+              {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
+            </select>
+          )}
           {!hand && <span className="timestamp-note">Set which hand he throws with, so he's compared with the right pitchers.</span>}
           {loading && <span className="timestamp-note">Loading Baseball Savant…</span>}
         </div>
         {mine.map((s) => {
           const d = data[s.type] || { list: [] };
           const codes = codesOf(s.type);
-          const mlb = d.list.filter((p) => p.hand === h && p.id !== String(athlete.mlbamId || ""));
+          const mlb = d.list.filter((p) => p.hand === h && p.id !== myId);
           const dst = dstPitchers(athlete, codes).filter((p) => !p.hand || p.hand === h)
             .map((p) => ({ ...p, res: p.mlbamId ? codes.map((c) => ars.get(`${p.mlbamId}|${c}`)).find(Boolean) || null : null }));
           const pool = [...mlb, ...dst];
           const me = { velo: s.speedAvg, ivb: s.ivb, hb: s.hb, spin: s.spinAvg, relHeight: s.relHeight };
           const comps = pool.map((p) => ({ ...p, match: matchOf(me, p) })).filter((p) => p.match != null).sort((a, b) => b.match - a.match).slice(0, 6);
           const resPool = mlb.map((p) => p.res);
-          const meMlb = athlete.mlbamId ? d.list.find((p) => p.id === String(athlete.mlbamId)) : null;
+          const meMlb = myId ? d.list.find((p) => p.id === myId) : null;
           // are the comps good pitches? their average results, ranked among everyone's
           const withRes = comps.filter((p) => p.res);
           const avgOf = (k) => { const xs = withRes.map((p) => p.res[k]).filter((v) => v != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
@@ -494,8 +562,8 @@
                       <table className="assess-table bp-table bp-comp-table">
                         <thead><tr><th>Closest</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Arm angle</th><th>Match</th>{resHeads()}</tr></thead>
                         <tbody>
-                          <tr className="bp-comp-me"><td>{athlete.name} <small>this session</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>–</td><td></td>{RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}</tr>
-                          {meMlb && (
+                          <tr className="bp-comp-me"><td>{athlete.name} <small>{fromMlb ? `${season} MLB games` : "this session"}</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>–</td><td></td>{fromMlb ? resCells(s.res, resPool) : RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}</tr>
+                          {meMlb && !fromMlb && (
                             <tr className="bp-comp-me"><td>{athlete.name} <small>{season} MLB games</small></td><td>{show(meMlb.velo)}</td><td>{show(meMlb.ivb)}</td><td>{show(meMlb.hb)}</td><td>{show(meMlb.spin)}</td><td>{ftIn(meMlb.relHeight)}</td><td>{meMlb.armAngle != null ? `${meMlb.armAngle}°` : "–"}</td><td></td>{resCells(meMlb.res, resPool)}</tr>
                           )}
                           {comps.map((p) => (
@@ -521,17 +589,27 @@
 
   // the pitcher's own MLB arsenal, for a pitcher linked to MLB who pitched that season: every pitch he threw in
   // games, its shape and how it did, ranked among the same pitch from pitchers of his hand
-  function MlbArsenal({ athlete }) {
+  // `full` (the Statcast tab) adds each pitch's spinning ball and its comps, all from Savant
+  function MlbArsenal({ athlete, mlbId, full }) {
+    const id = String(mlbId || athlete.mlbamId || "");
     const [season, setSeason] = useState(defaultSeason);
     const [st, setSt] = useState({ loading: true, rows: [], error: "" });
+    const [spinCtl, setSpinCtl] = useSpinCtl();
+    const [zoomBall, setZoomBall] = useState(null);
     useEffect(() => {
       let off = false;
       setSt((s) => ({ ...s, loading: true }));
-      mlbArsenal(athlete.mlbamId, athlete.throws, season)
+      mlbArsenal(id, athlete.throws, season)
         .then((rows) => { if (!off) setSt({ loading: false, rows, error: "" }); }, (e) => { if (!off) setSt({ loading: false, rows: [], error: String((e && e.message) || e) }); });
       return () => { off = true; };
-    }, [athlete.mlbamId, athlete.throws, season]);
+    }, [id, athlete.throws, season]);
     const total = st.rows.reduce((n, r) => n + (r.res.pitches || 0), 0);
+    // the arsenal as pitch types, the way the balls and comps take a bullpen's
+    const asTypes = st.rows.filter((r) => CODE_TYPE[r.code]).map((r) => ({
+      type: CODE_TYPE[r.code], qty: r.res.pitches, speedAvg: r.velo, ivb: r.ivb, hb: r.hb, spinAvg: r.spin != null ? Math.round(r.spin) : r.spinRate, relHeight: r.relHeight,
+      tilt: r.tilt, spinEff: r.spinEff, res: r.res,
+    }));
+    const balls = asTypes.filter((s) => s.spinAvg != null);
     return (
       <div className="bp-comps">
         <div className="bp-comps-bar">
@@ -539,7 +617,7 @@
             {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
           </select>
           {st.loading && <span className="timestamp-note">Loading Baseball Savant…</span>}
-          {!st.loading && total > 0 && <span className="timestamp-note">{total.toLocaleString()} pitches · <a href={`https://baseballsavant.mlb.com/savant-player/${athlete.mlbamId}`} target="_blank" rel="noopener noreferrer">Savant page</a></span>}
+          {!st.loading && total > 0 && <span className="timestamp-note">{total.toLocaleString()} pitches · <a href={`https://baseballsavant.mlb.com/savant-player/${id}`} target="_blank" rel="noopener noreferrer">Savant page</a></span>}
         </div>
         {st.error ? <p className="assess-row-note">Couldn't reach Baseball Savant ({st.error}).</p>
           : !st.loading && !st.rows.length ? <p className="assess-row-note">No MLB pitches for him in {season}.</p>
@@ -559,6 +637,20 @@
             </div>
           )}
         <p className="timestamp-note">His MLB regular-season games on Baseball Savant. Shape shows once he's thrown 50 of a pitch. Results are shaded against the same pitch from {athlete.throws === "L" ? "left" : athlete.throws === "R" ? "right" : "same"}-handed pitchers who threw at least 50 (red better, blue worse); hover for the rank.</p>
+        {full && balls.length > 0 && (
+          <div className="bp-savant-sec">
+            <div className="bp-savant-head"><h3>Spin by pitch <small>{season} MLB, {spinCtl.pov === "pitcher" ? "pitcher's view" : "catcher's view"}</small></h3><SpinControls ctl={spinCtl} set={setSpinCtl} /></div>
+            <div className="bp-balls">{balls.map((s) => <SpinBall key={s.type} s={s} ctl={spinCtl} onZoom={() => setZoomBall(s.type)} />)}</div>
+            <p className="timestamp-note">Each ball turns on that pitch's average spin axis in his MLB games (Savant's measured spin direction, on the pitcher's clock like TrackMan's tilt) and its active spin, which is Savant's spin efficiency (gyro is the rest). Click a ball to zoom in.</p>
+            {zoomBall && <SpinZoom list={balls} type={zoomBall} onType={setZoomBall} ctl={spinCtl} set={setSpinCtl} />}
+          </div>
+        )}
+        {full && asTypes.some((s) => codesOf(s.type)) && (
+          <div className="bp-savant-sec">
+            <div className="bp-savant-head"><h3>Comps <small>the MLB pitchers whose {season} pitches are shaped most like his</small></h3></div>
+            <CompsModule athlete={athlete} stats={asTypes} season={season} mlbId={id} />
+          </div>
+        )}
       </div>
     );
   }
@@ -594,19 +686,8 @@
     const [focus, setFocus] = useState([]); // pitch types picked in the charts' key; the others dim (none picked: all show)
     const [chartShow, setChartShowState] = useState(() => { try { return localStorage.getItem("bullpenChartShow") || "both"; } catch (e) { return "both"; } });
     const setChartShow = (v) => { setChartShowState(v); if (v === "avgs") setPicked(null); try { localStorage.setItem("bullpenChartShow", v); } catch (e) { /* not remembered */ } };
-    // the spinning balls: paused or not, how fast, and from whose side (speed and side remembered on this computer)
-    const [spinCtl, setSpinCtlState] = useState(() => {
-      try { const v = JSON.parse(localStorage.getItem("bullpenSpin2") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "catcher" ? "catcher" : "pitcher" }; } catch (e) { /* private window */ }
-      return { paused: false, speed: 1, pov: "pitcher" };
-    });
-    const setSpinCtl = (patch) => setSpinCtlState((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin2", JSON.stringify({ speed: n.speed, pov: n.pov })); } catch (e) { /* not remembered */ } return n; });
+    const [spinCtl, setSpinCtl] = useSpinCtl();
     const [zoomBall, setZoomBall] = useState(null); // the pitch type whose ball is open large
-    useEffect(() => {
-      if (!zoomBall) return undefined;
-      const esc = (e) => { if (e.key === "Escape") setZoomBall(null); };
-      document.addEventListener("keydown", esc);
-      return () => document.removeEventListener("keydown", esc);
-    }, [zoomBall]);
     const toggleFocus = (t) => setFocus((f) => (f.includes(t) ? f.filter((x) => x !== t) : [...f, t]));
     const tagOptions = [...new Set([...TAG_TYPES, ...(session.pitches || []).map((p) => p.type).filter(Boolean)])].sort(byType);
     const retag = async (nos, value, sid) => {
@@ -618,6 +699,17 @@
       editPitches(nos, { type, typeGuessed: false, retagged: true }, sid);
       setChecked([]);
     };
+    // a session's Edgertronic video: which pitch's clip is open, and saving a change to the clips
+    const [vid, setVid] = useState(null); // { sid, no }
+    const saveVideo = (sid, video) => {
+      const base = !sid || sid === latest.current.id ? { ...latest.current, notes } : (sessions || []).find((s) => s.id === sid);
+      if (!base) return;
+      const next = { ...base };
+      if (video) next.video = video; else delete next.video;
+      onSave(next);
+    };
+    const sessionOf = (sid) => (!sid || sid === session.id ? session : (sessions || []).find((s) => s.id === sid)) || session;
+    const BV = window.BullpenVideo;
     const removePitches = (nos, sid) => { editPitches(nos, { removed: true }, sid); setChecked([]); setPicked(null); };
     const toggle = (no) => setChecked((c) => (c.includes(no) ? c.filter((x) => x !== no) : [...c, no]));
     const tagSelect = (value, onPick, label) => (
@@ -668,18 +760,7 @@
       </span>
     ) : null;
     const spinStats = stats.filter((s) => s.spinAvg != null && s.type !== UNTAGGED);
-    const spinControls = (
-      <span className="bp-spin-ctl">
-        <button type="button" className="bp-mod-btn" onClick={() => setSpinCtl({ paused: !spinCtl.paused })}>{spinCtl.paused ? "▶ Play" : "❚❚ Pause"}</button>
-        <select className="bp-tag" value={spinCtl.speed} aria-label="Spin speed" onChange={(e) => setSpinCtl({ speed: Number(e.target.value) })}>
-          <option value={0.25}>Speed ¼×</option><option value={0.5}>Speed ½×</option><option value={1}>Speed 1×</option><option value={2}>Speed 2×</option>
-        </select>
-        <span className="pill-tabs bp-scope" role="group" aria-label="Seen from">
-          <button type="button" className={`pill-tab ${spinCtl.pov === "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "pitcher" })}>Pitcher</button>
-          <button type="button" className={`pill-tab ${spinCtl.pov !== "pitcher" ? "active" : ""}`} onClick={() => setSpinCtl({ pov: "catcher" })}>Catcher</button>
-        </span>
-      </span>
-    );
+    const spinControls = <SpinControls ctl={spinCtl} set={setSpinCtl} />;
     const modules = {
       types: {
         title: "Pitch types",
@@ -751,7 +832,7 @@
             </div>
             <div className="bp-table-wrap">
               <table className="assess-table bp-table">
-                <thead><tr><th aria-label="Check"></th><th>#</th><th>Type</th><th>Velo</th><th>Spin</th><th>Tilt</th><th>IVB</th><th>HB</th><th title="Vertical approach angle, estimated">VAA</th><th>Plate ht</th><th>Ext.</th><th>Rel. ht</th><th>Rel. side</th><th>Spin eff.</th><th aria-label="Remove"></th></tr></thead>
+                <thead><tr><th aria-label="Check"></th><th>#</th><th>Type</th><th>Velo</th><th>Spin</th><th>Tilt</th><th>IVB</th><th>HB</th><th title="Vertical approach angle, estimated">VAA</th><th>Plate ht</th><th>Ext.</th><th>Rel. ht</th><th>Rel. side</th><th>Spin eff.</th><th aria-label="Video"></th><th aria-label="Remove"></th></tr></thead>
                 <tbody>
                   {live.map((p) => (
                     <tr key={p.no} className={`${p.type ? "" : "bp-untagged-row"}${picked === `${session.id}:${p.no}` ? " bp-picked-row" : ""}`}>
@@ -761,6 +842,7 @@
                       <td>{show(p.speed)}</td><td>{show(p.spin)}</td><td>{show(p.tilt)}</td><td>{show(p.ivb)}</td><td>{show(p.hb)}</td>
                       <td>{deg(p.vaa)}</td><td>{ftIn(p.plateHeight)}</td>
                       <td>{ftIn(p.extension)}</td><td>{ftIn(p.relHeight)}</td><td>{ftIn(p.relSide)}</td><td>{show(p.spinEff, p.spinEff != null ? "%" : "")}</td>
+                      <td>{BV && BV.hasClip(session, p.no) ? <BV.CameraButton label={`Watch pitch ${p.no}`} onClick={() => setVid({ sid: session.id, no: p.no })} /> : null}</td>
                       <td><button type="button" className="ft-x" title="Take this pitch out of the report" aria-label={`Remove pitch ${p.no}`} onClick={() => removePitches([p.no])}>✕</button></td>
                     </tr>
                   ))}
@@ -817,6 +899,7 @@
           <h2>{fmtDate(session.date)} <small>{[session.sessionType, session.facility, `${total} pitches`].filter(Boolean).join(" · ")}</small></h2>
           <button type="button" className="btn btn-small-grey" title="Put the modules back in their usual order and sizes" onClick={() => setLayout(DEFAULT_LAYOUT)}>Reset layout</button>
         </div>
+        {BV && <BV.VideoBar session={session} athlete={athlete} onSave={(v) => saveVideo(session.id, v)} />}
         {untagged > 0 && <p className="bp-untagged">{untagged} pitch{untagged === 1 ? " isn't" : "es aren't"} tagged. Click one on a chart, pick a type for each under Every pitch, or check several and tag them at once.</p>}
         <div className="bp-mods">
           {order.filter((k) => modules[k]).map((k) => {
@@ -840,26 +923,11 @@
             );
           })}
         </div>
-        {zoomBall && (() => {
-          const i = spinStats.findIndex((s) => s.type === zoomBall);
-          if (i < 0) return null;
-          const step = (d) => setZoomBall(spinStats[(i + d + spinStats.length) % spinStats.length].type);
-          return (
-            <div className="bp-zoom" onMouseDown={(e) => { if (e.target === e.currentTarget) setZoomBall(null); }}>
-              <div className="bp-zoom-card" role="dialog" aria-label={`${zoomBall} spin, zoomed in`}>
-                <div className="bp-zoom-head">
-                  {spinControls}
-                  <button type="button" className="bp-mod-btn bp-zoom-close" onClick={() => setZoomBall(null)}>✕ Close</button>
-                </div>
-                <div className="bp-zoom-body">
-                  {spinStats.length > 1 && <button type="button" className="bp-zoom-step" aria-label="Previous pitch type" onClick={() => step(-1)}>‹</button>}
-                  <SpinBall key={`zoom-${zoomBall}`} s={spinStats[i]} ctl={spinCtl} size={380} />
-                  {spinStats.length > 1 && <button type="button" className="bp-zoom-step" aria-label="Next pitch type" onClick={() => step(1)}>›</button>}
-                </div>
-                <p className="timestamp-note">{spinCtl.pov === "pitcher" ? "From behind the pitcher" : "From the catcher"}. The arrow is the way the spin moves the ball. Esc or a click outside closes it.</p>
-              </div>
-            </div>
-          );
+        {zoomBall && <SpinZoom list={spinStats} type={zoomBall} onType={setZoomBall} ctl={spinCtl} set={setSpinCtl} />}
+        {vid && BV && (() => {
+          const vs = sessionOf(vid.sid);
+          const describe = (no) => { const p = (vs.pitches || []).find((x) => x.no === no); return p ? [p.type || "Untagged", p.speed != null && `${p.speed} mph`, p.spin != null && `${p.spin} rpm`, p.ivb != null && `${p.ivb} IVB`, p.hb != null && `${p.hb} HB`, p.removed && "taken out", all && shortDate(vs.date)].filter(Boolean).join(" · ") : ""; };
+          return <BV.PitchVideo session={vs} no={vid.no} onNo={(no) => setVid({ sid: vid.sid, no })} onClose={() => setVid(null)} onChange={(v) => saveVideo(vid.sid, v)} describe={describe} />;
         })()}
         {pk && (
           <div className="bp-pick-pop" role="dialog" aria-label={`Pitch ${pk.no}`}>
@@ -869,6 +937,7 @@
             <p>{[pk.relHeight != null && `release ${ftIn(pk.relHeight)} high, ${ftIn(pk.relSide)} side`, pk.extension != null && `${ftIn(pk.extension)} ext.`].filter(Boolean).join(" · ")}</p>
             <label className="bp-pick-tag">Pitch type {tagSelect(pk.type || "", (v) => retag([pk.no], v, pk.sid), `Pitch ${pk.no} type`)}</label>
             <div className="bp-pick-actions">
+              {BV && BV.hasClip(sessionOf(pk.sid), pk.no) && <BV.CameraButton text="Watch" label={`Watch pitch ${pk.no}`} onClick={() => setVid({ sid: pk.sid, no: pk.no })} />}
               <button type="button" className="btn btn-secondary" onClick={() => removePitches([pk.no], pk.sid)}>Remove pitch</button>
               <button type="button" className="btn btn-secondary" onClick={() => setPicked(null)}>Close</button>
             </div>
@@ -922,8 +991,9 @@
       setBusy(false);
     };
     const remove = async (b) => {
-      const ok = await window.askConfirm({ title: `Delete the ${fmtDate(b.date)} bullpen?`, text: "Its pitches and notes are deleted. You can import the PDF again to get it back.", ok: "Delete", danger: true });
+      const ok = await window.askConfirm({ title: `Delete the ${fmtDate(b.date)} bullpen?`, text: b.video ? "Its pitches, notes and video are deleted. You can import the PDF again, but the video would need adding again too." : "Its pitches and notes are deleted. You can import the PDF again to get it back.", ok: "Delete", danger: true });
       if (!ok) return;
+      if (b.video && window.BullpenVideo) window.BullpenVideo.removeFiles(b.video);
       store.deleteAssessment(b.id);
       const l = refresh();
       if (selectedId === b.id) setSelectedId(l.length ? l[l.length - 1].id : null);
@@ -956,5 +1026,6 @@
   }
 
   window.BullpensTab = BullpensTab;
+  window.MlbArsenalPanel = MlbArsenal; // the Statcast tab's Savant arsenal, spin and comps (index.html)
   window.BullpenKit = { importReports, typeStats, resultText, FASTBALLS, livePitches };
 })();

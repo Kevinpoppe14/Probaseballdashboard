@@ -64,6 +64,7 @@
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script src="trackman_import.js"></script>
+<script type="text/babel" data-presets="react" src="bullpen_video.js"></script>
 <script type="text/babel" data-presets="react" src="bullpens.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
 <script type="text/babel" data-presets="react" src="throwing_progression.js"></script>
@@ -4063,7 +4064,7 @@ const HELP_SECTIONS = [
   {
     title: "Player profile tabs",
     items: [
-      "Player Plan, Programming, Statcast Metrics, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers (Pitching Assessment, Bullpens from TrackMan reports, and Throwing: their throwing programs and Throwing Progression) or Throwing Progression for everyone else, Training Log, and Remote Equipment Access for remote athletes.",
+      "Player Plan, Programming, Statcast Metrics (for pitchers, a tab under Pitching), Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers (Pitching Assessment, Bullpens from TrackMan reports with Edgertronic video, Statcast with their MLB arsenal, spin and comps, and Throwing: their throwing programs and Throwing Progression) or Throwing Progression for everyone else, Training Log, and Remote Equipment Access for remote athletes.",
       "Player Plan: contact info (with mobile, Text and Call), goals and the action plan, then the periodization timeline. Print / Save PDF and Email to Athlete for the plan are here.",
       "Programming: the same timeline with the Programming Workbook right under it: every phase's program, one tab per phase. See \"Programs on an athlete's plan\" below.",
       "Performance Metrics: force plate trends with a summary of what's moving, plus graphs of the performance tests from assessments once a test has two results.",
@@ -6992,7 +6993,7 @@ function ThrowingProgramsPanel({ athlete, onOpen }) {
 
 // the tabs grouped under Assessments on a player profile
 const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp"];
-const PITCHING_TABS = ["pitching", "bullpens", "throwing"]; // pitchers only: the Pitching tab (everyone else has Throwing Progression on its own)
+const PITCHING_TABS = ["pitching", "bullpens", "statcast", "throwing"]; // pitchers only: the Pitching tab (everyone else has Statcast and Throwing Progression on their own)
 const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan, and the meal log
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
@@ -7073,7 +7074,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       <div className="pill-tabs profile-tabs no-print">
         <button className={`pill-tab ${activeTab === "plan" ? "active" : ""}`} data-tab="plan" onClick={() => setActiveTab("plan")}>Player Plan</button>
         <button className={`pill-tab ${activeTab === "programming" ? "active" : ""}`} data-tab="programming" onClick={() => { setProgramOpen(null); setActiveTab("programming"); }}>Programming</button>
-        <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>
+        {/* a pitcher's Statcast is a tab under Pitching */}
+        {!isPitcher && <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast Metrics</button>}
         <button className={`pill-tab ${activeTab === "performance" ? "active" : ""}`} data-tab="performance" onClick={() => setActiveTab("performance")}>Performance Metrics</button>
         {/* Assessments: the biomechanical assessment, body composition and (for pitchers) the pitching assessment,
             each a tab of its own in the row underneath; it opens on whichever of them was open last */}
@@ -7096,9 +7098,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         </div>
       )}
       {isPitcher && PITCHING_TABS.includes(activeTab) && (
-        <div className="pill-tabs profile-subtabs no-print">
+        <div className="pill-tabs profile-subtabs section-tabs no-print" role="tablist">
           <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>
           <button className={`pill-tab ${activeTab === "bullpens" ? "active" : ""}`} data-tab="bullpens" onClick={() => setActiveTab("bullpens")}>Bullpens</button>
+          <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast</button>
           <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing</button>
         </div>
       )}
@@ -7141,6 +7144,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         />
         <MlbResearchPanel athlete={athlete} range={dataRange} />
         <MlbStatsPanel athlete={athlete} onChanged={onDataChange} />
+        {/* a pitcher's MLB arsenal with its results, spin and comps, straight from Savant (bullpens.js) */}
+        {isPitcher && extractMlbamId(athlete) && window.MlbArsenalPanel && activeTab === "statcast" && (
+          <div className="panel"><h2>MLB Arsenal, Spin &amp; Comps <small>Baseball Savant, by season</small></h2><window.MlbArsenalPanel athlete={athlete} mlbId={extractMlbamId(athlete)} full /></div>
+        )}
       </div>
 
       <div className={activeTab === "performance" ? "" : "tab-hidden"} data-tab-content="performance">
