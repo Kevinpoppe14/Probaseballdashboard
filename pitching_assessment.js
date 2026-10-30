@@ -40,7 +40,7 @@
       id: uid(), kind: "pitching", athleteId, date: todayKey(), coach: "", grade: "",
       checks: {}, // checkpoint key -> 1 (Good) .. 5 (Red Flag)
       injuryHistory: "",
-      pitches: PITCHES.map((name) => ({ name, ivb: "", hzb: "" })),
+      pitches: PITCHES.map((name) => ({ name, ivb: "", hzb: "", ext: "" })),
       primaryFocus: "", secondaryFocus: "", drills: ["", "", "", ""],
       velo: { initialPulldown: "", initialMound: "", exitPulldown: "", exitMound: "" },
       throwing: {}, // weekday -> what they typically throw that day
@@ -227,13 +227,14 @@
               <div className="pa-movement">
                 <MovementPlot pitches={rec.pitches} />
                 <table className="assess-table pa-pitches">
-                  <thead><tr><th>Pitch Selection</th><th>IVB</th><th>HZB Break</th></tr></thead>
+                  <thead><tr><th>Pitch Selection</th><th>IVB</th><th>HZB Break</th><th title="Extension at release, in feet">Ext. (ft)</th></tr></thead>
                   <tbody>
                     {rec.pitches.map((p, i) => (
                       <tr key={i}>
                         <td><span className="pa-dot" style={{ background: PITCH_COLORS[i] }} />{i >= 9 ? text(["pitches", i, "name"], { "aria-label": "Pitch name" }) : p.name}</td>
                         <td>{text(["pitches", i, "ivb"], { inputMode: "decimal", "aria-label": `${p.name} IVB` })}</td>
                         <td>{text(["pitches", i, "hzb"], { inputMode: "decimal", "aria-label": `${p.name} HZB` })}</td>
+                        <td>{text(["pitches", i, "ext"], { inputMode: "decimal", "aria-label": `${p.name} extension` })}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -290,7 +291,7 @@
     window.BullpenKit.typeStats(session).filter((s) => s.type !== "Untagged" && s.ivb != null && s.hb != null).forEach((s) => {
       const hit = SLOTS.find(([re]) => re.test(s.type));
       const slot = hit ? hit[1] : others.shift();
-      if (slot != null && !rows.some((r) => r.slot === slot)) rows.push({ slot, type: s.type, ivb: s.ivb, hb: s.hb });
+      if (slot != null && !rows.some((r) => r.slot === slot)) rows.push({ slot, type: s.type, ivb: s.ivb, hb: s.hb, ext: s.extension });
     });
     const fast = window.BullpenKit.typeStats(session).filter((s) => window.BullpenKit.FASTBALLS.test(s.type) && s.speedMax != null);
     const velo = fast.length ? Math.max(...fast.map((s) => s.speedMax)) : null;
@@ -304,7 +305,7 @@
     const [importing, setImporting] = useState(false);
     const [importMsg, setImportMsg] = useState("");
     // Import TrackMan PDF: the session is saved to Bullpens, then (when an assessment is open) its average IVB and HB
-    // by pitch type can go into the Pitch Movement table, and its top fastball velo into Initial Velo: Mound if empty
+    // (and extension) by pitch type can go into the Pitch Movement table, and its top fastball velo into Initial Velo: Mound if empty
     const importPdf = async (e) => {
       const files = [...(e.target.files || [])];
       e.target.value = "";
@@ -318,7 +319,7 @@
         if (fill.rows.length) {
           const ok = await window.askConfirm({
             title: "Fill in this assessment?",
-            text: `Put the ${fmtDate(session.date)} bullpen's average break into Pitch Movement (${fill.rows.map((r) => `${r.type} ${r.ivb} IVB / ${r.hb} HB`).join(", ")})${fill.velo != null ? `, and ${fill.velo} mph into Initial Velo: Mound if it's empty` : ""}? Numbers already there for those pitches are replaced.`,
+            text: `Put the ${fmtDate(session.date)} bullpen's average break and extension into Pitch Movement (${fill.rows.map((r) => `${r.type} ${r.ivb} IVB / ${r.hb} HB${r.ext != null ? ` / ${r.ext} ft ext.` : ""}`).join(", ")})${fill.velo != null ? `, and ${fill.velo} mph into Initial Velo: Mound if it's empty` : ""}? Numbers already there for those pitches are replaced.`,
             ok: "Fill it in",
           });
           if (ok) {
@@ -327,6 +328,7 @@
                 const p = r.pitches[row.slot];
                 if (!p) return;
                 p.ivb = String(row.ivb); p.hzb = String(row.hb);
+                if (row.ext != null) p.ext = String(row.ext);
                 if (row.slot >= 9) p.name = row.type;
               });
               if (fill.velo != null && !String(r.velo.initialMound || "").trim()) r.velo.initialMound = String(fill.velo);

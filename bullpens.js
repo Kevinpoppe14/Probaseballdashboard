@@ -145,7 +145,7 @@
   // and gyro (100% minus efficiency) split the axis between them: 100% efficient spins straight end over end toward the
   // tilt; a 40% slider is 60% gyro, mostly "bullet" spin, turning around the line it's thrown on. Far slower than life.
   const SEAM = (() => {
-    const a = 0.67, b = 0.33, c = 2 * Math.sqrt(a * b); // a + b = 1 keeps the curve on the ball; a smaller b opens up the horseshoes
+    const a = 0.71, b = 0.29, c = 2 * Math.sqrt(a * b); // a + b = 1 keeps the curve on the ball; a smaller b opens up the horseshoes
     const P = (t) => [a * Math.cos(t) + b * Math.cos(3 * t), a * Math.sin(t) - b * Math.sin(3 * t), c * Math.sin(2 * t)];
     const N = 3000, pts = [], len = [0];
     for (let i = 0; i <= N; i++) pts.push(P((i / N) * 2 * Math.PI));
@@ -292,6 +292,7 @@
         <div className="bp-ball-type" style={{ color: colorOf(s.type) }}>{s.type}</div>
         <canvas ref={ref} className={`bp-ball-canvas${onZoom ? " zoomable" : ""}`} style={{ width: size, height: size }} title={onZoom ? "Click to zoom in" : undefined} onClick={onZoom || undefined} role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}, ${isTwoSeam(s.type) ? "two" : "four"}-seam, ${ctl.pov === "pitcher" ? "pitcher's" : "catcher's"} view`} />
         <div className="bp-ball-stats">
+          {s.speedAvg != null && <b className="bp-ball-velo">{s.speedAvg} mph <small>avg</small></b>}
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
           <span>Tilt {s.tilt != null ? tiltText(s.tilt) : "–"}</span>
           <span>Spin eff. {s.spinEff != null ? `${s.spinEff}%` : "–"}{gyro != null ? ` · ${gyro}% gyro` : ""}</span>
@@ -355,7 +356,7 @@
   }
 
   // ---- comps: where each pitch sits among MLB pitchers (Baseball Savant) and DST's own bullpens ------------------
-  // For each pitch type in the session: its MLB percentile for velo, IVB, horizontal break, spin and release height
+  // For each pitch type in the session: its MLB percentile for velo, IVB, horizontal break, spin, release height and extension
   // (same pitch type, same throwing hand, one season), and the closest pitchers by that shape, MLB and DST together.
   // Savant's leaderboards are read straight from the browser and kept for the visit. Release side isn't matched:
   // Savant measures it from the pitcher's body and TrackMan from the middle of the rubber, so they differ by where
@@ -381,14 +382,19 @@
       pitchName: r.pitch_name, pitches: num(r.pitches), usage: num(r.pitch_usage), whiff: num(r.whiff_percent), putAway: num(r.put_away),
       xwoba: num(r.est_woba), hardHit: num(r.hard_hit_percent), rv100: num(r.run_value_per_100), rv: num(r.run_value),
     }])), () => new Map());
-  // every MLB pitcher who threw this pitch type that season: velo, IVB, HB, spin, release height, arm angle, and
+  // each pitcher's average extension with one pitch type that season (Savant's leaderboards leave it blank, so it comes
+  // from Statcast Search, grouped by pitcher: a few seconds per pitch type, kept for the visit), by id
+  const extensions = (code, year) => savantCsv(`https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=${code}%7C&hfSea=${year}%7C&hfGT=R%7C&player_type=pitcher&group_by=name&min_pitches=1&min_results=0&sort_col=pitches&sort_order=desc&chk_stats_release_extension=on`)
+    .then((rows) => new Map(rows.map((r) => [String(r.player_id), num(r.release_extension)])), () => new Map());
+  // every MLB pitcher who threw this pitch type that season: velo, IVB, HB, spin, release height, extension, arm angle, and
   // how the pitch did (res)
   async function mlbPitchers(codes, year) {
-    const [moves, spins, arms, ars] = await Promise.all([
+    const [moves, spins, arms, ars, exts] = await Promise.all([
       Promise.all(codes.map((c) => savantCsv(`${SAVANT}pitch-movement?year=${year}&team=&min=50&pitch_type=${c}&hand=&x=pitcher_break_x&z=pitcher_break_z_induced&csv=true`))),
       savantCsv(`${SAVANT}pitch-arsenals?year=${year}&min=50&type=avg_spin&hand=&csv=true`).catch(() => []),
       savantCsv(`${SAVANT}pitcher-arm-angles?batSide=&dateStart=${year}-03-01&dateEnd=${year}-11-30&gameType=R&groupBy=&min=50&minGroupPitches=1&perspective=back&pitchHand=&pitchType=&season=${year}&size=small&sort=ascending&team=&csv=true`).catch(() => []),
       arsenalStats(year),
+      Promise.all(codes.map((c) => extensions(c, year))),
     ]);
     const spinBy = new Map(spins.map((r) => [String(r.pitcher || r.player_id), r]));
     const armBy = new Map(arms.map((r) => [String(r.pitcher), r]));
@@ -402,6 +408,7 @@
         velo: num(r.avg_speed), ivb: num(r.pitcher_break_z_induced), hb: num(r.pitcher_break_x),
         spin: sp ? num(sp[`${code.toLowerCase()}_avg_spin`] || (code === "KC" ? sp.cu_avg_spin : null)) : null,
         relHeight: arm ? num(arm.release_ball_z) : null, armAngle: arm ? num(arm.ball_angle) : null,
+        ext: exts[i].get(id) || null,
         res: ars.get(`${id}|${code}`) || null,
       });
     }));
@@ -461,11 +468,11 @@
       const st = typeStats({ pitches: all.flatMap(livePitches) }).find((s) => { const c = codesOf(s.type); return c && c.some((x) => codes.includes(x)); });
       if (!st) return;
       const code = codesOf(st.type).find((x) => codes.includes(x));
-      out.push({ id: `dst-${a.id}`, name: a.name, team: "DST", hand: a.throws || "", dst: true, mlbamId: a.mlbamId || null, code, velo: st.speedAvg, ivb: st.ivb, hb: st.hb, spin: st.spinAvg, relHeight: st.relHeight, armAngle: null });
+      out.push({ id: `dst-${a.id}`, name: a.name, team: "DST", hand: a.throws || "", dst: true, mlbamId: a.mlbamId || null, code, velo: st.speedAvg, ivb: st.ivb, hb: st.hb, spin: st.spinAvg, relHeight: st.relHeight, ext: st.extension, armAngle: null });
     });
     return out;
   }
-  const FEATURES = [["velo", 1.5], ["ivb", 2], ["hb", 2], ["spin", 120], ["relHeight", 0.35]]; // what a mile, an inch, a foot is worth
+  const FEATURES = [["velo", 1.5], ["ivb", 2], ["hb", 2], ["spin", 120], ["relHeight", 0.35], ["ext", 0.35]]; // what a mile, an inch, a foot is worth
   const matchOf = (me, p) => {
     let sum = 0, n = 0;
     FEATURES.forEach(([k, scale]) => { if (me[k] != null && p[k] != null) { sum += ((me[k] - p[k]) / scale) ** 2; n++; } });
@@ -529,7 +536,7 @@
           const dst = dstPitchers(athlete, codes).filter((p) => !p.hand || p.hand === h)
             .map((p) => ({ ...p, res: p.mlbamId ? codes.map((c) => ars.get(`${p.mlbamId}|${c}`)).find(Boolean) || null : null }));
           const pool = [...mlb, ...dst];
-          const me = { velo: s.speedAvg, ivb: s.ivb, hb: s.hb, spin: s.spinAvg, relHeight: s.relHeight };
+          const me = { velo: s.speedAvg, ivb: s.ivb, hb: s.hb, spin: s.spinAvg, relHeight: s.relHeight, ext: s.extension };
           const comps = pool.map((p) => ({ ...p, match: matchOf(me, p) })).filter((p) => p.match != null).sort((a, b) => b.match - a.match).slice(0, 6);
           const resPool = mlb.map((p) => p.res);
           const meMlb = myId ? d.list.find((p) => p.id === myId) : null;
@@ -542,7 +549,7 @@
             const p = goodPct(v, resPool.map((r) => (r ? r[k] : null)), good);
             return `${label} ${fmt(k === "xwoba" ? v : Math.round(v * 10) / 10)}${p != null ? ` (${ordinal(p)} pct.)` : ""}`;
           }).filter(Boolean) : [];
-          const pcts = [["Velo", pctOf(me.velo, mlb.map((p) => p.velo)), `${show(me.velo)} mph`], ["IVB", pctOf(me.ivb, mlb.map((p) => p.ivb)), `${show(me.ivb)} in`], ["Arm-side run", pctOf(me.hb, mlb.map((p) => p.hb)), `${show(me.hb)} in`], ["Spin", pctOf(me.spin, mlb.map((p) => p.spin)), `${show(me.spin)} rpm`], ["Release ht", pctOf(me.relHeight, mlb.map((p) => p.relHeight)), ftIn(me.relHeight)]];
+          const pcts = [["Velo", pctOf(me.velo, mlb.map((p) => p.velo)), `${show(me.velo)} mph`], ["IVB", pctOf(me.ivb, mlb.map((p) => p.ivb)), `${show(me.ivb)} in`], ["Arm-side run", pctOf(me.hb, mlb.map((p) => p.hb)), `${show(me.hb)} in`], ["Spin", pctOf(me.spin, mlb.map((p) => p.spin)), `${show(me.spin)} rpm`], ["Release ht", pctOf(me.relHeight, mlb.map((p) => p.relHeight)), ftIn(me.relHeight)], ["Extension", pctOf(me.ext, mlb.map((p) => p.ext)), ftIn(me.ext)]];
           return (
             <div key={s.type} className="bp-comp-type">
               <h4><span className="bp-dot" style={{ background: colorOf(s.type) }} />{s.type} <small>vs {season} {h === "L" ? "left" : "right"}-handed {codes.join("/")}s{mlb.length ? ` (${mlb.length} MLB pitchers)` : ""}</small></h4>
@@ -560,16 +567,16 @@
                   {comps.length > 0 ? (
                     <div className="bp-table-wrap">
                       <table className="assess-table bp-table bp-comp-table">
-                        <thead><tr><th>Closest</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Arm angle</th><th>Match</th>{resHeads()}</tr></thead>
+                        <thead><tr><th>Closest</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Ext.</th><th>Arm angle</th><th>Match</th>{resHeads()}</tr></thead>
                         <tbody>
-                          <tr className="bp-comp-me"><td>{athlete.name} <small>{fromMlb ? `${season} MLB games` : "this session"}</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>–</td><td></td>{fromMlb ? resCells(s.res, resPool) : RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}</tr>
+                          <tr className="bp-comp-me"><td>{athlete.name} <small>{fromMlb ? `${season} MLB games` : "this session"}</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>{ftIn(me.ext)}</td><td>–</td><td></td>{fromMlb ? resCells(s.res, resPool) : RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}</tr>
                           {meMlb && !fromMlb && (
-                            <tr className="bp-comp-me"><td>{athlete.name} <small>{season} MLB games</small></td><td>{show(meMlb.velo)}</td><td>{show(meMlb.ivb)}</td><td>{show(meMlb.hb)}</td><td>{show(meMlb.spin)}</td><td>{ftIn(meMlb.relHeight)}</td><td>{meMlb.armAngle != null ? `${meMlb.armAngle}°` : "–"}</td><td></td>{resCells(meMlb.res, resPool)}</tr>
+                            <tr className="bp-comp-me"><td>{athlete.name} <small>{season} MLB games</small></td><td>{show(meMlb.velo)}</td><td>{show(meMlb.ivb)}</td><td>{show(meMlb.hb)}</td><td>{show(meMlb.spin)}</td><td>{ftIn(meMlb.relHeight)}</td><td>{ftIn(meMlb.ext)}</td><td>{meMlb.armAngle != null ? `${meMlb.armAngle}°` : "–"}</td><td></td>{resCells(meMlb.res, resPool)}</tr>
                           )}
                           {comps.map((p) => (
                             <tr key={p.id}>
                               <td>{p.dst ? p.name : <a href={`https://baseballsavant.mlb.com/savant-player/${p.id}`} target="_blank" rel="noopener noreferrer">{p.name}</a>}{p.dst ? <span className="bp-dst-tag">DST</span> : <small> {p.team}</small>}</td>
-                              <td>{show(p.velo)}</td><td>{show(p.ivb)}</td><td>{show(p.hb)}</td><td>{show(p.spin)}</td><td>{ftIn(p.relHeight)}</td><td>{p.armAngle != null ? `${p.armAngle}°` : "–"}</td><td><b>{p.match}%</b></td>{resCells(p.res, resPool)}
+                              <td>{show(p.velo)}</td><td>{show(p.ivb)}</td><td>{show(p.hb)}</td><td>{show(p.spin)}</td><td>{ftIn(p.relHeight)}</td><td>{ftIn(p.ext)}</td><td>{p.armAngle != null ? `${p.armAngle}°` : "–"}</td><td><b>{p.match}%</b></td>{resCells(p.res, resPool)}
                             </tr>
                           ))}
                         </tbody>
@@ -582,7 +589,7 @@
             </div>
           );
         })}
-        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin and release height together. Release side and VAA aren't compared: Savant measures release side from the pitcher's body rather than the rubber, and doesn't publish VAA by pitcher. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
+        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height and extension together. Release side and VAA aren't compared: Savant measures release side from the pitcher's body rather than the rubber, and doesn't publish VAA by pitcher. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
       </div>
     );
   }
@@ -606,7 +613,7 @@
     const total = st.rows.reduce((n, r) => n + (r.res.pitches || 0), 0);
     // the arsenal as pitch types, the way the balls and comps take a bullpen's
     const asTypes = st.rows.filter((r) => CODE_TYPE[r.code]).map((r) => ({
-      type: CODE_TYPE[r.code], qty: r.res.pitches, speedAvg: r.velo, ivb: r.ivb, hb: r.hb, spinAvg: r.spin != null ? Math.round(r.spin) : r.spinRate, relHeight: r.relHeight,
+      type: CODE_TYPE[r.code], qty: r.res.pitches, speedAvg: r.velo, ivb: r.ivb, hb: r.hb, spinAvg: r.spin != null ? Math.round(r.spin) : r.spinRate, relHeight: r.relHeight, extension: r.ext,
       tilt: r.tilt, spinEff: r.spinEff, res: r.res,
     }));
     const balls = asTypes.filter((s) => s.spinAvg != null);
@@ -624,12 +631,12 @@
           : st.rows.length > 0 && (
             <div className="bp-table-wrap">
               <table className="assess-table bp-table bp-comp-table">
-                <thead><tr><th>Pitch</th><th>Pitches</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th>{resHeads()}</tr></thead>
+                <thead><tr><th>Pitch</th><th>Pitches</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Ext.</th>{resHeads()}</tr></thead>
                 <tbody>
                   {st.rows.map((r) => (
                     <tr key={r.code}>
                       <td><span className="bp-dot" style={{ background: colorOf(CODE_TYPE[r.code]) }} />{r.res.pitchName || r.code}</td>
-                      <td>{show(r.res.pitches)}</td><td>{show(r.velo)}</td><td>{show(r.ivb)}</td><td>{show(r.hb)}</td><td>{show(r.spin)}</td>{resCells(r.res, r.pool)}
+                      <td>{show(r.res.pitches)}</td><td>{show(r.velo)}</td><td>{show(r.ivb)}</td><td>{show(r.hb)}</td><td>{show(r.spin)}</td><td>{ftIn(r.ext)}</td>{resCells(r.res, r.pool)}
                     </tr>
                   ))}
                 </tbody>
