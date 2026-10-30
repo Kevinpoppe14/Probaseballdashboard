@@ -278,21 +278,21 @@
       decalMaps.script = alphaMap(600, 235, (g, w) => {
         g.textAlign = "left";
         g.font = "190px Yellowtail, 'Brush Script MT', cursive";
-        // a heavier pen than the font's own: the same letters, outlined in ink as well as filled; set to the right, to
-        // leave room for the P's loop
-        const tw = g.measureText("Pitching").width, k = Math.min(1, 500 / tw), x0 = w - tw * k - 30, base = 175;
-        g.save(); g.translate(x0, base); g.scale(k, 1);
+        // "itching" in the script, with a heavier pen than the font's own (outlined in ink as well as filled), set to
+        // the right of a P drawn by hand
+        const word = "itching", pW = 150, base = 178;
+        const tw = g.measureText(word).width, k = Math.min(1, (530 - pW) / tw), xi = w - tw * k - 20;
+        g.save(); g.translate(xi, base); g.scale(k, 1);
         g.lineWidth = 5; g.lineJoin = "round"; g.strokeStyle = g.fillStyle;
-        g.strokeText("Pitching", 0, 0); g.fillText("Pitching", 0, 0);
+        g.strokeText(word, 0, 0); g.fillText(word, 0, 0);
         g.restore();
-        // a loop on the P like the one on Rawlings' R: out from the top of its bowl to the left, round, and back across
-        const L = x0 + 27 * k;
-        g.lineCap = "round"; g.lineWidth = 9; g.beginPath();
-        g.moveTo(L + 75, base - 130);
-        g.bezierCurveTo(L + 20, base - 140, L - 55, base - 115, L - 40, base - 80);
-        g.bezierCurveTo(L - 28, base - 50, L + 30, base - 62, L + 25, base - 95);
-        g.bezierCurveTo(L + 20, base - 120, L - 20, base - 120, L - 30, base - 105);
-        g.stroke();
+        // the P, built like Rawlings' R: its whole left side one big slanted loop, the bowl off the top of it. A broad
+        // pen: each stroke twice, a little apart side to side, so uprights come out thick and the turns thin.
+        const px = xi - pW + 10;
+        g.lineCap = "round"; g.lineJoin = "round";
+        const pen = (draw) => [-4, 4].forEach((dx) => { g.save(); g.translate(dx, 0); g.lineWidth = 10; g.beginPath(); draw(); g.stroke(); g.restore(); });
+        pen(() => { g.save(); g.translate(px + 40, base - 72); g.rotate(-0.32); g.ellipse(0, 0, 40, 74, 0, Math.PI * 1.62, Math.PI * 3.45); g.restore(); });
+        pen(() => { g.moveTo(px + 52, base - 140); g.bezierCurveTo(px + 120, base - 150, px + 170, base - 128, px + 150, base - 98); g.bezierCurveTo(px + 132, base - 72, px + 90, base - 70, px + 66, base - 80); });
       });
       decalMaps.plate = alphaMap(440, 240, (g, w, h) => {
         const rr = 26;
