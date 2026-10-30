@@ -214,9 +214,9 @@
     return { d: [up[0] * Math.sin(a), up[1] * Math.sin(a), Math.cos(a)], R: across, U: [up[0] * Math.cos(a), up[1] * Math.cos(a), -Math.sin(a)], hw, hh };
   };
   const DECALS = [
-    { ...placed(0, 0.6, 0.373), key: "stamp" },
-    { ...placed(53, 0.46, 0.18), key: "script" },
-    { ...placed(-53, 0.29, 0.158), key: "plate" },
+    { ...placed(0, 0.46, 0.286), key: "stamp" },
+    { ...placed(56, 0.44, 0.172), key: "script" },
+    { ...placed(-56, 0.29, 0.158), key: "plate" },
   ];
   const decalMaps = {}; // key -> { w, h, a: alpha 0..1 }, once the fonts and logo are in
   const alphaMap = (w, h, draw) => {
@@ -387,30 +387,42 @@
     paintDecals(ctx, size, M, mirror);
     const X = (v) => cx + v[0] * r, Y = (v) => cy - v[1] * r;
     const off = (p, S, t, a, b) => [p[0] + S[0] * a + t[0] * b, p[1] + S[1] * a + t[1] * b, p[2] + S[2] * a + t[2] * b];
-    // the seam's two edges in the leather
+    // the seam: one groove in the leather, where the two pieces meet
     ctx.lineCap = "round";
-    [0.022, -0.022].forEach((w) => {
-      ctx.beginPath();
-      let pen = false;
-      SEAM.line.forEach(({ p, t, S }) => {
-        if (app(M, p)[2] < 0.02) { pen = false; return; }
-        const q = app(M, off(p, S, t, w, 0));
-        if (pen) ctx.lineTo(X(q), Y(q)); else { ctx.moveTo(X(q), Y(q)); pen = true; }
-      });
-      ctx.strokeStyle = "rgba(150, 140, 125, 0.55)"; ctx.lineWidth = Math.max(0.6, r * 0.014); ctx.stroke();
+    ctx.beginPath();
+    let pen = false;
+    SEAM.line.forEach(({ p }) => {
+      const q = app(M, p);
+      if (q[2] < 0.02) { pen = false; return; }
+      if (pen) ctx.lineTo(X(q), Y(q)); else { ctx.moveTo(X(q), Y(q)); pen = true; }
     });
-    // the stitches: a red slash each side of the seam, angled into a herringbone
-    ctx.lineWidth = Math.max(1, r * 0.04);
+    ctx.strokeStyle = "rgba(110, 92, 78, 0.6)"; ctx.lineWidth = Math.max(0.6, r * 0.012); ctx.stroke();
+    // the stitches: a red slash each side of the groove, meeting it in a herringbone, raised off the leather (a shadow
+    // below and to the right, away from the light, and a glint on top). Drawn in a few batches by how far round the
+    // ball each one is (they fade toward the edge).
+    const segs = [];
     SEAM.stitches.forEach(({ p, t, S }) => {
       const z = app(M, p)[2];
       if (z < 0.03) return;
       const alpha = Math.min(1, z * 4) * (0.7 + 0.3 * z);
-      ctx.strokeStyle = `rgba(196, 30, 42, ${alpha.toFixed(3)})`;
       [1, -1].forEach((side) => {
-        const a = app(M, off(p, S, t, side * 0.115, -0.035)), b = app(M, off(p, S, t, side * 0.035, 0.025));
-        ctx.beginPath(); ctx.moveTo(X(a), Y(a)); ctx.lineTo(X(b), Y(b)); ctx.stroke();
+        const a = app(M, off(p, S, t, side * 0.115, -0.035)), b = app(M, off(p, S, t, side * 0.012, 0.025));
+        segs.push([X(a), Y(a), X(b), Y(b), Math.max(1, Math.ceil(alpha * 5))]);
       });
     });
+    const lw = Math.max(1, r * 0.042);
+    const pass = (dx, dy, width, style) => {
+      for (let k = 1; k <= 5; k++) {
+        ctx.beginPath();
+        let any = false;
+        segs.forEach((s) => { if (s[4] !== k) return; any = true; ctx.moveTo(s[0] + dx, s[1] + dy); ctx.lineTo(s[2] + dx, s[3] + dy); });
+        if (!any) continue;
+        ctx.lineWidth = width; ctx.strokeStyle = style(k / 5); ctx.stroke();
+      }
+    };
+    pass(r * 0.012, r * 0.018, lw * 1.3, (a) => `rgba(60, 25, 20, ${(0.3 * a).toFixed(3)})`);
+    pass(0, 0, lw, (a) => `rgba(165, 20, 32, ${a.toFixed(3)})`);
+    pass(-r * 0.006, -r * 0.009, lw * 0.4, (a) => `rgba(255, 150, 150, ${(0.4 * a).toFixed(3)})`);
     // a soft rim
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.strokeStyle = "rgba(0, 0, 0, 0.28)"; ctx.lineWidth = 1; ctx.stroke();
     // which way the spin moves the ball, as seen from this side, just outside the ball
