@@ -424,16 +424,18 @@
 
   // ---- drawing ---------------------------------------------------------------------------------------------------
   const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 29], [29, 31], [27, 31], [28, 30], [30, 32], [28, 32]];
-  function drawSkeleton(ctx, q, sx, sy, throws) {
+  // `hidden`: joints not to draw (an arm behind the body, where the model only guesses), and the lines to them
+  function drawSkeleton(ctx, q, sx, sy, throws, hidden) {
     const S = sidesOf(throws), arm = new Set([S.arm.sh, S.arm.el, S.arm.wr]), lead = new Set(Object.values(S.lead));
     ctx.lineCap = "round";
     BONES.forEach(([a, b]) => {
+      if (hidden && (hidden.has(a) || hidden.has(b))) return;
       ctx.strokeStyle = arm.has(a) && arm.has(b) ? "#ff4d5e" : lead.has(a) && lead.has(b) ? "#3fa7ff" : "rgba(255,255,255,0.9)";
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(q[a][0] * sx, q[a][1] * sy); ctx.lineTo(q[b][0] * sx, q[b][1] * sy); ctx.stroke();
     });
     ctx.fillStyle = "#fff";
-    [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach((i) => { ctx.beginPath(); ctx.arc(q[i][0] * sx, q[i][1] * sy, 3.5, 0, 2 * Math.PI); ctx.fill(); });
+    [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach((i) => { if (hidden && hidden.has(i)) return; ctx.beginPath(); ctx.arc(q[i][0] * sx, q[i][1] * sy, 3.5, 0, 2 * Math.PI); ctx.fill(); });
   }
   const setupName = (s) => (s === "two" ? "Two cameras" : s === "edger" ? "Edgertronic" : "One camera");
   const EV_LABEL = { LL: "Leg lift", FS: "Foot strike", MER: "Max layback", BR: "Release" };
@@ -775,11 +777,27 @@
       // Fix points: the joints that can be dragged, with a letter each
       const HANDLES = [[P.nose, "N"], [P.lSh, "S"], [P.rSh, "S"], [P.lEl, "E"], [P.rEl, "E"], [P.lWr, "W"], [P.rWr, "W"], [P.lHip, "H"], [P.rHip, "H"], [P.lKn, "K"], [P.rKn, "K"], [P.lAn, "A"], [P.rAn, "A"]];
       let drag = null; // { j, x, y } in video pixels while a dot is moved
+      // an arm the model can't see (behind the body, in the follow-through) isn't drawn: where it says it can't see the
+      // elbow or wrist, or the upper arm or forearm stretches far from its usual length, those lines are left out
+      // (a dot moved by hand always shows)
+      const ARMS = [[P.lSh, P.lEl, P.lWr], [P.rSh, P.rEl, P.rWr]];
+      const segLen = (q, a, b) => Math.hypot(q[a][0] - q[b][0], q[a][1] - q[b][1]);
+      const usual = ARMS.map(([sh, el, wr]) => [[sh, el], [el, wr]].map(([a, b]) => { const ls = R.pts.map((q) => segLen(q, a, b)).sort((x, y) => x - y); return ls[Math.floor(ls.length / 2)] || 1; }));
+      const hiddenAt = (i) => {
+        const raw = tr.frames[i] && tr.frames[i].p, moved = (state.edits && state.edits[i]) || {}, out = new Set();
+        ARMS.forEach(([sh, el, wr], s) => {
+          const unseen = (j) => !moved[j] && (!raw || raw[j][2] < 0.5);
+          const odd = (a, b, u) => { const l = segLen(R.pts[i], a, b); return l > u * 1.6 || l < u * 0.35; };
+          if (unseen(el) || odd(sh, el, usual[s][0])) { if (!moved[el]) out.add(el); if (!moved[wr]) out.add(wr); }
+          else if (unseen(wr) || odd(el, wr, usual[s][1])) { if (!moved[wr]) out.add(wr); }
+        });
+        return out.size ? out : null;
+      };
       const pointsAt = (i) => { const q = R.pts[i].map((p) => p.slice()); if (drag) q[drag.j] = [drag.x, drag.y, 1]; return q; };
       const draw = (i) => {
         ctx.drawImage(still, 0, 0);
         const q = pointsAt(i);
-        drawSkeleton(ctx, q, k, k, state.throws);
+        drawSkeleton(ctx, q, k, k, state.throws, state.fixing ? null : hiddenAt(i)); // every dot shows while fixing
         if (state.fixing) {
           const sides = sidesOf(state.throws), armSet = new Set([sides.arm.sh, sides.arm.el, sides.arm.wr]);
           const moved = (state.edits && state.edits[i]) || {};
@@ -857,7 +875,7 @@
         HANDLES.forEach(([j]) => { const d = Math.hypot(q[j][0] - x, q[j][1] - y) * k; if (d < 24 && (!best || d < best.d)) best = { j, d }; });
         if (!best) return;
         e.preventDefault();
-        canvas.setPointerCapture(e.pointerId);
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* the drag still works without it */ }
         drag = { j: best.j, x, y };
         draw(state.frame || 0);
       });
