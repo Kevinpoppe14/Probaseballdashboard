@@ -35,15 +35,15 @@
       if (!pitchers) {
         const rows = [];
         for (let from = 0; ; from += 1000) {
-          const { data: page, error } = await sb.from("athletes").select("id, name:data->>name, status:data->>status, position:data->>position, throws:data->>throws, email:data->>email, group:data->>rosterGroup").range(from, from + 999);
+          const { data: page, error } = await sb.from("athletes").select("id, name:data->>name, status:data->>status, position:data->>position, throws:data->>throws, bats:data->>bats, email:data->>email, group:data->>rosterGroup").range(from, from + 999);
           if (error) throw error;
           rows.push(...page);
           if (page.length < 1000) break;
         }
-        pitchers = rows.filter((p) => (p.status || "active").toLowerCase() === "active" && (/pitcher/i.test(p.position || "") || p.group === "coaches") && (p.name || "").trim())
+        pitchers = rows.filter((p) => (p.status || "active").toLowerCase() === "active" && (p.name || "").trim())
           .sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
       }
-      pick();
+      chooseKind();
     } catch (e) { sheet(el("h2", null, "Motion Capture"), note("Couldn't load the pitchers. Check your connection and try again.")); }
   }
 
@@ -62,18 +62,30 @@
       el("form", { class: "qa-signin", onsubmit: go }, email, password, msg, el("div", { class: "swap-actions" }, el("button", { class: "primary", type: "submit" }, "Sign in"))));
   }
 
-  // which pitcher: type a few letters
+  // which movement: pitching (pitchers and coaches), hitting, a sprint or a jump (anyone)
+  const KINDS = [["pitching", "Pitching", "a delivery"], ["hitting", "Hitting", "a swing"], ["sprint", "Sprint", "a start or a fly sprint"], ["jump", "Jump", "a jump"]];
+  let kind = "pitching";
+  function chooseKind() {
+    sheet(el("h2", null, "Motion Capture"), note("What are you filming?"),
+      el("div", { class: "qa-list" }, KINDS.filter(([k]) => k === "pitching" || (window.MoCap && window.MoCap.kinds && window.MoCap.kinds[k])).map(([k, label, what]) =>
+        el("button", { class: "qa-row", onclick: () => { kind = k; pick(); } }, el("b", null, label), el("small", null, ` · ${what}`)))));
+  }
+  // who: type a few letters
   function pick() {
+    const [, label, what] = KINDS.find(([k]) => k === kind);
+    const who = kind === "pitching" ? "pitcher or coach" : "athlete";
+    const pool = kind === "pitching" ? pitchers.filter((p) => /pitcher/i.test(p.position || "") || p.group === "coaches") : pitchers;
     const results = el("div", { class: "qa-list" });
-    const search = el("input", { type: "search", placeholder: "Search for a pitcher or coach", "aria-label": "Search for a pitcher or coach", autocomplete: "off" });
+    const search = el("input", { type: "search", placeholder: `Search for a ${who}`, "aria-label": `Search for a ${who}`, autocomplete: "off" });
     const show = () => {
       const q = search.value.trim().toLowerCase();
-      const hits = (q ? pitchers.filter((p) => p.name.toLowerCase().includes(q)) : pitchers).slice(0, q ? 12 : 8);
+      const hits = (q ? pool.filter((p) => p.name.toLowerCase().includes(q)) : pool).slice(0, q ? 12 : 8);
       results.replaceChildren(...hits.map((p) => el("button", { class: "qa-row", onclick: () => capture(p) }, lastFirst(p.name))),
-        ...(q && !hits.length ? [el("div", { class: "qa-empty" }, "No active pitcher or coach matches that.")] : []));
+        ...(q && !hits.length ? [el("div", { class: "qa-empty" }, `No active ${who} matches that.`)] : []));
     };
     search.addEventListener("input", show);
-    sheet(el("h2", null, "Motion Capture"), note("Film a delivery in slow motion (tips on the next screen) and get his mechanics in numbers. Who is it?"), search, results);
+    sheet(el("h2", null, `Motion Capture: ${label}`), note(`Film ${what} in slow motion (tips on the next screen) and get the mechanics in numbers. Who is it?`),
+      el("button", { class: "qa-row", onclick: chooseKind }, "‹ Another movement"), search, results);
     show();
     setTimeout(() => search.focus(), 50);
   }
@@ -83,7 +95,7 @@
     ctx.close();
     const box = el("div");
     const layer = el("div", { class: "mc-app-layer" },
-      el("div", { class: "mc-app-bar" }, el("button", { class: "mc-app-back", onclick: () => { layer.remove(); document.body.classList.remove("mc-app-open"); open({}); } }, "‹ Pitchers"),
+      el("div", { class: "mc-app-bar" }, el("button", { class: "mc-app-back", onclick: () => { layer.remove(); document.body.classList.remove("mc-app-open"); open({}); } }, "‹ Back"),
         el("button", { class: "mc-app-close", "aria-label": "Close", onclick: () => { layer.remove(); document.body.classList.remove("mc-app-open"); } }, "×")),
       box);
     document.body.append(layer);
@@ -94,7 +106,7 @@
     box.replaceChildren();
     if (!window.MoCap) { box.append(note("Motion capture didn't load. Reload the page.")); return; }
     window.MoCap.mount(box, {
-      athlete: { id: String(p.id), name: p.name, throws: p.throws || "", email: p.email || "" },
+      kind, athlete: { id: String(p.id), name: p.name, throws: p.throws || "", bats: p.bats || "", email: p.email || "" },
       history: () => history,
       onSave: async (rec) => {
         // the dashboard keeps an athlete's id as a number inside each record

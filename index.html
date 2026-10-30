@@ -66,6 +66,7 @@
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script src="trackman_import.js"></script>
 <script src="mocap.js"></script>
+<script src="mocap_kinds.js"></script>
 <script type="text/babel" data-presets="react" src="bullpen_video.js"></script>
 <script type="text/babel" data-presets="react" src="bullpens.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
@@ -6996,7 +6997,8 @@ function ThrowingProgramsPanel({ athlete, onOpen }) {
 // the tabs grouped under Assessments on a player profile
 const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp"];
 const PITCHING_TABS = ["pitching", "bullpens", "design", "mocap", "statcast", "throwing"]; // pitchers only: the Pitching tab
-const HITTING_TABS = ["statcast", "throwing"]; // everyone else: the Hitting / Fielding tab, their Statcast and Throwing Progression
+const HITTING_TABS = ["statcast", "throwing", "hitmocap"]; // everyone else: the Hitting / Fielding tab, their Statcast, Throwing Progression and swing motion capture
+const MOVEMENT_TABS = ["sprint", "jump"]; // everyone: the Movement tab, sprint and jump motion capture
 const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan, and the meal log
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
@@ -7005,7 +7007,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   const isPitcher = (() => { const p = getPeople().find((a) => a.id === athleteId) || {}; return (p.position || "") === "Pitcher" || p.rosterGroup === COACH_ROSTER_GROUP; })();
   // (likewise Equipment Access, which only exists for DST Remote Training athletes)
   const isRemote = ((getPeople().find((a) => a.id === athleteId) || {}).dstLocation || "") === "DST Remote Training";
-  const activeTab = ((tab === "pitching" || tab === "bullpens" || tab === "design" || tab === "mocap") && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
+  const activeTab = ((tab === "pitching" || tab === "bullpens" || tab === "design" || tab === "mocap") && !isPitcher) || (tab === "hitmocap" && isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [programOpen, setProgramOpen] = useState(null); // { laneId, blockId } to open the Programming tab at, from the plan
@@ -7016,6 +7018,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   React.useEffect(() => { if (PITCHING_TABS.includes(activeTab)) setLastPitchTab(activeTab); }, [activeTab]);
   const [lastHitTab, setLastHitTab] = useState("statcast"); // and for the Hitting / Fielding tab
   React.useEffect(() => { if (HITTING_TABS.includes(activeTab)) setLastHitTab(activeTab); }, [activeTab]);
+  const [lastMoveTab, setLastMoveTab] = useState("sprint"); // and for the Movement tab
+  React.useEffect(() => { if (MOVEMENT_TABS.includes(activeTab)) setLastMoveTab(activeTab); }, [activeTab]);
   const [dataRange, setDataRange] = useState("all"); // date range for the Statcast tab
   const [perfRange, setPerfRange] = useState("1y"); // date range for the Performance Metrics tab's charts — defaults to last year rather than All-Time so the charts aren't overwhelmed on first look
   const athlete = getPeople().find((a) => a.id === athleteId);
@@ -7091,6 +7095,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         {isPitcher
           ? <button className={`pill-tab ${PITCHING_TABS.includes(activeTab) ? "active" : ""}`} data-tab="pitching-group" onClick={() => setActiveTab(PITCHING_TABS.includes(lastPitchTab) ? lastPitchTab : "pitching")}>Pitching</button>
           : <button className={`pill-tab ${HITTING_TABS.includes(activeTab) ? "active" : ""}`} data-tab="hitting-group" onClick={() => setActiveTab(HITTING_TABS.includes(lastHitTab) ? lastHitTab : "statcast")}>Hitting / Fielding</button>}
+        {/* Movement, for everyone: sprint and jump motion capture, in the row underneath */}
+        <button className={`pill-tab ${MOVEMENT_TABS.includes(activeTab) ? "active" : ""}`} data-tab="movement-group" onClick={() => setActiveTab(MOVEMENT_TABS.includes(lastMoveTab) ? lastMoveTab : "sprint")}>Movement</button>
         <button className={`pill-tab ${activeTab === "log" ? "active" : ""}`} data-tab="log" onClick={() => setActiveTab("log")}>Training Log</button>
         {/* remote athletes only: what they have to train with, which their programs are checked against */}
         {isRemote && <button className={`pill-tab ${activeTab === "equipment" ? "active" : ""}`} data-tab="equipment" onClick={() => setActiveTab("equipment")}>Remote Equipment Access</button>}
@@ -7116,6 +7122,13 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <div className="pill-tabs profile-subtabs section-tabs no-print">
           <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast</button>
           <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
+          <button className={`pill-tab ${activeTab === "hitmocap" ? "active" : ""}`} data-tab="hitmocap" onClick={() => setActiveTab("hitmocap")}>Motion Capture</button>
+        </div>
+      )}
+      {MOVEMENT_TABS.includes(activeTab) && (
+        <div className="pill-tabs profile-subtabs section-tabs no-print">
+          <button className={`pill-tab ${activeTab === "sprint" ? "active" : ""}`} data-tab="sprint" onClick={() => setActiveTab("sprint")}>Sprint</button>
+          <button className={`pill-tab ${activeTab === "jump" ? "active" : ""}`} data-tab="jump" onClick={() => setActiveTab("jump")}>Jump</button>
         </div>
       )}
       {NUTRITION_TABS.includes(activeTab) && (
@@ -7215,6 +7228,9 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       {isPitcher && activeTab === "design" && window.PitchDesignTab && <window.PitchDesignTab athlete={athlete} mlbId={extractMlbamId(athlete)} />}
       {/* pitching mechanics from phone video (mocap.js, mounted by bullpens.js) */}
       {isPitcher && activeTab === "mocap" && window.MoCapTab && <window.MoCapTab athlete={athlete} />}
+      {!isPitcher && activeTab === "hitmocap" && window.MoCapTab && <window.MoCapTab key="hitting" athlete={athlete} kind="hitting" />}
+      {activeTab === "sprint" && window.MoCapTab && <window.MoCapTab key="sprint" athlete={athlete} kind="sprint" />}
+      {activeTab === "jump" && window.MoCapTab && <window.MoCapTab key="jump" athlete={athlete} kind="jump" />}
       <div className={activeTab === "throwing" ? "" : "tab-hidden"}>
         {isPitcher && <ThrowingProgramsPanel athlete={athlete} onOpen={(nav) => { setProgramOpen(nav); setActiveTab("programming"); }} />}
         {window.ThrowingProgressionTab && <window.ThrowingProgressionTab athlete={athlete} />}

@@ -466,11 +466,15 @@
   const SWAP = [[1, 4], [2, 5], [3, 6], [7, 8], [9, 10], ...Array.from({ length: 11 }, (_, k) => [11 + 2 * k, 12 + 2 * k])];
   function bodyOf(R, throws, heightIn, { mirror = false, sameHeight = true } = {}) {
     const S = sidesOf(throws), dir = R.dir, ev = R.events, t = R.tReal;
+    // the movement's four moments in order (leg lift, foot strike, max layback, release for a pitch), the first where
+    // the ground is found, and the one its clock starts from
+    const [k0, k1, k2, k3] = phaseKeysOf(R), i0 = ev[R.groundKey || k0];
     const real = heightIn ? heightIn * 0.0254 : 1.85, target = sameHeight ? 1.85 : real;
-    const w0 = R.wpts[ev.LL];
-    const wH = Math.max(0.5, (w0[S.drive.an][1] - w0[P.nose][1]) / 0.87); // the model's own idea of his height
+    const w0 = R.wpts[i0];
+    // the model's own idea of his height: standing at the first moment, or from his legs' length (a sprinter never stands)
+    const wH = Math.max(0.5, R.wLegs ? R.wLegs / 0.49 : (w0[S.drive.an][1] - w0[P.nose][1]) / 0.87);
     const kw = target / wH, kt = target / R.Hpx;
-    const hip = (q) => mid(q[P.lHip], q[P.rHip]), h0 = hip(R.pts[ev.LL]);
+    const hip = (q) => mid(q[P.lHip], q[P.rHip]), h0 = hip(R.pts[i0]);
     const swap = Array.from({ length: 33 }, (_, j) => j);
     if (mirror) SWAP.forEach(([a, b]) => { swap[a] = b; swap[b] = a; });
     const frames = R.wpts.map((w, i) => {
@@ -478,11 +482,12 @@
       const q = w.map((p) => [dir * p[0] * kw + tx, -p[1] * kw + ty, dir * p[2] * kw * (mirror ? -1 : 1)]);
       return swap.map((j) => q[j]);
     });
-    // the ground: under the back foot at the top of the leg lift
-    const g = Math.min(...[27, 28, 29, 30, 31, 32].map((j) => frames[ev.LL][j][1]));
+    // the ground: under the lower foot at that first moment (the back foot at the top of a pitcher's leg lift)
+    const g = Math.min(...[27, 28, 29, 30, 31, 32].map((j) => frames[i0][j][1]));
     frames.forEach((q) => q.forEach((p) => { p[1] -= g; }));
-    // the delivery's phase, -1 to 4: leg lift 0, foot strike 1, max layback 2, release 3, the time between stretched
-    const knots = [t[ev.LL] - 0.6, t[ev.LL], t[ev.FS], t[ev.MER], t[ev.BR], t[ev.BR] + 0.5];
+    // the movement's phase, -1 to 4: its moments at 0, 1, 2 and 3 (a pitch: leg lift, foot strike, max layback,
+    // release), the time between stretched
+    const knots = [t[ev[k0]] - 0.6, t[ev[k0]], t[ev[k1]], t[ev[k2]], t[ev[k3]], t[ev[k3]] + 0.5];
     const timeOfPhase = (ph) => { const k = Math.max(0, Math.min(4, Math.floor(ph + 1))); return knots[k] + (knots[k + 1] - knots[k]) * (ph + 1 - k); };
     const phaseOfTime = (x) => { let k = 0; while (k < 4 && x > knots[k + 1]) k++; return k - 1 + (x - knots[k]) / (knots[k + 1] - knots[k] || 1e-6); };
     // a fractional frame at time x, or null outside the clip
@@ -493,7 +498,7 @@
       return lo + (t[hi] > t[lo] ? Math.max(0, Math.min(1, (x - t[lo]) / (t[hi] - t[lo]))) : 0);
     };
     const at = (fi) => { const a = Math.floor(fi), b = Math.min(frames.length - 1, a + 1), f = fi - a; return frames[a].map((p, j) => p.map((x, c) => x + (frames[b][j][c] - x) * f)); };
-    return { frames, t, ev, throws: mirror ? (throws === "L" ? "R" : "L") : throws, height: target, timeOfPhase, phaseOfTime, indexAt, at };
+    return { frames, t, ev, i0: ev[k0], i3: ev[k3], zeroI: zeroOf(R), throws: mirror ? (throws === "L" ? "R" : "L") : throws, height: target, timeOfPhase, phaseOfTime, indexAt, at };
   }
   const sub3 = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
   const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -567,20 +572,27 @@
   // what a saved session keeps of an analysis: the numbers with their labels, the moments (ms from foot strike), a
   // thinned copy of the curves, the sequence, and which analysis made them
   function summaryOf(R) {
-    const S = R.series;
+    const S = R.series, z = R.tReal[zeroOf(R)];
     const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
     return {
-      rotSource: R.rotSource,
+      rotSource: R.rotSource || null,
       metrics: Object.fromEntries(R.metrics.map((m) => [m.key, m.value])),
       labels: Object.fromEntries(R.metrics.map((m) => [m.key, [m.label, m.unit, m.range]])),
-      events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)])),
-      series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), armV: thin(S.armV), elbowV: thin(S.elbowV), comV: thin(S.comV) },
-      sequence: R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })), inOrder: R.inOrder,
+      events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - z) * 1000)])),
+      series: { t: thin(R.tReal.map((t) => (t - z) * 1000)), ...Object.fromEntries(Object.entries(S).map(([k, v]) => [k, thin(v)])) },
+      sequence: R.seq ? R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })) : null, inOrder: R.seq ? R.inOrder : null,
       analysisV: ANALYSIS_V,
     };
   }
   const setupName = (s) => (s === "two" ? "Two cameras" : s === "edger" ? "Edgertronic" : "One camera");
   const EV_LABEL = { LL: "Leg lift", FS: "Foot strike", MER: "Max layback", BR: "Release" };
+  // An analysis says what its moments are (a pitch's by default): their names, the four that pace the movement (the 3D
+  // skeleton's phases, the report's frames), and the one its times count from
+  const evLabelsOf = (R) => R.evLabels || EV_LABEL;
+  const phaseKeysOf = (R) => R.phaseKeys || ["LL", "FS", "MER", "BR"];
+  const zeroKeyOf = (R) => R.zeroKey || "FS";
+  const zeroOf = (R) => R.events[zeroKeyOf(R)];
+  const zeroNameOf = (R) => (evLabelsOf(R)[zeroKeyOf(R)] || "foot strike").toLowerCase();
   // a small line chart of one curve through the delivery, with the moments marked
   function chart(title, unit, ys, tReal, events, color, extra) {
     const W = 320, H = 120, pad = 26;
@@ -611,8 +623,9 @@
   function sequenceBlock(R, onSeek) {
     const S = R.series, ev = R.events, tR = R.tReal;
     const lines = [[S.pelvisV, true], [S.trunkV, true], [S.armV, false], [S.elbowV, false]].map(([ys, abs], k) => ({ ...R.seq[k], ys: ys.map((v) => (v == null ? null : abs ? Math.abs(v) : Math.max(0, v))) }));
-    // from a little before foot strike to a little after release
-    const fsT = tR[ev.FS], brT = tR[ev.BR];
+    // from a little before foot strike to a little after release (or the movement's own pair: a swing's foot plant and contact)
+    const [wk0, wk1] = R.seqWindow || ["FS", "BR"];
+    const fsT = tR[ev[wk0]], brT = tR[ev[wk1]];
     const from = Math.max(tR[0], fsT - Math.max(0.15, (brT - fsT) * 1.2)), to = Math.min(tR[tR.length - 1], brT + 0.12);
     const idx = tR.map((t, i) => (t >= from && t <= to ? i : -1)).filter((i) => i >= 0);
     const vals = lines.flatMap((l) => idx.map((i) => l.ys[i])).filter((v) => v != null && Number.isFinite(v));
@@ -625,9 +638,11 @@
     const add = (tag, a, text) => { const n = document.createElementNS(NS, tag); Object.entries(a).forEach(([k, v]) => n.setAttribute(k, v)); if (text != null) n.textContent = text; s.append(n); return n; };
     const step = hi > 2000 ? 1000 : hi > 800 ? 500 : 200;
     for (let v = 0; v <= hi; v += step) { add("line", { x1: padL, x2: W - 10, y1: Y(v), y2: Y(v), stroke: "var(--mc-grid)", "stroke-width": v === 0 ? 1 : 0.5 }); add("text", { x: padL - 4, y: Y(v) + 3, "text-anchor": "end", "font-size": 10, fill: "var(--mc-dim)" }, String(v)); }
-    [["FS", "Foot strike"], ["MER", "Max layback"], ["BR", "Release"]].forEach(([k, label]) => {
+    const marks = R.seqMarks || [["FS", "Foot strike"], ["MER", "Max layback"], ["BR", "Release"]];
+    marks.forEach(([k, label], m) => {
       const i = ev[k]; if (i == null || i < 0 || tR[i] < from || tR[i] > to) return;
-      const x = X(tR[i]); add("line", { x1: x, x2: x, y1: 8, y2: H - padB, stroke: "var(--mc-dim)", "stroke-dasharray": "4 3" }); add("text", { x, y: k === "MER" ? 9 : H - 8, "text-anchor": "middle", "font-size": 10, fill: "var(--mc-dim)" }, label); // layback labeled at the top: it can sit close to release
+      const top = m > 0 && m < marks.length - 1; // a middle moment labeled at the top: it can sit close to the last
+      const x = X(tR[i]); add("line", { x1: x, x2: x, y1: 8, y2: H - padB, stroke: "var(--mc-dim)", "stroke-dasharray": "4 3" }); add("text", { x, y: top ? 9 : H - 8, "text-anchor": "middle", "font-size": 10, fill: "var(--mc-dim)" }, label);
     });
     lines.forEach((l) => add("polyline", { points: idx.map((i) => (l.ys[i] == null ? null : `${X(tR[i]).toFixed(1)},${Y(l.ys[i]).toFixed(1)}`)).filter(Boolean).join(" "), fill: "none", stroke: l.color, "stroke-width": 2.5 }));
     lines.forEach((l) => { if (l.i < 0 || l.ys[l.i] == null || tR[l.i] < from || tR[l.i] > to) return; add("circle", { cx: X(tR[l.i]), cy: Y(l.ys[l.i]), r: 4.5, fill: l.color, stroke: "#fff", "stroke-width": 1.5 }); });
@@ -644,7 +659,7 @@
       });
     }
     const table = el("table", { class: "mc-table mc-seq-table" },
-      el("thead", null, el("tr", null, el("th", null, "Segment"), el("th", null, "Peak speed"), el("th", null, "After foot strike"), el("th", null, "Before release"))),
+      el("thead", null, el("tr", null, el("th", null, "Segment"), el("th", null, "Peak speed"), el("th", null, `After ${(marks[0][1] || "").toLowerCase()}`), el("th", null, `Before ${(marks[marks.length - 1][1] || "").toLowerCase()}`))),
       el("tbody", null, lines.map((l) => el("tr", null,
         el("td", null, el("span", { class: "mc-swatch", style: `background:${l.color}` }), l.name),
         el("td", null, l.peak == null ? "–" : `${l.peak.toLocaleString()} °/s`),
@@ -652,11 +667,11 @@
         el("td", null, l.beforeBR == null ? "–" : `${l.beforeBR} ms`)))));
     const est = R.rotSource === "estimate";
     const block = el("div", { class: "mc-seq" },
-      el("div", { class: "mc-chart-title" }, "Kinematic sequence ", el("small", null, "°/s, from a little before foot strike to just after release"),
-        el("span", { class: `mc-seq-flag ${R.inOrder ? "good" : "bad"}` }, R.inOrder ? "In order: hips → trunk → arm → elbow" : "Out of order")),
+      el("div", { class: "mc-chart-title" }, "Kinematic sequence ", el("small", null, `°/s, from a little before ${(marks[0][1] || "").toLowerCase()} to just after ${(marks[marks.length - 1][1] || "").toLowerCase()}`),
+        el("span", { class: `mc-seq-flag ${R.inOrder ? "good" : "bad"}` }, R.inOrder ? `In order: ${lines.map((l) => l.name.toLowerCase()).join(" → ")}` : "Out of order")),
       el("div", { class: "mc-legend" }, lines.map((l) => el("span", null, el("span", { class: "mc-swatch", style: `background:${l.color}` }), l.name))),
       s, table,
-      el("p", { class: "mc-hint" }, `Each segment should reach its fastest after the one before it and faster than it (hips, trunk, arm, elbow). ${est ? "Pelvis and trunk here are the pose model's 3D estimate from one camera; the two-camera setup measures them. " : ""}The upper arm comes from the 3D estimate (its swing stands in for the shoulder, since video can't see its internal rotation); the elbow from its angle seen from the side.`));
+      el("p", { class: "mc-hint" }, R.seqNote || `Each segment should reach its fastest after the one before it and faster than it (hips, trunk, arm, elbow). ${est ? "Pelvis and trunk here are the pose model's 3D estimate from one camera; the two-camera setup measures them. " : ""}The upper arm comes from the 3D estimate (its swing stands in for the shoulder, since video can't see its internal rotation); the elbow from its angle seen from the side.`));
     block.setCursor = setCursor;
     return block;
   }
@@ -675,20 +690,44 @@
     ["Filming from here", "Film it now opens the phone's camera and brings the clip straight back, but a web page can't start Slo-Mo, so it films at normal speed: fine for stride, leg and trunk angles, rough for arm and rotation timing. For those, film in the Camera app's Slo-Mo and Choose a video."],
   ];
 
+  // ---- the movements ----------------------------------------------------------------------------------------------
+  // Each movement it measures: its name, the hand it asks for (if any), its camera setups, a choice of variant if it has
+  // one (a sprint's phase, the kind of jump), its filming tips, how its videos are described, its analysis, and the
+  // numbers the saved sessions list shows. Pitching is here; hitting, sprinting and jumping come from mocap_kinds.js.
+  // A session saves its movement as `motion` (none means pitching, as every session was before).
+  const KINDS = {
+    pitching: {
+      label: "Pitching", hand: { label: "Throws", key: "throws" },
+      setups: [["one", "One camera (open side)"], ["edger", "Edgertronic (open side)"], ["two", "Two cameras (open side + behind)"]],
+      howTo: HOW_TO,
+      sideLabel: "Open side video", sideHint: "Square to the line to the plate, on the side his chest faces in his set",
+      edgerHint: "From the open side, square to the line to the plate, with his whole body in frame (not zoomed in on the hand)",
+      behindHint: "Directly behind him, on the line through home plate",
+      trimHint: "Trim to the delivery: from just before he comes set to just after the follow-through.",
+      analyze: (a) => analyze(a),
+      historyKeys: ["stride", "kneeFS", "kneeExt", "trunkBR", "sepMax", "fsbr", "comPeak"],
+    },
+  };
+  const kindOf = (rec) => KINDS[(rec && rec.motion) || "pitching"] || KINDS.pitching;
+
   // ---- the tool ------------------------------------------------------------------------------------------------------
   function mount(root, opts) {
     const athlete = opts.athlete || {};
+    const kindName = KINDS[opts.kind] ? opts.kind : "pitching", kind = KINDS[kindName];
     const hKey = `mocapHeight:${athlete.id}`;
-    const state = { setup: "one", throws: athlete.throws || "R", heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
+    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
+    // his saved sessions of this movement
+    const history = () => (opts.history ? opts.history() || [] : []).filter((r) => (r.motion || "pitching") === kindName);
+    const variantName = (v) => (kind.variants && v ? (kind.variants.options.find((o) => o[0] === v) || [v, v])[1] : "");
     root.classList.add("mc");
     const fileState = (key) => ({ file: null, video: null, fps: 30, start: 0, end: 0, tracked: null });
 
     const render = () => {
       if (state.stopPlay) { const sp = state.stopPlay; state.stopPlay = null; try { sp(); } catch (e) { /* the old view is gone anyway */ } }
       root.replaceChildren(...[
-        el("div", { class: "mc-head" }, el("h2", null, "Motion Capture ", el("small", null, athlete.name || "")),
+        el("div", { class: "mc-head" }, el("h2", null, `Motion Capture${kindName === "pitching" ? "" : `: ${kind.label}`} `, el("small", null, athlete.name || "")),
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.showHow = !state.showHow; render(); } }, state.showHow ? "Hide filming tips" : "How to film it")),
-        state.showHow ? el("ol", { class: "mc-how" }, HOW_TO.map(([t, d]) => el("li", null, el("b", null, t), " ", d))) : null,
+        state.showHow ? el("ol", { class: "mc-how" }, kind.howTo.map(([t, d]) => el("li", null, el("b", null, t), " ", d))) : null,
         state.result ? results() : state.summary ? summaryView(state.summary) : setupForm(),
         historyBlock(),
       ].filter(Boolean));
@@ -728,24 +767,24 @@
       return el("div", { class: "mc-setup" },
         el("div", { class: "mc-row" },
           el("span", { class: "mc-seg", role: "group", "aria-label": "Camera setup" },
-            el("button", { type: "button", class: `mc-seg-btn${state.setup === "one" ? " on" : ""}`, onclick: () => { toPhone("one"); } }, "One camera (open side)"),
-            el("button", { type: "button", class: `mc-seg-btn${state.setup === "edger" ? " on" : ""}`, onclick: () => { state.setup = "edger"; state.captureFps = String(state.edgerFps); render(); } }, "Edgertronic (open side)"),
-            el("button", { type: "button", class: `mc-seg-btn${state.setup === "two" ? " on" : ""}`, onclick: () => { toPhone("two"); } }, "Two cameras (open side + behind)"))),
+            kind.setups.map(([key, label]) => el("button", { type: "button", class: `mc-seg-btn${state.setup === key ? " on" : ""}`, onclick: () => { if (key === "edger") { state.setup = "edger"; state.captureFps = String(state.edgerFps); render(); } else toPhone(key); } }, label)))),
+        kind.variants ? el("div", { class: "mc-row" }, el("span", { class: "mc-seg", role: "group", "aria-label": kind.variants.label },
+          kind.variants.options.map(([v, label]) => el("button", { type: "button", class: `mc-seg-btn${state.variant === v ? " on" : ""}`, onclick: () => { state.variant = v; render(); } }, label)))) : null,
         el("div", { class: "mc-row" },
-          el("label", null, "Throws", el("select", { onchange: (e) => { state.throws = e.target.value; } }, el("option", { value: "R", selected: state.throws === "R" }, "Right"), el("option", { value: "L", selected: state.throws === "L" }, "Left"))),
+          kind.hand ? el("label", null, kind.hand.label, el("select", { onchange: (e) => { state.throws = e.target.value; } }, el("option", { value: "R", selected: state.throws === "R" }, "Right"), el("option", { value: "L", selected: state.throws === "L" }, "Left"))) : null,
           el("label", null, "Height (in)", el("input", { type: "number", inputmode: "decimal", min: 48, max: 90, step: 0.5, value: state.heightIn, placeholder: "e.g. 74", oninput: (e) => { state.heightIn = Number(e.target.value) || ""; try { localStorage.setItem(hKey, String(state.heightIn)); } catch (x) { /* not remembered */ } } })),
           state.setup === "edger"
             ? el("label", null, "Edgertronic frame rate (fps)", el("input", { type: "number", inputmode: "numeric", min: 120, max: 20000, step: 10, value: state.edgerFps, oninput: (e) => { state.edgerFps = Number(e.target.value) || 1000; state.captureFps = String(state.edgerFps); } }))
             : el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; } },
               [["auto", "The file's own speed"], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t))))),
-        el("p", { class: "mc-hint" }, "Height is needed for center-of-mass speed. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down."),
+        el("p", { class: "mc-hint" }, kind.heightHint || "Height is needed for center-of-mass speed. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down."),
         state.setup === "edger"
-          ? pick("side", "Edgertronic video", "From the open side, square to the line to the plate, with his whole body in frame (not zoomed in on the hand)")
-          : pick("side", "Open side video", "Square to the line to the plate, on the side his chest faces in his set"),
-        state.setup === "two" ? pick("behind", "Behind video", "Directly behind him, on the line through home plate") : null,
+          ? pick("side", "Edgertronic video", kind.edgerHint)
+          : pick("side", kind.sideLabel, kind.sideHint),
+        state.setup === "two" ? pick("behind", "Behind video", kind.behindHint) : null,
         state.error ? el("p", { class: "mc-err" }, state.error) : null,
         el("div", { class: "mc-row" },
-          el("button", { type: "button", class: "mc-btn", disabled: !state.side || (state.setup === "two" && !state.behind) || !!state.busy, onclick: run }, "Analyze the delivery"),
+          el("button", { type: "button", class: "mc-btn", disabled: !state.side || (state.setup === "two" && !state.behind) || !!state.busy, onclick: run }, kind.analyzeLabel || "Analyze the delivery"),
           state.busy ? el("span", { class: "mc-status", role: "status" }, state.busy) : null),
       );
     }
@@ -766,7 +805,7 @@
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { f.end = Math.max(v.currentTime, f.start + 0.05); show(); } }, "End here"),
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { f.start = 0; f.end = v.duration || 0; show(); } }, "Whole clip")),
         el("div", { class: "mc-row" }, label, fileRate),
-        el("p", { class: "mc-hint" }, "Trim to the delivery: from just before he comes set to just after the follow-through."));
+        el("p", { class: "mc-hint" }, kind.trimHint));
     }
 
     // back to a phone setup: the Edgertronic's frame rate doesn't carry over
@@ -787,13 +826,13 @@
         if (state.setup === "two") state.behind.tracked = await one(state.behind, "behind");
         compute();
         state.busy = "";
-        state.frame = state.result.events.FS;
+        state.frame = zeroOf(state.result);
       } catch (err) { state.busy = ""; state.error = err.message || String(err); }
       render();
     }
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
-      state.result = analyze({
+      state.result = kind.analyze({ variant: state.variant,
         side: state.side.tracked, edits: state.edits, elbowDepth: state.elbowDepth !== false, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
@@ -841,7 +880,7 @@
       }
       if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; store.elbowDepth = state.elbowDepth !== false; }
       const rec = {
-        id, kind: "mocap", athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
+        id, kind: "mocap", motion: kindName, variant: state.variant, athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
         setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, captureFps: state.cap,
         ...summaryOf(R), trackV: was ? was.trackV || 1 : TRACK_V,
         note, files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean), store,
@@ -865,7 +904,7 @@
           if (s.error || !s.data) return null;
           try { return await openVideo(s.data.signedUrl); } catch (e) { return null; }
         };
-        state.setup = rec.setup || "one"; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.captureFps = String(rec.captureFps || "auto");
+        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.captureFps = String(rec.captureFps || "auto");
         state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
@@ -873,7 +912,7 @@
         state.elbowDepth = rec.store.elbowDepth !== false;
         state.saved = rec;
         compute();
-        state.frame = state.result.events.FS;
+        state.frame = zeroOf(state.result);
         state.busy = "";
       } catch (e) {
         state.busy = ""; state.result = null; state.saved = null;
@@ -919,18 +958,21 @@
       }
       const ids = [...new Set(rows.map((r) => String(r.athlete_id)))], names = {};
       if (ids.length) { const { data } = await sbc().from("athletes").select("id, name:data->>name").in("id", ids); (data || []).forEach((a) => { names[String(a.id)] = a.name; }); }
-      state.dir = { recs: rows.map((r) => ({ ...r.data, id: r.data.id || r.id, _athlete: String(r.athlete_id), _name: names[String(r.athlete_id)] || "Unknown" })).filter((r) => r.store && r.store.path) };
+      state.dir = { recs: rows.map((r) => ({ ...r.data, id: r.data.id || r.id, _athlete: String(r.athlete_id), _name: names[String(r.athlete_id)] || "Unknown" })).filter((r) => r.store && r.store.path && (r.motion || "pitching") === kindName) };
       return state.dir;
     }
     function skeleton3D(R) {
       const sk = state.sk = state.sk || { yaw: state.throws === "L" ? 180 : 0, pitch: 6, roll: 0, zoom: 1, lock: "", line: "phase", show: "each+mean", me: true, mirror: true, sameHeight: true, own: true, others: false, othersAll: true, picked: [], sameHand: false, from: "", to: "", hidden: {}, q: "" };
       const box = el("div", { class: "mc-3d" });
+      const evL = evLabelsOf(R), keys4 = phaseKeysOf(R), zName = zeroNameOf(R), endName = (evL[keys4[3]] || "release").toLowerCase();
       let frame = state.frame || 0, canvas = null, numsBox = null;
       const alive = () => box.isConnected;
       const inDates = (r) => (!sk.from || (r.date || "") >= sk.from) && (!sk.to || (r.date || "") <= sk.to);
-      const mine = () => (opts.history ? opts.history() || [] : []).filter((r) => r.store && r.store.path && !(state.saved && r.id === state.saved.id)).map((r) => ({ ...r, _name: athlete.name || "This pitcher", _mine: true }));
+      const mine = () => history().filter((r) => r.store && r.store.path && !(state.saved && r.id === state.saved.id)).map((r) => ({ ...r, _name: athlete.name || "This pitcher", _mine: true }));
       const theirs = () => (state.dir ? state.dir.recs : []).filter((r) => r._athlete !== String(athlete.id) && (sk.othersAll || sk.picked.includes(r._athlete)) && (!sk.sameHand || (r.throws || "R") === state.throws));
-      const chosen = () => [...(sk.own ? mine() : []), ...(sk.others ? theirs() : [])].filter(inDates).sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(0, 40);
+      // a sprint or a jump only beside its own kind (acceleration beside acceleration, a broad jump beside broad jumps)
+      const sameVariant = (r) => !kind.variants || (r.variant || kind.variants.options[0][0]) === state.variant;
+      const chosen = () => [...(sk.own ? mine() : []), ...(sk.others ? theirs() : [])].filter(inDates).filter(sameVariant).sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(0, 40);
       const load = (rec) => {
         if (loaded[rec.id]) return;
         loaded[rec.id] = { busy: true };
@@ -939,7 +981,7 @@
           if (dl.error) throw dl.error;
           const data = JSON.parse(await dl.data.text());
           const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-          return analyze({ side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+          return kindOf(rec).analyze({ variant: rec.variant, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
         })().then((A) => { loaded[rec.id] = { A }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (alive()) build(); });
       };
       let me = null, others = [];
@@ -954,7 +996,7 @@
       // each body at the frame of his showing, lined up and pinned
       const posed = (fi = frame) => {
         const tRef = me.t[fi], myQ = me.frames[fi];
-        const tFor = (B) => (sk.line === "phase" ? B.timeOfPhase(me.phaseOfTime(tRef)) : sk.line === "br" ? B.t[B.ev.BR] + (tRef - me.t[me.ev.BR]) : B.t[B.ev.FS] + (tRef - me.t[me.ev.FS]));
+        const tFor = (B) => (sk.line === "phase" ? B.timeOfPhase(me.phaseOfTime(tRef)) : sk.line === "br" ? B.t[B.i3] + (tRef - me.t[me.i3]) : B.t[B.zeroI] + (tRef - me.t[me.zeroI]));
         const myLock = sk.lock ? lockPoint(myQ, me.throws, sk.lock) : null;
         const list = others.filter((o) => o.body && !sk.hidden[o.rec.id]).map((o) => {
           const fi = o.body.indexAt(tFor(o.body));
@@ -977,7 +1019,7 @@
       const draw3D = (c, fi) => {
         const ctx = c.getContext("2d"), W = c.width, H = c.height;
         ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
-        const span = me.frames.slice(me.ev.LL, me.ev.BR + 1).map((q) => mid(q[P.lHip], q[P.rHip]));
+        const span = me.frames.slice(me.i0, me.i3 + 1).map((q) => mid(q[P.lHip], q[P.rHip]));
         const center = [span.reduce((s, p) => s + p[0], 0) / span.length, 0.95, span.reduce((s, p) => s + p[2], 0) / span.length];
         const proj = camera3D(sk, W, H, center);
         // the ground, in half meters, and which way the plate is
@@ -1001,7 +1043,7 @@
         const mine3 = poseNumbers(P3.myQ, me.throws, me.height), g = P3.group;
         const f = (v) => (v == null || !Number.isFinite(v) ? "–" : String(Math.round(v)));
         return el("table", { class: "mc-table" },
-          el("thead", null, el("tr", null, el("th", null, `At this frame (${Math.round((me.t[frame] - me.t[me.ev.FS]) * 1000)} ms from foot strike)`), el("th", null, "This session"),
+          el("thead", null, el("tr", null, el("th", null, `At this frame (${Math.round((me.t[frame] - me.t[me.zeroI]) * 1000)} ms from ${zName})`), el("th", null, "This session"),
             g ? el("th", null, `Group ${g.med ? "median" : "mean"} (${g.n})`) : null, g ? el("th", null, "Difference") : null)),
           el("tbody", null, POSE_NUMS.map(([key, label, unit]) => el("tr", null, el("td", null, label, key === "lean" || key === "sep" ? el("small", null, "from the 3D estimate") : null),
             el("td", null, `${f(mine3[key])} ${unit}`), g ? el("td", null, `${f(g.nums[key])} ${unit}`) : null,
@@ -1070,7 +1112,7 @@
             check("This session", "me"),
             select("Show", "show", [["each", "Each skeleton"], ["each+mean", "Each, and their mean"], ["each+median", "Each, and their median"], ["mean", "Mean only"], ["median", "Median only"]]),
             select("Pin them at", "lock", SK_LOCKS),
-            select("Line them up by", "line", [["phase", "The moments (leg lift, foot strike, layback, release)"], ["fs", "Time from foot strike"], ["br", "Time from release"]])),
+            select("Line them up by", "line", [["phase", `The moments (${keys4.map((k) => (evL[k] || k).toLowerCase()).join(", ")})`], ["fs", `Time from ${zName}`], ["br", `Time from ${endName}`]])),
           el("div", { class: "mc-row" }, check("Mirror the other hand to his", "mirror"), check("Scale everyone to the same height", "sameHeight")),
           el("div", { class: "mc-compare" }, el("b", null, "Compare with"),
             el("div", { class: "mc-row" }, check(`His other sessions (${mine().length})`, "own"), check("Other pitchers", "others"), sk.others ? check("Same hand only", "sameHand") : null,
@@ -1094,7 +1136,7 @@
         const own = shown.filter((o) => o.rec._mine).length, theirs = shown.length - own, who = new Set(shown.filter((o) => !o.rec._mine).map((o) => o.rec._athlete)).size;
         const dates = shown.map((o) => o.rec.date).filter(Boolean).sort();
         const parts = [own ? `${own} of his other session${own === 1 ? "" : "s"}` : "", theirs ? `${theirs} session${theirs === 1 ? "" : "s"} from ${who} other pitcher${who === 1 ? "" : "s"}` : ""].filter(Boolean);
-        const line = sk.line === "phase" ? "the moments of the delivery" : sk.line === "br" ? "time from release" : "time from foot strike";
+        const line = sk.line === "phase" ? "the moments of the movement" : sk.line === "br" ? `time from ${endName}` : `time from ${zName}`;
         const pin = sk.lock ? `, pinned at the ${SK_LOCKS.find((l) => l[0] === sk.lock)[1].toLowerCase()}` : "";
         return `Compared with ${parts.join(" and ")}${dates.length ? ` (${dates[0]} to ${dates[dates.length - 1]})` : ""}, lined up by ${line}${pin}.`;
       };
@@ -1133,7 +1175,7 @@
         trackV = TRACK_V;
       }
       const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-      const R = analyze({
+      const R = kindOf(rec).analyze({ variant: rec.variant,
         side, behind: rec.setup === "two" ? behind : null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap,
         sideScale: (rec.store.sideFps || 30) / cap, behindScale: (rec.store.behindFps || 30) / cap, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false,
       });
@@ -1173,6 +1215,7 @@
 
     function results() {
       const R = state.result, f = state.side, tr = f.tracked;
+      const evL = evLabelsOf(R), zKey = zeroKeyOf(R), zName = zeroNameOf(R);
       // the video stays on the page, out of sight, so its frames can still be drawn (Safari on an iPhone needs that)
       if (f.video) { f.video.controls = false; f.video.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none"; }
       const canvas = el("canvas", { class: "mc-canvas" });
@@ -1228,7 +1271,7 @@
       const show = (i) => { // the frame's caption, slider and line on the sequence, once its picture is drawn
         const ev = Object.entries(R.events).find(([, j]) => j === i);
         const edited = state.edits && state.edits[i] ? " · dots moved here" : "";
-        caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}${edited}`;
+        caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events[zKey]]) * 1000)} ms from ${zName}${ev ? ` · ${evL[ev[0]]}` : ""}${edited}`;
         slider.value = i;
         if (seqEl) seqEl.setCursor(i);
         if (sk3d) sk3d.setFrame(i);
@@ -1307,12 +1350,12 @@
       if (state.fixing) canvas.classList.add("fixing");
       slider.addEventListener("input", () => { if (playing) { cancelAnimationFrame(playing.raf); if (f.video) f.video.pause(); playing = null; playBtn.textContent = "▶ Play"; } paint(Number(slider.value)); });
       const go = (i) => { if (playing) { cancelAnimationFrame(playing.raf); if (f.video) f.video.pause(); playing = null; playBtn.textContent = "▶ Play"; } slider.value = i; paint(i); };
-      seqEl = sequenceBlock(R, go);
+      seqEl = R.seq ? sequenceBlock(R, go) : null;
       setTimeout(() => paint(state.frame || 0), 0);
       const evBtns = el("div", { class: "mc-row" },
         playBtn, el("label", { class: "mc-speed" }, "Speed", speedSel),
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.max(0, (state.frame || 0) - 1)) }, "◀"),
-        Object.entries(R.events).map(([key, i]) => el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(i) }, EV_LABEL[key])),
+        Object.entries(R.events).map(([key, i]) => el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(i) }, evL[key])),
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.min(R.n - 1, (state.frame || 0) + 1)) }, "▶"));
       // what the picture shows: the video, the skeleton, or both; and the skeleton alone in 3D
       const layers = el("div", { class: "mc-row" },
@@ -1322,10 +1365,10 @@
       // a moment found in the wrong place can be set by hand, to the frame showing (the moments after it follow)
       const fix = el("div", { class: "mc-row mc-fix" }, el("span", { class: "mc-hint" }, "Moment in the wrong place? Go to the right frame and set it:"),
         Object.keys(R.events).map((key) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => {
-          const order = ["LL", "FS", "MER", "BR"], keep = {};
+          const order = Object.keys(R.events), keep = {};
           order.slice(0, order.indexOf(key)).forEach((kk) => { if (state.manual && state.manual[kk] != null) keep[kk] = state.manual[kk]; });
           state.manual = { ...keep, [key]: state.frame }; compute(); render();
-        } }, `${EV_LABEL[key]} here`)),
+        } }, `${evL[key]} here`)),
         state.manual ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { state.manual = null; compute(); render(); } }, "Back to automatic") : null);
       // Fix points: drag dots that missed their joint
       const nEdits = Object.keys(state.edits || {}).length;
@@ -1344,7 +1387,8 @@
           el("button", { type: "button", class: "mc-btn small", onclick: () => { state.captureFps = "120"; compute(); render(); } }, "Use 120 fps")) : null);
       const table = metricsTable(R.metrics);
       const S = R.series;
-      const charts = el("div", { class: "mc-charts" },
+      // the curves: the movement's own ([title, unit, values, color, second line]), or a pitch's
+      const charts = R.charts ? el("div", { class: "mc-charts" }, R.charts.map(([title, unit, ys, color, extra]) => (ys ? chart(title, unit, ys, R.tReal, R.events, color, extra) : null))) : el("div", { class: "mc-charts" },
         chart("Lead knee flexion", "°", S.kneeFlex, R.tReal, R.events, "#3fa7ff"),
         chart("Trunk forward tilt", "°", S.trunkFwd, R.tReal, R.events, "#e0b03a"),
         chart(`Hip-shoulder separation${R.rotSource === "estimate" ? " (estimate)" : ""}`, "°", S.sep.map((x) => (x == null ? null : Math.abs(x))), R.tReal, R.events, "#c77dff"),
@@ -1357,8 +1401,8 @@
       const saved = state.saved;
 
       // ---- the report: a PDF of the moments, the sequence and the numbers, to print, keep or email ------------------
-      const MOMENTS = ["LL", "FS", "MER", "BR"];
-      const msOf = (i) => Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000);
+      const MOMENTS = phaseKeysOf(R);
+      const msOf = (i) => Math.round((R.tReal[i] - R.tReal[R.events[zKey]]) * 1000);
       const dateOf = () => (state.saved ? state.saved.date : new Date().toISOString().slice(0, 10));
       const fileName = () => `${(athlete.name || "pitcher").replace(/[^a-z0-9]+/gi, "_")}-motion-capture-${dateOf()}.pdf`;
       // one crop for every moment: everywhere his body reaches at the four of them, with room around it
@@ -1412,12 +1456,12 @@
           y += 0.14;
         };
         // who, when, how it was filmed
-        text("Motion Capture Report", M, y + 0.25, { size: 18, bold: true });
+        text(`Motion Capture Report${kindName === "pitching" ? "" : `: ${kind.label}`}`, M, y + 0.25, { size: 18, bold: true });
         text("Dynamic Sports Training", PW - M, y + 0.25, { size: 10, bold: true, color: [181, 40, 58], align: "right" });
         y += 0.55;
         text(athlete.name || "", M, y, { size: 13, bold: true });
         y += 0.22;
-        text(`${dateOf()} · ${setupName(state.setup)} · timing at ${state.cap} fps · ${state.throws === "L" ? "left-handed" : "right-handed"}${state.heightIn ? ` · ${state.heightIn}"` : ""}`, M, y, { size: 9.5, color: GRAY });
+        text(`${dateOf()} · ${setupName(state.setup)} · timing at ${state.cap} fps${kind.hand ? ` · ${state.throws === "L" ? "left-handed" : "right-handed"}` : ""}${state.heightIn ? ` · ${state.heightIn}"` : ""}`, M, y, { size: 9.5, color: GRAY });
         y += 0.32;
         // the four moments
         heading("The moments");
@@ -1428,7 +1472,7 @@
         shots.forEach((c, k) => {
           const key = MOMENTS[k], ms = msOf(R.events[key]);
           img(c, M + k * (w4 + GAP), y, w4);
-          text(`${EV_LABEL[key]}${key === "FS" ? "" : ` · ${ms > 0 ? "+" : ""}${ms} ms`}`, M + k * (w4 + GAP) + w4 / 2, y + h4 + 0.16, { size: 8.5, bold: true, align: "center" });
+          text(`${evL[key]}${key === zKey ? "" : ` · ${ms > 0 ? "+" : ""}${ms} ms`}`, M + k * (w4 + GAP) + w4 / 2, y + h4 + 0.16, { size: 8.5, bold: true, align: "center" });
         });
         y += h4 + 0.38;
         // the kinematic sequence
@@ -1453,7 +1497,9 @@
           const out = typeof m.value === "number" && Number.isFinite(lo) && Number.isFinite(hi) && (m.value < lo || m.value > hi);
           return { cells: [m.label, m.value == null ? "–" : `${m.value} ${m.unit || ""}`, m.range ? `${m.range} ${(m.unit || "").replace(/^° .*/, "°")}` : ""], flag: out ? 1 : -1 };
         }));
-        note2("In amber: outside the usual range for pitchers, a guide from published biomechanics (it varies with body and style). Joint angles from video are good to about 5 to 10 degrees: compare sessions filmed the same way.");
+        note2(`In amber: outside the usual range${kindName === "pitching" ? " for pitchers" : ""}, a guide from published biomechanics (it varies with body and style). Joint angles from video are good to about 5 to 10 degrees: compare sessions filmed the same way.`);
+        // the movement's own tables (a sprint's steps), each column an even share of the width
+        (R.tables || []).forEach((t) => { heading(t.title); table(t.cols.map((c) => [c, CW / t.cols.length]), t.rows.map((r) => ({ cells: r.map((c) => (c == null ? "–" : String(c))) }))); });
         // the curves, two to a row
         const boxes = [...charts.querySelectorAll(".mc-chart-box")];
         if (boxes.length) heading("Through the delivery");
@@ -1471,10 +1517,10 @@
           if (desc) note2(desc);
           const s3 = MOMENTS.map((key) => sk3d.report(R.events[key], 600, 600));
           room(w4 + 0.35);
-          s3.forEach((s, k) => { img(s.canvas, M + k * (w4 + GAP), y, w4); text(EV_LABEL[MOMENTS[k]], M + k * (w4 + GAP) + w4 / 2, y + w4 + 0.16, { size: 8.5, bold: true, align: "center" }); });
+          s3.forEach((s, k) => { img(s.canvas, M + k * (w4 + GAP), y, w4); text(evL[MOMENTS[k]], M + k * (w4 + GAP) + w4 / 2, y + w4 + 0.16, { size: 8.5, bold: true, align: "center" }); });
           y += w4 + 0.38;
           const g = s3.find((s) => s.group), f0 = (v) => (v == null || !Number.isFinite(v) ? "–" : String(Math.round(v)));
-          table([["At", 2.3], ...MOMENTS.map((key) => [EV_LABEL[key], 1.3])], POSE_NUMS.map(([key, label, unit]) => ({
+          table([["At", 2.3], ...MOMENTS.map((key) => [evL[key], 1.3])], POSE_NUMS.map(([key, label, unit]) => ({
             cells: [`${label} (${unit})`, ...s3.map((s) => (s.group ? `${f0(s.mine[key])} vs ${f0(s.group.nums[key])}` : f0(s.mine[key])))],
           })));
           note2(g ? `His, then the group's ${g.group.med ? "median" : "mean"} (${g.group.n} sessions). From the pose model's 3D estimate: the depth toward and away from the camera is the least sure part.` : "From the pose model's 3D estimate: the depth toward and away from the camera is the least sure part.");
@@ -1557,14 +1603,16 @@
       return el("div", { class: "mc-results" }, f.video, state.behind && state.behind.video,
         el("div", { class: "mc-row" },
           el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, saved ? "← Back" : "← Another video"),
-          el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${setupName(state.setup)} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
+          el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${setupName(state.setup)} · timing at ${state.cap} fps${kind.hand ? ` · ${state.throws === "L" ? "lefty" : "righty"}` : ""}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
         timing,
         canvas, slider, caption, evBtns, layers, sk3d && sk3d.node, fixDots, fix,
         seqEl,
         R.elbowFirst ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: state.elbowDepth !== false, onchange: (e) => { state.elbowDepth = e.target.checked; compute(); render(); } }),
           ` Treat the elbow's first peak (${R.elbowFirst.peak.toLocaleString()}°/s, ${R.elbowFirst.ms} ms from foot strike) as depth, not extension: the forearm turning toward or away from the camera, not straightening. The elbow line then starts at the dip after it.`) : null,
         el("div", { class: "mc-grid" }, table, charts),
-        el("p", { class: "mc-hint" }, R.rotSource === "estimate"
+        (R.tables || []).map((t) => el("div", { class: "mc-scroll" }, el("h3", null, t.title), el("table", { class: "mc-table" },
+          el("thead", null, el("tr", null, t.cols.map((c) => el("th", null, c)))), el("tbody", null, t.rows.map((r) => el("tr", null, r.map((c) => el("td", null, c == null ? "–" : String(c))))))))),
+        el("p", { class: "mc-hint" }, R.hint ? R.hint : R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
           : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at release. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
         reportRow,
@@ -1614,9 +1662,9 @@
 
     // saved sessions, newest first, with the main numbers side by side; open one for its report, or delete it
     function historyBlock() {
-      const list = (opts.history ? opts.history() || [] : []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || String(b.id).localeCompare(String(a.id)));
+      const list = history().slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || String(b.id).localeCompare(String(a.id)));
       if (!list.length) return el("div", { class: "mc-history" });
-      const keys = ["stride", "kneeFS", "kneeExt", "trunkBR", "sepMax", "fsbr", "comPeak"];
+      const keys = kind.historyKeys;
       const labelOf = (key) => { const r = list.find((x) => x.labels && x.labels[key]); return r ? r.labels[key][0].replace(/ \(estimate\)$/, "") : key; };
       // working them out again with the latest analysis (or tracking), his, or every pitcher's
       const kept = list.filter(canRerun), older = kept.filter(isOld), vids = kept.filter(canRetrack), oldTrack = vids.filter(trackOld);
@@ -1643,7 +1691,7 @@
       return el("div", { class: "mc-history" }, el("h3", null, "Saved sessions"), rerunBar,
         el("div", { class: "mc-scroll" }, el("table", { class: "mc-table" },
           el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"), el("th", null, "Analysis"), el("th", null, ""))),
-          el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, setupName(r.setup)),
+          el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, (kind.setups.find((s) => s[0] === (r.setup || "one")) || [0, setupName(r.setup)])[1], variantName(r.variant) ? el("small", null, ` · ${variantName(r.variant)}`) : null),
             keys.map((key) => el("td", null, r.metrics && r.metrics[key] != null ? String(r.metrics[key]) : "–")), el("td", { class: "mc-note-cell" }, r.note || ""),
             el("td", null, status(r)),
             el("td", { class: "mc-row-btns" },
@@ -1657,5 +1705,26 @@
     return { refresh: render };
   }
 
-  window.MoCap = { mount, analyze, sequenceBlock, HOW_TO, bodyOf, poseNumbers };
+  // The start of any movement's analysis (mocap_kinds.js): the side view's real times, how much to smooth, its points
+  // cleaned (and any fixed by hand), a time as a number of frames, and his height on screen from his legs at their
+  // longest (hip to ankle is about 49% of height), in the picture and in the model's 3D points
+  function prepare(side, sideScale, captureFps, edits) {
+    const n = side.frames.length;
+    const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
+    const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
+    const perSec = dt > 0 ? 1 / dt : captureFps;
+    const sig = Math.max(0.6, perSec / 120), med = Math.max(3, Math.round(perSec * 0.02));
+    const pts = clean(side.frames, "p", sig, med), wpts = clean(side.frames, "w", sig, med);
+    if (edits && Object.keys(edits).length) applyEdits(pts, edits, Math.max(2, Math.round(perSec * 0.025)));
+    const fr = (sec) => Math.max(1, Math.round(sec / Math.max(dt, 1e-4)));
+    const leg2 = (q, h, a) => Math.hypot(q[h][0] - q[a][0], q[h][1] - q[a][1]);
+    const leg3 = (q, h, a) => Math.hypot(q[h][0] - q[a][0], q[h][1] - q[a][1], q[h][2] - q[a][2]);
+    const longest = (list, len) => { const xs = list.map((q) => Math.max(len(q, P.lHip, P.lAn), len(q, P.rHip, P.rAn))).filter(Number.isFinite).sort((a, b) => a - b); return xs[Math.floor(xs.length * 0.9)] || 1; };
+    return { n, tReal, dt, perSec, sig, med, pts, wpts, fr, Hpx: longest(pts, leg2) / 0.49, wLegs: longest(wpts, leg3) };
+  }
+
+  window.MoCap = {
+    mount, analyze, sequenceBlock, HOW_TO, bodyOf, poseNumbers, kinds: KINDS,
+    lib: { P, sidesOf, clean, applyEdits, mid, angleAt, deriv, unwrap, argBest, smoothSeries, comOf, r1, deg, wrapDeg, prepare },
+  };
 })();

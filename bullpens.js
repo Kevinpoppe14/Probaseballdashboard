@@ -1976,23 +1976,23 @@
     );
   }
 
-  // Pitching › Motion Capture: the tool from mocap.js (plain JavaScript, shared with Coach Mode), mounted here and
-  // saving with the pitcher's other records
-  function MoCapTab({ athlete }) {
+  // Motion Capture (under Pitching, Hitting / Fielding, and Movement's Sprint and Jump): the tool from mocap.js (plain
+  // JavaScript, shared with the phone app) for the movement given, mounted here and saving with his other records
+  function MoCapTab({ athlete, kind = "pitching" }) {
     const ref = useRef(null);
     useEffect(() => {
       const box = ref.current;
       if (!box || !window.MoCap) return undefined;
       const store = window.AthleteStore;
       window.MoCap.mount(box, {
-        athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, email: athlete.email || "" },
+        kind, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "" },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
         onDelete: async (rec) => { store.deleteAssessment(rec.id); },
         saveAny: async (rec) => { store.saveAssessment(rec); }, // another pitcher's session, re-run (it keeps its own athleteId)
         history: () => (store.getMocap ? store.getMocap(athlete.id) : []),
       });
       return () => box.replaceChildren();
-    }, [athlete.id]); // eslint-disable-line
+    }, [athlete.id, kind]); // eslint-disable-line
     return (
       <div className="panel">
         {window.MoCap ? <div ref={ref} /> : <div className="empty-state">Motion capture didn't load. Reload the page.</div>}
