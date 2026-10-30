@@ -116,14 +116,64 @@
     }
     return 30;
   }
+  // ---- tape on the bat ------------------------------------------------------------------------------------------
+  // A strip of bright tape on the end of the barrel, found by its color: the colors it can be, as ranges of hue
+  // (degrees), saturation and brightness (0 to 1), each well away from skin, dirt, grass and a gray or white uniform
+  const TAPES = {
+    green: (h, s, v) => h >= 75 && h <= 165 && s > 0.45 && v > 0.4,
+    pink: (h, s, v) => h >= 290 && h <= 345 && s > 0.4 && v > 0.45,
+    orange: (h, s, v) => h >= 12 && h <= 38 && s > 0.65 && v > 0.55,
+    yellow: (h, s, v) => h >= 45 && h <= 68 && s > 0.55 && v > 0.6,
+  };
+  const hsv = (r, g, b) => {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    let h = 0;
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [(h * 60 + 360) % 360, mx ? d / mx : 0, mx / 255];
+  };
+  // the tape in one frame: within `radius` of `near` (the hands), the densest patch of its color (nearest where it was
+  // last frame, if it was found), as [x, y, pixels matched]; null if there's too little of it
+  function findTape(v, test, near, radius, prev, scratch) {
+    const W = v.videoWidth || v.width, H = v.videoHeight || v.height; // (a video, or a still for testing)
+    const x0 = Math.max(0, near[0] - radius), y0 = Math.max(0, near[1] - radius), x1 = Math.min(W, near[0] + radius), y1 = Math.min(H, near[1] + radius);
+    const bw = x1 - x0, bh = y1 - y0;
+    if (bw < 8 || bh < 8) return null;
+    const k = Math.min(1, 360 / Math.max(bw, bh)), cw = Math.max(2, Math.round(bw * k)), ch = Math.max(2, Math.round(bh * k));
+    scratch.width = cw; scratch.height = ch;
+    const g = scratch.getContext("2d", { willReadFrequently: true });
+    g.drawImage(v, x0, y0, bw, bh, 0, 0, cw, ch);
+    const d = g.getImageData(0, 0, cw, ch).data, cell = 6, gx = Math.ceil(cw / cell), counts = new Map(), hits = [];
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      const o = (y * cw + x) * 4, [hh, ss, vv] = hsv(d[o], d[o + 1], d[o + 2]);
+      if (!test(hh, ss, vv)) continue;
+      hits.push([x, y]);
+      const key = Math.floor(y / cell) * gx + Math.floor(x / cell);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    if (hits.length < 3) return null;
+    let best = null;
+    counts.forEach((c, key) => {
+      const cx = ((key % gx) + 0.5) * cell / k + x0, cy = (Math.floor(key / gx) + 0.5) * cell / k + y0;
+      const score = c - (prev ? (Math.hypot(cx - prev[0], cy - prev[1]) / radius) * 6 : 0);
+      if (!best || score > best.score) best = { score, cx, cy };
+    });
+    let sx = 0, sy = 0, n = 0;
+    hits.forEach(([x, y]) => { const X = x / k + x0, Y = y / k + y0; if (Math.hypot(X - best.cx, Y - best.cy) < (cell * 2.5) / k) { sx += X; sy += Y; n++; } });
+    return n >= 3 ? [sx / n, sy / n, n] : null;
+  }
+
   // Every frame from t0 to t1 through the model: { t (file seconds), p: [[x px, y px, visibility] × 33], w: [[x, y, z] m
   // × 33] }. Each frame is looked at fresh (the model's own frame-to-frame following lags a fast arm, or loses it when
   // the hand leaves the area it was watching), on a crop around where he was the frame before, with plenty of room for
   // the arm to reach into, so he fills more of what the model sees. If he isn't found there, the whole frame is tried.
   // (`times`, given, are the exact moments to look at: a session tracked again looks at the same frames it did before,
   // so its moments set by hand and its fixed points still line up)
-  async function track(v, t0, t1, fps, onProgress, times) {
+  // (`tape`, given, is the color of tape on the end of the bat: each frame it's looked for near the hands too, b: [x, y,
+  // how many pixels matched], for the barrel's path, speed and angle in a swing)
+  async function track(v, t0, t1, fps, onProgress, times, tape) {
     const lm = await model();
+    const tapeTest = tape && TAPES[tape], scratch = tapeTest ? document.createElement("canvas") : null;
+    let lastB = null;
     const step = times ? (times.length > 1 ? times[1] - times[0] : 1 / fps) : Math.max(1 / fps, (t1 - t0) / MAX_FRAMES);
     if (!times) { times = []; for (let t = t0; t <= t1 + 1e-6; t += step) times.push(t); }
     t0 = times[0]; t1 = times[times.length - 1];
@@ -145,7 +195,14 @@
       if (!res) { bx = 0; by = 0; bw = W; bh = H; res = lm.detect(v); }
       const p = res.landmarks && res.landmarks[0], w = res.worldLandmarks && res.worldLandmarks[0];
       const pts = p ? p.map((q) => [bx + q.x * bw, by + q.y * bh, q.visibility == null ? 1 : q.visibility]) : null;
-      out.push({ t, p: pts, w: w ? w.map((q) => [q.x, q.y, q.z]) : null });
+      let b = null;
+      if (tapeTest && pts) {
+        // within reach of a bat from the hands: about 62% of his height (the bat's 45% and some room)
+        const tall = (Math.max(pts[27][1], pts[28][1]) - pts[0][1]) / 0.87 || H * 0.6;
+        b = findTape(v, tapeTest, [(pts[15][0] + pts[16][0]) / 2, (pts[15][1] + pts[16][1]) / 2], tall * 0.62, lastB, scratch);
+        if (b) lastB = b;
+      }
+      out.push({ t, p: pts, w: w ? w.map((q) => [q.x, q.y, q.z]) : null, b });
       // where to look next frame: a square around his body, 1.8 times its size, so a fast arm or a long stride stays in
       if (pts) {
         const seen = pts.filter((q) => q[2] > 0.3);
@@ -779,7 +836,7 @@
     const athlete = opts.athlete || {};
     const kindName = KINDS[opts.kind] ? opts.kind : "pitching", kind = KINDS[kindName];
     const hKey = `mocapHeight:${athlete.id}`;
-    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
+    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, extras: Object.fromEntries((kind.extras || []).map((x) => [x.key, x.default])), heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
     // his saved sessions of this movement
     const history = () => (opts.history ? opts.history() || [] : []).filter((r) => (r.motion || "pitching") === kindName);
     const variantName = (v) => (kind.variants && v ? (kind.variants.options.find((o) => o[0] === v) || [v, v])[1] : "");
@@ -832,6 +889,11 @@
         el("div", { class: "mc-row" },
           el("span", { class: "mc-seg", role: "group", "aria-label": "Camera setup" },
             kind.setups.map(([key, label]) => el("button", { type: "button", class: `mc-seg-btn${state.setup === key ? " on" : ""}`, onclick: () => { if (key === "edger") { state.setup = "edger"; state.captureFps = String(state.edgerFps); render(); } else toPhone(key); } }, label)))),
+        // the movement's own settings (a swing's bat tape and bat length)
+        kind.extras ? el("div", { class: "mc-row" }, kind.extras.map((x) => el("label", null, x.label, x.options
+          ? el("select", { onchange: (e) => { state.extras = { ...state.extras, [x.key]: e.target.value }; } }, x.options.map(([v, t]) => el("option", { value: v, selected: (state.extras || {})[x.key] === v }, t)))
+          : el("input", { type: "number", inputmode: "decimal", step: x.step || 1, value: (state.extras || {})[x.key] ?? "", oninput: (e) => { state.extras = { ...state.extras, [x.key]: Number(e.target.value) || null }; } })))) : null,
+        kind.extrasHint ? el("p", { class: "mc-hint" }, kind.extrasHint) : null,
         kind.variants ? el("div", { class: "mc-row" }, el("span", { class: "mc-seg", role: "group", "aria-label": kind.variants.label },
           kind.variants.options.map(([v, label]) => el("button", { type: "button", class: `mc-seg-btn${state.variant === v ? " on" : ""}`, onclick: () => { state.variant = v; render(); } }, label)))) : null,
         el("div", { class: "mc-row" },
@@ -882,7 +944,7 @@
         state.busy = "Loading the pose model (the first time takes a moment)…"; render();
         await model();
         const one = async (f, name) => {
-          const res = await track(f.video, f.start, f.end, f.fps, (p) => { state.busy = `Finding his body in the ${name} video… ${Math.round(p * 100)}%`; const s = root.querySelector(".mc-status"); if (s) s.textContent = state.busy; });
+          const res = await track(f.video, f.start, f.end, f.fps, (p) => { state.busy = `Finding his body in the ${name} video… ${Math.round(p * 100)}%`; const s = root.querySelector(".mc-status"); if (s) s.textContent = state.busy; }, null, (state.extras || {}).tape || null);
           if (res.frames.filter((x) => x.p).length < res.frames.length * 0.5) throw new Error(`The ${name} video: couldn't find him in most frames. Check that his whole body is in the picture and the light is good.`);
           return res;
         };
@@ -897,7 +959,7 @@
     }
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
-      state.result = kind.analyze({ variant: state.variant,
+      state.result = kind.analyze({ variant: state.variant, extras: state.extras || {},
         side: state.side.tracked, edits: state.edits, weightKg: state.weightLb ? state.weightLb * 0.4536 : null, elbowDepth: state.elbowDepth !== false, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
@@ -914,8 +976,9 @@
       W: tr.W, H: tr.H, t: tr.frames.map((f) => Math.round(f.t * 10000) / 10000),
       p: tr.frames.map((f) => (f.p ? f.p.map((q) => [Math.round(q[0]), Math.round(q[1]), Math.round(q[2] * 100)]) : null)),
       w: tr.frames.map((f) => (f.w ? f.w.map((q) => q.map((x) => Math.round(x * 1000))) : null)),
+      ...(tr.frames.some((f) => f.b) ? { b: tr.frames.map((f) => (f.b ? [Math.round(f.b[0]), Math.round(f.b[1]), f.b[2]] : null)) } : {}), // the bat's tape, when it was looked for
     });
-    const unpack = (o) => ({ W: o.W, H: o.H, frames: o.t.map((t, i) => ({ t, p: o.p[i] ? o.p[i].map((q) => [q[0], q[1], q[2] / 100]) : null, w: o.w[i] ? o.w[i].map((q) => q.map((x) => x / 1000)) : null })) });
+    const unpack = (o) => ({ W: o.W, H: o.H, frames: o.t.map((t, i) => ({ t, p: o.p[i] ? o.p[i].map((q) => [q[0], q[1], q[2] / 100]) : null, w: o.w[i] ? o.w[i].map((q) => q.map((x) => x / 1000)) : null, b: o.b ? o.b[i] : null })) });
     const pathsOf = (rec) => (rec && rec.store ? [rec.store.path, rec.store.sideVideo, rec.store.behindVideo].filter(Boolean) : []);
     async function saveSession(note, keepVideo) {
       const R = state.result, S = R.series, was = state.saved;
@@ -945,7 +1008,7 @@
       }
       if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; store.elbowDepth = state.elbowDepth !== false; }
       const rec = {
-        id, kind: "mocap", motion: kindName, variant: state.variant, athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
+        id, kind: "mocap", motion: kindName, variant: state.variant, extras: state.extras || {}, athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
         setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, weightLb: Number(state.weightLb) || null, captureFps: state.cap,
         ...summaryOf(R), trackV: was ? was.trackV || 1 : TRACK_V,
         note, files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean), store,
@@ -969,7 +1032,7 @@
           if (s.error || !s.data) return null;
           try { return await openVideo(s.data.signedUrl); } catch (e) { return null; }
         };
-        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.weightLb = rec.weightLb || state.weightLb; state.captureFps = String(rec.captureFps || "auto");
+        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.extras = rec.extras || state.extras; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.weightLb = rec.weightLb || state.weightLb; state.captureFps = String(rec.captureFps || "auto");
         state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
@@ -1046,7 +1109,7 @@
           if (dl.error) throw dl.error;
           const data = JSON.parse(await dl.data.text());
           const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-          return kindOf(rec).analyze({ variant: rec.variant, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+          return kindOf(rec).analyze({ variant: rec.variant, extras: rec.extras || {}, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
         })().then((A) => { loaded[rec.id] = { A }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (alive()) build(); });
       };
       let me = null, others = [];
@@ -1228,7 +1291,7 @@
           if (s.error || !s.data) throw new Error(`couldn't open the ${name} video`);
           const v = await openVideo(s.data.signedUrl);
           try {
-            const out = await track(v, 0, 0, 30, (p) => onProgress && onProgress(`${name} video, ${Math.round(p * 100)}%`), tr.frames.map((f) => f.t));
+            const out = await track(v, 0, 0, 30, (p) => onProgress && onProgress(`${name} video, ${Math.round(p * 100)}%`), tr.frames.map((f) => f.t), (rec.extras || {}).tape || null);
             return { W: out.W, H: out.H, frames: out.frames };
           } finally { v.remove(); }
         };
@@ -1240,7 +1303,7 @@
         trackV = TRACK_V;
       }
       const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-      const R = kindOf(rec).analyze({ variant: rec.variant,
+      const R = kindOf(rec).analyze({ variant: rec.variant, extras: rec.extras || {},
         side, behind: rec.setup === "two" ? behind : null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap,
         sideScale: (rec.store.sideFps || 30) / cap, behindScale: (rec.store.behindFps || 30) / cap, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false,
       });
@@ -1319,6 +1382,16 @@
         if (state.hideVideo && !state.fixing) { ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height); } else ctx.drawImage(still, 0, 0);
         const q = pointsAt(i);
         if (!state.hideSkel || state.fixing) drawSkeleton(ctx, q, k, k, state.throws, state.fixing ? null : hiddenAt(i)); // every dot shows while fixing
+        // the bat (from the tape on its end): the barrel's trail over the last 40 frames, and the bat from the hands to it
+        if (R.bat && !state.hideSkel) {
+          const tip = R.bat.tip, from = Math.max(0, i - 40);
+          ctx.lineCap = "round"; ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(255, 210, 63, 0.8)"; ctx.beginPath();
+          let pen = false;
+          for (let j = from; j <= i; j++) { const p = tip[j]; if (!p) { pen = false; continue; } if (pen) ctx.lineTo(p[0] * k, p[1] * k); else ctx.moveTo(p[0] * k, p[1] * k); pen = true; }
+          ctx.stroke();
+          const h = R.bat.hands[i], p = tip[i];
+          if (h && p) { ctx.lineWidth = 5; ctx.strokeStyle = "#ffd23f"; ctx.beginPath(); ctx.moveTo(h[0] * k, h[1] * k); ctx.lineTo(p[0] * k, p[1] * k); ctx.stroke(); }
+        }
         if (state.fixing) {
           const sides = sidesOf(state.throws), armSet = new Set([sides.arm.sh, sides.arm.el, sides.arm.wr]);
           const moved = (state.edits && state.edits[i]) || {};
@@ -1841,6 +1914,7 @@
   }
 
   window.MoCap = {
+    findTape: (v, color, near, radius) => findTape(v, TAPES[color], near, radius, null, document.createElement("canvas")),
     mount, analyze, sequenceBlock, HOW_TO, bodyOf, poseNumbers, kinds: KINDS,
     lib: { P, sidesOf, clean, applyEdits, mid, angleAt, deriv, unwrap, argBest, smoothSeries, comOf, r1, deg, wrapDeg, prepare, groundForce, forceMetrics, applyToAssessment },
   };

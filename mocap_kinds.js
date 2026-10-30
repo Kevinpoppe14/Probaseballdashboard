@@ -36,13 +36,25 @@
   // ---- hitting ---------------------------------------------------------------------------------------------------------
   // The moments: the load (the front foot at its highest), foot plant (the front foot down again), contact (the hands at
   // their fastest, which is just before the ball: video can't see the bat) and the finish (the hands at their highest).
-  function analyzeHitting({ side, behind, throws: bats, heightIn, captureFps, sideScale, behindScale, events: manual, edits, weightKg }) {
+  // gaps of up to maxGap frames filled in a straight line (a tape missed for a frame or two); longer ones left empty
+  const fillGaps = (xs, maxGap) => {
+    const out = xs.slice();
+    let last = -1;
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] == null) continue;
+      if (last >= 0 && i - last > 1 && i - last <= maxGap + 1) for (let k = last + 1; k < i; k++) out[k] = out[last] + ((out[i] - out[last]) * (k - last)) / (i - last);
+      last = i;
+    }
+    return out;
+  };
+  const v3 = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]], unit3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return v.map((x) => x / l); };
+  function analyzeHitting({ side, behind, throws: bats, heightIn, captureFps, sideScale, behindScale, events: manual, edits, weightKg, extras }) {
     const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, med, pts, wpts, fr, Hpx } = A;
     const S = sidesOf(bats), m = manual || {}; // a righty hitter's front side is his left, as a righty pitcher's is
     const hands = pts.map((q) => mid(q[P.lWr], q[P.rWr]));
     const hvx = deriv(hands.map((h) => h[0]), dt), hvy = deriv(hands.map((h) => h[1]), dt);
     const handSpd = smoothSeries(hvx.map((vx, i) => Math.hypot(vx || 0, hvy[i] || 0)), sig);
-    const C = m.C != null ? m.C : argBest(handSpd, fr(0.2), n - 1 - fr(0.05), (a, b) => a > b);
+    let C = m.C != null ? m.C : argBest(handSpd, fr(0.2), n - 1 - fr(0.05), (a, b) => a > b); // (moved to the barrel's fastest when the bat is tracked)
     const footY = pts.map((q) => (q[S.lead.heel][1] + q[S.lead.toe][1] + q[S.lead.an][1]) / 3);
     const footX = pts.map((q) => (q[S.lead.heel][0] + q[S.lead.toe][0] + q[S.lead.an][0]) / 3);
     const LD = m.LD != null ? m.LD : argBest(footY, Math.max(0, C - fr(1.6)), Math.max(0, C - fr(0.12)), (a, b) => a < b);
@@ -56,7 +68,7 @@
     const dir = Math.sign(footX[FP] - footX[LD]) || Math.sign(pts[FP][S.lead.an][0] - pts[FP][S.drive.an][0]) || 1;
     const mPx = heightIn ? (heightIn * 0.0254) / Hpx : null;
     // the hips' and shoulders' turn: from behind (measured) or the model's 3D points (an estimate)
-    let pelvis, trunk, rotSource = "estimate";
+    let pelvis, trunk, rotSource = "estimate", bZ = null;
     if (behind) {
       const bp = M.lib.clean(behind.frames, "p", sig, med), bT = behind.frames.map((f) => (f.t - behind.frames[0].t) * behindScale), bn = bp.length;
       const bH = bp.map((q) => mid(q[P.lWr], q[P.rWr])), bvx = deriv(bH.map((h) => h[0]), dt), bvy = deriv(bH.map((h) => h[1]), dt);
@@ -70,14 +82,49 @@
       pelvis = unwrap(pts.map((q, i) => line(q, bAll[i], P.lHip, P.rHip)));
       trunk = unwrap(pts.map((q, i) => line(q, bAll[i], P.lSh, P.rSh)));
       rotSource = "measured";
+      // the bat's tape seen from behind too: its side-to-side place there is the depth the side view can't see (meters,
+      // across the plate), and the hands' likewise
+      const bTape = behind.frames.map((f) => f.b || null);
+      if (mPx && bTape.filter(Boolean).length > bn * 0.2) {
+        const mB = (heightIn * 0.0254) / bHt, ref = bH[0][0];
+        const tapeAt = (t) => { const x = t - offset; let k = 0; while (k < bn - 2 && bT[k + 1] < x) k++; const a = bTape[k], b = bTape[Math.min(bn - 1, k + 1)]; if (a && b) { const f = bT[k + 1] > bT[k] ? Math.max(0, Math.min(1, (x - bT[k]) / (bT[k + 1] - bT[k]))) : 0; return a[0] + (b[0] - a[0]) * f; } return a ? a[0] : b ? b[0] : null; };
+        bZ = { tip: smoothSeries(fillGaps(tReal.map((t) => { const v = tapeAt(t); return v == null ? null : (v - ref) * mB; }), fr(0.04)), sig), hand: bAll.map((q) => ((q[P.lWr][0] + q[P.rWr][0]) / 2 - ref) * mB) };
+      }
     } else {
       pelvis = unwrap(wpts.map((q) => deg(Math.atan2(q[P.rHip][2] - q[P.lHip][2], q[P.rHip][0] - q[P.lHip][0]))));
       trunk = unwrap(wpts.map((q) => deg(Math.atan2(q[P.rSh][2] - q[P.lSh][2], q[P.rSh][0] - q[P.lSh][0]))));
     }
+    // ---- the bat, from the tape on the end of the barrel (when it was tracked) ----
+    // In meters, x toward the pitcher, y up, z across the plate: the tape from the side view, its depth from the behind
+    // view, or with one camera from the bat's length (the part of it the side view doesn't show points toward the
+    // plate). The sweet spot sits 6 inches from the end, on the line from the hands (the knob) to the tape.
+    let barrel = null;
+    const raw = side.frames.map((f) => f.b || null);
+    if (mPx && raw.filter(Boolean).length > n * 0.2) {
+      const series = (k) => smoothSeries(fillGaps(raw.map((b) => (b ? b[k] : null)), fr(0.04)), Math.max(0.6, sig * 0.4)); // (lightly: smoothing a fast arc cuts its corner, shortening the bat)
+      const tx = series(0), ty = series(1);
+      const tip = tx.map((x, i) => (x == null || ty[i] == null ? null : [x, ty[i]]));
+      const L = ((extras && extras.batLen) || 33) * 0.0254, sweetAt = Math.max(0.5, (L - 0.1524) / L);
+      const H3 = hands.map((h, i) => [dir * h[0] * mPx, -h[1] * mPx, bZ ? bZ.hand[i] : 0]);
+      const T3 = tip.map((p, i) => {
+        if (!p) return null;
+        const v = [dir * (p[0] - hands[i][0]) * mPx, -(p[1] - hands[i][1]) * mPx];
+        const z = bZ && bZ.tip[i] != null ? bZ.tip[i] : H3[i][2] + Math.sqrt(Math.max(0, L * L - v[0] * v[0] - v[1] * v[1]));
+        return [H3[i][0] + v[0], H3[i][1] + v[1], z];
+      });
+      const S3 = T3.map((t, i) => (t ? H3[i].map((h, c) => h + (t[c] - h) * sweetAt) : null));
+      // (its speed smoothed, not its velocity: averaging a velocity that turns fast shortens it)
+      const vel = [0, 1, 2].map((c) => smoothSeries(deriv(S3.map((s) => (s ? s[c] : null)), dt), 0.6));
+      const spd = smoothSeries(vel[0].map((_, i) => (vel[0][i] == null || vel[1][i] == null || vel[2][i] == null ? null : Math.hypot(vel[0][i], vel[1][i], vel[2][i]))), sig);
+      const cB = argBest(spd, Math.max(0, FP - fr(0.05)), n - 1 - fr(0.02), (a, b) => a > b);
+      if (cB >= 0) {
+        if (m.C == null) C = cB; // contact: the barrel at its fastest, sharper than the hands'
+        barrel = { tip, H3, T3, S3, vel, spd, L };
+      }
+    }
     const sep = pelvis.map((p, i) => (p == null || trunk[i] == null ? null : wrapDeg(p - trunk[i])));
     const pelvisV = deriv(smoothSeries(pelvis, sig * 2), dt), trunkV = deriv(smoothSeries(trunk, sig * 2), dt);
     // the front arm: the upper arm's swing (3D) and the elbow straightening (its angle seen from the side)
-    const v3 = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]], unit3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return v.map((x) => x / l); };
     const upper = wpts.map((q) => unit3(v3(q[S.glove.sh], q[S.glove.el])));
     const armV = smoothSeries(upper.map((u, i) => { const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1); if (hi <= lo) return null; const d = Math.max(-1, Math.min(1, u[0] * upper[hi][0] + u[1] * upper[hi][1] + u[2] * upper[hi][2])); const d2 = Math.max(-1, Math.min(1, upper[lo][0] * u[0] + upper[lo][1] * u[1] + upper[lo][2] * u[2])); return (deg(Math.acos(d)) + deg(Math.acos(d2))) / ((hi - lo) * dt); }), sig);
     const elbowFlex = pts.map((q) => flexAt(q, S.glove.sh, S.glove.el, S.glove.wr));
@@ -115,11 +162,40 @@
       metric("headY", "Head drop", r1(headY), "in", "", "How far the head drops from the load to contact (negative: it rises)."),
       metric("handV", "Peak hand speed (estimate)", r1(handMph ? handMph[C] : null), "mph", "", "The hands at their fastest, from the side view: the bat moves faster than the hands, and video can't see it."),
     ];
-    // inferred: bat speed and exit velo from the hands, and what the ground pushes with
-    const bat = handMph && handMph[C] != null ? handMph[C] * 3 : null;
+    // the swing, from the barrel when the bat was tracked: bat speed at contact, time to contact and swing length (from
+    // the barrel starting forward, a fifth of its top speed), rotational acceleration (its gain in speed over the
+    // swing's first 50 ms), how fast the bat turns, and its angle and path at contact
+    const depthNote = bZ ? "" : " (depth estimated from the bat's length with one camera)";
+    if (barrel) {
+      const peak = barrel.spd[C];
+      let st = C;
+      while (st > 0 && barrel.spd[st - 1] != null && barrel.spd[st - 1] > 0.2 * peak) st--;
+      let len = 0;
+      for (let i = st + 1; i <= C; i++) if (barrel.S3[i] && barrel.S3[i - 1]) len += Math.hypot(...[0, 1, 2].map((c) => barrel.S3[i][c] - barrel.S3[i - 1][c]));
+      const i50 = Math.min(C, st + fr(0.05));
+      const rotAcc = barrel.spd[i50] != null && barrel.spd[st] != null ? (barrel.spd[i50] - barrel.spd[st]) / Math.max(dt, tReal[i50] - tReal[st]) / 9.81 : null;
+      const dirs = barrel.T3.map((t, i) => (t ? unit3(v3(barrel.H3[i], t)) : null));
+      const angV = smoothSeries(dirs.map((u, i) => { const a = dirs[i - 1], b = dirs[i + 1]; if (!u || !a || !b) return null; return deg(Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])))) / (2 * dt); }), sig);
+      const angPk = argBest(angV, st, Math.min(n - 1, C + fr(0.02)), (a, b) => a > b);
+      const u = dirs[C], vC = [0, 1, 2].map((c) => barrel.vel[c][C]);
+      barrel.angV = angV; barrel.st = st;
+      metrics.push(
+        metric("batV", "Bat speed at contact", r1(mph(peak)), "mph", "", `The sweet spot (6 inches from the end) at its fastest, from the tape on the barrel${depthNote}.`),
+        metric("evPot", "Exit velo potential (estimate)", peak == null ? null : r1(1.2 * mph(peak) + 0.2 * 85), "mph", "", "Squared up on an 85 mph pitch: 1.2 × bat speed + 0.2 × pitch speed (Alan Nathan's rule of thumb for the collision)."),
+        metric("ttc", "Time to contact", Math.round((tReal[C] - tReal[st]) * 1000), "ms", "", "From the barrel starting forward (a fifth of its top speed) to contact."),
+        metric("swingLen", "Swing length", r1(len / 0.3048), "ft", "", "How far the sweet spot travels from the start of the swing to contact."),
+        metric("rotAcc", "Rotational acceleration", rotAcc == null ? null : r1(rotAcc), "g", "", "How quickly the barrel gets up to speed: its gain in speed over the swing's first 50 ms."),
+        metric("batAngV", "Peak bat angular velocity", angPk < 0 ? null : Math.round(angV[angPk]), "°/s", "", "How fast the bat (the hands to the barrel) turns at its fastest."),
+        metric("vba", "Vertical bat angle at contact", u ? r1(deg(Math.asin(Math.max(-1, Math.min(1, u[1]))))) : null, "°", "", "The barrel below the hands (−) or above them (+) at contact."),
+        metric("attack", "Attack angle", vC.every((x) => x != null) ? r1(deg(Math.atan2(vC[1], Math.hypot(vC[0], vC[2])))) : null, "°", "", "The sweet spot's path at contact: rising (+) or falling (−)."),
+      );
+    }
+    const est3 = !barrel && handMph && handMph[C] != null ? handMph[C] * 3 : null; // without the bat: about 3 times the hands
     metrics.push(
-      metric("batV", "Bat speed (estimate)", r1(bat), "mph", "", "About 3 times the hands' peak speed (the barrel swings on a longer radius than the hands): a rough guide without a bat sensor."),
-      metric("evPot", "Exit velo potential (estimate)", bat == null ? null : r1(1.2 * bat + 0.2 * 85), "mph", "", "Squared up on an 85 mph pitch: 1.2 × bat speed + 0.2 × pitch speed (Alan Nathan's rule of thumb for the collision)."),
+      ...(barrel ? [] : [
+        metric("batV", "Bat speed (estimate)", r1(est3), "mph", "", "About 3 times the hands' peak speed (the barrel swings on a longer radius than the hands): a rough guide. Tape on the barrel measures it."),
+        metric("evPot", "Exit velo potential (estimate)", est3 == null ? null : r1(1.2 * est3 + 0.2 * 85), "mph", "", "Squared up on an 85 mph pitch: 1.2 × bat speed + 0.2 × pitch speed (Alan Nathan's rule of thumb for the collision)."),
+      ]),
       ...M.lib.forceMetrics(M.lib.groundForce({ pts, dt, sig, dir, mPerPx: mPx }), weightKg, [
         ["grfV", "Peak vertical ground force", "vert", FP, C + fr(0.05), "max", "Both feet together, from his center of mass, foot plant to contact: mostly the front leg."],
         ["grfBrake", "Peak braking force", "horiz", FP, C, "min", "The ground stopping his move toward the pitcher: the front leg bracing."],
@@ -128,6 +204,7 @@
     );
     return {
       n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs, rotSource,
+      bat: barrel ? { tip: barrel.tip, hands } : null, // drawn over the video
       events: { LD, FP, C, FIN }, evLabels: { LD: "Load", FP: "Foot plant", C: "Contact", FIN: "Finish" },
       phaseKeys: ["LD", "FP", "C", "FIN"], zeroKey: "FP", seqWindow: ["FP", "C"], seqMarks: [["FP", "Foot plant"], ["C", "Contact"]],
       seq, inOrder, metrics,
@@ -139,6 +216,8 @@
         [`Hip-shoulder separation${est}`, "°", ab(sep), "#c77dff"],
         [`Rotation speed${est}`, "°/s", ab(pelvisV), "#2ec4b6", { ys: ab(trunkV), color: "#ff4d5e", label: "trunk (pelvis in teal)" }],
         handMph ? ["Hand speed (estimate)", "mph", handMph, "#8ac926"] : null,
+        barrel ? ["Bat speed (sweet spot)", "mph", barrel.spd.map((v) => (v == null ? null : mph(v))), "#ffd23f"] : null,
+        barrel && barrel.angV ? ["Bat angular velocity", "°/s", barrel.angV, "#ff9f1c"] : null,
       ].filter(Boolean),
       hint: rotSource === "estimate"
         ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's 3D estimate: good for spotting big changes, not exact numbers. A second camera behind measures them. Joint angles from video are good to about 5 to 10 degrees: compare sessions filmed the same way."
@@ -503,6 +582,7 @@
         ["Open side camera", "Facing his chest from across the plate (the other batter's box side), square to the line to the pitcher, 15 to 25 feet away, aimed at the plate."],
         ["Behind camera (two-camera setup)", "Directly behind the catcher on the line to the pitcher, the same height, 15 to 25 feet back. Start both before he gets in his stance; they're lined up afterward at contact."],
         ["Whole body, one swing", "His whole body in frame from his stance through the finish, feet included. One swing per clip, from just before the load to after the finish."],
+        ["Bat tracking", "For bat speed, swing length, attack angle and the like: 2 to 3 inches of bright tape (green or pink is best) around the end of the barrel, film at 240 fps in good light, and choose the tape color under Bat tape. Nothing else in the picture the same color (a green screen, a pink shirt)."],
         ...TIPS_COMMON.slice(2),
       ],
       sideLabel: "Open side video", sideHint: "Facing his chest from across the plate, square to the line to the pitcher",
@@ -510,9 +590,15 @@
       behindHint: "Behind the catcher, on the line to the pitcher",
       trimHint: "Trim to the swing: from his stance just before the load to just after the finish.",
       heightHint: "Height is needed for hand speed and head movement in inches. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down.",
+      // bat tracking: tape on the end of the barrel, and the bat's length (for the sweet spot, and depth with one camera)
+      extras: [
+        { key: "tape", label: "Bat tape", options: [["", "No tape (hands only)"], ["green", "Green tape"], ["pink", "Pink tape"], ["orange", "Orange tape"], ["yellow", "Yellow tape"]], default: "" },
+        { key: "batLen", label: "Bat length (in)", default: 33, step: 0.5 },
+      ],
+      extrasHint: "Bat tracking: wrap 2 to 3 inches of bright tape around the end of the barrel (the end cap and the edge), in a color nothing else in the shot has, and pick it here. With it, the swing gets bat speed, time to contact, swing length, rotational acceleration, bat angular velocity, vertical bat angle and attack angle. A second camera behind measures the barrel's depth; with one, it's estimated from the bat's length.",
       analyzeLabel: "Analyze the swing",
       analyze: analyzeHitting,
-      historyKeys: ["stride", "fpc", "sepMax", "trunkV", "headX", "batV", "grfV"],
+      historyKeys: ["stride", "fpc", "sepMax", "trunkV", "batV", "ttc", "swingLen", "attack"],
     },
     sprint: {
       label: "Sprint", hand: null, setups: SETUPS_SIDE,
