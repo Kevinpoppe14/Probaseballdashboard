@@ -1428,6 +1428,39 @@
   const nearTo = (t, ref) => { let x = t; while (x - ref > 360) x -= 720; while (x - ref < -360) x += 720; return x; };
   const startOf = (b) => ({ velo: b.speedAvg, spin: b.spinAvg, tilt: b.tilt != null ? b.tilt : toClock(moveDir(b)), eff: b.spinEff != null ? b.spinEff : ASSUMED_EFF, seam: seamOf(b) });
 
+  // ---- seam-shifted wake, learned from MLB pitches ------------------------------------------------------------------
+  // Hawk-Eye measures every MLB pitch's spin direction, and its movement says where it really went: the gap between the
+  // two is what its seams add, the seam-shifted wake (Savant's spin direction leaderboard has both, for each pitcher's
+  // pitch). Over every MLB pitch of a type that season, the gap is predicted for any spin direction, spin efficiency and
+  // velo from the pitches most like it (a Gaussian-weighted average; a lefty's turned to throw like a righty). A design
+  // changes the pitch's own seam effects by the change the model predicts from where it is to where it's designed: so a
+  // sinker given more gyro, say, picks up the extra run MLB sinkers like it show.
+  const SSW_SCALE = { tilt: 40, eff: 8, velo: 2.5 }; // how far apart two pitches can be and still count as alike: clock minutes, % efficiency, mph
+  async function sswModel(codes, year) {
+    const rows = (await Promise.all(codes.map((c) => spinDirs(c, year)))).flat();
+    return rows.map((r) => {
+      const meas = num(r.hawkeye_measured_clock_minutes), inf = num(r.movement_inferred_clock_minutes), eff = num(r.active_spin), velo = num(r.release_speed);
+      if (meas == null || inf == null || eff == null || velo == null) return null;
+      const L = r.pitch_hand === "L", off = ((((inf - meas) % 720) + 1080) % 720) - 360; // + clockwise from behind the pitcher
+      return { tilt: L ? wrapMin(720 - meas) : meas, eff: eff * 100, velo, off: L ? -off : off };
+    }).filter(Boolean);
+  }
+  // the seam effects (clock minutes, + clockwise) of pitches like this one, and how many there are (within 2 of each scale)
+  const sswAt = (pts, hand, tilt, eff, velo) => {
+    if (!pts || pts.length < 20) return null;
+    const L = hand === "L", t = L ? wrapMin(720 - tilt) : wrapMin(tilt);
+    let sw = 0, s = 0, n = 0;
+    pts.forEach((p) => {
+      let dt = Math.abs(p.tilt - t) % 720;
+      if (dt > 360) dt = 720 - dt;
+      const z = (dt / SSW_SCALE.tilt) ** 2 + ((p.eff - eff) / SSW_SCALE.eff) ** 2 + ((p.velo - velo) / SSW_SCALE.velo) ** 2;
+      const w = Math.exp(-z / 2);
+      sw += w; s += w * p.off;
+      if (z < 4) n++;
+    });
+    return sw > 1e-9 ? { off: (L ? -1 : 1) * (s / sw), n } : null;
+  };
+
   // the pitcher's pitches on a movement plot, with an arrow from the pitch as it is to the pitch as designed
   function DesignChart({ pitches, base, out }) {
     const vals = [...pitches.flatMap((p) => [p.hb, p.ivb]), out.hb, out.ivb].map(Math.abs);
@@ -1643,15 +1676,14 @@
   }
 
   // ---- handles on the designed ball: shape the spin by hand ------------------------------------------------------
-  // Three, drawn over the ball, from whichever side it's seen:
+  // Two, drawn over the ball, from whichever side it's seen:
   //   the solid knob on the ring: the spin direction (the way spin pushes the ball), dragged round the clock
-  //   the hollow knob on the ring: where the pitch really goes, spin direction plus seam effects
   //   the white knob on the axis line: the spin axis as you see it. Pulled in toward the middle it points at you (all
   //     gyro); pushed out to the edge it lies flat across the ball (all efficient); dragged round, it turns the spin.
   // The axis knob is the end facing you. Spin efficiency e leans the axis between flat (e = 1) and pointing at you
   // (e = 0) as spinAxis does, so the knob sits sin(lean) of the way out: ρ = e / √(e² + (1 − e)²), and back again
   // e = ρ / (ρ + √(1 − ρ²)).
-  function DesignHandles({ size, tilt, eff, seam, pov, color, seamMax, onChange }) {
+  function DesignHandles({ size, tilt, eff, pov, color, onChange }) {
     const svgRef = useRef(null);
     const drag = useRef(null);
     const c = size / 2, rBall = size * 0.38, rRing = size * 0.47;
@@ -1660,7 +1692,6 @@
     const screenA = (rad) => (mine ? rad : -rad);
     const onRing = (a) => [c + rRing * Math.sin(a), c - rRing * Math.cos(a)];
     const [sx, sy] = onRing(screenA(th));
-    const [mx, my] = onRing(screenA(th + clockRad(seam)));
     // the axis knob: the axis end facing you, as far out as the axis lies flat
     const e = Math.max(0, Math.min(1, eff / 100)), rho = e / (Math.hypot(e, 1 - e) || 1);
     const kx = c - rBall * rho * Math.cos(th), ky = c - rBall * rho * (mine ? Math.sin(th) : -Math.sin(th));
@@ -1674,9 +1705,6 @@
       const [dx, dy] = at(ev), a = Math.atan2(dx, -dy); // clockwise from 12 on screen
       if (drag.current === "spin") {
         onChange({ tilt: Math.round(nearTo(toMin(mine ? a : -a), tilt)) });
-      } else if (drag.current === "seam") {
-        let s = Math.round((nearTo(toMin(mine ? a : -a), tilt) - tilt) / 2) * 2;
-        onChange({ seam: Math.max(-seamMax, Math.min(seamMax, s)) });
       } else {
         const r = Math.min(1, Math.hypot(dx, dy) / rBall);
         const patch = { eff: Math.round((100 * r) / (r + Math.sqrt(Math.max(0, 1 - r * r)))) };
@@ -1697,7 +1725,6 @@
       <svg ref={svgRef} className="pd-handles" viewBox={`0 0 ${size} ${size}`} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
         <circle cx={c} cy={c} r={rRing} fill="none" stroke="var(--chart-grid)" strokeDasharray="3 4" />
         <line x1={2 * c - kx} y1={2 * c - ky} x2={kx} y2={ky} stroke="rgba(20, 20, 20, 0.55)" strokeWidth="2" strokeDasharray="5 3" />
-        {knob(mx, my, "seam", "Where it really goes: drag to set its seam effects", (x, y) => <circle cx={x} cy={y} r={size * 0.035} fill="var(--panel)" stroke={color} strokeWidth="2.5" />)}
         {knob(sx, sy, "spin", "Spin direction: drag around the clock", (x, y) => <circle cx={x} cy={y} r={size * 0.04} fill={color} stroke="var(--panel)" strokeWidth="2" />)}
         {knob(kx, ky, "axis", "Spin axis: pull in for more gyro, push out for more efficiency, drag around to turn it", (x, y) => (
           <g><circle cx={x} cy={y} r={size * 0.042} fill="#fff" stroke="#222" strokeWidth="2" /><circle cx={x} cy={y} r={size * 0.012} fill="#222" /></g>
@@ -1730,7 +1757,7 @@
     const pitches = (source === "mlb"
       ? mlb.rows.filter((r) => CODE_TYPE[r.code]).map((r) => {
         const left = (r.hand || athlete.throws) === "L";
-        return { type: CODE_TYPE[r.code], speedAvg: r.velo, spinAvg: r.spin != null ? Math.round(r.spin) : r.spinRate, tilt: r.tilt, spinEff: r.spinEff, ivb: r.ivb, hb: r.hb != null ? (left ? -r.hb : r.hb) : null, qty: r.res.pitches, relHeight: r.relHeight, relSide: r.relSide, extension: r.ext, vaa: r.vaa, armAngle: r.armAngle };
+        return { type: CODE_TYPE[r.code], code: r.code, speedAvg: r.velo, spinAvg: r.spin != null ? Math.round(r.spin) : r.spinRate, tilt: r.tilt, spinEff: r.spinEff, ivb: r.ivb, hb: r.hb != null ? (left ? -r.hb : r.hb) : null, qty: r.res.pitches, relHeight: r.relHeight, relSide: r.relSide, extension: r.ext, vaa: r.vaa, armAngle: r.armAngle };
       })
       : source ? typeStats(source === "all" ? { pitches: sessions.flatMap(livePitches) } : latest).filter((s) => s.type !== UNTAGGED).map((s) => ({ type: s.type, speedAvg: s.speedAvg, spinAvg: s.spinAvg, tilt: s.tilt, spinEff: s.spinEff, ivb: s.ivb, hb: s.hb, qty: s.qty, relHeight: s.relHeight, relSide: s.relSide, extension: s.extension, vaa: s.vaa }))
       : []).filter(usable);
@@ -1745,6 +1772,18 @@
       opening.current = null;
     }, [baseKey]); // eslint-disable-line
     const [spinCtl, setSpinCtl] = useSpinCtl();
+    // the seam-shifted wake model for this pitch type: every MLB pitch of the type that season (the bullpen's, last season's)
+    const sswCodes = base ? (base.code ? [base.code] : codesOf(base.type)) : null;
+    const sswYear = source === "mlb" ? season : defaultSeason();
+    const sswKey = sswCodes ? `${sswCodes.join("+")}|${sswYear}` : "";
+    const [ssw, setSsw] = useState({ key: "", pts: null });
+    useEffect(() => {
+      if (!sswKey) return undefined;
+      let off = false;
+      sswModel(sswCodes, sswYear).then((pts) => { if (!off) setSsw({ key: sswKey, pts }); }, () => { if (!off) setSsw({ key: sswKey, pts: [] }); });
+      return () => { off = true; };
+    }, [sswKey]); // eslint-disable-line
+    const sswPts = ssw.key === sswKey ? ssw.pts : null;
     // the goals, kept on the pitcher
     const store = window.AthleteStore;
     const [plan, setPlan] = useState(() => (store.getPitchDesign ? store.getPitchDesign(athlete.id) : null));
@@ -1779,7 +1818,15 @@
       return <div className="panel"><h2>Pitch Design</h2><div className="empty-state">Import a TrackMan bullpen, or link this pitcher to MLB, to design from one of his pitches.</div></div>;
     }
     const start = base ? startOf(base) : null;
-    const dd = d && base && d.velo != null ? d : start;
+    const dd0 = d && base && d.velo != null ? d : start;
+    // the design's seam effects: the pitch's own, changed by what the MLB model predicts for the change (held where they
+    // are when the model hasn't loaded, or too few MLB pitches are like the design to say)
+    const hand = athlete.throws === "L" ? "L" : "R";
+    const sswNow = base && sswPts ? sswAt(sswPts, hand, start.tilt, start.eff, start.velo) : null;
+    const sswNew = base && dd0 && sswPts ? sswAt(sswPts, hand, dd0.tilt, dd0.eff, dd0.velo) : null;
+    const sswOk = !!(sswNow && sswNew && sswNew.n >= 5);
+    const sswDelta = sswOk ? Math.round(sswNew.off - sswNow.off) : 0;
+    const dd = dd0 && { ...dd0, seam: start.seam + sswDelta };
     const out = base && dd ? designed(base, dd) : null;
     const set = (k, v) => setD({ ...dd, [k]: v });
     const sign = (v, dp = 1) => { const r = Number(v.toFixed(dp)); return r === 0 ? "–" : `${r > 0 ? "+" : ""}${r.toFixed(dp)}`; };
@@ -1816,7 +1863,7 @@
       ["Spin direction", base.tilt != null ? clockExact(base.tilt) : "–", clockExact(dd.tilt), ""],
       ["Spin eff. / gyro", `${effB}% / ${100 - effB}%`, `${Math.round(dd.eff)}% / ${100 - Math.round(dd.eff)}%`, sign(dd.eff - effB, 0)],
       ["Active spin", `${Math.round((base.spinAvg * effB) / 100)} rpm`, `${Math.round((dd.spin * dd.eff) / 100)} rpm`, sign((dd.spin * dd.eff) / 100 - (base.spinAvg * effB) / 100, 0)],
-      ["Seam effects", seamText(start.seam), seamText(dd.seam), ""],
+      ["Seam effects", seamText(start.seam), seamText(dd.seam), Math.abs(sswDelta) < 2 ? "–" : `${sswDelta > 0 ? "+" : "−"}${Math.round(Math.abs(sswDelta) / 2)}°`],
       ["Break from seams", `${seamInches(mNow, start.seam).toFixed(1)}"`, `${seamInches(out.m, dd.seam).toFixed(1)}"`, sign(seamInches(out.m, dd.seam) - seamInches(mNow, start.seam))],
     ] : [];
     const ballNow = base && { type: base.type, spinAvg: base.spinAvg, tilt: base.tilt, spinEff: base.spinEff, speedAvg: base.speedAvg };
@@ -1885,19 +1932,14 @@
               <div className="pd-col">
                 <h3>Designed</h3>
                 <SpinBall key={`new-${baseKey}`} s={ballNew} ctl={spinCtl} size={200}
-                  overlay={(sz) => <DesignHandles size={sz} tilt={dd.tilt} eff={dd.eff} seam={dd.seam} pov={spinCtl.pov} color={colorOf(base.type)} seamMax={Math.max(120, Math.abs(start.seam) + 30)} onChange={(patch) => setD((p) => ({ ...(p && p.velo != null ? p : dd), ...patch }))} />} />
-                <p className="pd-handles-key">Drag on the ball: <b className="pd-k-spin">●</b> spin direction · <b className="pd-k-seam">○</b> where it really goes (seam effects) · <b className="pd-k-axis">◉</b> the spin axis: pull in for gyro, push out for efficiency, drag around to turn it</p>
+                  overlay={(sz) => <DesignHandles size={sz} tilt={dd.tilt} eff={dd.eff} pov={spinCtl.pov} color={colorOf(base.type)} onChange={(patch) => setD((p) => ({ ...(p && p.velo != null ? p : dd), ...patch }))} />} />
+                <p className="pd-handles-key">Drag on the ball: <b className="pd-k-spin">●</b> spin direction · <b className="pd-k-axis">◉</b> the spin axis: pull in for gyro, push out for efficiency, drag around to turn it</p>
               </div>
               <div className="pd-col pd-controls">
                 <h3>Change it</h3>
                 {slider({ label: "Velo", k: "velo", min: Math.round(start.velo - 10), max: Math.round(start.velo + 10), step: 0.1, fmt: (v) => `${v.toFixed(1)} mph`, deltaFmt: (v) => `${sign(v)} mph` })}
                 {slider({ label: "Spin direction", k: "tilt", min: start.tilt - 360, max: start.tilt + 360, step: 1, fmt: clockExact, deltaFmt: (v) => `${v > 0 ? "+" : "−"}${Math.floor(Math.abs(v) / 60)}:${String(Math.round(Math.abs(v) % 60)).padStart(2, "0")}`, note: `${Math.round(Math.abs(dd.tilt - start.tilt) / 2)}° ${dd.tilt >= start.tilt ? "clockwise" : "counterclockwise"} of where it is (behind the pitcher); the spin rate stays ${Math.round(dd.spin)} rpm` })}
                 {slider({ label: "Gyro ⇄ efficiency", k: "eff", min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}% eff. · ${100 - Math.round(v)}% gyro`, deltaFmt: (v) => `${sign(v, 0)}% eff.`, ends: ["← more gyro (cut, bullet spin)", "more efficient (ride, run) →"], note: `${Math.round((dd.spin * dd.eff) / 100)} rpm active (moves the ball) · ${Math.round(dd.spin - (dd.spin * dd.eff) / 100)} rpm gyro (doesn't)` })}
-                {slider({ label: "Seam effects", k: "seam", min: -Math.max(120, Math.abs(start.seam) + 30), max: Math.max(120, Math.abs(start.seam) + 30), step: 2, fmt: (v) => seamText(v), deltaFmt: (v) => `${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) / 2)}°`, ends: ["← counterclockwise", "clockwise →"] })}
-                <div className="pd-seam-btns">
-                  <button type="button" className={`bp-mod-btn${dd.seam === start.seam ? " on" : ""}`} onClick={() => set("seam", start.seam)}>As he throws it</button>
-                  <button type="button" className={`bp-mod-btn${dd.seam === 0 ? " on" : ""}`} onClick={() => set("seam", 0)}>None (spin only)</button>
-                </div>
               </div>
             </div>
             <div className="pd-grid pd-results">
@@ -1917,9 +1959,12 @@
             )}
             <p className="timestamp-note">
               Predicted from the change in Magnus lift (Alan Nathan's model of how lift grows with active spin for the speed), scaled from this pitch's own measured break, so leaving everything as is predicts no change. Spin direction is the pitcher's clock, as TrackMan's tilt; horizontal break is the pitcher's view (+ to his right).
-              {Math.abs(start.seam) >= 6
-                ? ` Seam effects: his ${base.type.toLowerCase()} moves ${seamText(start.seam)} of where its spin sends it (seen from behind the pitcher), about ${seamInches(mNow, start.seam).toFixed(1)}" of its movement, from the wake its seams shift. The design starts there and lets you set it (+ clockwise): two-seam sinkers and changeups often run 15–30° off their spin, a clean four-seamer close to none.`
-                : " This pitch moves close to where its spin sends it, so little of its movement is seam effects; set some with the slider to see what a seam-shifted wake would add (two-seam sinkers and changeups often run 15–30° off their spin)."}
+              {source === "mlb"
+                ? ` Seam effects (the seam-shifted wake): his ${base.type.toLowerCase()} moves ${seamText(start.seam)} of where its measured spin sends it (seen from behind the pitcher), about ${seamInches(mNow, start.seam).toFixed(1)}" of its movement.`
+                : ` Seam effects (the seam-shifted wake): TrackMan's tilt here is worked out from the movement, so this pitch's own seam effects read as none; the design adds the change the MLB model predicts.`}
+              {sswOk
+                ? ` As the design changes, its seam effects change as MLB ${base.type.toLowerCase()}s with a similar spin direction, efficiency and velo do (${sswNew.n} of them in ${sswYear}, from Baseball Savant's measured spin against where each went): ${Math.abs(sswDelta) < 2 ? "no change for this design" : `they shift ${Math.round(Math.abs(sswDelta) / 2)}° ${sswDelta > 0 ? "clockwise" : "counterclockwise"}`}.`
+                : sswPts ? ` Too few MLB ${base.type.toLowerCase()}s are like the design to predict its seam effects, so they're held where his are.` : " The MLB seam effects model is loading."}
               {base.spinEff == null ? ` This pitch has no spin efficiency on file, so ${ASSUMED_EFF}% is assumed.` : ""}
               {" "}It's a guide for small changes: a big change in grip or axis can change the seam effects too, which no model of spin alone can see.
             </p>
