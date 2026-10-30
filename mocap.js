@@ -13,7 +13,8 @@
 // rate, the moments, the numbers and a thinned copy of the curves, not the video.
 (function () {
   const TASKS = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
-  const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
+  // the larger, slower, more accurate of the pose models (better on a fast arm), and the standard one to fall back on
+  const MODELS = ["https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task", "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task"];
   const MAX_FRAMES = 700;
 
   const el = (tag, attrs, ...kids) => {
@@ -40,11 +41,12 @@
       modelP = (async () => {
         const vision = await import(`${TASKS}/vision_bundle.mjs`);
         const files = await vision.FilesetResolver.forVisionTasks(`${TASKS}/wasm`);
-        const make = (delegate) => vision.PoseLandmarker.createFromOptions(files, {
-          baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1,
+        const make = (delegate, path) => vision.PoseLandmarker.createFromOptions(files, {
+          baseOptions: { modelAssetPath: path, delegate }, runningMode: "VIDEO", numPoses: 1,
           minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
         });
-        try { return await make("GPU"); } catch (e) { return make("CPU"); }
+        for (const path of MODELS) for (const delegate of ["GPU", "CPU"]) { try { return await make(delegate, path); } catch (e) { /* the next way */ } }
+        throw new Error("Couldn't load the pose model. Check the connection and try again.");
       })().catch((e) => { modelP = null; throw e; });
     }
     return modelP;
@@ -132,7 +134,7 @@
     };
   };
   // fill frames the model missed or wasn't sure of, then smooth each point's path (a Gaussian, about 1/120 s wide)
-  function clean(frames, key, sigmaFrames) {
+  function clean(frames, key, sigmaFrames, medianFrames = 3) {
     const n = frames.length, out = frames.map(() => new Array(33));
     for (let j = 0; j < 33; j++) {
       for (let c = 0; c < 3; c++) {
@@ -147,6 +149,10 @@
         }
         if (last === -1) { for (let i = 0; i < n; i++) { out[i][j] = out[i][j] || [0, 0, 0]; out[i][j][c] = NaN; } continue; }
         for (let k = last + 1; k < n; k++) raw[k] = raw[last];
+        // then a running median about 30 ms wide: the model loses a fast-moving arm for a frame or three (blur, or the
+        // arm crossing the body), and a median drops those jumps where an average would smear them into false speed
+        const half = Math.max(1, Math.round(medianFrames / 2));
+        if (half > 0) { const src = raw.slice(); for (let i = 0; i < n; i++) { const win = src.slice(Math.max(0, i - half), Math.min(n, i + half + 1)).sort((a, b) => a - b); raw[i] = win[Math.floor(win.length / 2)]; } }
         const s = Math.max(0.6, sigmaFrames), R = Math.ceil(s * 2.5), wts = [];
         for (let k = -R; k <= R; k++) wts.push(Math.exp(-(k * k) / (2 * s * s)));
         for (let i = 0; i < n; i++) {
@@ -181,6 +187,34 @@
     return [x / m, y / m];
   };
 
+  // ---- dots moved by hand ------------------------------------------------------------------------------------------
+  // A coach can drag a body point to where the joint really is on any frame. Each fix is kept as where the point
+  // belongs on that frame; the frames either side (about 25 ms) are shifted by the same amount, fading out, so the path
+  // stays smooth (and the glitch filter keeps it). Only the side view's 2D points are moved: the speeds of the upper arm
+  // and elbow come from the model's 3D estimate, which a drag on a picture can't correct.
+  function applyEdits(tr, edits, fps) {
+    const keys = Object.keys(edits || {}).map(Number);
+    if (!keys.length) return tr;
+    const K = Math.max(2, Math.round(fps * 0.025));
+    const frames = tr.frames.map((f) => ({ ...f, p: f.p ? f.p.map((q) => q.slice()) : null }));
+    const byJoint = {};
+    keys.forEach((f) => Object.entries(edits[f] || {}).forEach(([j, xy]) => { (byJoint[j] = byJoint[j] || []).push([f, xy]); }));
+    Object.entries(byJoint).forEach(([jj, list]) => {
+      const j = Number(jj);
+      const shifts = list.map(([f, xy]) => { const q = tr.frames[f] && tr.frames[f].p ? tr.frames[f].p[j] : null; return { f, x: xy[0], y: xy[1], dx: q ? xy[0] - q[0] : 0, dy: q ? xy[1] - q[1] : 0 }; });
+      frames.forEach((fr, i) => {
+        if (!fr.p) return;
+        let best = null;
+        shifts.forEach((s) => { const d = Math.abs(s.f - i); if (d <= K && (!best || d < best.d)) best = { s, d }; });
+        if (!best) return;
+        if (best.d === 0) { fr.p[j] = [best.s.x, best.s.y, 1]; return; }
+        const w = 1 - best.d / (K + 1);
+        fr.p[j] = [fr.p[j][0] + best.s.dx * w, fr.p[j][1] + best.s.dy * w, Math.max(fr.p[j][2], 0.9)];
+      });
+    });
+    return { ...tr, frames };
+  }
+
   // a Gaussian smoothing of one series (s frames wide), skipping gaps
   const smoothSeries = (xs, s) => xs.map((_, i) => {
     let sum = 0, ws = 0;
@@ -194,7 +228,8 @@
   function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual }) {
     const S = sidesOf(throws), n = side.frames.length;
     const sig = Math.max(0.6, captureFps / 120);
-    const pts = clean(side.frames, "p", sig), wpts = clean(side.frames, "w", sig);
+    const med = Math.max(3, Math.round(captureFps * 0.03)); // frames in about 30 ms
+    const pts = clean(side.frames, "p", sig, med), wpts = clean(side.frames, "w", sig, med);
     const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
     const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
     const fr = (sec) => Math.max(1, Math.round(sec / Math.max(dt, 1e-4))); // a time as a number of frames
@@ -203,10 +238,11 @@
     // peak leg lift: the lead knee at its highest
     const kneeY = pts.map((q) => q[S.lead.kn][1]);
     const LL = m.LL != null ? m.LL : argBest(kneeY, 0, Math.round(n * 0.75), (a, b) => a < b);
-    // his height on screen, while he stands tall from the set to the top of his leg lift: floor to nose is about 91%
+    // his height on screen, while he stands tall from the set to the top of his leg lift
+    // (nose to ankle is about 87% of height: ankles, not toes, which perspective can push low in the picture)
     const floorY = (q) => Math.max(q[S.lead.heel][1], q[S.drive.heel][1], q[S.lead.toe][1], q[S.drive.toe][1]);
-    const tall = pts.slice(0, Math.max(3, LL + 1)).map((q) => floorY(q) - q[P.nose][1]).sort((a, b) => a - b);
-    const Hpx = tall[Math.floor(tall.length * 0.75)] / 0.91;
+    const tall = pts.slice(0, Math.max(3, LL + 1)).map((q) => Math.max(q[S.lead.an][1], q[S.drive.an][1]) - q[P.nose][1]).sort((a, b) => a - b);
+    const Hpx = tall[Math.floor(tall.length * 0.75)] / 0.87;
     // which way the plate is on screen: the way the lead foot travels
     const leadFootX = pts.map((q) => (q[S.lead.an][0] + q[S.lead.heel][0] + q[S.lead.toe][0]) / 3);
     const dir = leadFootX[n - 1] - leadFootX[0] >= 0 ? 1 : -1;
@@ -243,7 +279,7 @@
     const gloveSign = throws === "L" ? 1 : -1; // from behind, a righty's glove side is to the left
     if (behind) {
       const S2 = behind;
-      const bpts = clean(S2.frames, "p", sig);
+      const bpts = clean(S2.frames, "p", sig, med);
       const bT = S2.frames.map((f) => (f.t - S2.frames[0].t) * behindScale);
       const bn = bpts.length;
       const bEarly = bpts.slice(0, Math.max(3, Math.round(bn * 0.08)));
@@ -436,7 +472,7 @@
     ["Behind camera (two-camera setup)", "Directly behind him on the line through home plate, the same height, 20 to 30 feet back. Start both cameras before he comes set; they're lined up afterward at foot strike."],
     ["Whole body, the whole delivery", "His whole body in frame from his set through the follow-through, with a little room around him, feet included. One pitch per clip: start just before he comes set and stop after the follow-through."],
     ["Light and clothes", "Bright, even light with the sun not behind him. Fitted clothes (no baggy hoodie or jacket) and a background that isn't the same color as his uniform make the points easier to find."],
-    ["Slo-Mo speed", "In Photos, Edit the clip so the slow part covers the whole delivery, from leg lift to follow-through. Then choose the clip here and say it was 240 fps slow motion."],
+    ["Slo-Mo speed", "Check Settings › Camera › Record Slo-mo: iPhones come set to 120 fps; choose 240 if it's offered. Whatever it's on, choose the same under Recorded at here (the report warns if the timing looks off). In Photos, Edit the clip so the slow part covers the whole delivery, from leg lift to follow-through."],
     ["Filming from here", "Film it now opens the phone's camera and brings the clip straight back, but a web page can't start Slo-Mo, so it films at normal speed: fine for stride, leg and trunk angles, rough for arm and rotation timing. For those, film in the Camera app's Slo-Mo and Choose a video."],
   ];
 
@@ -536,6 +572,7 @@
           if (res.frames.filter((x) => x.p).length < res.frames.length * 0.5) throw new Error(`The ${name} video: couldn't find him in most frames. Check that his whole body is in the picture and the light is good.`);
           return res;
         };
+        state.edits = {}; // a fresh analysis: no dots moved yet
         state.side.tracked = await one(state.side, "open side");
         if (state.setup === "two") state.behind.tracked = await one(state.behind, "behind");
         compute();
@@ -547,7 +584,7 @@
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
       state.result = analyze({
-        side: state.side.tracked, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
+        side: applyEdits(state.side.tracked, state.edits, cap), behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
       state.cap = cap;
@@ -592,7 +629,7 @@
           warn = /bucket not found/i.test((e && e.message) || "") ? " Only the summary will reopen until supabase/migration_032_mocap.sql is run." : " The tracking couldn't be stored, so only the summary will reopen later.";
         }
       }
-      if (store) store.manual = state.manual || null;
+      if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; }
       const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
       const rec = {
         id, kind: "mocap", athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
@@ -627,6 +664,7 @@
         state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
+        state.edits = rec.store.edits || {};
         state.saved = rec;
         compute();
         state.frame = state.result.events.FS;
@@ -648,7 +686,7 @@
       if ((state.saved && state.saved.id === rec.id) || (state.summary && state.summary.id === rec.id)) { state.saved = null; state.summary = null; state.result = null; state.side = null; state.behind = null; state.manual = null; }
       render();
     }
-    const backToStart = () => { if (state.side && state.side.video) state.side.video.remove(); if (state.behind && state.behind.video) state.behind.video.remove(); state.result = null; state.summary = null; state.saved = null; state.manual = null; state.side = null; state.behind = null; render(); };
+    const backToStart = () => { if (state.side && state.side.video) state.side.video.remove(); if (state.behind && state.behind.video) state.behind.video.remove(); state.result = null; state.summary = null; state.saved = null; state.manual = null; state.edits = {}; state.side = null; state.behind = null; render(); };
 
     function results() {
       const R = state.result, f = state.side, tr = f.tracked;
@@ -662,16 +700,65 @@
       const slider = el("input", { type: "range", min: 0, max: R.n - 1, step: 1, value: state.frame || 0, class: "mc-scrub", "aria-label": "Frame" });
       const caption = el("div", { class: "mc-caption" });
       let painting = Promise.resolve();
+      // the frame's picture, kept so a dot being dragged can be redrawn over it without going back to the video
+      const still = document.createElement("canvas");
+      still.width = canvas.width; still.height = canvas.height;
+      const sctx = still.getContext("2d");
+      // Fix points: the joints that can be dragged, with a letter each
+      const HANDLES = [[P.nose, "N"], [P.lSh, "S"], [P.rSh, "S"], [P.lEl, "E"], [P.rEl, "E"], [P.lWr, "W"], [P.rWr, "W"], [P.lHip, "H"], [P.rHip, "H"], [P.lKn, "K"], [P.rKn, "K"], [P.lAn, "A"], [P.rAn, "A"]];
+      let drag = null; // { j, x, y } in video pixels while a dot is moved
+      const pointsAt = (i) => { const q = R.pts[i].map((p) => p.slice()); if (drag) q[drag.j] = [drag.x, drag.y, 1]; return q; };
+      const draw = (i) => {
+        ctx.drawImage(still, 0, 0);
+        const q = pointsAt(i);
+        drawSkeleton(ctx, q, k, k, state.throws);
+        if (state.fixing) {
+          const sides = sidesOf(state.throws), armSet = new Set([sides.arm.sh, sides.arm.el, sides.arm.wr]);
+          const moved = (state.edits && state.edits[i]) || {};
+          HANDLES.forEach(([j, letter]) => {
+            const x = q[j][0] * k, y = q[j][1] * k;
+            ctx.beginPath(); ctx.arc(x, y, 9, 0, 2 * Math.PI);
+            ctx.fillStyle = moved[j] ? "#ffd23f" : armSet.has(j) ? "#ff4d5e" : "rgba(20,20,20,0.75)"; ctx.fill();
+            ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+            ctx.fillStyle = moved[j] || armSet.has(j) ? "#111" : "#fff"; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(letter, x, y + 0.5);
+          });
+        }
+      };
       const paint = (i) => {
         state.frame = i;
         painting = painting.then(async () => {
-          if (f.video) { await seek(f.video, tr.frames[i].t); ctx.drawImage(f.video, 0, 0, canvas.width, canvas.height); }
-          else { ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height); } // no video kept: the skeleton alone
-          drawSkeleton(ctx, R.pts[i], k, k, state.throws);
+          if (f.video) { await seek(f.video, tr.frames[i].t); sctx.drawImage(f.video, 0, 0, still.width, still.height); }
+          else { sctx.fillStyle = "#111"; sctx.fillRect(0, 0, still.width, still.height); } // no video kept: the skeleton alone
+          draw(i);
           const ev = Object.entries(R.events).find(([, j]) => j === i);
-          caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}`;
+          const edited = state.edits && state.edits[i] ? " · dots moved here" : "";
+          caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}${edited}`;
         });
       };
+      // dragging a dot (Fix points on): grab the nearest joint, move it, and on letting go the numbers are worked out again
+      const toVideo = (e) => { const b = canvas.getBoundingClientRect(), s = canvas.width / b.width; return [((e.clientX - b.left) * s) / k, ((e.clientY - b.top) * s) / k]; };
+      canvas.addEventListener("pointerdown", (e) => {
+        if (!state.fixing) return;
+        const [x, y] = toVideo(e), q = R.pts[state.frame || 0];
+        let best = null;
+        HANDLES.forEach(([j]) => { const d = Math.hypot(q[j][0] - x, q[j][1] - y) * k; if (d < 24 && (!best || d < best.d)) best = { j, d }; });
+        if (!best) return;
+        e.preventDefault();
+        canvas.setPointerCapture(e.pointerId);
+        drag = { j: best.j, x, y };
+        draw(state.frame || 0);
+      });
+      canvas.addEventListener("pointermove", (e) => { if (!drag) return; const [x, y] = toVideo(e); drag.x = x; drag.y = y; draw(state.frame || 0); });
+      const drop = () => {
+        if (!drag) return;
+        const i = state.frame || 0, d = drag;
+        drag = null;
+        state.edits = { ...(state.edits || {}), [i]: { ...((state.edits || {})[i] || {}), [d.j]: [Math.round(d.x), Math.round(d.y)] } };
+        compute(); render();
+      };
+      canvas.addEventListener("pointerup", drop);
+      canvas.addEventListener("pointercancel", () => { drag = null; draw(state.frame || 0); });
+      if (state.fixing) canvas.classList.add("fixing");
       slider.addEventListener("input", () => paint(Number(slider.value)));
       const go = (i) => { slider.value = i; paint(i); };
       setTimeout(() => paint(state.frame || 0), 0);
@@ -687,6 +774,21 @@
           state.manual = { ...keep, [key]: state.frame }; compute(); render();
         } }, `${EV_LABEL[key]} here`)),
         state.manual ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { state.manual = null; compute(); render(); } }, "Back to automatic") : null);
+      // Fix points: drag dots that missed their joint
+      const nEdits = Object.keys(state.edits || {}).length;
+      const fixDots = el("div", { class: "mc-row mc-fix" },
+        el("button", { type: "button", class: `mc-btn ${state.fixing ? "" : "ghost"} small`, "aria-pressed": state.fixing ? "true" : "false", onclick: () => { state.fixing = !state.fixing; render(); } }, state.fixing ? "Done fixing points" : "Fix points"),
+        state.fixing ? el("span", { class: "mc-hint" }, "Drag a dot onto the joint it belongs to (S shoulder, E elbow, W wrist, H hip, K knee, A ankle, N nose; the throwing arm's in red). The frames around it follow and the numbers update. Fix the frames that matter most: foot strike, max layback and release.") : null,
+        state.edits && state.edits[state.frame || 0] ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { const e2 = { ...state.edits }; delete e2[state.frame || 0]; state.edits = e2; compute(); render(); } }, "Undo fixes on this frame") : null,
+        nEdits ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { state.edits = {}; compute(); render(); } }, `Clear all fixes (${nEdits} frame${nEdits === 1 ? "" : "s"})`) : null);
+      // the timing: what it was filmed at, changeable here; and a warning when foot strike to release is impossibly quick
+      const fsbr = R.metrics.find((m) => m.key === "fsbr");
+      const tooFast = fsbr && typeof fsbr.value === "number" && fsbr.value < 110 && state.cap >= 200;
+      const timing = el("div", { class: "mc-row" },
+        el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; compute(); render(); } },
+          [["auto", `The file's own speed (${state.side.fps} fps)`], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t)))),
+        tooFast ? el("p", { class: "mc-warn" }, `Foot strike to release is only ${fsbr.value} ms, quicker than any pitcher: this was most likely filmed at 120 fps slow motion (the iPhone's usual setting), not 240. `,
+          el("button", { type: "button", class: "mc-btn small", onclick: () => { state.captureFps = "120"; compute(); render(); } }, "Use 120 fps")) : null);
       const table = metricsTable(R.metrics);
       const S = R.series;
       const charts = el("div", { class: "mc-charts" },
@@ -704,7 +806,8 @@
         el("div", { class: "mc-row" },
           el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, saved ? "← Back" : "← Another video"),
           el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${state.setup === "two" ? "Two cameras" : "One camera"} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
-        canvas, slider, caption, evBtns, fix,
+        timing,
+        canvas, slider, caption, evBtns, fixDots, fix,
         sequenceBlock(R),
         el("div", { class: "mc-grid" }, table, charts),
         el("p", { class: "mc-hint" }, R.rotSource === "estimate"
