@@ -366,8 +366,10 @@
     const ang3 = (u, v) => deg(Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]))));
     const upper = wpts.map((q) => unit3(v3(q[S.arm.sh], q[S.arm.el])));
     const armV = smoothSeries(upper.map((u, i) => { const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1); return hi > lo ? ang3(upper[lo], upper[hi]) / ((hi - lo) * dt) : null; }), sig);
-    const elbow3 = smoothSeries(wpts.map((q) => 180 - ang3(unit3(v3(q[S.arm.el], q[S.arm.sh])), unit3(v3(q[S.arm.el], q[S.arm.wr])))), sig * 2);
-    const elbowV = smoothSeries(deriv(elbow3, dt).map((v) => (v == null ? null : -v)), sig); // straightening counts as +
+    // the elbow straightening, from the side view's own elbow angle: from the open side the forearm lays back toward second
+    // base and then reaches toward the plate in the picture's plane, so the picture follows it (and moved dots count),
+    // where the model's 3D guess of the forearm from one camera gets the whip wrong and peaks too early
+    const elbowV = smoothSeries(deriv(smoothSeries(elbowFlex, sig * 1.5), dt).map((v) => (v == null ? null : -v)), sig); // straightening counts as +
     // the upper arm swings through around release; the elbow straightens from max layback to release
     const avI = argBest(armV, MER - fr(0.03), BR + fr(0.03), (a, b) => a > b);
     const evI = argBest(elbowV, MER - fr(0.01), BR + fr(0.015), (a, b) => a > b);
@@ -407,7 +409,7 @@
       ["seq", `Pelvis → trunk timing${est ? " (estimate)" : ""}`, ms(pvI, tvI), "ms", "30–60", "Time from the hips' fastest turn to the shoulders': positive means hips first, as it should be."],
       ["gain", `Trunk / pelvis speed gain${est ? " (estimate)" : ""}`, pvI < 0 || tvI < 0 || !pelvisV[pvI] ? null : Math.round((Math.abs(trunkV[tvI]) / Math.abs(pelvisV[pvI])) * 100) / 100, "×", "1.4–1.9", "How much faster the trunk turns than the hips at their peaks: energy passed up the chain."],
       ["armV", "Peak upper-arm speed (estimate)", avI < 0 ? null : Math.round(armV[avI]), "°/s", "", "How fast the upper arm swings through, from the 3D estimate (not the shoulder's internal rotation, which video can't see)."],
-      ["elbowV", "Peak elbow extension speed (estimate)", evI < 0 ? null : Math.round(elbowV[evI]), "°/s", "1800–2600", "How fast the elbow straightens on the way to release, from the 3D estimate."],
+      ["elbowV", "Peak elbow extension speed (estimate)", evI < 0 ? null : Math.round(elbowV[evI]), "°/s", "1800–2600", "How fast the elbow straightens on the way to release, from the elbow angle seen from the side."],
       ["order", "Kinematic sequence", found.length < 2 ? null : inOrder ? "In order" : "Out of order", "", "", "Hips, then trunk, then arm, then elbow reaching their fastest, each after the one before."],
       ["llfs", "Leg lift to foot strike", ms(LL, FS), "ms", "", "From the top of the leg lift to the foot landing."],
       ["fsbr", "Foot strike to release", ms(FS, BR), "ms", "130–180", "From the foot landing to the ball coming out."],
@@ -510,7 +512,7 @@
         el("span", { class: `mc-seq-flag ${R.inOrder ? "good" : "bad"}` }, R.inOrder ? "In order: hips → trunk → arm → elbow" : "Out of order")),
       el("div", { class: "mc-legend" }, lines.map((l) => el("span", null, el("span", { class: "mc-swatch", style: `background:${l.color}` }), l.name))),
       s, table,
-      el("p", { class: "mc-hint" }, `Each segment should reach its fastest after the one before it and faster than it (hips, trunk, arm, elbow). ${est ? "Pelvis and trunk here are the pose model's 3D estimate from one camera; the two-camera setup measures them. " : ""}Upper arm and elbow come from the 3D estimate: the upper arm's swing stands in for the shoulder, since video can't see its internal rotation.`));
+      el("p", { class: "mc-hint" }, `Each segment should reach its fastest after the one before it and faster than it (hips, trunk, arm, elbow). ${est ? "Pelvis and trunk here are the pose model's 3D estimate from one camera; the two-camera setup measures them. " : ""}The upper arm comes from the 3D estimate (its swing stands in for the shoulder, since video can't see its internal rotation); the elbow from its angle seen from the side.`));
     block.setCursor = setCursor;
     return block;
   }
