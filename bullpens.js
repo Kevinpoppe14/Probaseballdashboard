@@ -1352,15 +1352,26 @@
     const out = base && dd ? designed(base, dd) : null;
     const set = (k, v) => setD({ ...dd, [k]: v });
     const sign = (v, dp = 1) => { const r = Number(v.toFixed(dp)); return r === 0 ? "–" : `${r > 0 ? "+" : ""}${r.toFixed(dp)}`; };
-    const slider = (label, k, min, max, step, fmt, deltaFmt) => {
+    // a dial: drag for big moves, − / + for the finest step it takes; `ends` labels its two ends
+    const slider = ({ label, k, min, max, step, fmt, deltaFmt, ends, note }) => {
       const changed = Math.abs(dd[k] - start[k]) > 1e-9;
+      const dp = String(step).includes(".") ? String(step).split(".")[1].length : 0;
+      const nudge = (dir) => set(k, Math.max(min, Math.min(max, Number((dd[k] + dir * step).toFixed(dp)))));
       return (
-        <label className="pd-slider">
+        <div className="pd-slider">
           <span className="pd-slider-top"><span>{label}</span><b>{fmt(dd[k])}</b><small className={changed ? "on" : ""}>{changed ? deltaFmt(dd[k] - start[k]) : "as is"}</small></span>
-          <input type="range" min={min} max={max} step={step} value={dd[k]} aria-label={label} onChange={(e) => set(k, Number(e.target.value))} />
-        </label>
+          <span className="pd-slider-row">
+            <button type="button" className="pd-nudge" aria-label={`${label}: a little less`} onClick={() => nudge(-1)}>−</button>
+            <input type="range" min={min} max={max} step={step} value={dd[k]} aria-label={label} onChange={(e) => set(k, Number(e.target.value))} />
+            <button type="button" className="pd-nudge" aria-label={`${label}: a little more`} onClick={() => nudge(1)}>+</button>
+          </span>
+          {ends && <span className="pd-slider-ends"><span>{ends[0]}</span><span>{ends[1]}</span></span>}
+          {note && <span className="pd-slider-note">{note}</span>}
+        </div>
       );
     };
+    // the spin direction to the minute (the fine steps would vanish rounded to the quarter hour)
+    const clockExact = (m) => { const w = wrapMin(m), h = Math.floor(w / 60); return `${h === 0 ? 12 : h}:${String(w % 60).padStart(2, "0")}`; };
     const effB = base && base.spinEff != null ? base.spinEff : ASSUMED_EFF;
     const seamText = (m) => (Math.abs(m) < 3 ? "none" : `${Math.round(Math.abs(m) / 2)}° ${m > 0 ? "clockwise" : "counterclockwise"}`);
     const mNow = base ? Math.hypot(base.hb, base.ivb) : 0;
@@ -1371,7 +1382,7 @@
       ["Moves toward", tiltText(toClock(moveDir(base))), tiltText(out.dirMin), ""],
       ["Velo", `${base.speedAvg} mph`, `${dd.velo.toFixed(1)} mph`, sign(dd.velo - base.speedAvg)],
       ["Spin", `${base.spinAvg} rpm`, `${Math.round(dd.spin)} rpm`, sign(dd.spin - base.spinAvg, 0)],
-      ["Spin direction", base.tilt != null ? tiltText(base.tilt) : "–", tiltText(wrapMin(dd.tilt)), ""],
+      ["Spin direction", base.tilt != null ? clockExact(base.tilt) : "–", clockExact(dd.tilt), ""],
       ["Spin eff. / gyro", `${effB}% / ${100 - effB}%`, `${Math.round(dd.eff)}% / ${100 - Math.round(dd.eff)}%`, sign(dd.eff - effB, 0)],
       ["Active spin", `${Math.round((base.spinAvg * effB) / 100)} rpm`, `${Math.round((dd.spin * dd.eff) / 100)} rpm`, sign((dd.spin * dd.eff) / 100 - (base.spinAvg * effB) / 100, 0)],
       ["Seam effects", seamText(start.seam), seamText(dd.seam), ""],
@@ -1420,11 +1431,10 @@
               </div>
               <div className="pd-col pd-controls">
                 <h3>Change it</h3>
-                {slider("Velo", "velo", Math.round((start.velo - 10) * 2) / 2, Math.round((start.velo + 10) * 2) / 2, 0.5, (v) => `${v.toFixed(1)} mph`, (v) => `${sign(v)} mph`)}
-                {slider("Spin rate", "spin", Math.max(0, Math.round(start.spin - 1000)), Math.round(start.spin + 1000), 10, (v) => `${Math.round(v)} rpm`, (v) => `${sign(v, 0)} rpm`)}
-                {slider("Spin direction", "tilt", start.tilt - 360, start.tilt + 360, 5, (v) => tiltText(wrapMin(v)), (v) => `${v > 0 ? "+" : "−"}${Math.floor(Math.abs(v) / 60)}:${String(Math.round(Math.abs(v) % 60)).padStart(2, "0")}`)}
-                {slider("Spin efficiency", "eff", 0, 100, 1, (v) => `${Math.round(v)}% · ${100 - Math.round(v)}% gyro`, (v) => `${sign(v, 0)}%`)}
-                {slider("Seam effects", "seam", -Math.max(120, Math.abs(start.seam) + 30), Math.max(120, Math.abs(start.seam) + 30), 5, (v) => seamText(v), (v) => `${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) / 2)}°`)}
+                {slider({ label: "Velo", k: "velo", min: Math.round(start.velo - 10), max: Math.round(start.velo + 10), step: 0.1, fmt: (v) => `${v.toFixed(1)} mph`, deltaFmt: (v) => `${sign(v)} mph` })}
+                {slider({ label: "Spin direction", k: "tilt", min: start.tilt - 360, max: start.tilt + 360, step: 1, fmt: clockExact, deltaFmt: (v) => `${v > 0 ? "+" : "−"}${Math.floor(Math.abs(v) / 60)}:${String(Math.round(Math.abs(v) % 60)).padStart(2, "0")}`, note: `${Math.round(Math.abs(dd.tilt - start.tilt) / 2)}° ${dd.tilt >= start.tilt ? "clockwise" : "counterclockwise"} of where it is (behind the pitcher); the spin rate stays ${Math.round(dd.spin)} rpm` })}
+                {slider({ label: "Gyro ⇄ efficiency", k: "eff", min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}% eff. · ${100 - Math.round(v)}% gyro`, deltaFmt: (v) => `${sign(v, 0)}% eff.`, ends: ["← more gyro (cut, bullet spin)", "more efficient (ride, run) →"], note: `${Math.round((dd.spin * dd.eff) / 100)} rpm active (moves the ball) · ${Math.round(dd.spin - (dd.spin * dd.eff) / 100)} rpm gyro (doesn't)` })}
+                {slider({ label: "Seam effects", k: "seam", min: -Math.max(120, Math.abs(start.seam) + 30), max: Math.max(120, Math.abs(start.seam) + 30), step: 2, fmt: (v) => seamText(v), deltaFmt: (v) => `${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) / 2)}°`, ends: ["← counterclockwise", "clockwise →"] })}
                 <div className="pd-seam-btns">
                   <button type="button" className={`bp-mod-btn${dd.seam === start.seam ? " on" : ""}`} onClick={() => set("seam", start.seam)}>As he throws it</button>
                   <button type="button" className={`bp-mod-btn${dd.seam === 0 ? " on" : ""}`} onClick={() => set("seam", 0)}>None (spin only)</button>
