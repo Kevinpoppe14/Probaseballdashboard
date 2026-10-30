@@ -4317,3 +4317,4 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-savant-head h3 { margin: 0; font-size: 15px; }
 .bp-savant-head h3 small { font-weight: 400; color: var(--text-dim); margin-left: 4px; }
 .bp-ball-stats .bp-ball-velo small { font-size: 11px; font-weight: 400; color: var(--text-dim); }
+.bp-mod-btn.on { border-color: var(--dst-red); color: var(--text); background: var(--overlay-soft); }

@@ -196,14 +196,171 @@
     return u.map((v) => v / l);
   }
   const POV_M = { catcher: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], pitcher: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]] }; // from behind the pitcher: turned around
+  // the seams mirrored without changing the spin: a reflection through the plane square to the axis, which turns with
+  // the ball the same way (so a horseshoe on the right of a fastball comes round on the left)
+  const mirrorM = (u) => [0, 1, 2].map((i) => [0, 1, 2].map((j) => (i === j ? 1 : 0) - 2 * u[i] * u[j]));
 
-  function drawBall(ctx, size, M, color, arrowRad) {
+  // ---- what's printed on the ball, all in the navy of an MLB ball's stamps -----------------------------------------
+  // On the sweet spot (the narrow waist between the seams), "★ OFFICIAL ★ / LEAGUE BASEBALL" over Kevin Poppe's
+  // signature; above the seam beyond it, "Pitching" in a script like Rawlings'; below the other seam, a navy plate
+  // with the DST logo cut out of it. Each is drawn once into an alpha map, then painted onto the turning sphere pixel
+  // by pixel (each pixel on the ball traced back to the ball's own surface, and into the stamp laid flat there).
+  const INK = [27, 42, 92];
+  const sweet = [0, 0, 1], up = [Math.SQRT1_2, Math.SQRT1_2, 0], across = [Math.SQRT1_2, -Math.SQRT1_2, 0];
+  // a stamp laid on the ball `deg` degrees from the sweet spot, toward the "Pitching" side (negative: the other way)
+  const placed = (deg, hw, hh) => {
+    const a = (deg * Math.PI) / 180;
+    return { d: [up[0] * Math.sin(a), up[1] * Math.sin(a), Math.cos(a)], R: across, U: [up[0] * Math.cos(a), up[1] * Math.cos(a), -Math.sin(a)], hw, hh };
+  };
+  const DECALS = [
+    { ...placed(0, 0.46, 0.32), key: "stamp" },
+    { ...placed(50, 0.6, 0.19), key: "script" },
+    { ...placed(-53, 0.24, 0.13), key: "plate" },
+  ];
+  const decalMaps = {}; // key -> { w, h, a: alpha 0..1 }, once the fonts and logo are in
+  const alphaMap = (w, h, draw) => {
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    const g = cv.getContext("2d");
+    g.fillStyle = `rgb(${INK.join(",")})`;
+    draw(g, w, h);
+    const px = g.getImageData(0, 0, w, h).data, a = new Float32Array(w * h);
+    for (let i = 0; i < a.length; i++) a[i] = px[i * 4 + 3] / 255;
+    return { w, h, a };
+  };
+  const star = (g, x, y, R) => {
+    g.beginPath();
+    for (let k = 0; k < 10; k++) { const rr = k % 2 ? R * 0.42 : R, t = -Math.PI / 2 + (k * Math.PI) / 5; g.lineTo(x + rr * Math.cos(t), y + rr * Math.sin(t)); }
+    g.closePath(); g.fill();
+  };
+  const fitText = (g, text, x, y, maxW) => {
+    const w = g.measureText(text).width;
+    g.save(); g.translate(x, y); if (w > maxW) g.scale(maxW / w, 1); g.fillText(text, 0, 0); g.restore();
+  };
+  let decalsReady = null;
+  function loadDecals() {
+    if (decalsReady) return decalsReady;
+    const logo = new Image();
+    const logoIn = new Promise((ok) => { logo.onload = ok; logo.onerror = ok; logo.src = "assets/dst-logo.png"; });
+    const fonts = document.fonts ? Promise.all(["800 96px 'Barlow Condensed'", "150px Yellowtail", "120px 'Mrs Saint Delafield'"].map((f) => document.fonts.load(f).catch(() => null))) : Promise.resolve();
+    decalsReady = Promise.all([logoIn, fonts]).then(() => {
+      decalMaps.stamp = alphaMap(680, 480, (g, w) => {
+        g.textAlign = "center"; g.textBaseline = "alphabetic";
+        g.font = "800 112px 'Barlow Condensed', 'Arial Narrow', sans-serif";
+        const ow = g.measureText("OFFICIAL").width;
+        g.fillText("OFFICIAL", w / 2, 130);
+        star(g, w / 2 - ow / 2 - 50, 92, 30); star(g, w / 2 + ow / 2 + 50, 92, 30);
+        fitText(g, "LEAGUE BASEBALL", w / 2, 260, 660);
+        g.font = "150px 'Mrs Saint Delafield', 'Brush Script MT', cursive";
+        fitText(g, "Kevin Poppe", w / 2, 410, 520);
+      });
+      decalMaps.script = alphaMap(720, 230, (g, w) => {
+        g.textAlign = "center";
+        g.font = "190px Yellowtail, 'Brush Script MT', cursive";
+        fitText(g, "Pitching", w / 2, 175, 690);
+      });
+      decalMaps.plate = alphaMap(440, 240, (g, w, h) => {
+        const rr = 26;
+        g.beginPath(); g.moveTo(rr, 0); g.arcTo(w, 0, w, h, rr); g.arcTo(w, h, 0, h, rr); g.arcTo(0, h, 0, 0, rr); g.arcTo(0, 0, w, 0, rr); g.closePath(); g.fill();
+        if (logo.naturalWidth) { // the logo's DST letters (not the words under them), cut out of the plate
+          const sw = logo.naturalWidth, sh = logo.naturalHeight * 0.8, dw = w * 0.8, dh = (dw * sh) / sw;
+          g.globalCompositeOperation = "destination-out";
+          g.drawImage(logo, 0, 0, sw, sh, (w - dw) / 2, (h - dh) / 2, dw, dh);
+          g.globalCompositeOperation = "source-over";
+        }
+      });
+      window.dispatchEvent(new CustomEvent("bp-ball-decals"));
+    });
+    return decalsReady;
+  }
+  // one layer canvas per drawn size, reused frame to frame
+  const layers = new Map();
+  function paintDecals(ctx, size, M, mirror) {
+    if (!decalMaps.stamp) return;
+    const sc = Math.min(2, window.devicePixelRatio || 1), N = Math.round(size * sc);
+    let L = layers.get(N);
+    if (!L) { const cv = document.createElement("canvas"); cv.width = N; cv.height = N; const g = cv.getContext("2d"); L = { cv, g, img: g.createImageData(N, N) }; layers.set(N, L); }
+    const data = L.img.data;
+    data.fill(0);
+    const cx = size / 2, cy = size / 2, r = size * 0.38;
+    let any = false;
+    DECALS.forEach((dc) => {
+      const map = decalMaps[dc.key];
+      if (!map) return;
+      // where it lands on screen: its outline and middle, turned with the ball
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, seen = false;
+      for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
+        const g = [dc.d[0] + dc.R[0] * dc.hw * i / 2 + dc.U[0] * dc.hh * j / 2, dc.d[1] + dc.R[1] * dc.hw * i / 2 + dc.U[1] * dc.hh * j / 2, dc.d[2] + dc.R[2] * dc.hw * i / 2 + dc.U[2] * dc.hh * j / 2];
+        const l = Math.hypot(g[0], g[1], g[2]), v = app(M, [g[0] / l, g[1] / l, g[2] / l]);
+        if (v[2] > 0) seen = true;
+        const px = (cx + v[0] * r) * sc, py = (cy - v[1] * r) * sc;
+        x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+      }
+      if (!seen) return;
+      any = true;
+      x0 = Math.max(0, Math.floor(x0) - 2); y0 = Math.max(0, Math.floor(y0) - 2); x1 = Math.min(N - 1, Math.ceil(x1) + 2); y1 = Math.min(N - 1, Math.ceil(y1) + 2);
+      const { w: TW, h: TH, a: A } = map, flip = mirror ? -1 : 1;
+      for (let py = y0; py <= y1; py++) {
+        const Y = -((py + 0.5) / sc - cy) / r;
+        for (let px = x0; px <= x1; px++) {
+          const X = ((px + 0.5) / sc - cx) / r, rr = X * X + Y * Y;
+          if (rr >= 1) continue;
+          const Z = Math.sqrt(1 - rr);
+          // back onto the ball's own surface (M is a rotation, or a rotation and a mirror: its transpose undoes it)
+          const q0 = M[0][0] * X + M[1][0] * Y + M[2][0] * Z, q1 = M[0][1] * X + M[1][1] * Y + M[2][1] * Z, q2 = M[0][2] * X + M[1][2] * Y + M[2][2] * Z;
+          const dot = q0 * dc.d[0] + q1 * dc.d[1] + q2 * dc.d[2];
+          if (dot < 0.3) continue;
+          const u = flip * (q0 * dc.R[0] + q1 * dc.R[1] + q2 * dc.R[2]) / dot / dc.hw, v = (q0 * dc.U[0] + q1 * dc.U[1] + q2 * dc.U[2]) / dot / dc.hh;
+          if (u <= -1 || u >= 1 || v <= -1 || v >= 1) continue;
+          const tx = ((u + 1) / 2) * (TW - 1), ty = ((1 - v) / 2) * (TH - 1), ix = tx | 0, iy = ty | 0, fx = tx - ix, fy = ty - iy;
+          const k = iy * TW + ix;
+          const a = (A[k] * (1 - fx) + A[k + 1] * fx) * (1 - fy) + (A[k + TW] * (1 - fx) + A[k + TW + 1] * fx) * fy;
+          if (a < 0.02) continue;
+          const shade = 0.7 + 0.3 * Z, o = (py * N + px) * 4;
+          data[o] = INK[0] * shade; data[o + 1] = INK[1] * shade; data[o + 2] = INK[2] * shade;
+          data[o + 3] = 255 * a * Math.min(1, Z * 3) * 0.95;
+        }
+      }
+    });
+    if (!any) return;
+    L.g.putImageData(L.img, 0, 0);
+    ctx.drawImage(L.cv, 0, 0, size, size);
+  }
+  // the leather's pebble grain: specks fixed on the ball, a touch darker or lighter, turning with it
+  const GRAIN = (() => {
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const out = [];
+    for (let i = 0; i < 2600; i++) {
+      const z = rnd() * 2 - 1, t = rnd() * 2 * Math.PI, s = Math.sqrt(1 - z * z);
+      out.push({ p: [s * Math.cos(t), s * Math.sin(t), z], dark: rnd() < 0.6 });
+    }
+    return out;
+  })();
+  function paintGrain(ctx, cx, cy, r, M) {
+    const dot = Math.max(0.6, r * 0.016);
+    [true, false].forEach((dark) => {
+      ctx.beginPath();
+      GRAIN.forEach((g) => {
+        if (g.dark !== dark) return;
+        const v = app(M, g.p);
+        if (v[2] < 0.15) return;
+        ctx.rect(cx + v[0] * r - dot / 2, cy - v[1] * r - dot / 2, dot, dot);
+      });
+      ctx.fillStyle = dark ? "rgba(120, 105, 85, 0.11)" : "rgba(255, 255, 255, 0.35)";
+      ctx.fill();
+    });
+  }
+
+  function drawBall(ctx, size, M, color, arrowRad, mirror) {
     const cx = size / 2, cy = size / 2, r = size * 0.38;
     ctx.clearRect(0, 0, size, size);
     // the leather: lit from the upper left, darker toward the edge
     const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.1, cx, cy, r);
     g.addColorStop(0, "#ffffff"); g.addColorStop(0.55, "#f3f0e8"); g.addColorStop(0.88, "#d9d4c8"); g.addColorStop(1, "#b5afa2");
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.fillStyle = g; ctx.fill();
+    paintGrain(ctx, cx, cy, r, M);
+    paintDecals(ctx, size, M, mirror);
     const X = (v) => cx + v[0] * r, Y = (v) => cy - v[1] * r;
     const off = (p, S, t, a, b) => [p[0] + S[0] * a + t[0] * b, p[1] + S[1] * a + t[1] * b, p[2] + S[2] * a + t[2] * b];
     // the seam's two edges in the leather
@@ -241,7 +398,7 @@
     }
   }
 
-  // `ctl` is { paused, speed (x the default), pov ("catcher" | "pitcher") }, shared by every ball on the page
+  // `ctl` is { paused, speed (x the default), pov ("catcher" | "pitcher"), flip (seams mirrored) }, shared by every ball on the page
   function SpinBall({ s, ctl, size = 132, onZoom }) {
     const ref = useRef(null);
     const live = useRef(ctl);
@@ -262,10 +419,12 @@
       const revPerSec = s.spinAvg ? s.spinAvg / 9600 : 0; // at 1x, a quarter of a turn a second per 2400 rpm (life is ~40 turns a second)
       const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       let raf = 0, last = null, ang = 0, visible = true;
+      const flipped = mulM(mirrorM(u), start);
       const paint = () => {
         const pov = live.current.pov === "pitcher" ? "pitcher" : "catcher";
         const arrow = thRad == null ? null : pov === "pitcher" ? thRad : -thRad; // the pitcher's clock, or the catcher's mirror of it
-        drawBall(ctx, size, mulM(POV_M[pov], mulM(rotM(u, ang), start)), colorOf(s.type), arrow);
+        const flip = !!live.current.flip;
+        drawBall(ctx, size, mulM(POV_M[pov], mulM(rotM(u, ang), flip ? flipped : start)), colorOf(s.type), arrow, flip);
       };
       const moving = () => !reduce && revPerSec > 0 && visible && !live.current.paused;
       const frame = (ts) => {
@@ -283,9 +442,13 @@
         if (visible) kick.current();
       }) : null;
       if (io) io.observe(cv);
-      return () => { cancelAnimationFrame(raf); raf = 0; if (io) io.disconnect(); kick.current = null; };
+      // the printing comes in once its fonts and logo have loaded: repaint then, even if paused
+      const decalsIn = () => { if (kick.current) kick.current(); };
+      window.addEventListener("bp-ball-decals", decalsIn);
+      loadDecals();
+      return () => { cancelAnimationFrame(raf); raf = 0; if (io) io.disconnect(); kick.current = null; window.removeEventListener("bp-ball-decals", decalsIn); };
     }, [s.type, s.spinAvg, s.tilt, s.spinEff, size]); // eslint-disable-line
-    useEffect(() => { if (kick.current) kick.current(); }, [ctl.paused, ctl.speed, ctl.pov]);
+    useEffect(() => { if (kick.current) kick.current(); }, [ctl.paused, ctl.speed, ctl.pov, ctl.flip]);
     const active = s.spinAvg != null && s.spinEff != null ? Math.round((s.spinAvg * s.spinEff) / 100) : null;
     return (
       <div className={`bp-ball${size > 200 ? " big" : ""}`}>
@@ -303,14 +466,14 @@
     );
   }
 
-  // the spinning balls' controls, shared by every ball on a page: paused or not, how fast, and from whose side (speed
-  // and side remembered on this computer)
+  // the spinning balls' controls, shared by every ball on a page: paused or not, how fast, from whose side, and the seams
+  // mirrored or not (all but pausing remembered on this computer)
   function useSpinCtl() {
     const [ctl, setCtl] = useState(() => {
-      try { const v = JSON.parse(localStorage.getItem("bullpenSpin2") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "catcher" ? "catcher" : "pitcher" }; } catch (e) { /* private window */ }
-      return { paused: false, speed: 1, pov: "pitcher" };
+      try { const v = JSON.parse(localStorage.getItem("bullpenSpin2") || "null"); if (v) return { paused: false, speed: Number(v.speed) || 1, pov: v.pov === "catcher" ? "catcher" : "pitcher", flip: !!v.flip }; } catch (e) { /* private window */ }
+      return { paused: false, speed: 1, pov: "pitcher", flip: false };
     });
-    const set = (patch) => setCtl((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin2", JSON.stringify({ speed: n.speed, pov: n.pov })); } catch (e) { /* not remembered */ } return n; });
+    const set = (patch) => setCtl((c) => { const n = { ...c, ...patch }; try { localStorage.setItem("bullpenSpin2", JSON.stringify({ speed: n.speed, pov: n.pov, flip: n.flip })); } catch (e) { /* not remembered */ } return n; });
     return [ctl, set];
   }
   function SpinControls({ ctl, set }) {
@@ -324,6 +487,7 @@
           <button type="button" className={`pill-tab ${ctl.pov === "pitcher" ? "active" : ""}`} onClick={() => set({ pov: "pitcher" })}>Pitcher</button>
           <button type="button" className={`pill-tab ${ctl.pov !== "pitcher" ? "active" : ""}`} onClick={() => set({ pov: "catcher" })}>Catcher</button>
         </span>
+        <button type="button" className={`bp-mod-btn${ctl.flip ? " on" : ""}`} aria-pressed={!!ctl.flip} title="Mirror the seams (the horseshoe swaps sides); the spin stays the same" onClick={() => set({ flip: !ctl.flip })}>⇋ Flip seams</button>
       </span>
     );
   }
@@ -1034,5 +1198,5 @@
 
   window.BullpensTab = BullpensTab;
   window.MlbArsenalPanel = MlbArsenal; // the Statcast tab's Savant arsenal, spin and comps (index.html)
-  window.BullpenKit = { importReports, typeStats, resultText, FASTBALLS, livePitches };
+  window.BullpenKit = { importReports, typeStats, resultText, FASTBALLS, livePitches, SpinBall };
 })();
