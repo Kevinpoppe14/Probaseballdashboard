@@ -88,21 +88,28 @@
     v.addEventListener("seeked", done);
     v.currentTime = Math.max(0, Math.min(t, (v.duration || t) - 0.001));
   });
-  // the file's own frame rate: play a moment and see how far apart its frames are
+  // The file's own frame rate, from how often its picture changes: step through a stretch of it in 1/480 s steps and
+  // time the changes (playing it and counting frames is unreliable: a busy or background page skips frames). Tried at
+  // a few places in case one is still; falls back to 30.
   async function fileFps(v) {
-    if (!v.requestVideoFrameCallback) return 30;
-    const times = [];
-    await new Promise((ok) => {
-      const onFrame = (now, meta) => { times.push(meta.mediaTime); if (times.length < 14 && !v.ended) v.requestVideoFrameCallback(onFrame); else ok(); };
-      v.requestVideoFrameCallback(onFrame);
-      v.play().catch(ok);
-      setTimeout(ok, 1500);
-    });
-    v.pause();
-    const d = times.slice(1).map((t, i) => t - times[i]).filter((x) => x > 0.0005).sort((a, b) => a - b);
-    // the smallest gap between frames shown is one frame (a busy or background page skips some, making others look wider)
-    const fps = d.length ? 1 / d[0] : 30;
-    return [24, 25, 30, 48, 50, 60, 120, 240].reduce((best, f) => (Math.abs(f - fps) < Math.abs(best - fps) ? f : best), 30);
+    const c = document.createElement("canvas"); c.width = 48; c.height = 27;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    const look = () => { g.drawImage(v, 0, 0, 48, 27); const p = g.getImageData(0, 0, 48, 27).data; let h = 0; for (let i = 0; i < p.length; i += 8) h = (h * 31 + p[i]) >>> 0; return h; };
+    const dur = v.duration || 0;
+    const snap = (fps) => [24, 25, 30, 48, 50, 60, 120, 240].reduce((best, f) => (Math.abs(f - fps) < Math.abs(best - fps) ? f : best), 30);
+    for (const at of [0.5, 0.35, 0.65, 0.2]) {
+      const t0 = dur * at, changes = [];
+      let last = null;
+      for (let k = 0; k <= 96 && t0 + k / 480 < dur; k++) {
+        const t = t0 + k / 480;
+        await seek(v, t);
+        const h = look();
+        if (last !== null && h !== last) changes.push(t);
+        last = h;
+      }
+      if (changes.length >= 4) { const span = (changes[changes.length - 1] - changes[0]) / (changes.length - 1); return snap(1 / span); }
+    }
+    return 30;
   }
   // Every frame from t0 to t1 through the model: { t (file seconds), p: [[x px, y px, visibility] × 33], w: [[x, y, z] m
   // × 33] }. Each frame is looked at fresh (the model's own frame-to-frame following lags a fast arm, or loses it when
@@ -278,11 +285,13 @@
     const footY = pts.map((q) => (q[S.lead.heel][1] + q[S.lead.toe][1] + q[S.lead.an][1]) / 3);
     const groundY = Math.max(...footY.slice(LL));
     const travel = leadFootX.map((x) => dir * (x - leadFootX[LL]));
-    const fullStride = Math.max(...travel.slice(LL));
+    // (the stride is taken within 1.1 s of the leg lift: after the pitch the front foot can creep on, or he walks off)
+    const strideEnd = Math.min(n - 1, LL + fr(1.1));
+    const fullStride = Math.max(...travel.slice(LL, strideEnd + 1));
     const footSpeed = deriv(leadFootX, dt).map((v) => Math.abs(v || 0));
     let FS = m.FS != null ? m.FS : -1;
-    if (FS < 0) for (let i = LL + 1; i < n; i++) if (travel[i] >= 0.97 * fullStride && footY[i] >= groundY - 0.03 * Hpx && footSpeed[i] < 0.8 * Hpx) { FS = i; break; }
-    if (FS < 0) FS = argBest(travel, LL, n - 1, (a, b) => a > b);
+    if (FS < 0) for (let i = LL + 1; i <= strideEnd; i++) if (travel[i] >= 0.97 * fullStride && footY[i] >= groundY - 0.03 * Hpx && footSpeed[i] < 0.8 * Hpx) { FS = i; break; }
+    if (FS < 0) FS = argBest(travel, LL, strideEnd, (a, b) => a > b);
     // release: the throwing hand fastest, from 70 to 280 ms after foot strike (usual foot strike to release is 130-180)
     const wr = pts.map((q) => q[S.arm.wr]);
     const wrVy = deriv(wr.map((q) => q[1]), dt);
