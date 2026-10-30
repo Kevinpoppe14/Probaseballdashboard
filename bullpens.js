@@ -171,8 +171,9 @@
   const mulM = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
   const app = (M, v) => [M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2], M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2], M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]];
   // How the seams sit on the spin axis: a four-seam ball turns about the axis through its seam loops' poles (four
-  // seams cross the band of fastest spin each turn); a two-seam ball about the diagonal where only two do.
-  const SEAM_AXIS = { four: [0, 0, 1], two: [Math.SQRT1_2, Math.SQRT1_2, 0] };
+  // seams cross the band of fastest spin each turn); a two-seam ball about a diagonal where only two do: the one through
+  // the pair of horseshoes with nothing printed in them (the other pair holds "Pitching" and the DST plate).
+  const SEAM_AXIS = { four: [0, 0, 1], two: [Math.SQRT1_2, -Math.SQRT1_2, 0] };
   const isTwoSeam = (t) => /sinker|two|2[- ]?seam/i.test(String(t || ""));
   // the rotation that carries unit vector a onto unit vector b
   const alignM = (a, b) => {
