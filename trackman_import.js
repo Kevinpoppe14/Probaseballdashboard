@@ -222,5 +222,5 @@
     return out;
   }
 
-  window.TrackmanImport = { parse, feet };
+  window.TrackmanImport = { parse, feet, vaaOf };
 })();
