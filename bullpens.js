@@ -704,10 +704,14 @@
   const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th"}`;
 
   // ---- rarity: how unusual a pitch is among MLB pitches of its type thrown with the same hand -----------------------
-  // Each trait is put on the same footing (how many standard deviations it is from the MLB average for that pitch) and
-  // the pitch's distance from the average pitch is the root mean square of those across the traits it has (at least
-  // four). Rarity is the share of those MLB pitches closer to average than it is: 99 is more unusual than 99% of them.
-  // Spin direction is measured around the clock. The traits furthest from the usual are named.
+  // How few MLB pitches look like it. Each trait is put on the same footing (standard deviations from the MLB average
+  // for that pitch; spin direction around the clock), and the pitch's distance to its 5 most similar MLB pitches is
+  // set against every MLB pitch's distance to its own 5 nearest: rarity is the share of those MLB pitches with closer
+  // company than it has, so 99 means fewer look like it than for 99% of them. A pitch far out on any one trait, or an
+  // unusual mix of ordinary ones, has few neighbors and scores high; a common shape scores low, however good it is.
+  // The traits furthest from the usual are named.
+  const KNN = 5;
+  const rarityCache = new Map(); // a population's standing (its traits' spread and each pitch's nearest-5 distance), by who's in it
   const RARE_TRAITS = [
     ["velo", "harder than most", "softer than most"], ["ivb", "more vertical break", "less vertical break"], ["hb", "more arm-side run", "more glove-side movement"],
     ["spin", "more spin", "less spin"], ["eff", "more efficient spin", "more gyro"], ["tilt", "spin direction turned clockwise of the usual", "spin direction turned counterclockwise of the usual"],
@@ -715,6 +719,30 @@
     ["vaa", "a flatter approach angle", "a steeper approach angle"], ["armAngle", "a higher arm angle", "a lower arm angle"],
   ];
   function rarityOf(me, pop) {
+    if (!pop.length) return null;
+    const ckey = `${pop.length}|${pop[0].id}|${pop[0].code}|${pop[pop.length - 1].id}`;
+    let base = rarityCache.get(ckey);
+    if (!base) { base = rarityBase(pop); rarityCache.set(ckey, base); }
+    const { zOf, zs, nearest } = base;
+    if (nearest.length < 15) return null;
+    const z = zOf(me);
+    const mine = kthNearest(z, zs, -1);
+    if (mine == null) return null;
+    const stand = Object.entries(z).filter(([, v]) => Math.abs(v) >= 1.2).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3)
+      .map(([k, v]) => { const t = RARE_TRAITS.find((x) => x[0] === k); return v > 0 ? t[1] : t[2]; });
+    return { score: Math.round((nearest.filter((x) => x < mine).length / nearest.length) * 100), stand, n: nearest.length };
+  }
+  // the distance between two pitches' traits (root mean square over the traits both have, at least four of them)
+  const traitDistance = (a, b) => { let s = 0, c = 0; for (const k in a) if (b[k] != null) { s += (a[k] - b[k]) ** 2; c++; } return c >= 4 ? Math.sqrt(s / c) : null; };
+  // the distance to the 5th most similar pitch (skipping the pitch itself, at index `skip`)
+  const kthNearest = (z, zs, skip) => {
+    const ds = [];
+    for (let i = 0; i < zs.length; i++) { if (i === skip) continue; const d = traitDistance(z, zs[i]); if (d != null) ds.push(d); }
+    if (ds.length < KNN) return null;
+    ds.sort((x, y) => x - y);
+    return ds[KNN - 1];
+  };
+  function rarityBase(pop) {
     const stats = {};
     RARE_TRAITS.forEach(([k]) => {
       let xs = pop.map((p) => p[k]).filter((v) => v != null && Number.isFinite(v));
@@ -728,14 +756,9 @@
       stats[k] = { rel, mean, sd };
     });
     const zOf = (p) => { const z = {}; Object.entries(stats).forEach(([k, s]) => { if (p[k] != null && Number.isFinite(p[k])) z[k] = (s.rel(p[k]) - s.mean) / s.sd; }); return z; };
-    const distOf = (z) => { const v = Object.values(z); return v.length >= 4 ? Math.sqrt(v.reduce((s, x) => s + x * x, 0) / v.length) : null; };
-    const z = zOf(me), d = distOf(z);
-    if (d == null) return null;
-    const ds = pop.map((p) => distOf(zOf(p))).filter((x) => x != null);
-    if (ds.length < 15) return null;
-    const stand = Object.entries(z).filter(([, v]) => Math.abs(v) >= 1.2).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3)
-      .map(([k, v]) => { const t = RARE_TRAITS.find((x) => x[0] === k); return v > 0 ? t[1] : t[2]; });
-    return { score: Math.round((ds.filter((x) => x < d).length / ds.length) * 100), stand, n: ds.length };
+    const zs = pop.map(zOf);
+    const nearest = zs.map((z, i) => kthNearest(z, zs, i)).filter((x) => x != null);
+    return { zOf, zs, nearest };
   }
   const rarityColor = (s) => `hsl(${Math.round(210 - (s / 100) * 210)}, 70%, 45%)`;
 
@@ -905,7 +928,7 @@
             </div>
           );
         })}
-        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension and VAA together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Rarity is how unusual the pitch is among MLB pitches of its type thrown with the same hand, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA and arm angle: 0 is as ordinary as they come, 99 more unusual than 99% of them. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
+        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension and VAA together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA and arm angle: 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
       </div>
     );
   }
