@@ -4066,7 +4066,7 @@ const HELP_SECTIONS = [
   {
     title: "Player profile tabs",
     items: [
-      "Player Plan, Programming, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers (Pitching Assessment, Bullpens from TrackMan reports with Edgertronic video, Pitch Design (change a pitch's spin and see its predicted movement, set goals and print a plan), Motion Capture (pitching mechanics measured from iPhone or iPad video, one camera or two), Statcast with their MLB arsenal, spin and comps, and Throwing: their throwing programs and Throwing Progression) or Hitting / Fielding for everyone else (Statcast Metrics and Throwing Progression), Training Log, and Remote Equipment Access for remote athletes.",
+      "Player Plan, Programming, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers and coaches (Pitching Assessment, Bullpens from TrackMan reports with Edgertronic video, Pitch Design (change a pitch's spin and see its predicted movement, set goals and print a plan), Motion Capture (pitching mechanics measured from iPhone or iPad video, one camera or two), Statcast with their MLB arsenal, spin and comps, and Throwing: their throwing programs and Throwing Progression) or Hitting / Fielding for everyone else (Statcast Metrics and Throwing Progression), Training Log, and Remote Equipment Access for remote athletes.",
       "Player Plan: contact info (with mobile, Text and Call), goals and the action plan, then the periodization timeline. Print / Save PDF and Email to Athlete for the plan are here.",
       "Programming: the same timeline with the Programming Workbook right under it: every phase's program, one tab per phase. See \"Programs on an athlete's plan\" below.",
       "Performance Metrics: force plate trends with a summary of what's moving, plus graphs of the performance tests from assessments once a test has two results.",
@@ -7001,7 +7001,8 @@ const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan,
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
   // the open tab is kept by App so that switching tabs is a step in the Back history
   // (the Pitching Assessment tab only exists for pitchers, so anyone else falls back to the plan)
-  const isPitcher = ((getPeople().find((a) => a.id === athleteId) || {}).position || "") === "Pitcher";
+  // (coaches get the Pitching tab too, for their own motion capture and the like)
+  const isPitcher = (() => { const p = getPeople().find((a) => a.id === athleteId) || {}; return (p.position || "") === "Pitcher" || p.rosterGroup === COACH_ROSTER_GROUP; })();
   // (likewise Equipment Access, which only exists for DST Remote Training athletes)
   const isRemote = ((getPeople().find((a) => a.id === athleteId) || {}).dstLocation || "") === "DST Remote Training";
   const activeTab = ((tab === "pitching" || tab === "bullpens" || tab === "design" || tab === "mocap") && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";

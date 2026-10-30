@@ -35,12 +35,12 @@
       if (!pitchers) {
         const rows = [];
         for (let from = 0; ; from += 1000) {
-          const { data: page, error } = await sb.from("athletes").select("id, name:data->>name, status:data->>status, position:data->>position, throws:data->>throws").range(from, from + 999);
+          const { data: page, error } = await sb.from("athletes").select("id, name:data->>name, status:data->>status, position:data->>position, throws:data->>throws, group:data->>rosterGroup").range(from, from + 999);
           if (error) throw error;
           rows.push(...page);
           if (page.length < 1000) break;
         }
-        pitchers = rows.filter((p) => (p.status || "active").toLowerCase() === "active" && /pitcher/i.test(p.position || "") && (p.name || "").trim())
+        pitchers = rows.filter((p) => (p.status || "active").toLowerCase() === "active" && (/pitcher/i.test(p.position || "") || p.group === "coaches") && (p.name || "").trim())
           .sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
       }
       pick();
@@ -65,12 +65,12 @@
   // which pitcher: type a few letters
   function pick() {
     const results = el("div", { class: "qa-list" });
-    const search = el("input", { type: "search", placeholder: "Search for a pitcher", "aria-label": "Search for a pitcher", autocomplete: "off" });
+    const search = el("input", { type: "search", placeholder: "Search for a pitcher or coach", "aria-label": "Search for a pitcher or coach", autocomplete: "off" });
     const show = () => {
       const q = search.value.trim().toLowerCase();
       const hits = (q ? pitchers.filter((p) => p.name.toLowerCase().includes(q)) : pitchers).slice(0, q ? 12 : 8);
       results.replaceChildren(...hits.map((p) => el("button", { class: "qa-row", onclick: () => capture(p) }, lastFirst(p.name))),
-        ...(q && !hits.length ? [el("div", { class: "qa-empty" }, "No active pitcher matches that.")] : []));
+        ...(q && !hits.length ? [el("div", { class: "qa-empty" }, "No active pitcher or coach matches that.")] : []));
     };
     search.addEventListener("input", show);
     sheet(el("h2", null, "Motion Capture"), note("Film a delivery in slow motion (tips on the next screen) and get his mechanics in numbers. Who is it?"), search, results);
