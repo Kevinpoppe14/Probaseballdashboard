@@ -872,7 +872,7 @@
   }
 
   // how a coach has arranged a session's modules (order, half width, folded away), kept per coach on this computer
-  const DEFAULT_LAYOUT = { order: ["types", "movement", "release", "spin", "comps", "arsenal", "pitches", "trend", "notes"], half: { movement: true, release: true }, closed: { pitches: true } };
+  const DEFAULT_LAYOUT = { order: ["types", "goals", "movement", "release", "spin", "comps", "arsenal", "pitches", "trend", "notes"], half: { movement: true, release: true }, closed: { pitches: true } };
   const layoutKey = () => `bullpenLayout:${(window.AthleteStore.currentUserEmail && window.AthleteStore.currentUserEmail()) || "me"}`;
   const readLayout = () => {
     try { const v = JSON.parse(localStorage.getItem(layoutKey()) || "null"); if (v && Array.isArray(v.order)) return { order: v.order, half: v.half || {}, closed: v.closed || {} }; } catch (e) { /* private window */ }
@@ -936,6 +936,8 @@
       </select>
     );
     const vaaNote = live.some((p) => p.vaa != null);
+    // the pitcher's pitch design goals, to hold this bullpen up against (Pitch Design tab)
+    const goalPlan = athlete && window.AthleteStore.getPitchDesign ? window.AthleteStore.getPitchDesign(athlete.id) : null;
 
     // the two charts, for this session or every session (remembered on this computer)
     const [scope, setScopeState] = useState(() => { try { return localStorage.getItem("bullpenChartScope") || "session"; } catch (e) { return "session"; } });
@@ -1074,6 +1076,7 @@
           </React.Fragment>
         ),
       },
+      goals: goalPlan && goalPlan.goals && goalPlan.goals.length ? { title: "Pitch design goals", sub: "this bullpen against each goal", body: <GoalStatus session={session} sessions={sessions} goals={goalPlan.goals} throws={athlete && athlete.throws} /> } : null,
       comps: athlete && stats.some((s) => s.type !== UNTAGGED && codesOf(s.type)) ? { title: "Comps", sub: "MLB (Baseball Savant) and DST", body: <CompsModule athlete={athlete} stats={stats} /> } : null,
       arsenal: athlete && mlbIdOf(athlete) ? { title: "MLB arsenal", sub: "his pitches in MLB games (Baseball Savant)", body: <MlbArsenal athlete={athlete} /> } : null,
       trend: many ? { title: "Velocity by session", sub: `average / max mph, last ${Math.min(8, sessions.length)}`, body: <VeloTrend sessions={sessions} /> } : null,
@@ -1408,6 +1411,89 @@
           </div>
         ))}
         <p className="timestamp-note">Goal movement is predicted from the change in Magnus lift, scaled from the pitch's own measured break and keeping (or setting) its seam effects; it's a guide for the work, not a guarantee. Horizontal break is described from the pitcher's arm side.</p>
+      </div>
+    );
+  }
+
+  // ---- a bullpen against the pitcher's pitch design goals ----------------------------------------------------------
+  // For each pitch with a goal: this session's averages beside the goal, how far its movement is from the goal's (in
+  // inches, IVB and horizontal break together), whether that's closer or further than his bullpen before, and for a
+  // change goal how much of the planned change has happened; for a "maintain" goal, whether it's holding its shape.
+  const CLOSE_IN = 0.5; // movement within half an inch counts as no change
+  const minutesApart = (a, b) => { let d = Math.round(a - b) % 720; if (d > 360) d -= 720; if (d < -360) d += 720; return d; };
+  function GoalStatus({ session, sessions, goals, throws }) {
+    // the session's figures for a goal's pitch: the same name, or failing that the same kind of pitch
+    const statOf = (s, type) => {
+      const all = typeStats(s).filter((x) => x.type !== UNTAGGED && x.ivb != null && x.hb != null);
+      const codes = codesOf(type) || [];
+      return all.find((x) => x.type === type) || all.find((x) => (codesOf(x.type) || []).some((c) => codes.includes(c))) || null;
+    };
+    const apart = (a, b) => Math.hypot(a.hb - b.hb, a.ivb - b.ivb);
+    const ordered = [...(sessions || [])].sort((a, b) => (a.date || "").localeCompare(b.date || "") || String(a.id).localeCompare(String(b.id)));
+    const idx = ordered.findIndex((s) => s.id === session.id);
+    return (
+      <div className="pd-status-list">
+        {goals.map((g) => {
+          const st = statOf(session, g.type);
+          const head = (
+            <div className="pd-status-head">
+              <h4><span className="bp-dot" style={{ background: colorOf(g.type) }} />{g.type}</h4>
+              <span className={`pd-badge ${g.mode}`}>{g.mode === "change" ? "Change" : "Maintain"}</span>
+            </div>
+          );
+          if (!st) return <div key={g.type} className="pd-status">{head}<p className="assess-row-note">Not thrown in this bullpen.</p></div>;
+          const G = g.goal, N = g.now, dNow = apart(st, G);
+          // the same pitch in the bullpens before this one, newest last, for the trend and the history
+          const history = ordered.slice(0, idx + 1).map((s) => ({ s, st: statOf(s, g.type) })).filter((x) => x.st).slice(-6);
+          const prev = history.length > 1 ? history[history.length - 2] : null;
+          const dPrev = prev ? apart(prev.st, G) : null;
+          const trend = dPrev == null ? null : dNow < dPrev - CLOSE_IN / 2 ? "closer" : dNow > dPrev + CLOSE_IN / 2 ? "further" : "same";
+          const dTilt = st.tilt != null ? minutesApart(st.tilt, G.tilt) : null;
+          const dEff = st.spinEff != null ? st.spinEff - G.eff : null;
+          const dVelo = st.speedAvg != null ? st.speedAvg - G.velo : null;
+          let status, tone, progress = null;
+          if (g.mode === "change") {
+            const d0 = apart(N, G);
+            progress = d0 > CLOSE_IN ? Math.max(0, Math.min(1, (d0 - dNow) / d0)) : null;
+            if (dNow <= 1 || (progress != null && progress >= 0.85)) { status = "At goal"; tone = "good"; }
+            else if (trend === "closer") { status = "Getting closer"; tone = "good"; }
+            else if (trend === "further") { status = "Moving away"; tone = "bad"; }
+            else if (progress != null && progress >= 0.25) { status = "Partway there"; tone = "mid"; }
+            else { status = trend === "same" ? "No change since last" : "Not there yet"; tone = "mid"; }
+          } else {
+            const holding = dNow <= 1.5 && (dTilt == null || Math.abs(dTilt) <= 15) && (dVelo == null || Math.abs(dVelo) <= 1.5);
+            status = holding ? "Holding its shape" : trend === "closer" ? "Drifting, coming back" : "Drifting";
+            tone = holding ? "good" : trend === "closer" ? "mid" : "bad";
+          }
+          const side = (hb) => sideOf(hb, throws);
+          const chips = [
+            [`IVB ${st.ivb.toFixed(1)}"`, `goal ${G.ivb.toFixed(1)}"`],
+            [`${side(st.hb).words.replace(" of ", " ")}`, `goal ${inch(side(G.hb).arm)}`],
+            st.tilt != null ? [`spin dir. ${clockAt(st.tilt)}`, `goal ${clockAt(G.tilt)}${Math.abs(dTilt) >= 8 ? ` (${Math.round(Math.abs(dTilt) / 2)}° ${dTilt > 0 ? "clockwise" : "counterclockwise"} of it)` : ""}`] : null,
+            st.spinEff != null ? [`${st.spinEff}% eff.`, `goal ${Math.round(G.eff)}%`] : null,
+            st.speedAvg != null ? [`${st.speedAvg} mph`, `goal ${G.velo.toFixed(1)}`] : null,
+          ].filter(Boolean);
+          return (
+            <div key={g.type} className="pd-status">
+              {head}
+              <span className={`pd-status-pill ${tone}`}>{status}</span>
+              <p className="pd-status-line">
+                {g.mode === "change" ? `${inch(dNow)} from the goal's movement` : `${inch(dNow)} off the shape he's keeping`}
+                {trend && dPrev != null ? ` · ${trend === "closer" ? "closer than" : trend === "further" ? "further than" : "about the same as"} his last bullpen (${inch(dPrev)}${prev.s.date ? `, ${shortDate(prev.s.date)}` : ""})` : " · his first bullpen with this pitch since the goal"}
+              </p>
+              {progress != null && (
+                <div className="pd-progress" title={`${Math.round(progress * 100)}% of the planned change in movement`}>
+                  <i style={{ width: `${Math.max(2, progress * 100)}%` }} /><span>{Math.round(progress * 100)}% of the way there</span>
+                </div>
+              )}
+              <div className="pd-status-chips">{chips.map(([a, b]) => <span key={a} className="pd-status-chip"><b>{a}</b> <small>{b}</small></span>)}</div>
+              {history.length > 1 && (
+                <p className="timestamp-note">Distance to goal, bullpen by bullpen: {history.map((x) => `${inch(apart(x.st, G))}${x.s.id === session.id ? " (this one)" : ""}`).join(" → ")}</p>
+              )}
+            </div>
+          );
+        })}
+        <p className="timestamp-note">Movement is compared as induced vertical and horizontal break together; within about an inch counts as at goal (an inch and a half for a pitch being kept). Goals are set on the Pitch Design tab.</p>
       </div>
     );
   }
