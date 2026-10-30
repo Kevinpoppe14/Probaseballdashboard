@@ -578,6 +578,8 @@
   const CODES = [[/^(fastball|four|4[- ]?seam)/i, ["FF"]], [/^(sinker|two|2[- ]?seam)/i, ["SI"]], [/^cutter/i, ["FC"]], [/^sweeper/i, ["ST"]], [/^slurve/i, ["SV"]], [/^slider/i, ["SL"]], [/curve/i, ["CU", "KC"]], [/^change/i, ["CH"]], [/^split/i, ["FS"]], [/^knuckleball/i, ["KN"]]];
   const codesOf = (type) => { const hit = CODES.find(([re]) => re.test(String(type || ""))); return hit ? hit[1] : null; };
   const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  // the pitcher's MLB (Savant) id: saved on the profile, or read from their MLB headshot link the way the profile does
+  const mlbIdOf = (athlete) => String((athlete && athlete.mlbamId) || (athlete && window.extractMlbamId && window.extractMlbamId(athlete)) || "");
   const defaultSeason = () => { const d = new Date(); return d.getMonth() >= 4 ? d.getFullYear() : d.getFullYear() - 1; };
   // every pitcher's results with each pitch type that season (Savant's pitch arsenal stats), by "id|code"
   const arsenalStats = (year) => savantCsv(`${SAVANT}pitch-arsenal-stats?type=pitcher&pitchType=&year=${year}&team=&min=1&csv=true`)
@@ -688,7 +690,7 @@
   // (each with its results as `res`), compared with everyone else's
   function CompsModule({ athlete, stats, season: fixed, mlbId }) {
     const fromMlb = fixed != null;
-    const myId = String(mlbId || athlete.mlbamId || "");
+    const myId = String(mlbId || mlbIdOf(athlete));
     const [picked, setSeason] = useState(defaultSeason);
     const season = fromMlb ? fixed : picked;
     const [hand, setHandState] = useState(athlete.throws || "");
@@ -801,7 +803,7 @@
   // games, its shape and how it did, ranked among the same pitch from pitchers of his hand
   // `full` (the Statcast tab) adds each pitch's spinning ball and its comps, all from Savant
   function MlbArsenal({ athlete, mlbId, full }) {
-    const id = String(mlbId || athlete.mlbamId || "");
+    const id = String(mlbId || mlbIdOf(athlete));
     const [season, setSeason] = useState(defaultSeason);
     const [st, setSt] = useState({ loading: true, rows: [], error: "" });
     const [spinCtl, setSpinCtl] = useSpinCtl();
@@ -1069,7 +1071,7 @@
         ),
       },
       comps: athlete && stats.some((s) => s.type !== UNTAGGED && codesOf(s.type)) ? { title: "Comps", sub: "MLB (Baseball Savant) and DST", body: <CompsModule athlete={athlete} stats={stats} /> } : null,
-      arsenal: athlete && athlete.mlbamId ? { title: "MLB arsenal", sub: "his pitches in MLB games (Baseball Savant)", body: <MlbArsenal athlete={athlete} /> } : null,
+      arsenal: athlete && mlbIdOf(athlete) ? { title: "MLB arsenal", sub: "his pitches in MLB games (Baseball Savant)", body: <MlbArsenal athlete={athlete} /> } : null,
       trend: many ? { title: "Velocity by session", sub: `average / max mph, last ${Math.min(8, sessions.length)}`, body: <VeloTrend sessions={sessions} /> } : null,
       notes: {
         title: "Notes",
@@ -1230,7 +1232,7 @@
           <p className="timestamp-note">Choose one or more TrackMan "Pitching practice" PDFs. Each one becomes a session here, with every pitch and its type.</p>
         </div>
         {selected && <SessionDetail key={selected.id} session={selected} sessions={list} onSave={save} athlete={athlete} />}
-        {!selected && athlete.mlbamId && <div className="panel"><h2>MLB arsenal <small>his pitches in MLB games (Baseball Savant)</small></h2><MlbArsenal athlete={athlete} /></div>}
+        {!selected && mlbIdOf(athlete) && <div className="panel"><h2>MLB arsenal <small>his pitches in MLB games (Baseball Savant)</small></h2><MlbArsenal athlete={athlete} /></div>}
       </div>
     );
   }

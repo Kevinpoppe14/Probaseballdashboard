@@ -7143,6 +7143,10 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <div className="no-print" style={{ marginBottom: 10 }}>
           <EmailToAthleteButton athlete={athlete} tab="statcast" tabLabel="Statcast Metrics" />
         </div>
+        {/* first for a pitcher: their MLB arsenal with its results, spin and comps, straight from Savant (bullpens.js) */}
+        {isPitcher && extractMlbamId(athlete) && window.MlbArsenalPanel && activeTab === "statcast" && (
+          <div className="panel"><h2>MLB Arsenal, Spin &amp; Comps <small>Baseball Savant, by season</small></h2><window.MlbArsenalPanel athlete={athlete} mlbId={extractMlbamId(athlete)} full /></div>
+        )}
         <ResearchToolSummaryPanel athlete={athlete} />
         <PercentileRankingsPanel athlete={athlete} onChanged={onDataChange} />
         <RangeSelector
@@ -7152,10 +7156,6 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         />
         <MlbResearchPanel athlete={athlete} range={dataRange} />
         <MlbStatsPanel athlete={athlete} onChanged={onDataChange} />
-        {/* a pitcher's MLB arsenal with its results, spin and comps, straight from Savant (bullpens.js) */}
-        {isPitcher && extractMlbamId(athlete) && window.MlbArsenalPanel && activeTab === "statcast" && (
-          <div className="panel"><h2>MLB Arsenal, Spin &amp; Comps <small>Baseball Savant, by season</small></h2><window.MlbArsenalPanel athlete={athlete} mlbId={extractMlbamId(athlete)} full /></div>
-        )}
       </div>
 
       <div className={activeTab === "performance" ? "" : "tab-hidden"} data-tab-content="performance">
