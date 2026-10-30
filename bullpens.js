@@ -206,7 +206,7 @@
   // with the DST logo cut out of it. Each is drawn once into an alpha map, then painted onto the turning sphere pixel
   // by pixel (each pixel on the ball traced back to the ball's own surface, and into the stamp as printed there: flat
   // as seen square-on, so its lines run straight when it faces you, the way a stamp on a real ball does).
-  const INK = [27, 42, 92];
+  const INK = [18, 30, 72];
   const sweet = [0, 0, 1], up = [Math.SQRT1_2, Math.SQRT1_2, 0], across = [Math.SQRT1_2, -Math.SQRT1_2, 0];
   // a stamp laid on the ball `deg` degrees from the sweet spot, toward the "Pitching" side (negative: the other way)
   const placed = (deg, hw, hh) => {
@@ -254,7 +254,7 @@
         const om = g.measureText("OFFICIAL"), ow = om.width, cap = om.actualBoundingBoxAscent || 73, base = 112;
         g.save(); g.translate(w / 2, base); g.transform(1, 0, -0.12, 1, 0, 0); g.fillText("OFFICIAL", 0, 0); g.restore();
         const sr = cap / (1 + Math.cos(Math.PI / 5)), sy = base - cap + sr; // a star's top point to its feet is its height
-        star(g, w / 2 - ow / 2 - 30 - sr, sy, sr); star(g, w / 2 + ow / 2 + 30 + sr, sy, sr);
+        star(g, w / 2 - ow / 2 - 16 - sr, sy, sr); star(g, w / 2 + ow / 2 + 16 + sr, sy, sr);
         g.font = "800 118px 'Barlow Condensed', 'Arial Narrow', sans-serif";
         fitText(g, "DYNAMIC SPORTS TRAINING", w / 2, 234, 980);
         if (sig.naturalWidth) {
