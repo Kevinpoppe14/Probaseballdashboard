@@ -243,6 +243,24 @@
     const pvI = argBest(pelvisV.map((x) => (x == null ? null : Math.abs(x))), LL, peakTo, (a, b) => a > b);
     const tvI = argBest(trunkV.map((x) => (x == null ? null : Math.abs(x))), LL, peakTo, (a, b) => a > b);
     const ms = (i, j) => (i < 0 || j < 0 ? null : Math.round((tReal[j] - tReal[i]) * 1000));
+    // the arm's part of the sequence, from the pose model's 3D points: how fast the upper arm swings (its direction
+    // turning, whichever way) and how fast the elbow straightens. Video can't see the shoulder's internal rotation (the
+    // ~7000°/s of lab motion capture), so the upper arm's swing stands in for the shoulder.
+    const v3 = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const unit3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+    const ang3 = (u, v) => deg(Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]))));
+    const smooth1 = (xs, s) => xs.map((_, i) => { let sum = 0, ws = 0; for (let k = -Math.ceil(2.5 * s); k <= Math.ceil(2.5 * s); k++) { const v = xs[i + k]; if (v == null || !Number.isFinite(v)) continue; const w = Math.exp(-(k * k) / (2 * s * s)); sum += v * w; ws += w; } return ws ? sum / ws : null; });
+    const upper = wpts.map((q) => unit3(v3(q[S.arm.sh], q[S.arm.el])));
+    const armV = smooth1(upper.map((u, i) => { const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1); return hi > lo ? ang3(upper[lo], upper[hi]) / ((hi - lo) * dt) : null; }), sig);
+    const elbow3 = wpts.map((q) => 180 - ang3(unit3(v3(q[S.arm.el], q[S.arm.sh])), unit3(v3(q[S.arm.el], q[S.arm.wr]))));
+    const elbowV = smooth1(deriv(elbow3, dt).map((v) => (v == null ? null : -v)), sig); // straightening counts as +
+    const avI = argBest(armV, FS, peakTo, (a, b) => a > b);
+    const evI = argBest(elbowV, FS, peakTo, (a, b) => a > b);
+    // the kinematic sequence: each segment's peak speed and when it comes, which should run hips, trunk, arm, elbow
+    const seq = [["Pelvis", pelvisV, pvI, "#2ec4b6"], ["Trunk", trunkV, tvI, "#ff4d5e"], ["Upper arm", armV, avI, "#ff9f1c"], ["Elbow extension", elbowV, evI, "#c77dff"]]
+      .map(([name, ys, i, color]) => ({ name, color, i, peak: i < 0 || ys[i] == null ? null : Math.round(Math.abs(ys[i])), fromFS: ms(FS, i), beforeBR: i < 0 ? null : Math.round((tReal[BR] - tReal[i]) * 1000) }));
+    const found = seq.filter((r) => r.i >= 0);
+    const inOrder = found.every((r, k) => k === 0 || r.i >= found[k - 1].i);
 
     let lean = null, slot = null;
     if (behind) {
@@ -272,14 +290,18 @@
       ["pelvisV", `Peak pelvis rotation speed${est ? " (estimate)" : ""}`, pvI < 0 ? null : Math.round(Math.abs(pelvisV[pvI])), "°/s", "450–700", "How fast the hips turn at their fastest."],
       ["trunkV", `Peak trunk rotation speed${est ? " (estimate)" : ""}`, tvI < 0 ? null : Math.round(Math.abs(trunkV[tvI])), "°/s", "800–1200", "How fast the shoulders turn at their fastest."],
       ["seq", `Pelvis → trunk timing${est ? " (estimate)" : ""}`, ms(pvI, tvI), "ms", "30–60", "Time from the hips' fastest turn to the shoulders': positive means hips first, as it should be."],
+      ["gain", `Trunk / pelvis speed gain${est ? " (estimate)" : ""}`, pvI < 0 || tvI < 0 || !pelvisV[pvI] ? null : Math.round((Math.abs(trunkV[tvI]) / Math.abs(pelvisV[pvI])) * 100) / 100, "×", "1.4–1.9", "How much faster the trunk turns than the hips at their peaks: energy passed up the chain."],
+      ["armV", "Peak upper-arm speed (estimate)", avI < 0 ? null : Math.round(armV[avI]), "°/s", "", "How fast the upper arm swings through, from the 3D estimate (not the shoulder's internal rotation, which video can't see)."],
+      ["elbowV", "Peak elbow extension speed (estimate)", evI < 0 ? null : Math.round(elbowV[evI]), "°/s", "1800–2600", "How fast the elbow straightens on the way to release, from the 3D estimate."],
+      ["order", "Kinematic sequence", found.length < 2 ? null : inOrder ? "In order" : "Out of order", "", "", "Hips, then trunk, then arm, then elbow reaching their fastest, each after the one before."],
       ["llfs", "Leg lift to foot strike", ms(LL, FS), "ms", "", "From the top of the leg lift to the foot landing."],
       ["fsbr", "Foot strike to release", ms(FS, BR), "ms", "130–180", "From the foot landing to the ball coming out."],
       ["comPeak", "Peak center-of-mass speed", comV ? r1(Math.max(...comV.slice(LL, FS + 1).filter((x) => x != null))) : null, "m/s", "2.5–3.5", "How fast his body moves toward the plate at its fastest before foot strike."],
       ["comFS", "Center-of-mass speed at foot strike", comV ? r1(comV[FS]) : null, "m/s", "", "How much of that speed is left when the foot lands."],
     ].filter(Boolean).map(([key, label, value, unit, range, note]) => ({ key, label, value, unit, range, note }));
     return {
-      n, tReal, dir, Hpx, pts, events: { LL, FS, MER, BR }, metrics: M, rotSource,
-      series: { kneeFlex, trunkFwd, sep, pelvisV, trunkV, comV, elbowFlex },
+      n, tReal, dir, Hpx, pts, events: { LL, FS, MER, BR }, metrics: M, rotSource, seq, inOrder,
+      series: { kneeFlex, trunkFwd, sep, pelvisV, trunkV, comV, elbowFlex, armV, elbowV },
     };
   }
 
@@ -319,6 +341,47 @@
     const wrap = el("div", { class: "mc-chart-box" }, el("div", { class: "mc-chart-title" }, title, el("small", null, ` ${unit}`), extra ? el("small", { style: `color:${extra.color}` }, ` · ${extra.label}`) : null));
     wrap.append(s);
     return wrap;
+  }
+
+  // the kinematic sequence: pelvis, trunk, upper arm and elbow speeds on one chart around foot strike and release, each
+  // segment's peak dotted, with the peaks and their timing in a table under it
+  function sequenceBlock(R) {
+    const S = R.series, ev = R.events, tR = R.tReal;
+    const lines = [[S.pelvisV, true], [S.trunkV, true], [S.armV, false], [S.elbowV, false]].map(([ys, abs], k) => ({ ...R.seq[k], ys: ys.map((v) => (v == null ? null : abs ? Math.abs(v) : Math.max(0, v))) }));
+    // from a little before foot strike to a little after release
+    const fsT = tR[ev.FS], brT = tR[ev.BR];
+    const from = Math.max(tR[0], fsT - Math.max(0.15, (brT - fsT) * 1.2)), to = Math.min(tR[tR.length - 1], brT + 0.12);
+    const idx = tR.map((t, i) => (t >= from && t <= to ? i : -1)).filter((i) => i >= 0);
+    const vals = lines.flatMap((l) => idx.map((i) => l.ys[i])).filter((v) => v != null && Number.isFinite(v));
+    if (!vals.length) return null;
+    const W = 640, H = 230, padL = 40, padB = 26, hi = Math.max(...vals) * 1.08 || 1;
+    const X = (t) => padL + ((t - from) / (to - from || 1)) * (W - padL - 10), Y = (v) => 10 + (1 - v / hi) * (H - padB - 10);
+    const NS = "http://www.w3.org/2000/svg";
+    const s = document.createElementNS(NS, "svg");
+    s.setAttribute("viewBox", `0 0 ${W} ${H}`); s.setAttribute("class", "mc-chart mc-seq-chart"); s.setAttribute("role", "img"); s.setAttribute("aria-label", "Kinematic sequence: pelvis, trunk, upper arm and elbow speeds through the delivery");
+    const add = (tag, a, text) => { const n = document.createElementNS(NS, tag); Object.entries(a).forEach(([k, v]) => n.setAttribute(k, v)); if (text != null) n.textContent = text; s.append(n); return n; };
+    const step = hi > 2000 ? 1000 : hi > 800 ? 500 : 200;
+    for (let v = 0; v <= hi; v += step) { add("line", { x1: padL, x2: W - 10, y1: Y(v), y2: Y(v), stroke: "var(--mc-grid)", "stroke-width": v === 0 ? 1 : 0.5 }); add("text", { x: padL - 4, y: Y(v) + 3, "text-anchor": "end", "font-size": 10, fill: "var(--mc-dim)" }, String(v)); }
+    [["FS", "Foot strike"], ["MER", "Max layback"], ["BR", "Release"]].forEach(([k, label]) => {
+      const i = ev[k]; if (i == null || i < 0 || tR[i] < from || tR[i] > to) return;
+      const x = X(tR[i]); add("line", { x1: x, x2: x, y1: 8, y2: H - padB, stroke: "var(--mc-dim)", "stroke-dasharray": "4 3" }); add("text", { x, y: k === "MER" ? 9 : H - 8, "text-anchor": "middle", "font-size": 10, fill: "var(--mc-dim)" }, label); // layback labeled at the top: it can sit close to release
+    });
+    lines.forEach((l) => add("polyline", { points: idx.map((i) => (l.ys[i] == null ? null : `${X(tR[i]).toFixed(1)},${Y(l.ys[i]).toFixed(1)}`)).filter(Boolean).join(" "), fill: "none", stroke: l.color, "stroke-width": 2.5 }));
+    lines.forEach((l) => { if (l.i < 0 || l.ys[l.i] == null || tR[l.i] < from || tR[l.i] > to) return; add("circle", { cx: X(tR[l.i]), cy: Y(l.ys[l.i]), r: 4.5, fill: l.color, stroke: "#fff", "stroke-width": 1.5 }); });
+    const table = el("table", { class: "mc-table mc-seq-table" },
+      el("thead", null, el("tr", null, el("th", null, "Segment"), el("th", null, "Peak speed"), el("th", null, "After foot strike"), el("th", null, "Before release"))),
+      el("tbody", null, lines.map((l) => el("tr", null,
+        el("td", null, el("span", { class: "mc-swatch", style: `background:${l.color}` }), l.name),
+        el("td", null, l.peak == null ? "–" : `${l.peak.toLocaleString()} °/s`),
+        el("td", null, l.fromFS == null ? "–" : `${l.fromFS} ms`),
+        el("td", null, l.beforeBR == null ? "–" : `${l.beforeBR} ms`)))));
+    const est = R.rotSource === "estimate";
+    return el("div", { class: "mc-seq" },
+      el("div", { class: "mc-chart-title" }, "Kinematic sequence ", el("small", null, "°/s, from a little before foot strike to just after release"),
+        el("span", { class: `mc-seq-flag ${R.inOrder ? "good" : "bad"}` }, R.inOrder ? "In order: hips → trunk → arm → elbow" : "Out of order")),
+      el("div", { class: "mc-legend" }, lines.map((l) => el("span", null, el("span", { class: "mc-swatch", style: `background:${l.color}` }), l.name))),
+      s, table,
+      el("p", { class: "mc-hint" }, `Each segment should reach its fastest after the one before it and faster than it (hips, trunk, arm, elbow). ${est ? "Pelvis and trunk here are the pose model's 3D estimate from one camera; the two-camera setup measures them. " : ""}Upper arm and elbow come from the 3D estimate: the upper arm's swing stands in for the shoulder, since video can't see its internal rotation.`));
   }
 
   // ---- how to film -----------------------------------------------------------------------------------------------
@@ -486,6 +549,7 @@
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.result = null; state.manual = null; render(); } }, "← Another video"),
           el("span", { class: "mc-hint" }, `${state.setup === "two" ? "Two cameras" : "One camera"} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}`)),
         canvas, slider, caption, evBtns, fix,
+        sequenceBlock(R),
         el("div", { class: "mc-grid" }, table, charts),
         el("p", { class: "mc-hint" }, R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
@@ -500,7 +564,8 @@
               metrics: Object.fromEntries(R.metrics.map((m) => [m.key, m.value])),
               labels: Object.fromEntries(R.metrics.map((m) => [m.key, [m.label, m.unit, m.range]])),
               events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)])),
-              series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), comV: thin(S.comV) },
+              series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), armV: thin(S.armV), elbowV: thin(S.elbowV), comV: thin(S.comV) },
+              sequence: R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })), inOrder: R.inOrder,
               note: note.value.trim(), files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean),
             };
             try { await opts.onSave(rec); saveMsg.textContent = "Saved."; state.savedTick = Date.now(); const h = root.querySelector(".mc-history"); if (h) h.replaceWith(historyBlock()); }
@@ -526,5 +591,5 @@
     return { refresh: render };
   }
 
-  window.MoCap = { mount, analyze, HOW_TO };
+  window.MoCap = { mount, analyze, sequenceBlock, HOW_TO };
 })();
