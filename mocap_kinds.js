@@ -36,7 +36,7 @@
   // ---- hitting ---------------------------------------------------------------------------------------------------------
   // The moments: the load (the front foot at its highest), foot plant (the front foot down again), contact (the hands at
   // their fastest, which is just before the ball: video can't see the bat) and the finish (the hands at their highest).
-  function analyzeHitting({ side, behind, throws: bats, heightIn, captureFps, sideScale, behindScale, events: manual, edits }) {
+  function analyzeHitting({ side, behind, throws: bats, heightIn, captureFps, sideScale, behindScale, events: manual, edits, weightKg }) {
     const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, med, pts, wpts, fr, Hpx } = A;
     const S = sidesOf(bats), m = manual || {}; // a righty hitter's front side is his left, as a righty pitcher's is
     const hands = pts.map((q) => mid(q[P.lWr], q[P.rWr]));
@@ -115,6 +115,17 @@
       metric("headY", "Head drop", r1(headY), "in", "", "How far the head drops from the load to contact (negative: it rises)."),
       metric("handV", "Peak hand speed (estimate)", r1(handMph ? handMph[C] : null), "mph", "", "The hands at their fastest, from the side view: the bat moves faster than the hands, and video can't see it."),
     ];
+    // inferred: bat speed and exit velo from the hands, and what the ground pushes with
+    const bat = handMph && handMph[C] != null ? handMph[C] * 3 : null;
+    metrics.push(
+      metric("batV", "Bat speed (estimate)", r1(bat), "mph", "", "About 3 times the hands' peak speed (the barrel swings on a longer radius than the hands): a rough guide without a bat sensor."),
+      metric("evPot", "Exit velo potential (estimate)", bat == null ? null : r1(1.2 * bat + 0.2 * 85), "mph", "", "Squared up on an 85 mph pitch: 1.2 × bat speed + 0.2 × pitch speed (Alan Nathan's rule of thumb for the collision)."),
+      ...M.lib.forceMetrics(M.lib.groundForce({ pts, dt, sig, dir, mPerPx: mPx }), weightKg, [
+        ["grfV", "Peak vertical ground force", "vert", FP, C + fr(0.05), "max", "Both feet together, from his center of mass, foot plant to contact: mostly the front leg."],
+        ["grfBrake", "Peak braking force", "horiz", FP, C, "min", "The ground stopping his move toward the pitcher: the front leg bracing."],
+        ["grfDrive", "Peak drive force", "horiz", LD, FP, "max", "The ground pushing him toward the pitcher in the stride: the back leg."],
+      ]),
+    );
     return {
       n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs, rotSource,
       events: { LD, FP, C, FIN }, evLabels: { LD: "Load", FP: "Foot plant", C: "Contact", FIN: "Finish" },
@@ -146,11 +157,13 @@
     maxv: { contact: "90–120", flight: "110–140", trunk: "0–10", shin: "", step: "" },
   };
   const START_NAMES = { linear: "Linear start", steal: "Base-stealing start", forty: "40-yard start (three-point)", maxv: "Max velocity" };
-  function analyzeSprint({ side, heightIn, captureFps, sideScale, events: manual, edits, variant }) {
+  function analyzeSprint({ side, heightIn, captureFps, sideScale, events: manual, edits, variant, weightKg }) {
     const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, pts, wpts, fr, Hpx } = A;
     const start = variant === "maxv" ? null : variant === "steal" || variant === "forty" ? variant : "linear"; // (an older "accel" is a linear start)
     const m = manual || {}, phase = start ? "accel" : "maxv", R = SPRINT_RANGES[phase];
     const hips = pts.map(hipOf), dir = hips[n - 1][0] - hips[0][0] >= 0 ? 1 : -1;
+    // the hips' forward speed, in heights a second (smoothed: a speed from positions is noisy)
+    const hipV = smoothSeries(deriv(hips.map((h) => h[0]), dt).map((v) => (v == null ? null : (dir * v) / Hpx)), sig * 3);
     const mPx = heightIn ? (heightIn * 0.0254) / Hpx : null;
     const FEET = [["L", P.lHeel, P.lToe, P.lAn, P.lKn, P.lHip], ["R", P.rHeel, P.rToe, P.rAn, P.rKn, P.rHip]];
     const footX = (q, f) => (q[f[1]][0] + q[f[2]][0] + q[f[3]][0]) / 3, footLow = (q, f) => Math.max(q[f[1]][1], q[f[2]][1]);
@@ -193,6 +206,8 @@
       // the first move: the hips leaving where they stood (by 2% of his height)
       const h0 = hips.slice(0, Math.max(2, Math.min(8, Math.round(n * 0.05)))).reduce((s, h) => [s[0] + h[0], s[1] + h[1]], [0, 0]).map((v) => v / Math.max(2, Math.min(8, Math.round(n * 0.05))));
       ST = m.ST != null ? m.ST : Math.max(0, hips.findIndex((h) => Math.hypot(h[0] - h0[0], h[1] - h0[1]) > 0.02 * Hpx));
+      // (2% of his height is sure to be moving, but late: back up to where the hips were still)
+      if (m.ST == null) while (ST > 0 && hipV[ST - 1] != null && hipV[ST - 1] > 0.02) ST--;
       // the first step: the first foot down after the first move; the first foot to move: the one whose stance ends first
       first = steps.find((s) => s.td > ST && !(s.td === 0)) || null;
       const stance = steps.filter((s) => s.td === 0);
@@ -227,7 +242,6 @@
       };
     }
     // speed: the hips' forward speed, over the steps found
-    const hipV = smoothSeries(deriv(hips.map((h) => h[0]), dt).map((v) => (v == null ? null : (dir * v) / Hpx)), sig * 3); // heights a second
     // (a start: the fastest the hips get in the clip; at max velocity, their average over the steps)
     const span = steps.length > 1 ? [steps[0].td, steps[steps.length - 1].td] : [0, n - 1];
     const speedH = start ? Math.max(...hipV.filter((v) => v != null)) : mean(hipV.slice(span[0], span[1] + 1));
@@ -265,32 +279,85 @@
       metric("asymLen", "Left / right step length difference", asym("len"), "%", "", "How much the steps off each foot differ."),
       metric("steps", "Ground contacts found", steps.length, "", "", "Every touchdown in the clip."),
     ];
+    // inferred: the speed of every step (its length over its time), and for a start, the time and speed at set
+    // distances and a force-velocity profile (Samozino's method: the hips' speed from the first move fitted to
+    // v(t) = vmax·(1 − e^(−t/τ)); the horizontal force a kilogram then falls in a line from F0 = vmax/τ at a standstill to
+    // nothing at vmax, and power peaks at F0·vmax/4), which projects his times over longer distances
+    steps.forEach((s) => { s.speed = s.len != null && s.stepT && mPx ? (s.len * Hpx * mPx) / s.stepT : null; });
+    const kg = weightKg || null;
+    let splits = [], fv = null;
+    if (start && mPx) {
+      const vMs = hipV.map((v) => (v == null ? null : v * Hpx * mPx)), x0 = hips[ST][0];
+      const at = (d) => hips.findIndex((h, k) => k >= ST && dir * (h[0] - x0) * mPx >= d);
+      splits = [1, 2, 3, 5, 10, 15, 20].map((d) => { const i = at(d); return i < 0 ? null : { d, ms: Math.round((tReal[i] - tReal[ST]) * 1000), v: vMs[i] }; }).filter(Boolean);
+      const ts = [], vs = [];
+      // (fitted from the first move to a little before the clip's end, where the smoothing runs out of frames)
+      for (let i = ST; i < n - Math.ceil(sig * 6); i++) if (vMs[i] != null) { ts.push(tReal[i] - tReal[ST]); vs.push(Math.max(0, vMs[i])); }
+      if (ts.length > 10 && ts[ts.length - 1] >= 0.6) {
+        let best = null;
+        for (let tau = 0.3; tau <= 3; tau += 0.01) {
+          let sg = 0, sv = 0;
+          ts.forEach((t, k) => { const g1 = 1 - Math.exp(-t / tau); sg += g1 * g1; sv += g1 * vs[k]; });
+          const vmax = sv / sg;
+          let e = 0;
+          ts.forEach((t, k) => { const d = vmax * (1 - Math.exp(-t / tau)) - vs[k]; e += d * d; });
+          if (!best || e < best.e) best = { tau, vmax, e };
+        }
+        if (best && best.vmax >= 4 && best.vmax <= 12.5 && best.tau > 0.31 && best.tau < 2.95) {
+          const { tau, vmax } = best;
+          const timeTo = (d) => { let lo = 0, hi = 30; for (let k = 0; k < 60; k++) { const t = (lo + hi) / 2; if (vmax * (t + tau * (Math.exp(-t / tau) - 1)) < d) lo = t; else hi = t; } return lo; };
+          fv = { tau, vmax, F0: vmax / tau, Pmax: (vmax * vmax) / tau / 4, covered: ts[ts.length - 1], timeTo };
+        }
+      }
+    }
+    if (start) {
+      const yd = (y) => y * 0.9144, sec = (t) => Math.round(t * 100) / 100;
+      metrics.push(
+        metric("vmax", "Max speed, projected (estimate)", fv ? r1(fv.vmax) : null, "m/s", "", "The speed his acceleration is heading for (the force-velocity fit)."),
+        metric("vmaxMph", "Max speed, projected (estimate)", fv ? r1(mph(fv.vmax)) : null, "mph", "", ""),
+        metric("F0", "Max horizontal force (estimate)", fv ? Math.round(fv.F0 * 100) / 100 : null, "N/kg", "", "The push he could make at a standstill, a kilogram of him (F0)."),
+        kg ? metric("F0N", "Max horizontal force (estimate)", fv ? Math.round(fv.F0 * kg) : null, "N", "", "") : null,
+        metric("Pmax", "Max horizontal power (estimate)", fv ? r1(fv.Pmax) : null, "W/kg", "", "F0 × max speed ÷ 4."),
+        kg ? metric("PmaxW", "Max horizontal power (estimate)", fv ? Math.round(fv.Pmax * kg) : null, "W", "", "") : null,
+        ...(start === "steal"
+          ? [metric("t2b", "Time to second, projected (estimate)", fv ? sec(fv.timeTo(yd(26))) : null, "s", "", "From the first move, a 12-foot lead (78 feet to the bag), running through it: no reaction time, no slide.")]
+          : [10, 30, 40, 60].map((y) => metric(`t${y}yd`, `${y}-yard time, projected (estimate)`, fv ? sec(fv.timeTo(yd(y))) : null, "s", "", y === 10 ? "From the first move (no reaction time), projected from the force-velocity fit." : ""))),
+      );
+    }
+    const fvNote = start ? (fv ? ` The force-velocity profile and projected times are fitted to the first ${fv.covered.toFixed(1)} s of the run in the clip: the more of his acceleration the clip covers, the surer they are.` : mPx ? " The clip is too short (or the speed too uneven) for a force-velocity profile: film at least the first 5 yards." : " Enter his height for a force-velocity profile and projected times.") : "";
     return {
       n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs,
       events: ev,
       ...(start
         ? { evLabels: { ST: "First move", TD1: "First step", TO1: "First toe-off", TD2: "Second step" }, phaseKeys: ["ST", "TD1", "TO1", "TD2"], zeroKey: "ST", groundKey: "ST" }
         : { evLabels: { TD1: "Touchdown", TO1: "Toe-off", TD2: "Next touchdown", TO2: "Next toe-off" }, phaseKeys: ["TD1", "TO1", "TD2", "TO2"], zeroKey: "TD1", groundKey: "TD1" }),
-      metrics,
+      metrics: metrics.filter(Boolean),
       series: { trunkLean, thighL, thighR, hipV },
       charts: [
         [mPx ? "Hip speed" : "Hip speed (heights a second)", mPx ? "m/s" : "ht/s", mPx ? hipV.map((v) => (v == null ? null : v * Hpx * mPx)) : hipV, "#8ac926"],
         ["Trunk lean forward", "°", trunkLean, "#e0b03a"],
         ["Thigh angle", "°", thighL, "#3fa7ff", { ys: thighR, color: "#ff4d5e", label: "right (left in blue)" }],
       ],
-      tables: steps.length ? [{
-        title: "Every step",
-        cols: ["#", "Foot", "Contact", "Flight", "Step length", "Shin at touchdown", "Foot ahead of hips", "Trunk lean"],
-        rows: steps.map((s, k) => [k + 1, s.foot === "L" ? "Left" : "Right", s.contactMs == null ? null : `${s.contactMs} ms`, s.flightMs == null ? null : `${s.flightMs} ms`, lenText(s.len), `${Math.round(s.shin)}°`, mPx ? `${Math.round(inches(s.ahead * Hpx * mPx))} in` : `${Math.round(s.ahead * 100)}% ht`, `${Math.round(s.trunk)}°`]),
-      }] : null,
-      hint: `${START_NAMES[start || "maxv"]}. ${steps.length < 2 ? "Fewer than two ground contacts were found: check that his feet stay in the picture and the camera doesn't move. " : ""}Contact and flight times are only as fine as the frames: at 240 fps each frame is 4 ms. ${mPx ? "" : "Enter his height for speed in m/s and lengths in feet and inches. "}Joint angles from video are good to about 5 to 10 degrees.`,
+      tables: [
+        steps.length ? {
+          title: "Every step",
+          cols: ["#", "Foot", "Contact", "Flight", "Step length", "Speed", "Shin at touchdown", "Foot ahead of hips", "Trunk lean"],
+          rows: steps.map((s, k) => [k + 1, s.foot === "L" ? "Left" : "Right", s.contactMs == null ? null : `${s.contactMs} ms`, s.flightMs == null ? null : `${s.flightMs} ms`, lenText(s.len), s.speed == null ? null : `${s.speed.toFixed(1)} m/s (${mph(s.speed).toFixed(1)} mph)`, `${Math.round(s.shin)}°`, mPx ? `${Math.round(inches(s.ahead * Hpx * mPx))} in` : `${Math.round(s.ahead * 100)}% ht`, `${Math.round(s.trunk)}°`]),
+        } : null,
+        splits.length ? {
+          title: "Distance splits",
+          cols: ["Distance", "Time from first move", "Speed there"],
+          rows: splits.map((s) => [`${s.d} m (${(s.d / 0.9144).toFixed(1)} yd)`, `${(s.ms / 1000).toFixed(2)} s`, s.v == null ? null : `${s.v.toFixed(1)} m/s (${mph(s.v).toFixed(1)} mph)`]),
+        } : null,
+      ].filter(Boolean),
+      hint: `${START_NAMES[start || "maxv"]}. ${steps.length < 2 ? "Fewer than two ground contacts were found: check that his feet stay in the picture and the camera doesn't move. " : ""}Contact and flight times are only as fine as the frames: at 240 fps each frame is 4 ms. ${mPx ? "" : "Enter his height for speed in m/s and lengths in feet and inches. "}Joint angles from video are good to about 5 to 10 degrees.${fvNote}`,
     };
   }
 
   // ---- jumping ---------------------------------------------------------------------------------------------------------
   // The moments: the start (standing, before the hips drop), the bottom of the countermovement, takeoff (the jumping
   // foot or feet off the ground), the peak (hips highest) and landing. Height from flight time: h = g·t² / 8.
-  function analyzeJump({ side, heightIn, captureFps, sideScale, events: manual, edits, variant }) {
+  function analyzeJump({ side, heightIn, captureFps, sideScale, events: manual, edits, variant, weightKg }) {
     const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, pts, wpts, fr, Hpx, perSec } = A;
     const m = manual || {}, kindOf = variant || "cmj", single = kindOf === "slL" ? "L" : kindOf === "slR" ? "R" : null, broad = kindOf === "broad";
     const LEGS = { L: [P.lHip, P.lKn, P.lAn, P.lHeel, P.lToe], R: [P.rHip, P.rKn, P.rAn, P.rHeel, P.rToe] };
@@ -357,11 +424,31 @@
       metric("kneeTO", "Knee flexion at takeoff", r1(kneeFlex[TO]), "°", "", "Close to 0 is a full extension."),
       metric("landKnee", "Knee flexion on landing", Number.isFinite(landKnee) ? r1(landKnee) : null, "°", "", "The most the knee bends in the first 0.3 s after landing."),
     ].filter(Boolean);
+    // inferred: takeoff speed (from the height, or a broad jump's distance and flight), power and force. Peak power by
+    // Sayers' equation (from jump height and body mass, for a two-leg countermovement jump); the up phase's average
+    // force from getting his mass from a stop to takeoff speed in its time, F = m(g + v/t), and its average power F·v/2;
+    // peak takeoff and landing forces from his center of mass
+    const conT = Math.max(0.05, tReal[TO] - tReal[LO]);
+    const vTo = broad ? (flight > 0 && distance != null ? Math.hypot(distance / flight, (9.81 * flight) / 2) : null) : heightM != null ? Math.sqrt(2 * 9.81 * heightM) : null;
+    const kg = weightKg || null;
+    const meanF = vTo != null ? 1 + vTo / (9.81 * conT) : null; // body weights
+    metrics.push(...[
+      metric("vTO", "Takeoff velocity (estimate)", vTo == null ? null : Math.round(vTo * 100) / 100, "m/s", "", broad ? "From the distance and time in the air." : "From the jump height: √(2 g h)."),
+      !broad && !single && heightM != null && kg ? metric("power", "Peak power (Sayers, estimate)", Math.round(60.7 * heightM * 100 + 45.3 * kg - 2055), "W", "", "60.7 × jump height (cm) + 45.3 × body mass (kg) − 2055.") : null,
+      !broad && !single && heightM != null && kg ? metric("powerKg", "Peak power per kg (estimate)", r1((60.7 * heightM * 100 + 45.3 * kg - 2055) / kg), "W/kg", "", "") : null,
+      metric("forceUp", "Average force, up phase (estimate)", meanF == null ? null : Math.round(meanF * 100) / 100, "× body weight", "", "Getting him from the bottom to takeoff speed in the up phase's time: F = m(g + v ÷ t)."),
+      kg && meanF != null ? metric("forceUpN", "Average force, up phase (estimate)", Math.round(meanF * kg * 9.81), "N", "", "") : null,
+      kg && meanF != null && vTo != null ? metric("powerUp", "Average power, up phase (estimate)", Math.round((meanF * kg * 9.81 * vTo) / 2), "W", "", "That force times his average speed through the up phase (half the takeoff speed).") : null,
+      ...M.lib.forceMetrics(M.lib.groundForce({ pts, dt, sig, dir: 1, mPerPx: mPx }), weightKg, [
+        ["grfTO", "Peak vertical force before takeoff", "vert", LO, TO, "max", "From his center of mass, the bottom to takeoff."],
+        ["grfLand", "Peak landing force", "vert", LA, Math.min(n - 1, LA + fr(0.3)), "max", "From his center of mass, in the first 0.3 s after landing: higher is a stiffer, louder landing."],
+      ]),
+    ].filter(Boolean));
     return {
       n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs,
       events: { ST, LO, TO, PK, LA }, evLabels: { ST: "Start", LO: "Bottom", TO: "Takeoff", PK: "Peak", LA: "Landing" },
       phaseKeys: ["LO", "TO", "PK", "LA"], zeroKey: "TO", groundKey: "LO",
-      metrics,
+      metrics: metrics.filter(Boolean),
       series: { kneeFlex, hipFlex, trunkLean, hipVy },
       charts: [
         [mPx ? "Hip height above standing" : "Hip height above standing (% of height)", mPx ? "in" : "%", hipY.map((y) => (mPx ? inches((standY - y) * mPx) : ((standY - y) / Hpx) * 100)), "#8ac926"],
@@ -370,6 +457,36 @@
       ],
       hint: `${name}. ${best ? "" : "No time in the air was found: check that his feet are in the picture throughout. "}${perSec < 100 ? `This clip runs ${Math.round(perSec)} frames a second, so flight time (and the jump height from it) can be off by a frame: film in Slo-Mo for a sharper number. ` : ""}${mPx ? "" : "Enter his height for depth and distance in inches. "}Joint angles from video are good to about 5 to 10 degrees.`,
     };
+  }
+
+  // ---- a jump beside the force plate --------------------------------------------------------------------------------------
+  // His force plate jump (Hawkin) of the same kind closest in date to the video's: the numbers both measure side by side,
+  // so the video's estimates can be checked against the plate (and the plate's jump seen as a movement).
+  const FP_KIND = { cmj: /counter ?movement|\bcmj\b/i, broad: /broad/i, slL: /single/i, slR: /single/i };
+  function relateForcePlate(R, tests, { date, variant }) {
+    const re = FP_KIND[variant || "cmj"];
+    const list = (tests || []).filter((t) => t.date && re && re.test(t.testType || "") && !(variant === "cmj" && /single|rebound/i.test(t.testType || "")));
+    if (!list.length) return [];
+    const day = (d) => new Date(`${d}T12:00:00`).getTime();
+    const t = list.reduce((b, x) => (Math.abs(day(x.date) - day(date)) < Math.abs(day(b.date) - day(date)) ? x : b), list[0]);
+    const val = (k) => { const m = R.metrics.find((x) => x.key === k); return m && typeof m.value === "number" ? m.value : null; };
+    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const depthIn = R.metrics.find((x) => x.key === "depth" && x.unit === "in") ? val("depth") : null;
+    const rows = [
+      ["Jump height", val("height"), num(t.jumpHeight), "in", 1],
+      ["Countermovement depth", depthIn, num(t.countermovementDepth) == null ? null : Math.abs(t.countermovementDepth), "in", 1],
+      ["Takeoff velocity", val("vTO"), num(t.takeoffVelocity), "m/s", 2],
+      ["Peak power", val("power"), num(t.peakPower), "W", 0],
+      ["Peak power per kg", val("powerKg"), num(t.relativePeakPower), "W/kg", 1],
+      ["RSI-modified", val("rsi"), num(t.rsiModified), "", 2],
+    ].filter((r) => r[1] != null || r[2] != null);
+    const f = (v, dp) => (v == null ? null : v.toFixed(dp));
+    const days = Math.round(Math.abs(day(t.date) - day(date)) / 86400000);
+    return [{
+      title: `Beside the force plate: ${t.testType || "jump"}, ${t.date}${days ? ` (${days} day${days === 1 ? "" : "s"} ${day(t.date) < day(date) ? "before" : "after"})` : " (same day)"}`,
+      cols: ["", "Video (estimate)", "Force plate", "Difference"],
+      rows: rows.map(([label, v, p, unit, dp]) => [label, v == null ? null : `${f(v, dp)} ${unit}`.trim(), p == null ? null : `${f(p, dp)} ${unit}`.trim(), v == null || p == null ? null : `${v - p >= 0 ? "+" : ""}${f(v - p, dp)}`]),
+    }];
   }
 
   // ---- the movements, added to motion capture --------------------------------------------------------------------------
@@ -392,7 +509,7 @@
       heightHint: "Height is needed for hand speed and head movement in inches. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down.",
       analyzeLabel: "Analyze the swing",
       analyze: analyzeHitting,
-      historyKeys: ["stride", "fpc", "sepMax", "trunkV", "headX", "handV"],
+      historyKeys: ["stride", "fpc", "sepMax", "trunkV", "headX", "batV", "grfV"],
     },
     sprint: {
       label: "Sprint", hand: null, setups: SETUPS_SIDE,
@@ -411,7 +528,7 @@
       heightHint: "Height turns the picture into real speed (m/s, mph) and step length in feet. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the sprint",
       analyze: analyzeSprint,
-      historyKeys: ["ttd1", "t2m", "firstLen", "speedMph", "stepLen", "contact", "trunkTD"],
+      historyKeys: ["ttd1", "t2m", "t10yd", "t2b", "vmaxMph", "F0", "stepLen", "contact"],
     },
     jump: {
       label: "Jump", hand: null, setups: SETUPS_SIDE,
@@ -430,7 +547,8 @@
       heightHint: "Height turns the picture into inches for depth and distance (jump height comes from flight time and needs no height). \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the jump",
       analyze: analyzeJump,
-      historyKeys: ["height", "distance", "depth", "ttt", "rsi", "kneeTO"],
+      relate: relateForcePlate,
+      historyKeys: ["height", "distance", "power", "forceUp", "depth", "ttt", "rsi"],
     },
   });
 })();

@@ -1984,8 +1984,13 @@
       const box = ref.current;
       if (!box || !window.MoCap) return undefined;
       const store = window.AthleteStore;
+      const forceTests = () => (store.getForceTests ? store.getForceTests(athlete.id) : []);
+      // his weight, for force and power: the latest body comp scan, or else the force plate's system weight (newtons)
+      const scan = (store.getBodyComp ? store.getBodyComp(athlete.id) : []).slice().reverse().find((s) => s.weightLb || s.weightKg);
+      const plate = forceTests().slice().reverse().find((t) => typeof t.systemWeight === "number" && t.systemWeight > 300);
+      const weightLb = scan ? scan.weightLb || scan.weightKg * 2.20462 : plate ? plate.systemWeight / 4.44822 : null;
       window.MoCap.mount(box, {
-        kind, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "" },
+        kind, forceTests, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
         onDelete: async (rec) => { store.deleteAssessment(rec.id); },
         saveAny: async (rec) => { store.saveAssessment(rec); }, // another pitcher's session, re-run (it keeps its own athleteId)

@@ -263,9 +263,71 @@
   });
 
   // ---- the analysis ---------------------------------------------------------------------------------------------
+  // ---- inferred: what the ground pushes with, and what the mechanics say about arm stress and velo ---------------------
+  // Ground force (shared with hitting, mocap_kinds.js): whatever speeds the body's center of mass up or slows it down, or
+  // holds it up against gravity, is the ground pushing on him, F = m(a + g). From the side view it's the total of both
+  // feet, vertical and toward the target, in body weights (and pounds with his weight): an estimate, the double
+  // difference of points from video being noisy, so it's smoothed hard.
+  function groundForce({ pts, dt, sig, dir, mPerPx }) {
+    if (!mPerPx) return null;
+    const cx = smoothSeries(pts.map((q) => comOf(q)[0]), sig * 4), cy = smoothSeries(pts.map((q) => comOf(q)[1]), sig * 4);
+    const acc = (xs) => smoothSeries(deriv(deriv(xs, dt), dt), sig * 2);
+    return {
+      vert: acc(cy).map((a) => (a == null ? null : 1 - (a * mPerPx) / 9.81)), // y grows down the picture
+      horiz: acc(cx).map((a) => (a == null ? null : (dir * a * mPerPx) / 9.81)), // + pushing him toward the target
+    };
+  }
+  // the peak ground forces in a movement's windows, as numbers (body weights, and pounds with his weight)
+  function forceMetrics(g, weightKg, list) {
+    const out = [], lb = weightKg ? weightKg / 0.4536 : null;
+    if (!g) return out;
+    list.forEach(([key, label, which, a, b, most, note]) => {
+      const xs = g[which], i = argBest(xs, a, b, most === "max" ? (x, y) => x > y : (x, y) => x < y), bw = i < 0 ? null : xs[i];
+      out.push({ key, label: `${label} (estimate)`, value: bw == null ? null : Math.round(Math.abs(bw) * 100) / 100, unit: "× body weight", range: "", note });
+      if (lb && bw != null) out.push({ key: `${key}Lb`, label: `${label} (estimate)`, value: Math.round(Math.abs(bw) * lb), unit: "lb", range: "", note: "" });
+    });
+    return out;
+  }
+  // A pitch's: ground force before and after foot strike, and two checklists from its numbers. Arm stress: positions and
+  // timing tied in research to more elbow and shoulder load (arm position at foot strike, the trunk turning early, the
+  // sequence out of order, a front leg that gives, a big lean to the glove side). Velo: the numbers that go with
+  // throwing hard, against their usual ranges. Both are flags to look at, not a diagnosis.
+  function inferred({ pts, dt, sig, dir, mPerPx, weightKg, FS, BR, LL, fr, metrics, rotSource }) {
+    const val = (k) => { const m = metrics.find((x) => x.key === k); return m ? m.value : null; };
+    metrics.push(...forceMetrics(groundForce({ pts, dt, sig, dir, mPerPx }), weightKg, [
+      ["grfV", "Peak vertical ground force after foot strike", "vert", FS, BR + fr(0.05), "max", "Both feet together, from his center of mass: mostly the front leg landing and bracing."],
+      ["grfBrake", "Peak braking force", "horiz", FS, BR, "min", "The ground slowing him toward the plate after foot strike: the front leg blocking."],
+      ["grfDrive", "Peak drive force", "horiz", LL, FS, "max", "The ground pushing him toward the plate before foot strike: the back leg driving."],
+    ]));
+    const inRange = (v, lo, hi) => v != null && typeof v === "number" && v >= lo && v <= hi;
+    const est = rotSource === "estimate" ? " (estimate)" : "";
+    const stress = [
+      ["Shoulder abduction at foot strike", val("abdFS"), "80–100°", inRange(val("abdFS"), 80, 100), "An arm too low or too high when the foot lands loads the shoulder and elbow more."],
+      ["Elbow flexion at foot strike", val("elbowFS"), "80–110°", inRange(val("elbowFS"), 80, 110), "The arm's position at foot strike, as above."],
+      [`Pelvis → trunk timing${est}`, val("seq"), "20 ms or more", val("seq") != null && val("seq") >= 20, "The trunk turning early (with or before the hips) goes with more elbow varus torque and shoulder load."],
+      ["Kinematic sequence", val("order"), "In order", val("order") === "In order", "Out of order, the arm makes up for what the body didn't pass on."],
+      ["Lead leg block", val("kneeExt"), "0° or more", val("kneeExt") != null && val("kneeExt") >= 0, "A front knee that keeps bending leaks energy, and the arm makes it up."],
+      val("lean") != null ? ["Trunk lean to the glove side", val("lean"), "35° or less", val("lean") <= 35, "A big lean to the glove side adds velo, and elbow load with it."] : null,
+    ].filter(Boolean).filter((r) => r[1] != null);
+    const velo = [
+      ["Stride length", val("stride"), 75, 90, "% of height"], ["Lead leg block", val("kneeExt"), 5, 25, "°"], ["Trunk forward tilt at release", val("trunkBR"), 30, 45, "°"],
+      [`Peak hip-shoulder separation${est}`, val("sepMax"), 40, 60, "°"], [`Peak pelvis rotation speed${est}`, val("pelvisV"), 450, 9999, "°/s"],
+      [`Peak trunk rotation speed${est}`, val("trunkV"), 800, 9999, "°/s"], [`Trunk / pelvis speed gain${est}`, val("gain"), 1.4, 9999, "×"], ["Peak center-of-mass speed", val("comPeak"), 2.5, 9999, "m/s"],
+    ].filter((r) => r[1] != null && typeof r[1] === "number");
+    const flags = stress.filter((r) => !r[3]).length, good = velo.filter((r) => r[1] >= r[2] && r[1] <= r[3]).length;
+    if (stress.length) metrics.push({ key: "stressFlags", label: "Arm stress flags", value: `${flags} of ${stress.length}`, unit: "", range: "", note: "Positions and timing tied to more elbow and shoulder load (the table below)." });
+    if (velo.length) metrics.push({ key: "veloInd", label: "Velo indicators in range", value: `${good} of ${velo.length}`, unit: "", range: "", note: "The numbers that go with throwing hard, at or past their usual range (the table below)." });
+    return {
+      tables: [
+        stress.length ? { title: "Arm stress indicators", cols: ["", "His", "Look for", "", "Why"], rows: stress.map(([label, v, target, ok, why]) => [label, typeof v === "number" ? Math.round(v * 10) / 10 : v, target, ok ? "OK" : "Flag", why]) } : null,
+        velo.length ? { title: "Velo indicators", cols: ["", "His", "Usual range", ""], rows: velo.map(([label, v, lo, hi, unit]) => [label, `${Math.round(v * 10) / 10} ${unit}`, hi >= 9999 ? `${lo}+ ${unit}` : `${lo}–${hi} ${unit}`, v >= lo && v <= hi ? "In range" : v < lo ? "Below" : "Above"]) } : null,
+      ].filter(Boolean),
+    };
+  }
+
   // side: tracked open-side video; behind: tracked behind video or null. timeScale turns file seconds into real
   // seconds (a 30 fps file of 240 fps slow-mo runs 8× slow).
-  function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual, edits, elbowDepth = true }) {
+  function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual, edits, elbowDepth = true, weightKg }) {
     const S = sidesOf(throws), n = side.frames.length;
     const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
     const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
@@ -437,7 +499,9 @@
       ["comPeak", "Peak center-of-mass speed", comV ? r1(Math.max(...comV.slice(LL, FS + 1).filter((x) => x != null))) : null, "m/s", "2.5–3.5", "How fast his body moves toward the plate at its fastest before foot strike."],
       ["comFS", "Center-of-mass speed at foot strike", comV ? r1(comV[FS]) : null, "m/s", "", "How much of that speed is left when the foot lands."],
     ].filter(Boolean).map(([key, label, value, unit, range, note]) => ({ key, label, value, unit, range, note }));
+    const extra = inferred({ pts, dt, sig, dir, mPerPx, weightKg, FS, BR, LL, fr, metrics: M, rotSource });
     return {
+      tables: extra.tables,
       n, tReal, dir, Hpx, pts, wpts, events: { LL, FS, MER, BR }, metrics: M, rotSource, seq, inOrder, elbowFirst,
       series: { kneeFlex, trunkFwd, sep, pelvisV, trunkV, comV, elbowFlex, armV, elbowV },
     };
@@ -705,7 +769,7 @@
       behindHint: "Directly behind him, on the line through home plate",
       trimHint: "Trim to the delivery: from just before he comes set to just after the follow-through.",
       analyze: (a) => analyze(a),
-      historyKeys: ["stride", "kneeFS", "kneeExt", "trunkBR", "sepMax", "fsbr", "comPeak"],
+      historyKeys: ["stride", "kneeFS", "kneeExt", "trunkBR", "sepMax", "fsbr", "comPeak", "stressFlags", "veloInd"],
     },
   };
   const kindOf = (rec) => KINDS[(rec && rec.motion) || "pitching"] || KINDS.pitching;
@@ -715,7 +779,7 @@
     const athlete = opts.athlete || {};
     const kindName = KINDS[opts.kind] ? opts.kind : "pitching", kind = KINDS[kindName];
     const hKey = `mocapHeight:${athlete.id}`;
-    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
+    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
     // his saved sessions of this movement
     const history = () => (opts.history ? opts.history() || [] : []).filter((r) => (r.motion || "pitching") === kindName);
     const variantName = (v) => (kind.variants && v ? (kind.variants.options.find((o) => o[0] === v) || [v, v])[1] : "");
@@ -773,6 +837,7 @@
         el("div", { class: "mc-row" },
           kind.hand ? el("label", null, kind.hand.label, el("select", { onchange: (e) => { state.throws = e.target.value; } }, el("option", { value: "R", selected: state.throws === "R" }, "Right"), el("option", { value: "L", selected: state.throws === "L" }, "Left"))) : null,
           el("label", null, "Height (in)", el("input", { type: "number", inputmode: "decimal", min: 48, max: 90, step: 0.5, value: state.heightIn, placeholder: "e.g. 74", oninput: (e) => { state.heightIn = Number(e.target.value) || ""; try { localStorage.setItem(hKey, String(state.heightIn)); } catch (x) { /* not remembered */ } } })),
+          el("label", null, "Weight (lb)", el("input", { type: "number", inputmode: "decimal", min: 60, max: 400, step: 1, value: state.weightLb, placeholder: "e.g. 195", oninput: (e) => { state.weightLb = Number(e.target.value) || ""; } })),
           state.setup === "edger"
             ? el("label", null, "Edgertronic frame rate (fps)", el("input", { type: "number", inputmode: "numeric", min: 120, max: 20000, step: 10, value: state.edgerFps, oninput: (e) => { state.edgerFps = Number(e.target.value) || 1000; state.captureFps = String(state.edgerFps); } }))
             : el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; } },
@@ -833,7 +898,7 @@
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
       state.result = kind.analyze({ variant: state.variant,
-        side: state.side.tracked, edits: state.edits, elbowDepth: state.elbowDepth !== false, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
+        side: state.side.tracked, edits: state.edits, weightKg: state.weightLb ? state.weightLb * 0.4536 : null, elbowDepth: state.elbowDepth !== false, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
       state.cap = cap;
@@ -881,7 +946,7 @@
       if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; store.elbowDepth = state.elbowDepth !== false; }
       const rec = {
         id, kind: "mocap", motion: kindName, variant: state.variant, athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
-        setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, captureFps: state.cap,
+        setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, weightLb: Number(state.weightLb) || null, captureFps: state.cap,
         ...summaryOf(R), trackV: was ? was.trackV || 1 : TRACK_V,
         note, files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean), store,
       };
@@ -904,7 +969,7 @@
           if (s.error || !s.data) return null;
           try { return await openVideo(s.data.signedUrl); } catch (e) { return null; }
         };
-        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.captureFps = String(rec.captureFps || "auto");
+        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.weightLb = rec.weightLb || state.weightLb; state.captureFps = String(rec.captureFps || "auto");
         state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
@@ -981,7 +1046,7 @@
           if (dl.error) throw dl.error;
           const data = JSON.parse(await dl.data.text());
           const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-          return kindOf(rec).analyze({ variant: rec.variant, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+          return kindOf(rec).analyze({ variant: rec.variant, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
         })().then((A) => { loaded[rec.id] = { A }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (alive()) build(); });
       };
       let me = null, others = [];
@@ -1176,7 +1241,7 @@
       }
       const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
       const R = kindOf(rec).analyze({ variant: rec.variant,
-        side, behind: rec.setup === "two" ? behind : null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap,
+        side, behind: rec.setup === "two" ? behind : null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap,
         sideScale: (rec.store.sideFps || 30) / cap, behindScale: (rec.store.behindFps || 30) / cap, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false,
       });
       const { _athlete, _name, _mine, ...kept } = rec; // eslint-disable-line no-unused-vars
@@ -1404,6 +1469,8 @@
       const MOMENTS = phaseKeysOf(R);
       const msOf = (i) => Math.round((R.tReal[i] - R.tReal[R.events[zKey]]) * 1000);
       const dateOf = () => (state.saved ? state.saved.date : new Date().toISOString().slice(0, 10));
+      // the movement's own tables, and any it makes beside other testing (a jump beside his force plate jumps)
+      const allTables = [...(R.tables || []), ...(kind.relate && opts.forceTests ? kind.relate(R, opts.forceTests() || [], { date: dateOf(), variant: state.variant }) : [])];
       const fileName = () => `${(athlete.name || "pitcher").replace(/[^a-z0-9]+/gi, "_")}-motion-capture-${dateOf()}.pdf`;
       // one crop for every moment: everywhere his body reaches at the four of them, with room around it
       const cropBox = () => {
@@ -1499,7 +1566,7 @@
         }));
         note2(`In amber: outside the usual range${kindName === "pitching" ? " for pitchers" : ""}, a guide from published biomechanics (it varies with body and style). Joint angles from video are good to about 5 to 10 degrees: compare sessions filmed the same way.`);
         // the movement's own tables (a sprint's steps), each column an even share of the width
-        (R.tables || []).forEach((t) => { heading(t.title); table(t.cols.map((c) => [c, CW / t.cols.length]), t.rows.map((r) => ({ cells: r.map((c) => (c == null ? "–" : String(c))) }))); });
+        allTables.forEach((t) => { heading(t.title); table(t.cols.map((c) => [c, CW / t.cols.length]), t.rows.map((r) => ({ cells: r.map((c) => (c == null ? "–" : String(c))) }))); });
         // the curves, two to a row
         const boxes = [...charts.querySelectorAll(".mc-chart-box")];
         if (boxes.length) heading("Through the delivery");
@@ -1610,7 +1677,7 @@
         R.elbowFirst ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: state.elbowDepth !== false, onchange: (e) => { state.elbowDepth = e.target.checked; compute(); render(); } }),
           ` Treat the elbow's first peak (${R.elbowFirst.peak.toLocaleString()}°/s, ${R.elbowFirst.ms} ms from foot strike) as depth, not extension: the forearm turning toward or away from the camera, not straightening. The elbow line then starts at the dip after it.`) : null,
         el("div", { class: "mc-grid" }, table, charts),
-        (R.tables || []).map((t) => el("div", { class: "mc-scroll" }, el("h3", null, t.title), el("table", { class: "mc-table" },
+        allTables.map((t) => el("div", { class: "mc-scroll" }, el("h3", null, t.title), el("table", { class: "mc-table" },
           el("thead", null, el("tr", null, t.cols.map((c) => el("th", null, c)))), el("tbody", null, t.rows.map((r) => el("tr", null, r.map((c) => el("td", null, c == null ? "–" : String(c))))))))),
         el("p", { class: "mc-hint" }, R.hint ? R.hint : R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
@@ -1725,6 +1792,6 @@
 
   window.MoCap = {
     mount, analyze, sequenceBlock, HOW_TO, bodyOf, poseNumbers, kinds: KINDS,
-    lib: { P, sidesOf, clean, applyEdits, mid, angleAt, deriv, unwrap, argBest, smoothSeries, comOf, r1, deg, wrapDeg, prepare },
+    lib: { P, sidesOf, clean, applyEdits, mid, angleAt, deriv, unwrap, argBest, smoothSeries, comOf, r1, deg, wrapDeg, prepare, groundForce, forceMetrics },
   };
 })();
