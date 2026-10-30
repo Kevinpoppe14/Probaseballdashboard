@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&display=swap" />
+<link rel="stylesheet" href="mocap.css" />
 <style>
   :root { --bg: #0a0a0a; --panel: #161616; --panel-2: #1f1f1f; --border: #2c2c2c; --text: #f2f2f2; --dim: #9a9a9a; --accent: #c8102e; }
   :root[data-holiday] { --accent: var(--hol-1); }
@@ -274,7 +275,7 @@
     <!-- the side bar folds away to a slim edge (‹), and comes back from it (›); remembered on this device -->
     <button class="side-rail" id="side-open" type="button" title="Show the athletes" aria-label="Show the athletes side bar">›</button>
     <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
-    <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button></div>
+    <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button><button id="mocap-btn" class="kpi-btn" type="button">Mo-cap</button></div>
     <div class="add">
       <select id="grp" aria-label="Groups"><option value="">Groups</option></select>
       <select id="loc" aria-label="Location"><option value="">All locations</option></select>
@@ -293,6 +294,7 @@
 <script src="supabase-client.js"></script>
 <script src="holiday.js"></script>
 <script src="program_rx.js"></script>
+<script src="mocap.js"></script>
 <script src="coach.js"></script>
 </body>
 </html>

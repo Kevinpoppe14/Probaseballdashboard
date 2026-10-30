@@ -1775,7 +1775,30 @@
     );
   }
 
+  // Pitching › Motion Capture: the tool from mocap.js (plain JavaScript, shared with Coach Mode), mounted here and
+  // saving with the pitcher's other records
+  function MoCapTab({ athlete }) {
+    const ref = useRef(null);
+    useEffect(() => {
+      const box = ref.current;
+      if (!box || !window.MoCap) return undefined;
+      const store = window.AthleteStore;
+      window.MoCap.mount(box, {
+        athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws },
+        onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
+        history: () => (store.getMocap ? store.getMocap(athlete.id) : []),
+      });
+      return () => box.replaceChildren();
+    }, [athlete.id]); // eslint-disable-line
+    return (
+      <div className="panel">
+        {window.MoCap ? <div ref={ref} /> : <div className="empty-state">Motion capture didn't load. Reload the page.</div>}
+      </div>
+    );
+  }
+
   window.BullpensTab = BullpensTab;
+  window.MoCapTab = MoCapTab; // the Pitching tab's Motion Capture (index.html)
   window.PitchDesignTab = PitchDesignTab; // the Pitching tab's Pitch Design (index.html)
   window.MlbArsenalPanel = MlbArsenal; // the Statcast tab's Savant arsenal, spin and comps (index.html)
   window.BullpenKit = { importReports, typeStats, resultText, FASTBALLS, livePitches, SpinBall };

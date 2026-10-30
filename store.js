@@ -722,6 +722,10 @@
     const recs = assessmentsOf(athleteId, "pitchdesign");
     return recs[recs.length - 1] || null;
   }
+  // motion capture sessions (mocap.js), kind "mocap"
+  function getMocap(athleteId) {
+    return assessmentsOf(athleteId, "mocap");
+  }
   // monthly re-assessments (reassessment.js), kind "reassess"
   function getReassessments(athleteId) {
     return assessmentsOf(athleteId, "reassess");
@@ -1294,6 +1298,7 @@
     getPitchingAssessments,
     getBullpens,
     getPitchDesign,
+    getMocap,
     getBodyCompSheets,
     getNutritionPlan,
     getNutritionPrefs,

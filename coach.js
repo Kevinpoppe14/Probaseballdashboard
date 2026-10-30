@@ -91,7 +91,7 @@
   }
   function show(id) {
     active = id;
-    closeKpi(); closeSpeed(); closeLog(); closeTeam();
+    closeKpi(); closeSpeed(); closeLog(); closeTeam(); closeMocap();
     const stage = $("stage");
     if (!id) { stage.replaceChildren(el("div", { class: "empty" }, picked.length ? "Pick an athlete." : "Add an athlete to see their program.")); frames.forEach((f) => f.remove()); frames.clear(); draw(); remember(); return; }
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
@@ -147,12 +147,13 @@
     $("speed-btn").classList.toggle("on", speedOpen);
     $("log-btn").classList.toggle("on", logOpen);
     $("team-btn").classList.toggle("on", teamOpen);
+    $("mocap-btn").classList.toggle("on", mocapOpen);
     drawPreview();
     if (!picked.length) { list.replaceChildren(el("div", { class: "list-hint" }, "No athletes yet. Search above to add one.")); return; }
     list.replaceChildren(...picked.map((id) => {
       const a = byId(id) || { name: "Unknown athlete", sub: "" };
       const done = doneToday.has(id);
-      return el("div", { "data-row": id, class: `who${id === active && !kpiOpen && !speedOpen && !logOpen && !teamOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
+      return el("div", { "data-row": id, class: `who${id === active && !kpiOpen && !speedOpen && !logOpen && !teamOpen && !mocapOpen ? " on" : ""}${done ? " done" : ""}`, title: done ? "Finished a workout today" : null },
         grip(a.name),
         el("button", { class: "who-pick", onclick: () => show(id), "aria-pressed": id === active ? "true" : "false" }, el("span", null, done ? "✓ " : "", a.name), el("small", null, done ? `Done today${a.sub ? ` · ${a.sub}` : ""}` : a.sub)),
         el("button", { class: "who-x", title: `Take ${a.name} off the board`, "aria-label": `Take ${a.name} off the board`, onclick: () => remove(id) }, "×"));
@@ -168,7 +169,7 @@
   function drawPreview() {
     if (!previewEl) previewEl = el("aside", { class: "preview", "aria-label": "Workout preview" });
     const stage = $("stage");
-    if (!active || kpiOpen || speedOpen || logOpen || teamOpen) { previewEl.remove(); return; }
+    if (!active || kpiOpen || speedOpen || logOpen || teamOpen || mocapOpen) { previewEl.remove(); return; }
     if (!previewEl.isConnected) stage.append(previewEl);
     const p = previews.get(active);
     const a = byId(active) || { name: "" };
@@ -203,7 +204,7 @@
   let logOpen = false;
   let logEl = null;
   function openLog() {
-    logOpen = true; closeKpi(); closeSpeed(); closeTeam(); logOpen = true;
+    logOpen = true; closeKpi(); closeSpeed(); closeTeam(); closeMocap(); logOpen = true;
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     picked.forEach(ensureFrame); // pages not opened yet load now, out of sight
@@ -272,7 +273,7 @@
     return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") || "Your coach";
   };
   function openTeam() {
-    closeKpi(); closeSpeed(); closeLog(); teamOpen = true;
+    closeKpi(); closeSpeed(); closeLog(); closeMocap(); teamOpen = true;
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -465,7 +466,7 @@
   }
 
   async function openKpi() {
-    kpiOpen = true; closeSpeed(); closeLog(); closeTeam();
+    kpiOpen = true; closeSpeed(); closeLog(); closeTeam(); closeMocap();
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -783,7 +784,7 @@
   }
 
   async function openSpeed() {
-    speedOpen = true; closeKpi(); closeLog(); closeTeam(); speedOpen = true;
+    speedOpen = true; closeKpi(); closeLog(); closeTeam(); closeMocap(); speedOpen = true;
     const stage = $("stage");
     stage.querySelectorAll(".empty").forEach((n) => n.remove());
     frames.forEach((f) => { f.hidden = true; });
@@ -1099,6 +1100,57 @@
     if (kpiOpen) { remember(); openKpi(); } else if (speedOpen) { remember(); openSpeed(); } else if (logOpen) { remember(); openLog(); } else show(active);
   }
 
+  // ---- motion capture ------------------------------------------------------------------------------------
+  // A pitcher's mechanics from a video filmed right here on the phone or tablet (mocap.js does the work, in the
+  // browser). Pick the pitcher, choose the video, and save the session to their record on the dashboard.
+  let mocapOpen = false, mocapEl = null, mocapAid = null, mocapHistory = [];
+  async function openMocap() {
+    closeKpi(); closeSpeed(); closeLog(); closeTeam(); mocapOpen = true;
+    const stage = $("stage");
+    stage.querySelectorAll(".empty").forEach((n) => n.remove());
+    frames.forEach((f) => { f.hidden = true; });
+    if (!mocapEl) mocapEl = el("div", { class: "kpi mocap-panel" });
+    if (!mocapEl.isConnected) stage.append(mocapEl);
+    draw();
+    const pitchers = athletes.filter((a) => /pitcher/i.test(a.position || ""));
+    const onBoard = pitchers.filter((a) => picked.includes(a.id));
+    if (!mocapAid || !pitchers.some((a) => a.id === mocapAid)) mocapAid = (onBoard.find((a) => a.id === active) || onBoard[0] || {}).id || null;
+    await drawMocap(pitchers, onBoard);
+  }
+  async function drawMocap(pitchers, onBoard) {
+    if (!mocapOpen) return;
+    const others = pitchers.filter((a) => !onBoard.includes(a));
+    const pick = el("select", { "aria-label": "Pitcher", onchange: (e) => { mocapAid = e.target.value || null; drawMocap(pitchers, onBoard); } },
+      el("option", { value: "" }, "Choose a pitcher…"),
+      onBoard.length ? el("optgroup", { label: "On the board" }, onBoard.map((a) => el("option", { value: a.id, selected: a.id === mocapAid }, a.name))) : null,
+      el("optgroup", { label: "Everyone else" }, others.map((a) => el("option", { value: a.id, selected: a.id === mocapAid }, a.name))));
+    const host = el("div");
+    mocapEl.replaceChildren(el("div", { class: "kpi-head" }, el("label", null, "Pitcher", pick)), host);
+    if (!mocapAid) { host.append(el("div", { class: "kpi-note" }, "Choose a pitcher to analyze a video of their delivery.")); return; }
+    const a = byId(mocapAid);
+    host.append(el("div", { class: "kpi-note" }, "Loading…"));
+    const { data, error } = await sb.from("assessments").select("id,data").eq("athlete_id", String(mocapAid)).eq("data->>kind", "mocap").limit(200);
+    if (!mocapOpen || !a || a.id !== mocapAid) return;
+    mocapHistory = error ? [] : (data || []).map((r) => r.data);
+    host.replaceChildren();
+    if (!window.MoCap) { host.append(el("div", { class: "kpi-note" }, "Motion capture didn't load. Reload the page.")); return; }
+    window.MoCap.mount(host, {
+      athlete: { id: a.id, name: a.name, throws: a.throws },
+      history: () => mocapHistory,
+      onSave: async (rec) => {
+        // the dashboard keeps an athlete's id as a number inside each record
+        const data2 = { ...rec, athleteId: /^\d+$/.test(a.id) ? Number(a.id) : a.id };
+        const res = await sb.from("assessments").upsert({ id: rec.id, athlete_id: String(a.id), data: data2 });
+        if (res.error) throw new Error("check your connection and try again");
+        mocapHistory = [...mocapHistory, data2];
+      },
+    });
+  }
+  function closeMocap() {
+    mocapOpen = false;
+    if (mocapEl) mocapEl.remove();
+  }
+
   // ---- adding: pick a location and/or type a few letters, then pick from the matches -------------------
   // With a location chosen, tapping the search box lists everyone there; typing narrows it.
   let locFilter = "";
@@ -1152,6 +1204,7 @@
         sub: [where === "No location" ? "" : coach ? "Coach" : where, d.position && d.position !== "Unassigned" ? d.position : ""].filter(Boolean).join(" · "),
         cubs: cubsRoster && !d.dstLocation, // Cubs-only players get the Cubs look, as on their own link
         remote: d.dstLocation === "DST Remote Training", // their equipment list is checked when a speed session is sent to their app
+        position: d.position || "", throws: d.throws || "", // motion capture lists the pitchers, and needs their throwing hand
         tp: d.throwingProgression && d.throwingProgression.start ? { start: d.throwingProgression.start, weeks: d.throwingProgression.weeks || [] } : null, // today's throwing, for Team today
       };
     }).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
@@ -1172,6 +1225,7 @@
     { sel: "#speed-btn", title: "Speed", text: "Run a group speed program assigned from the Programs page: tick drills off, swap a drill, and log the session for the group or send it to athletes' apps." },
     { sel: "#kpi-btn", title: "Group Testing", text: "A sheet with athletes down the side and trials across. The best and average are saved for each athlete, with new PRs flagged." },
     { sel: "#log-btn", title: "Log lifts", text: "Everyone on the board in one list: log today's session for the whole group in one tap, without opening each program." },
+    { sel: "#mocap-btn", title: "Motion capture", text: "Film a pitcher's delivery on this phone or tablet (slow motion, on a tripod) and get his mechanics in numbers: stride, lead leg, trunk tilt, hip-shoulder separation, timing. Saved sessions show on his profile on the dashboard." },
     { sel: ".mode-switch", title: "Back to the dashboard", text: "Flip the switch to go back. The ? beside it plays this tour again." },
   ];
   // It plays by itself on a coach's first TOUR_TIMES visits to Coach Mode, counted on their login and on this
@@ -1289,7 +1343,7 @@
   function close() {
     endTour();
     user = null; picked = []; active = null;
-    closeKpi(); closeSpeed(); closeLog(); closeTeam(); kpiSheet = {}; kpiHistory = [];
+    closeKpi(); closeSpeed(); closeLog(); closeTeam(); closeMocap(); kpiSheet = {}; kpiHistory = [];
     frames.forEach((f) => f.remove()); frames.clear();
     $("board").hidden = true;
     $("login").hidden = false;
@@ -1321,6 +1375,7 @@
   $("speed-btn").addEventListener("click", () => { if (speedOpen) show(active); else openSpeed(); });
   $("log-btn").addEventListener("click", () => { if (logOpen) show(active); else openLog(); });
   $("team-btn").addEventListener("click", () => { if (teamOpen) show(active); else openTeam(); });
+  $("mocap-btn").addEventListener("click", () => { if (mocapOpen) show(active); else openMocap(); });
   $("grp").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "__save__") saveGroup(); else if (v) loadGroup(v); });
   $("loc").addEventListener("change", (e) => { locFilter = e.target.value; try { localStorage.setItem(locKey(), locFilter); } catch (ex) { /* private window */ } $("search").value = ""; if (locFilter) $("search").focus(); search(); });
   // the two side bars fold away for more room: the athletes (left) and the day summary (right), remembered here

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Professional Baseball Dashboard</title>
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="mocap.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&family=Yellowtail&family=Mrs+Saint+Delafield&display=swap" />
@@ -64,6 +65,7 @@
 <script type="text/babel" data-presets="react" src="news.js"></script>
 <script type="text/babel" data-presets="react" src="assessment.js"></script>
 <script src="trackman_import.js"></script>
+<script src="mocap.js"></script>
 <script type="text/babel" data-presets="react" src="bullpen_video.js"></script>
 <script type="text/babel" data-presets="react" src="bullpens.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
@@ -4064,7 +4066,7 @@ const HELP_SECTIONS = [
   {
     title: "Player profile tabs",
     items: [
-      "Player Plan, Programming, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers (Pitching Assessment, Bullpens from TrackMan reports with Edgertronic video, Pitch Design (change a pitch's spin and see its predicted movement), Statcast with their MLB arsenal, spin and comps, and Throwing: their throwing programs and Throwing Progression) or Hitting / Fielding for everyone else (Statcast Metrics and Throwing Progression), Training Log, and Remote Equipment Access for remote athletes.",
+      "Player Plan, Programming, Performance Metrics, Assessments (Biomechanical, Re-Assessment, Body Composition), Nutrition, Pitching for pitchers (Pitching Assessment, Bullpens from TrackMan reports with Edgertronic video, Pitch Design (change a pitch's spin and see its predicted movement, set goals and print a plan), Motion Capture (pitching mechanics measured from iPhone or iPad video, one camera or two), Statcast with their MLB arsenal, spin and comps, and Throwing: their throwing programs and Throwing Progression) or Hitting / Fielding for everyone else (Statcast Metrics and Throwing Progression), Training Log, and Remote Equipment Access for remote athletes.",
       "Player Plan: contact info (with mobile, Text and Call), goals and the action plan, then the periodization timeline. Print / Save PDF and Email to Athlete for the plan are here.",
       "Programming: the same timeline with the Programming Workbook right under it: every phase's program, one tab per phase. See \"Programs on an athlete's plan\" below.",
       "Performance Metrics: force plate trends with a summary of what's moving, plus graphs of the performance tests from assessments once a test has two results.",
@@ -6993,7 +6995,7 @@ function ThrowingProgramsPanel({ athlete, onOpen }) {
 
 // the tabs grouped under Assessments on a player profile
 const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp"];
-const PITCHING_TABS = ["pitching", "bullpens", "design", "statcast", "throwing"]; // pitchers only: the Pitching tab
+const PITCHING_TABS = ["pitching", "bullpens", "design", "mocap", "statcast", "throwing"]; // pitchers only: the Pitching tab
 const HITTING_TABS = ["statcast", "throwing"]; // everyone else: the Hitting / Fielding tab, their Statcast and Throwing Progression
 const NUTRITION_TABS = ["nutrition", "meallog"]; // the Nutrition tab: the plan, and the meal log
 function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabChange }) {
@@ -7002,7 +7004,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
   const isPitcher = ((getPeople().find((a) => a.id === athleteId) || {}).position || "") === "Pitcher";
   // (likewise Equipment Access, which only exists for DST Remote Training athletes)
   const isRemote = ((getPeople().find((a) => a.id === athleteId) || {}).dstLocation || "") === "DST Remote Training";
-  const activeTab = ((tab === "pitching" || tab === "bullpens" || tab === "design") && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
+  const activeTab = ((tab === "pitching" || tab === "bullpens" || tab === "design" || tab === "mocap") && !isPitcher) || (tab === "equipment" && !isRemote) ? "plan" : tab || "plan";
   const setActiveTab = onTabChange;
   React.useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const [programOpen, setProgramOpen] = useState(null); // { laneId, blockId } to open the Programming tab at, from the plan
@@ -7104,6 +7106,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <button className={`pill-tab ${activeTab === "pitching" ? "active" : ""}`} data-tab="pitching" onClick={() => setActiveTab("pitching")}>Pitching Assessment</button>
           <button className={`pill-tab ${activeTab === "bullpens" ? "active" : ""}`} data-tab="bullpens" onClick={() => setActiveTab("bullpens")}>Bullpens</button>
           <button className={`pill-tab ${activeTab === "design" ? "active" : ""}`} data-tab="design" onClick={() => setActiveTab("design")}>Pitch Design</button>
+          <button className={`pill-tab ${activeTab === "mocap" ? "active" : ""}`} data-tab="mocap" onClick={() => setActiveTab("mocap")}>Motion Capture</button>
           <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast</button>
           <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing</button>
         </div>
@@ -7209,6 +7212,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       {isPitcher && activeTab === "bullpens" && window.BullpensTab && <window.BullpensTab athlete={athlete} />}
       {/* change a pitch's spin and see what it would do to its movement (bullpens.js) */}
       {isPitcher && activeTab === "design" && window.PitchDesignTab && <window.PitchDesignTab athlete={athlete} mlbId={extractMlbamId(athlete)} />}
+      {/* pitching mechanics from phone video (mocap.js, mounted by bullpens.js) */}
+      {isPitcher && activeTab === "mocap" && window.MoCapTab && <window.MoCapTab athlete={athlete} />}
       <div className={activeTab === "throwing" ? "" : "tab-hidden"}>
         {isPitcher && <ThrowingProgramsPanel athlete={athlete} onOpen={(nav) => { setProgramOpen(nav); setActiveTab("programming"); }} />}
         {window.ThrowingProgressionTab && <window.ThrowingProgressionTab athlete={athlete} />}
