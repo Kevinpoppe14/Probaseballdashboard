@@ -35,7 +35,7 @@
       if (!pitchers) {
         const rows = [];
         for (let from = 0; ; from += 1000) {
-          const { data: page, error } = await sb.from("athletes").select("id, name:data->>name, status:data->>status, position:data->>position, throws:data->>throws, group:data->>rosterGroup").range(from, from + 999);
+          const { data: page, error } = await sb.from("athletes").select("id, name:data->>name, status:data->>status, position:data->>position, throws:data->>throws, email:data->>email, group:data->>rosterGroup").range(from, from + 999);
           if (error) throw error;
           rows.push(...page);
           if (page.length < 1000) break;
@@ -94,7 +94,7 @@
     box.replaceChildren();
     if (!window.MoCap) { box.append(note("Motion capture didn't load. Reload the page.")); return; }
     window.MoCap.mount(box, {
-      athlete: { id: String(p.id), name: p.name, throws: p.throws || "" },
+      athlete: { id: String(p.id), name: p.name, throws: p.throws || "", email: p.email || "" },
       history: () => history,
       onSave: async (rec) => {
         // the dashboard keeps an athlete's id as a number inside each record

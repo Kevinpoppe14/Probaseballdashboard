@@ -8,7 +8,7 @@
 //     hips and shoulders, so separation and their rotation speeds are measured, plus trunk lean and arm slot
 // Plain JavaScript with its own markup, so the same tool runs in the dashboard (Pitching › Motion Capture) and in
 // Coach Mode on a phone:
-//   window.MoCap.mount(container, { athlete: { id, name, throws }, onSave(record) -> Promise, history() -> [records] })
+//   window.MoCap.mount(container, { athlete: { id, name, throws, email }, onSave(record) -> Promise, onDelete(record), history() -> [records] })
 // A saved session is kept like the other pitching records (assessments table, kind "mocap"): the setup, the frame
 // rate, the moments, the numbers and a thinned copy of the curves, not the video.
 (function () {
@@ -376,7 +376,7 @@
     // forearm turning toward or away from the camera makes the elbow look like it straightens. When there is one, the
     // curve can start from the dip between the two (elbowDepth), so only the real extension shows.
     let elbowFirst = null;
-    if (evI > 0) {
+    if (evI > 0 && elbowV[evI] > 0) {
       const p1 = argBest(elbowV, FS - fr(0.1), evI - fr(0.02), (a, b) => a > b);
       const dip = p1 >= 0 ? argBest(elbowV, p1, evI, (a, b) => a < b) : -1;
       if (p1 >= 0 && dip > p1 && dip < evI && elbowV[p1] > 0.25 * elbowV[evI] && elbowV[p1] - elbowV[dip] > 0.15 * elbowV[evI]) {
@@ -428,7 +428,7 @@
       ["comFS", "Center-of-mass speed at foot strike", comV ? r1(comV[FS]) : null, "m/s", "", "How much of that speed is left when the foot lands."],
     ].filter(Boolean).map(([key, label, value, unit, range, note]) => ({ key, label, value, unit, range, note }));
     return {
-      n, tReal, dir, Hpx, pts, events: { LL, FS, MER, BR }, metrics: M, rotSource, seq, inOrder, elbowFirst,
+      n, tReal, dir, Hpx, pts, wpts, events: { LL, FS, MER, BR }, metrics: M, rotSource, seq, inOrder, elbowFirst,
       series: { kneeFlex, trunkFwd, sep, pelvisV, trunkV, comV, elbowFlex, armV, elbowV },
     };
   }
@@ -448,6 +448,112 @@
     ctx.fillStyle = "#fff";
     [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach((i) => { if (hidden && hidden.has(i)) return; ctx.beginPath(); ctx.arc(q[i][0] * sx, q[i][1] * sy, 3.5, 0, 2 * Math.PI); ctx.fill(); });
   }
+  // ---- the skeleton in 3D ------------------------------------------------------------------------------------------
+  // The pose model's 3D body points (meters, around the hips), carried down the mound by how far the hips travel in the
+  // side view, and turned so the plate is always ahead (+x), up is +y and z is across (+z the first-base side for a
+  // righty filmed from the open side). Mirrored, a lefty throws like a righty (left and right points swapped too), so
+  // two bodies line up joint for joint. sameHeight scales everyone to 6'1" so bodies of different sizes overlay.
+  const SWAP = [[1, 4], [2, 5], [3, 6], [7, 8], [9, 10], ...Array.from({ length: 11 }, (_, k) => [11 + 2 * k, 12 + 2 * k])];
+  function bodyOf(R, throws, heightIn, { mirror = false, sameHeight = true } = {}) {
+    const S = sidesOf(throws), dir = R.dir, ev = R.events, t = R.tReal;
+    const real = heightIn ? heightIn * 0.0254 : 1.85, target = sameHeight ? 1.85 : real;
+    const w0 = R.wpts[ev.LL];
+    const wH = Math.max(0.5, (w0[S.drive.an][1] - w0[P.nose][1]) / 0.87); // the model's own idea of his height
+    const kw = target / wH, kt = target / R.Hpx;
+    const hip = (q) => mid(q[P.lHip], q[P.rHip]), h0 = hip(R.pts[ev.LL]);
+    const swap = Array.from({ length: 33 }, (_, j) => j);
+    if (mirror) SWAP.forEach(([a, b]) => { swap[a] = b; swap[b] = a; });
+    const frames = R.wpts.map((w, i) => {
+      const h = hip(R.pts[i]), tx = dir * (h[0] - h0[0]) * kt, ty = -(h[1] - h0[1]) * kt;
+      const q = w.map((p) => [dir * p[0] * kw + tx, -p[1] * kw + ty, dir * p[2] * kw * (mirror ? -1 : 1)]);
+      return swap.map((j) => q[j]);
+    });
+    // the ground: under the back foot at the top of the leg lift
+    const g = Math.min(...[27, 28, 29, 30, 31, 32].map((j) => frames[ev.LL][j][1]));
+    frames.forEach((q) => q.forEach((p) => { p[1] -= g; }));
+    // the delivery's phase, -1 to 4: leg lift 0, foot strike 1, max layback 2, release 3, the time between stretched
+    const knots = [t[ev.LL] - 0.6, t[ev.LL], t[ev.FS], t[ev.MER], t[ev.BR], t[ev.BR] + 0.5];
+    const timeOfPhase = (ph) => { const k = Math.max(0, Math.min(4, Math.floor(ph + 1))); return knots[k] + (knots[k + 1] - knots[k]) * (ph + 1 - k); };
+    const phaseOfTime = (x) => { let k = 0; while (k < 4 && x > knots[k + 1]) k++; return k - 1 + (x - knots[k]) / (knots[k + 1] - knots[k] || 1e-6); };
+    // a fractional frame at time x, or null outside the clip
+    const indexAt = (x) => {
+      if (x < t[0] - 1e-6 || x > t[t.length - 1] + 1e-6) return null;
+      let lo = 0, hi = t.length - 1;
+      while (hi - lo > 1) { const m2 = (lo + hi) >> 1; if (t[m2] <= x) lo = m2; else hi = m2; }
+      return lo + (t[hi] > t[lo] ? Math.max(0, Math.min(1, (x - t[lo]) / (t[hi] - t[lo]))) : 0);
+    };
+    const at = (fi) => { const a = Math.floor(fi), b = Math.min(frames.length - 1, a + 1), f = fi - a; return frames[a].map((p, j) => p.map((x, c) => x + (frames[b][j][c] - x) * f)); };
+    return { frames, t, ev, throws: mirror ? (throws === "L" ? "R" : "L") : throws, height: target, timeOfPhase, phaseOfTime, indexAt, at };
+  }
+  const sub3 = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+  const angle3 = (u, v) => { const d = Math.hypot(...u) * Math.hypot(...v); return d ? deg(Math.acos(Math.max(-1, Math.min(1, dot3(u, v) / d)))) : null; };
+  // the body's position in numbers, from the 3D points at one moment
+  const POSE_NUMS = [["knee", "Lead knee flexion", "°"], ["elbow", "Elbow flexion", "°"], ["abd", "Shoulder abduction", "°"], ["tilt", "Trunk forward tilt", "°"], ["lean", "Trunk lean to glove side", "°"], ["sep", "Hip-shoulder separation", "°"], ["stride", "Stride", "% of height"]];
+  function poseNumbers(q, throws, height) {
+    const S = sidesOf(throws), hm = mid(q[P.lHip], q[P.rHip]), sm = mid(q[P.lSh], q[P.rSh]), tr = sub3(hm, sm);
+    const flat = (a, b) => deg(Math.atan2(b[2] - a[2], b[0] - a[0]));
+    const glove = throws === "L" ? -1 : 1;
+    return {
+      knee: 180 - angle3(sub3(q[S.lead.kn], q[S.lead.hip]), sub3(q[S.lead.kn], q[S.lead.an])),
+      elbow: 180 - angle3(sub3(q[S.arm.el], q[S.arm.sh]), sub3(q[S.arm.el], q[S.arm.wr])),
+      abd: angle3(sub3(sm, hm), sub3(q[S.arm.sh], q[S.arm.el])),
+      tilt: deg(Math.atan2(tr[0], tr[1])),
+      lean: deg(Math.atan2(glove * tr[2], tr[1])),
+      sep: Math.abs(wrapDeg(flat(q[P.lHip], q[P.rHip]) - flat(q[P.lSh], q[P.rSh]))),
+      stride: (Math.hypot(q[S.lead.an][0] - q[S.drive.an][0], q[S.lead.an][2] - q[S.drive.an][2]) / height) * 100,
+    };
+  }
+  // a camera turned `yaw` around the vertical (0 = from the open side for a righty, 90 = from behind), tilted `pitch`
+  // down and rolled `roll`, all degrees; orthographic, so sizes don't change with depth
+  function camera3D(view, W, H, center) {
+    const ry = (view.yaw * Math.PI) / 180, rp = (Math.max(-89, Math.min(89, view.pitch)) * Math.PI) / 180, rr = (view.roll * Math.PI) / 180;
+    const d = [Math.sin(ry) * Math.cos(rp), -Math.sin(rp), Math.cos(ry) * Math.cos(rp)];
+    const r0 = norm3(cross3([0, 1, 0], d)), u0 = cross3(d, r0);
+    const r = r0.map((x, i) => x * Math.cos(rr) + u0[i] * Math.sin(rr)), u = u0.map((x, i) => x * Math.cos(rr) - r0[i] * Math.sin(rr));
+    const s = (Math.min(W / 3.8, H / 2.7)) * (view.zoom || 1);
+    return (p) => { const q = [p[0] - center[0], p[1] - center[1], p[2] - center[2]]; return [W / 2 + dot3(q, r) * s, H / 2 - dot3(q, u) * s]; };
+  }
+  // one body: in its own colors (throwing arm red, lead leg blue), or all in one color for a delivery compared with it
+  function drawBody3D(ctx, q, proj, throws, style) {
+    const S = sidesOf(throws), arm = new Set([S.arm.sh, S.arm.el, S.arm.wr]), lead = new Set(Object.values(S.lead));
+    const xy = q.map(proj);
+    ctx.save();
+    ctx.globalAlpha = style.alpha || 1; ctx.lineWidth = style.width || 3; ctx.lineCap = "round"; ctx.setLineDash(style.dash || []);
+    const neck = proj(mid(q[P.lSh], q[P.rSh]));
+    [...BONES, [0, -1]].forEach(([a, b]) => {
+      ctx.strokeStyle = style.color || (arm.has(a) && arm.has(b) ? "#ff4d5e" : lead.has(a) && lead.has(b) ? "#3fa7ff" : "rgba(255,255,255,0.92)");
+      const pb = b < 0 ? neck : xy[b];
+      ctx.beginPath(); ctx.moveTo(xy[a][0], xy[a][1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.fillStyle = style.color || "#fff";
+    ctx.beginPath(); ctx.arc(xy[0][0], xy[0][1], (style.width || 3) * 2, 0, 2 * Math.PI); ctx.fill();
+    ctx.restore();
+  }
+  // ---- the report as a PDF -----------------------------------------------------------------------------------------
+  // jsPDF, already on the dashboard; loaded here when the phone app first needs it
+  let jspdfP = null;
+  const jsPdf = () => {
+    if (window.jspdf) return Promise.resolve(window.jspdf.jsPDF);
+    if (!jspdfP) jspdfP = new Promise((ok, bad) => { const s = document.createElement("script"); s.src = "https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"; s.onload = () => ok(window.jspdf.jsPDF); s.onerror = () => { jspdfP = null; bad(new Error("Couldn't load the PDF maker. Check the connection and try again.")); }; document.head.append(s); });
+    return jspdfP;
+  };
+  // a chart (SVG) as a picture on white, its theme colors swapped for print ones
+  const svgToCanvas = (svg, scale = 2) => new Promise((ok, bad) => {
+    const vb = svg.viewBox.baseVal, W = vb.width, H = vb.height;
+    const copy = svg.cloneNode(true);
+    copy.querySelectorAll(".mc-cursor").forEach((n) => n.remove()); // not the line that follows playback
+    const txt = new XMLSerializer().serializeToString(copy).replace(/var\(--mc-grid\)/g, "#d4d4d4").replace(/var\(--mc-dim\)/g, "#666666").replace(/var\(--mc-text\)/g, "#111111").replace("<svg", `<svg width="${W}" height="${H}"`);
+    const img = new Image();
+    img.onload = () => { const c = document.createElement("canvas"); c.width = W * scale; c.height = H * scale; const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); ok(c); };
+    img.onerror = () => bad(new Error("Couldn't draw a chart for the report."));
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(txt)}`;
+  });
+  // the PDF's own fonts have no arrows or the like
+  const pdfSafe = (s) => String(s == null ? "" : s).replace(/→/g, "to").replace(/[≈~]/g, "about ").replace(/[^\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, "");
   const setupName = (s) => (s === "two" ? "Two cameras" : s === "edger" ? "Edgertronic" : "One camera");
   const EV_LABEL = { LL: "Leg lift", FS: "Foot strike", MER: "Max layback", BR: "Release" };
   // a small line chart of one curve through the delivery, with the moments marked
@@ -501,7 +607,7 @@
     lines.forEach((l) => add("polyline", { points: idx.map((i) => (l.ys[i] == null ? null : `${X(tR[i]).toFixed(1)},${Y(l.ys[i]).toFixed(1)}`)).filter(Boolean).join(" "), fill: "none", stroke: l.color, "stroke-width": 2.5 }));
     lines.forEach((l) => { if (l.i < 0 || l.ys[l.i] == null || tR[l.i] < from || tR[l.i] > to) return; add("circle", { cx: X(tR[l.i]), cy: Y(l.ys[l.i]), r: 4.5, fill: l.color, stroke: "#fff", "stroke-width": 1.5 }); });
     // where the video is: a line that follows playback and the frame slider
-    const cursor = add("line", { x1: -10, x2: -10, y1: 6, y2: H - padB, stroke: "var(--mc-text)", "stroke-width": 1.5, opacity: 0.85 });
+    const cursor = add("line", { x1: -10, x2: -10, y1: 6, y2: H - padB, stroke: "var(--mc-text)", "stroke-width": 1.5, opacity: 0.85, class: "mc-cursor" });
     const setCursor = (i) => { const t = tR[i]; if (t == null || t < from || t > to) { cursor.setAttribute("x1", -10); cursor.setAttribute("x2", -10); return; } const x = X(t); cursor.setAttribute("x1", x); cursor.setAttribute("x2", x); };
     if (onSeek) {
       s.style.cursor = "pointer";
@@ -766,6 +872,215 @@
       if ((state.saved && state.saved.id === rec.id) || (state.summary && state.summary.id === rec.id)) { state.saved = null; state.summary = null; state.result = null; state.side = null; state.behind = null; state.manual = null; }
       render();
     }
+    // ---- the skeleton alone in 3D, and other deliveries over it -----------------------------------------------------
+    // Turn it any way (drag it, or the three dials). Lay his other sessions or other pitchers' over it: each one, their
+    // mean or median, lined up at the same moment of the delivery (by phase: leg lift, foot strike, max layback and
+    // release matched; or by the clock from foot strike or release), and pinned to his at a joint if wanted (the back
+    // heel, say). The numbers at the frame showing compare his with the group's.
+    const SK_COLORS = ["#3fa7ff", "#2ec4b6", "#c77dff", "#ff9f1c", "#8ac926", "#ff70a6", "#70d6ff", "#e0b03a", "#b5e48c", "#f4a261"];
+    const SK_LOCKS = [["", "Nothing (hips together at leg lift)"], ["driveHeel", "Back heel"], ["driveToe", "Back toe"], ["leadHeel", "Front heel"], ["hips", "Hip center"], ["armSh", "Throwing shoulder"], ["nose", "Head"]];
+    const SK_VIEWS = [["Open side", 0, 6], ["Behind", 90, 6], ["From the plate", -90, 6], ["Glove side", 180, 6], ["Overhead", 90, 89]];
+    const loaded = {}; // record id -> { A } its analysis, { busy } or { error }, kept while the page is open
+    const lockPoint = (q, throws, lock) => {
+      const S = sidesOf(throws);
+      if (lock === "hips") return mid(q[P.lHip], q[P.rHip]);
+      const j = { driveHeel: S.drive.heel, driveToe: S.drive.toe, leadHeel: S.lead.heel, armSh: S.arm.sh, nose: P.nose }[lock];
+      return j == null ? null : q[j];
+    };
+    // every saved session in the database, with whose it is (read once, when other pitchers are first asked for)
+    async function directory() {
+      if (state.dir) return state.dir;
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sbc().from("assessments").select("id, athlete_id, data").eq("data->>kind", "mocap").range(from, from + 999);
+        if (error) throw error;
+        rows.push(...data);
+        if (data.length < 1000) break;
+      }
+      const ids = [...new Set(rows.map((r) => String(r.athlete_id)))], names = {};
+      if (ids.length) { const { data } = await sbc().from("athletes").select("id, name:data->>name").in("id", ids); (data || []).forEach((a) => { names[String(a.id)] = a.name; }); }
+      state.dir = { recs: rows.map((r) => ({ ...r.data, id: r.data.id || r.id, _athlete: String(r.athlete_id), _name: names[String(r.athlete_id)] || "Unknown" })).filter((r) => r.store && r.store.path) };
+      return state.dir;
+    }
+    function skeleton3D(R) {
+      const sk = state.sk = state.sk || { yaw: state.throws === "L" ? 180 : 0, pitch: 6, roll: 0, zoom: 1, lock: "", line: "phase", show: "each+mean", me: true, mirror: true, sameHeight: true, own: true, others: false, othersAll: true, picked: [], sameHand: false, from: "", to: "", hidden: {}, q: "" };
+      const box = el("div", { class: "mc-3d" });
+      let frame = state.frame || 0, canvas = null, numsBox = null;
+      const alive = () => box.isConnected;
+      const inDates = (r) => (!sk.from || (r.date || "") >= sk.from) && (!sk.to || (r.date || "") <= sk.to);
+      const mine = () => (opts.history ? opts.history() || [] : []).filter((r) => r.store && r.store.path && !(state.saved && r.id === state.saved.id)).map((r) => ({ ...r, _name: athlete.name || "This pitcher", _mine: true }));
+      const theirs = () => (state.dir ? state.dir.recs : []).filter((r) => r._athlete !== String(athlete.id) && (sk.othersAll || sk.picked.includes(r._athlete)) && (!sk.sameHand || (r.throws || "R") === state.throws));
+      const chosen = () => [...(sk.own ? mine() : []), ...(sk.others ? theirs() : [])].filter(inDates).sort((a, b) => (a.date || "").localeCompare(b.date || "")).slice(0, 40);
+      const load = (rec) => {
+        if (loaded[rec.id]) return;
+        loaded[rec.id] = { busy: true };
+        (async () => {
+          const dl = await sbc().storage.from(STORE).download(rec.store.path);
+          if (dl.error) throw dl.error;
+          const data = JSON.parse(await dl.data.text());
+          const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
+          return analyze({ side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+        })().then((A) => { loaded[rec.id] = { A }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (alive()) build(); });
+      };
+      let me = null, others = [];
+      const bodies = () => {
+        me = bodyOf(R, state.throws, state.heightIn, { sameHeight: sk.sameHeight });
+        others = chosen().map((rec, k) => {
+          const L = loaded[rec.id];
+          const body = L && L.A ? bodyOf(L.A, rec.throws || "R", rec.heightIn, { sameHeight: sk.sameHeight, mirror: sk.mirror && (rec.throws || "R") !== state.throws }) : null;
+          return { rec, body, color: SK_COLORS[k % SK_COLORS.length], L };
+        });
+      };
+      // each body at the frame of his showing, lined up and pinned
+      const posed = (fi = frame) => {
+        const tRef = me.t[fi], myQ = me.frames[fi];
+        const tFor = (B) => (sk.line === "phase" ? B.timeOfPhase(me.phaseOfTime(tRef)) : sk.line === "br" ? B.t[B.ev.BR] + (tRef - me.t[me.ev.BR]) : B.t[B.ev.FS] + (tRef - me.t[me.ev.FS]));
+        const myLock = sk.lock ? lockPoint(myQ, me.throws, sk.lock) : null;
+        const list = others.filter((o) => o.body && !sk.hidden[o.rec.id]).map((o) => {
+          const fi = o.body.indexAt(tFor(o.body));
+          if (fi == null) return { ...o, q: null };
+          let q = o.body.at(fi);
+          if (myLock) { const p = lockPoint(q, o.body.throws, sk.lock), dx = myLock[0] - p[0], dy = myLock[1] - p[1], dz = myLock[2] - p[2]; q = q.map((v) => [v[0] + dx, v[1] + dy, v[2] + dz]); }
+          return { ...o, q };
+        });
+        const seen = list.filter((o) => o.q);
+        let group = null;
+        if (seen.length && /mean|median/.test(sk.show)) {
+          const med = /median/.test(sk.show);
+          const stat = (xs) => { if (!med) return xs.reduce((s, x) => s + x, 0) / xs.length; const s = xs.slice().sort((a, b) => a - b), m2 = s.length >> 1; return s.length % 2 ? s[m2] : (s[m2 - 1] + s[m2]) / 2; };
+          group = { q: myQ.map((_, j) => [0, 1, 2].map((c) => stat(seen.map((o) => o.q[j][c])))), med, n: seen.length,
+            nums: Object.fromEntries(POSE_NUMS.map(([key]) => { const xs = seen.map((o) => poseNumbers(o.q, o.body.throws, o.body.height)[key]).filter(Number.isFinite); return [key, xs.length ? stat(xs) : null]; })) };
+        }
+        return { myQ, list, group };
+      };
+      // the scene at frame fi onto canvas c (the one showing, or one for the report)
+      const draw3D = (c, fi) => {
+        const ctx = c.getContext("2d"), W = c.width, H = c.height;
+        ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
+        const span = me.frames.slice(me.ev.LL, me.ev.BR + 1).map((q) => mid(q[P.lHip], q[P.rHip]));
+        const center = [span.reduce((s, p) => s + p[0], 0) / span.length, 0.95, span.reduce((s, p) => s + p[2], 0) / span.length];
+        const proj = camera3D(sk, W, H, center);
+        // the ground, in half meters, and which way the plate is
+        ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+        for (let x = -1.5; x <= 3.01; x += 0.5) { const a = proj([center[0] + x, 0, center[2] - 1.5]), b = proj([center[0] + x, 0, center[2] + 1.5]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+        for (let z = -1.5; z <= 1.51; z += 0.5) { const a = proj([center[0] - 1.5, 0, center[2] + z]), b = proj([center[0] + 3, 0, center[2] + z]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+        const pl = proj([center[0] + 3.2, 0, center[2]]);
+        ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText("to the plate →", pl[0], pl[1] + 14);
+        const P3 = posed(fi);
+        if (/each/.test(sk.show)) P3.list.forEach((o) => { if (o.q) drawBody3D(ctx, o.q, proj, o.body.throws, { color: o.color, width: 2, alpha: 0.75 }); });
+        if (P3.group) drawBody3D(ctx, P3.group.q, proj, me.throws, { color: P3.group.med ? "#7fd8ff" : "#ffd23f", width: 4, alpha: 0.95, dash: P3.group.med ? [8, 5] : null });
+        if (sk.me) drawBody3D(ctx, P3.myQ, proj, me.throws, { width: 3.5 });
+        return P3;
+      };
+      const paint3D = () => {
+        if (!canvas || !me) return;
+        const P3 = draw3D(canvas, frame);
+        if (numsBox) numsBox.replaceChildren(numbersTable(P3));
+      };
+      const numbersTable = (P3) => {
+        const mine3 = poseNumbers(P3.myQ, me.throws, me.height), g = P3.group;
+        const f = (v) => (v == null || !Number.isFinite(v) ? "–" : String(Math.round(v)));
+        return el("table", { class: "mc-table" },
+          el("thead", null, el("tr", null, el("th", null, `At this frame (${Math.round((me.t[frame] - me.t[me.ev.FS]) * 1000)} ms from foot strike)`), el("th", null, "This session"),
+            g ? el("th", null, `Group ${g.med ? "median" : "mean"} (${g.n})`) : null, g ? el("th", null, "Difference") : null)),
+          el("tbody", null, POSE_NUMS.map(([key, label, unit]) => el("tr", null, el("td", null, label, key === "lean" || key === "sep" ? el("small", null, "from the 3D estimate") : null),
+            el("td", null, `${f(mine3[key])} ${unit}`), g ? el("td", null, `${f(g.nums[key])} ${unit}`) : null,
+            g ? el("td", null, g.nums[key] == null ? "–" : `${mine3[key] - g.nums[key] >= 0 ? "+" : ""}${f(mine3[key] - g.nums[key])}`) : null))));
+      };
+      const dial = (label, key, min, max) => el("label", { class: "mc-dial" }, label, el("input", { type: "range", min, max, step: 1, value: sk[key], oninput: (e) => { sk[key] = Number(e.target.value); paint3D(); } }));
+      const check = (label, key, after) => el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !!sk[key], onchange: (e) => { sk[key] = e.target.checked; if (after) after(); build(); } }), ` ${label}`);
+      const select = (label, key, options) => el("label", null, label, el("select", { onchange: (e) => { sk[key] = e.target.value; build(); } }, options.map(([v, t]) => el("option", { value: v, selected: sk[key] === v }, t))));
+      function build() {
+        bodies();
+        const list = chosen();
+        list.forEach(load);
+        const maxW = Math.min(900, root.clientWidth || 900);
+        canvas = el("canvas", { class: "mc-canvas mc-canvas3d" });
+        canvas.width = maxW; canvas.height = Math.round(maxW * 0.62);
+        let dragAt = null;
+        canvas.addEventListener("pointerdown", (e) => { dragAt = [e.clientX, e.clientY]; try { canvas.setPointerCapture(e.pointerId); } catch (x) { /* fine without */ } });
+        canvas.addEventListener("pointermove", (e) => {
+          if (!dragAt) return;
+          sk.yaw = ((sk.yaw - (e.clientX - dragAt[0]) * 0.4 + 540) % 360) - 180; sk.pitch = Math.max(-89, Math.min(89, sk.pitch + (e.clientY - dragAt[1]) * 0.4));
+          dragAt = [e.clientX, e.clientY];
+          box.querySelectorAll(".mc-dial input").forEach((inp, k) => { inp.value = [sk.yaw, sk.pitch, sk.roll][k]; });
+          paint3D();
+        });
+        const endDrag = () => { dragAt = null; };
+        canvas.addEventListener("pointerup", endDrag); canvas.addEventListener("pointercancel", endDrag);
+        canvas.addEventListener("wheel", (e) => { e.preventDefault(); sk.zoom = Math.max(0.4, Math.min(4, sk.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1))); paint3D(); }, { passive: false });
+        numsBox = el("div", { class: "mc-scroll" });
+        const flip = state.throws === "L" ? 180 : 0;
+        // whose: other pitchers, every one or those picked
+        let whoBox = null;
+        if (sk.others) {
+          if (!state.dir) {
+            whoBox = el("div", { class: "mc-hint" }, state.dirError || "Finding the other sessions…");
+            if (!state.dirError) directory().then(() => { if (alive()) build(); }, (e) => { state.dirError = `Couldn't read the other sessions (${(e && e.message) || e}).`; if (alive()) build(); });
+          } else {
+            const people = [...new Map(state.dir.recs.filter((r) => r._athlete !== String(athlete.id)).map((r) => [r._athlete, r._name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+            const search = el("input", { type: "search", placeholder: "Add a pitcher…", value: sk.q, "aria-label": "Add a pitcher to compare" });
+            const hits = el("div", { class: "mc-row" });
+            const showHits = () => { const q = search.value.trim().toLowerCase(); sk.q = search.value; hits.replaceChildren(...(q ? people.filter(([id, name]) => name.toLowerCase().includes(q) && !sk.picked.includes(id)).slice(0, 8).map(([id, name]) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { sk.picked = [...sk.picked, id]; sk.othersAll = false; sk.q = ""; build(); } }, `+ ${name}`)) : [])); };
+            search.addEventListener("input", showHits);
+            whoBox = el("div", { class: "mc-who" },
+              el("span", { class: "mc-seg", role: "group", "aria-label": "Which pitchers" },
+                el("button", { type: "button", class: `mc-seg-btn${sk.othersAll ? " on" : ""}`, onclick: () => { sk.othersAll = true; build(); } }, `All pitchers (${people.length})`),
+                el("button", { type: "button", class: `mc-seg-btn${sk.othersAll ? "" : " on"}`, onclick: () => { sk.othersAll = false; build(); } }, "Chosen pitchers")),
+              sk.othersAll ? null : el("div", { class: "mc-row" }, search,
+                sk.picked.map((id) => el("button", { type: "button", class: "mc-btn small", title: "Take off", onclick: () => { sk.picked = sk.picked.filter((x) => x !== id); build(); } }, `${(people.find((p) => p[0] === id) || [id, "?"])[1]} ✕`))),
+              hits);
+            if (sk.q) setTimeout(showHits, 0);
+          }
+        }
+        const legend = list.length ? el("div", { class: "mc-legend" }, others.map((o) => el("label", { class: "mc-keep" },
+          el("input", { type: "checkbox", checked: !sk.hidden[o.rec.id], onchange: (e) => { sk.hidden = { ...sk.hidden, [o.rec.id]: !e.target.checked }; paint3D(); } }),
+          el("span", { class: "mc-swatch", style: `background:${o.color}` }),
+          ` ${o.rec._mine ? "His" : o.rec._name}, ${o.rec.date || ""} · ${setupName(o.rec.setup)}${(o.rec.throws || "R") !== state.throws ? (sk.mirror ? " · mirrored" : " · other hand") : ""}`,
+          o.L && o.L.busy ? el("small", null, " loading…") : o.L && o.L.error ? el("small", { class: "mc-err" }, ` couldn't open (${o.L.error})`) : null)))
+          : el("p", { class: "mc-hint" }, sk.own || sk.others ? "No saved sessions with tracking match these choices yet." : "Pick his other sessions or other pitchers to lay over this one.");
+        box.replaceChildren(
+          el("div", { class: "mc-row" }, SK_VIEWS.map(([name, yaw, pitch]) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { sk.yaw = ((yaw + (yaw % 180 === 0 ? flip : 0) + 540) % 360) - 180; sk.pitch = pitch; sk.roll = 0; build(); } }, name)),
+            el("button", { type: "button", class: "mc-btn ghost small", "aria-label": "Zoom in", onclick: () => { sk.zoom = Math.min(4, sk.zoom * 1.2); paint3D(); } }, "+"),
+            el("button", { type: "button", class: "mc-btn ghost small", "aria-label": "Zoom out", onclick: () => { sk.zoom = Math.max(0.4, sk.zoom / 1.2); paint3D(); } }, "−")),
+          el("div", { class: "mc-row" }, dial("Turn", "yaw", -180, 180), dial("Tilt", "pitch", -89, 89), dial("Roll", "roll", -180, 180)),
+          canvas,
+          el("p", { class: "mc-hint" }, "Drag to turn it, scroll or + / − to zoom. It moves with the frame above (play it, or step through the moments). From the pose model's 3D estimate from one camera: the depth (toward and away from the camera) is the least sure part."),
+          el("div", { class: "mc-row" },
+            check("This session", "me"),
+            select("Show", "show", [["each", "Each skeleton"], ["each+mean", "Each, and their mean"], ["each+median", "Each, and their median"], ["mean", "Mean only"], ["median", "Median only"]]),
+            select("Pin them at", "lock", SK_LOCKS),
+            select("Line them up by", "line", [["phase", "The moments (leg lift, foot strike, layback, release)"], ["fs", "Time from foot strike"], ["br", "Time from release"]])),
+          el("div", { class: "mc-row" }, check("Mirror the other hand to his", "mirror"), check("Scale everyone to the same height", "sameHeight")),
+          el("div", { class: "mc-compare" }, el("b", null, "Compare with"),
+            el("div", { class: "mc-row" }, check(`His other sessions (${mine().length})`, "own"), check("Other pitchers", "others"), sk.others ? check("Same hand only", "sameHand") : null,
+              el("label", null, "From", el("input", { type: "date", value: sk.from, onchange: (e) => { sk.from = e.target.value; build(); } })),
+              el("label", null, "to", el("input", { type: "date", value: sk.to, onchange: (e) => { sk.to = e.target.value; build(); } }))),
+            whoBox, legend,
+            list.length >= 40 ? el("p", { class: "mc-hint" }, "Showing the first 40: narrow the dates or pick pitchers for the rest.") : null),
+          numsBox);
+        paint3D();
+      }
+      build();
+      // for the report: the scene at a frame, the numbers there, and what it was compared with
+      const report = (fi, W, H) => {
+        const c = document.createElement("canvas"); c.width = W; c.height = H;
+        const P3 = draw3D(c, fi), g = P3.group;
+        return { canvas: c, mine: poseNumbers(P3.myQ, me.throws, me.height), group: g ? { nums: g.nums, med: g.med, n: g.n } : null };
+      };
+      const describe = () => {
+        const shown = others.filter((o) => o.body && !sk.hidden[o.rec.id]);
+        if (!shown.length) return "";
+        const own = shown.filter((o) => o.rec._mine).length, theirs = shown.length - own, who = new Set(shown.filter((o) => !o.rec._mine).map((o) => o.rec._athlete)).size;
+        const dates = shown.map((o) => o.rec.date).filter(Boolean).sort();
+        const parts = [own ? `${own} of his other session${own === 1 ? "" : "s"}` : "", theirs ? `${theirs} session${theirs === 1 ? "" : "s"} from ${who} other pitcher${who === 1 ? "" : "s"}` : ""].filter(Boolean);
+        const line = sk.line === "phase" ? "the moments of the delivery" : sk.line === "br" ? "time from release" : "time from foot strike";
+        const pin = sk.lock ? `, pinned at the ${SK_LOCKS.find((l) => l[0] === sk.lock)[1].toLowerCase()}` : "";
+        return `Compared with ${parts.join(" and ")}${dates.length ? ` (${dates[0]} to ${dates[dates.length - 1]})` : ""}, lined up by ${line}${pin}.`;
+      };
+      return { node: box, setFrame: (i) => { frame = i; paint3D(); }, report, describe };
+    }
+
     const backToStart = () => { if (state.side && state.side.video) state.side.video.remove(); if (state.behind && state.behind.video) state.behind.video.remove(); state.result = null; state.summary = null; state.saved = null; state.manual = null; state.edits = {}; state.side = null; state.behind = null; render(); };
 
     function results() {
@@ -805,9 +1120,9 @@
       };
       const pointsAt = (i) => { const q = R.pts[i].map((p) => p.slice()); if (drag) q[drag.j] = [drag.x, drag.y, 1]; return q; };
       const draw = (i) => {
-        ctx.drawImage(still, 0, 0);
+        if (state.hideVideo && !state.fixing) { ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height); } else ctx.drawImage(still, 0, 0);
         const q = pointsAt(i);
-        drawSkeleton(ctx, q, k, k, state.throws, state.fixing ? null : hiddenAt(i)); // every dot shows while fixing
+        if (!state.hideSkel || state.fixing) drawSkeleton(ctx, q, k, k, state.throws, state.fixing ? null : hiddenAt(i)); // every dot shows while fixing
         if (state.fixing) {
           const sides = sidesOf(state.throws), armSet = new Set([sides.arm.sh, sides.arm.el, sides.arm.wr]);
           const moved = (state.edits && state.edits[i]) || {};
@@ -821,12 +1136,14 @@
         }
       };
       let seqEl = null; // the kinematic sequence, whose line follows the frame showing
+      const sk3d = state.show3d ? skeleton3D(R) : null; // the 3D skeleton, which follows it too
       const show = (i) => { // the frame's caption, slider and line on the sequence, once its picture is drawn
         const ev = Object.entries(R.events).find(([, j]) => j === i);
         const edited = state.edits && state.edits[i] ? " · dots moved here" : "";
         caption.textContent = `Frame ${i + 1} of ${R.n} · ${Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)} ms from foot strike${ev ? ` · ${EV_LABEL[ev[0]]}` : ""}${edited}`;
         slider.value = i;
         if (seqEl) seqEl.setCursor(i);
+        if (sk3d) sk3d.setFrame(i);
       };
       const paint = (i) => {
         state.frame = i;
@@ -909,6 +1226,11 @@
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.max(0, (state.frame || 0) - 1)) }, "◀"),
         Object.entries(R.events).map(([key, i]) => el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(i) }, EV_LABEL[key])),
         el("button", { type: "button", class: "mc-btn ghost", onclick: () => go(Math.min(R.n - 1, (state.frame || 0) + 1)) }, "▶"));
+      // what the picture shows: the video, the skeleton, or both; and the skeleton alone in 3D
+      const layers = el("div", { class: "mc-row" },
+        f.video ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !state.hideVideo, onchange: (e) => { state.hideVideo = !e.target.checked; draw(state.frame || 0); } }), " Video") : null,
+        el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !state.hideSkel, onchange: (e) => { state.hideSkel = !e.target.checked; draw(state.frame || 0); } }), " Skeleton"),
+        el("button", { type: "button", class: `mc-btn ${state.show3d ? "" : "ghost"} small`, "aria-pressed": state.show3d ? "true" : "false", onclick: () => { state.show3d = !state.show3d; render(); } }, state.show3d ? "Hide 3D skeleton" : "3D skeleton and comparisons"));
       // a moment found in the wrong place can be set by hand, to the frame showing (the moments after it follow)
       const fix = el("div", { class: "mc-row mc-fix" }, el("span", { class: "mc-hint" }, "Moment in the wrong place? Go to the right frame and set it:"),
         Object.keys(R.events).map((key) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => {
@@ -945,12 +1267,211 @@
       const keep = el("input", { type: "checkbox", checked: true });
       const saveMsg = el("span", { class: "mc-status" });
       const saved = state.saved;
+
+      // ---- the report: a PDF of the moments, the sequence and the numbers, to print, keep or email ------------------
+      const MOMENTS = ["LL", "FS", "MER", "BR"];
+      const msOf = (i) => Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000);
+      const dateOf = () => (state.saved ? state.saved.date : new Date().toISOString().slice(0, 10));
+      const fileName = () => `${(athlete.name || "pitcher").replace(/[^a-z0-9]+/gi, "_")}-motion-capture-${dateOf()}.pdf`;
+      // one crop for every moment: everywhere his body reaches at the four of them, with room around it
+      const cropBox = () => {
+        const xs = [], ys = [];
+        MOMENTS.forEach((key) => R.pts[R.events[key]].forEach((p, j) => { if ((j === 0 || j >= 11) && Number.isFinite(p[0])) { xs.push(p[0]); ys.push(p[1]); } }));
+        if (!xs.length) return { x: 0, y: 0, w: tr.W, h: tr.H };
+        const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), pad = 0.15 * Math.max(x1 - x0, y1 - y0);
+        const bx = Math.max(0, x0 - pad), by = Math.max(0, y0 - pad);
+        return { x: bx, y: by, w: Math.min(tr.W, x1 + pad) - bx, h: Math.min(tr.H, y1 + pad) - by };
+      };
+      // a moment as it shows above (video and skeleton, or whichever is on)
+      const shot = async (i, box, w) => {
+        const kk = w / box.w, c = document.createElement("canvas");
+        c.width = Math.round(w); c.height = Math.round(box.h * kk);
+        const g = c.getContext("2d");
+        if (f.video && !state.hideVideo) { await seek(f.video, tr.frames[i].t); g.drawImage(f.video, box.x, box.y, box.w, box.h, 0, 0, c.width, c.height); }
+        else { g.fillStyle = "#111"; g.fillRect(0, 0, c.width, c.height); }
+        if (!state.hideSkel || !f.video || state.hideVideo) { g.save(); g.translate(-box.x * kk, -box.y * kk); drawSkeleton(g, R.pts[i], kk, kk, state.throws, hiddenAt(i)); g.restore(); }
+        return c;
+      };
+      async function buildPdf(quality = 0.85) {
+        stopPlay();
+        await painting;
+        const JsPDF = await jsPdf();
+        const pdf = new JsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+        const PW = 8.5, PH = 11, M = 0.5, CW = PW - 2 * M, GAP = 0.12, GRAY = [95, 95, 95];
+        let y = M;
+        const img = (c, x, yy, w) => { const h = (c.height / c.width) * w; pdf.addImage(c.toDataURL("image/jpeg", quality), "JPEG", x, yy, w, h); return h; };
+        const text = (s, x, yy, { size = 10, bold = false, color = [17, 17, 17], align, maxW } = {}) => {
+          pdf.setFont("helvetica", bold ? "bold" : "normal"); pdf.setFontSize(size); pdf.setTextColor(...color);
+          const t = maxW ? pdf.splitTextToSize(pdfSafe(s), maxW) : pdfSafe(s);
+          pdf.text(t, x, yy, align ? { align } : undefined);
+          return Array.isArray(t) ? t.length : 1;
+        };
+        const room = (h) => { if (y + h > PH - M - 0.3) { pdf.addPage(); y = M; } };
+        const heading = (s) => { room(1.1); text(s, M, y + 0.18, { size: 12, bold: true }); y += 0.32; };
+        const note2 = (s) => { const n = text(s, M, y + 0.06, { size: 8, color: GRAY, maxW: CW }); y += n * 0.14 + 0.12; };
+        // a plain table: cols [[heading, width]], rows { cells, flag (the column to mark amber) }
+        const table = (cols, rows) => {
+          const rowH = 0.22;
+          const head = () => { pdf.setFillColor(238, 238, 238); pdf.rect(M, y, CW, rowH, "F"); let x = M + 0.06; cols.forEach(([label, w]) => { text(label, x, y + 0.15, { size: 8.5, bold: true }); x += w; }); y += rowH; };
+          room(rowH * 3); head();
+          rows.forEach((r) => {
+            if (y + rowH > PH - M - 0.3) { pdf.addPage(); y = M; head(); }
+            let x = M + 0.06;
+            r.cells.forEach((cell, k) => { text(cell, x, y + 0.15, { size: 8.5, bold: r.flag === k, color: r.flag === k ? [176, 108, 0] : [17, 17, 17] }); x += cols[k][1]; });
+            pdf.setDrawColor(225, 225, 225); pdf.line(M, y + rowH, M + CW, y + rowH);
+            y += rowH;
+          });
+          y += 0.14;
+        };
+        // who, when, how it was filmed
+        text("Motion Capture Report", M, y + 0.25, { size: 18, bold: true });
+        text("Dynamic Sports Training", PW - M, y + 0.25, { size: 10, bold: true, color: [181, 40, 58], align: "right" });
+        y += 0.55;
+        text(athlete.name || "", M, y, { size: 13, bold: true });
+        y += 0.22;
+        text(`${dateOf()} · ${setupName(state.setup)} · timing at ${state.cap} fps · ${state.throws === "L" ? "left-handed" : "right-handed"}${state.heightIn ? ` · ${state.heightIn}"` : ""}`, M, y, { size: 9.5, color: GRAY });
+        y += 0.32;
+        // the four moments
+        heading("The moments");
+        const box = cropBox(), w4 = (CW - GAP * 3) / 4, shots = [];
+        for (const key of MOMENTS) shots.push(await shot(R.events[key], box, 520));
+        const h4 = (shots[0].height / shots[0].width) * w4;
+        room(h4 + 0.35);
+        shots.forEach((c, k) => {
+          const key = MOMENTS[k], ms = msOf(R.events[key]);
+          img(c, M + k * (w4 + GAP), y, w4);
+          text(`${EV_LABEL[key]}${key === "FS" ? "" : ` · ${ms > 0 ? "+" : ""}${ms} ms`}`, M + k * (w4 + GAP) + w4 / 2, y + h4 + 0.16, { size: 8.5, bold: true, align: "center" });
+        });
+        y += h4 + 0.38;
+        // the kinematic sequence
+        const seqSvg = seqEl && seqEl.querySelector("svg");
+        if (seqSvg) {
+          heading(`Kinematic sequence: ${R.inOrder ? "in order (hips, trunk, arm, elbow)" : "out of order"}`);
+          const c = await svgToCanvas(seqSvg), h = (c.height / c.width) * CW;
+          room(h + 0.3);
+          img(c, M, y, CW);
+          y += h + 0.06;
+          R.seq.forEach((s, k) => { const x = M + k * 1.6; pdf.setFillColor(s.color); pdf.rect(x, y + 0.04, 0.22, 0.06, "F"); text(s.name, x + 0.28, y + 0.11, { size: 8.5 }); });
+          y += 0.26;
+          table([["Segment", 2.2], ["Peak speed", 1.8], ["After foot strike", 1.8], ["Before release", 1.7]],
+            R.seq.map((s) => ({ cells: [s.name, s.peak == null ? "–" : `${s.peak.toLocaleString()} °/s`, s.fromFS == null ? "–" : `${s.fromFS} ms`, s.beforeBR == null ? "–" : `${s.beforeBR} ms`] })));
+          if (R.elbowFirst && state.elbowDepth !== false) note2(`The elbow's early peak (${R.elbowFirst.peak.toLocaleString()} °/s, ${R.elbowFirst.ms} ms after foot strike) is taken as depth, the forearm turning toward or away from the camera rather than straightening, so the elbow's line starts after it.`);
+          if (R.rotSource === "estimate") note2("From one camera, pelvis and trunk speeds are the pose model's 3D estimate; the two-camera setup measures them. The upper arm's swing stands in for the shoulder, whose internal rotation video can't see.");
+        }
+        // the numbers
+        heading("The numbers");
+        table([["Measure", 3.7], ["His", 1.7], ["Usual range", 2.1]], R.metrics.map((m) => {
+          const [lo, hi] = (m.range || "").split("–").map(Number);
+          const out = typeof m.value === "number" && Number.isFinite(lo) && Number.isFinite(hi) && (m.value < lo || m.value > hi);
+          return { cells: [m.label, m.value == null ? "–" : `${m.value} ${m.unit || ""}`, m.range ? `${m.range} ${(m.unit || "").replace(/^° .*/, "°")}` : ""], flag: out ? 1 : -1 };
+        }));
+        note2("In amber: outside the usual range for pitchers, a guide from published biomechanics (it varies with body and style). Joint angles from video are good to about 5 to 10 degrees: compare sessions filmed the same way.");
+        // the curves, two to a row
+        const boxes = [...charts.querySelectorAll(".mc-chart-box")];
+        if (boxes.length) heading("Through the delivery");
+        for (let k = 0; k < boxes.length; k += 2) {
+          const pair = await Promise.all(boxes.slice(k, k + 2).map((b) => svgToCanvas(b.querySelector("svg"))));
+          const w2 = (CW - 0.2) / 2, h2 = (pair[0].height / pair[0].width) * w2;
+          room(h2 + 0.3);
+          pair.forEach((c, j) => { text(boxes[k + j].querySelector(".mc-chart-title").textContent, M + j * (w2 + 0.2), y + 0.12, { size: 8.5, bold: true }); img(c, M + j * (w2 + 0.2), y + 0.18, w2); });
+          y += h2 + 0.32;
+        }
+        // the 3D skeleton, when it's open, with whatever it's compared with
+        if (sk3d) {
+          heading("3D skeleton");
+          const desc = sk3d.describe();
+          if (desc) note2(desc);
+          const s3 = MOMENTS.map((key) => sk3d.report(R.events[key], 600, 600));
+          room(w4 + 0.35);
+          s3.forEach((s, k) => { img(s.canvas, M + k * (w4 + GAP), y, w4); text(EV_LABEL[MOMENTS[k]], M + k * (w4 + GAP) + w4 / 2, y + w4 + 0.16, { size: 8.5, bold: true, align: "center" }); });
+          y += w4 + 0.38;
+          const g = s3.find((s) => s.group), f0 = (v) => (v == null || !Number.isFinite(v) ? "–" : String(Math.round(v)));
+          table([["At", 2.3], ...MOMENTS.map((key) => [EV_LABEL[key], 1.3])], POSE_NUMS.map(([key, label, unit]) => ({
+            cells: [`${label} (${unit})`, ...s3.map((s) => (s.group ? `${f0(s.mine[key])} vs ${f0(s.group.nums[key])}` : f0(s.mine[key])))],
+          })));
+          note2(g ? `His, then the group's ${g.group.med ? "median" : "mean"} (${g.group.n} sessions). From the pose model's 3D estimate: the depth toward and away from the camera is the least sure part.` : "From the pose model's 3D estimate: the depth toward and away from the camera is the least sure part.");
+        }
+        const noteText = (note.value || "").trim();
+        if (noteText) { heading("Notes"); const n = text(noteText, M, y + 0.05, { size: 10, maxW: CW }); y += n * 0.18 + 0.1; }
+        const pages = pdf.getNumberOfPages();
+        for (let p = 1; p <= pages; p++) {
+          pdf.setPage(p);
+          text(`${athlete.name || ""} · motion capture, ${dateOf()} · page ${p} of ${pages}`, PW / 2, PH - 0.3, { size: 7.5, color: [130, 130, 130], align: "center" });
+        }
+        paint(state.frame || 0); // back to the frame that was showing
+        return pdf;
+      }
+      const reportMsg = el("span", { class: "mc-status", role: "status" });
+      const making = async (fn) => {
+        reportMsg.textContent = "Making the report…";
+        try { await fn(); reportMsg.textContent = ""; } catch (e) { reportMsg.textContent = `Couldn't make the report: ${(e && e.message) || e}`; }
+      };
+      // print: the PDF opens in a tab of its own with the print dialog (the window is opened at the tap, or a phone blocks it)
+      const printIt = () => {
+        const w = window.open("", "_blank");
+        making(async () => {
+          const pdf = await buildPdf();
+          pdf.autoPrint();
+          const url = URL.createObjectURL(pdf.output("blob"));
+          if (w) w.location.href = url; else pdf.save(fileName());
+        });
+      };
+      const savePdf = () => making(async () => { (await buildPdf()).save(fileName()); });
+      // email: to the athlete (or anyone), from the coach's own address, the PDF attached (api/send-athlete-email.js)
+      const emailBox = el("div", { class: "mc-email" });
+      const openEmail = () => {
+        const first = (athlete.name || "").split(/\s+/)[0] || "";
+        const to = el("input", { type: "email", value: athlete.email || "", placeholder: "athlete@example.com", "aria-label": "To" });
+        const cc = el("input", { type: "text", placeholder: "parent@example.com, coach@example.com", "aria-label": "CC" });
+        const subject = el("input", { type: "text", value: "Your motion capture report from Dynamic Sports Training", "aria-label": "Subject" });
+        const body = el("textarea", { rows: 5, "aria-label": "Message" });
+        body.value = `Hi ${first},\n\nAttached is the motion capture report from your ${dateOf()} session: the key moments of your delivery, your kinematic sequence and your numbers beside the usual ranges for pitchers. Let me know if you have any questions.\n`;
+        const msg = el("span", { class: "mc-status", role: "status" });
+        const close = () => emailBox.replaceChildren();
+        const sendBtn = el("button", { type: "button", class: "mc-btn", onclick: async () => {
+          const re = /^[^@\s]+@[^@\s]+\.[^@\s]+$/, list = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
+          const toList = list(to.value), ccList = list(cc.value);
+          if (!toList.length || toList.some((a) => !re.test(a))) { msg.textContent = "Enter a valid email to send it to."; return; }
+          if (ccList.some((a) => !re.test(a))) { msg.textContent = "One of the CC addresses doesn't look right."; return; }
+          if (!subject.value.trim() || !body.value.trim()) { msg.textContent = "The subject and message can't be empty."; return; }
+          sendBtn.disabled = true;
+          try {
+            msg.textContent = "Making the report…";
+            let b64 = null;
+            for (const q of [0.85, 0.65, 0.5]) { b64 = (await buildPdf(q)).output("datauristring").split(",")[1]; if (b64.length <= 3.8e6) break; b64 = null; } // the send takes about 4.5 MB at most
+            if (!b64) throw new Error("the report is too big to email. Close the 3D skeleton, or save the PDF and send it yourself.");
+            msg.textContent = "Sending…";
+            const { data } = await sbc().auth.getSession();
+            const token = data && data.session && data.session.access_token;
+            if (!token) throw new Error("you're not signed in. Reload and sign in again.");
+            const res = await fetch("/api/send-athlete-email", {
+              method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ to: toList.join(", "), cc: ccList.join(", "), subject: subject.value.trim(), body: body.value, filename: fileName(), pdfBase64: b64, kind: "athlete_tab", athleteName: athlete.name, tab: "mocap" }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || `the send failed (${res.status})`);
+            emailBox.replaceChildren(el("p", { class: "mc-hint" }, `Sent to ${toList.join(", ")}${ccList.length ? ` (cc ${ccList.join(", ")})` : ""}, from your email, with the report attached.`), el("button", { type: "button", class: "mc-btn ghost small", onclick: close }, "Close"));
+          } catch (e) { msg.textContent = `Couldn't send it: ${(e && e.message) || e}`; sendBtn.disabled = false; }
+        } }, "Send");
+        emailBox.replaceChildren(el("div", { class: "mc-email-form" },
+          el("label", null, "To", to), el("label", null, "CC (optional)", cc), el("label", null, "Subject", subject), el("label", null, "Message", body),
+          el("p", { class: "mc-hint" }, `The report goes as a PDF, sent from your own email address${sk3d ? ", with the 3D skeleton as it's set now" : ""}.`),
+          el("div", { class: "mc-row" }, sendBtn, el("button", { type: "button", class: "mc-btn ghost", onclick: close }, "Cancel"), msg)));
+      };
+      const reportRow = el("div", { class: "mc-report" },
+        el("div", { class: "mc-row" }, el("b", null, "Report"),
+          el("button", { type: "button", class: "mc-btn ghost small", onclick: printIt }, "Print"),
+          el("button", { type: "button", class: "mc-btn ghost small", onclick: savePdf }, "Save as PDF"),
+          el("button", { type: "button", class: "mc-btn ghost small", onclick: openEmail }, "Email to athlete"),
+          reportMsg),
+        el("p", { class: "mc-hint" }, `The four moments (as the picture shows them now: video, skeleton or both), the kinematic sequence, the numbers and the curves${sk3d ? ", and the 3D skeleton with its comparison" : " (open the 3D skeleton first to add it)"}.`),
+        emailBox);
       return el("div", { class: "mc-results" }, f.video, state.behind && state.behind.video,
         el("div", { class: "mc-row" },
           el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, saved ? "← Back" : "← Another video"),
           el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${setupName(state.setup)} · timing at ${state.cap} fps · ${state.throws === "L" ? "lefty" : "righty"}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
         timing,
-        canvas, slider, caption, evBtns, fixDots, fix,
+        canvas, slider, caption, evBtns, layers, sk3d && sk3d.node, fixDots, fix,
         seqEl,
         R.elbowFirst ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: state.elbowDepth !== false, onchange: (e) => { state.elbowDepth = e.target.checked; compute(); render(); } }),
           ` Treat the elbow's first peak (${R.elbowFirst.peak.toLocaleString()}°/s, ${R.elbowFirst.ms} ms from foot strike) as depth, not extension: the forearm turning toward or away from the camera, not straightening. The elbow line then starts at the dip after it.`) : null,
@@ -958,6 +1479,7 @@
         el("p", { class: "mc-hint" }, R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
           : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at release. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
+        reportRow,
         opts.onSave ? el("div", { class: "mc-save" }, note,
           saved ? null : el("label", { class: "mc-keep" }, keep, " Also keep the video, to replay it with the skeleton later (needs room in storage)"),
           el("div", { class: "mc-row" },
@@ -1022,5 +1544,5 @@
     return { refresh: render };
   }
 
-  window.MoCap = { mount, analyze, sequenceBlock, HOW_TO };
+  window.MoCap = { mount, analyze, sequenceBlock, HOW_TO, bodyOf, poseNumbers };
 })();

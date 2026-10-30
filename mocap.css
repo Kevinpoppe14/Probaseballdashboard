@@ -73,3 +73,20 @@
 .mc-speed { flex-direction: row !important; align-items: center; gap: 6px !important; }
 .mc-speed select { min-width: 0; height: 32px; }
 .mc-filefps { height: 30px !important; min-width: 0 !important; font-size: 13px !important; }
+/* the 3D skeleton and its comparisons */
+.mc-3d { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--mc-line); border-radius: 10px; }
+.mc-canvas3d { cursor: grab; touch-action: none; margin: 8px 0 4px; }
+.mc-dial { flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 13px; }
+.mc-dial input { width: 120px; }
+.mc-compare { margin: 10px 0; display: grid; gap: 6px; }
+.mc-who { display: grid; gap: 6px; }
+.mc-legend { display: grid; gap: 0; }
+.mc-legend .mc-keep { margin: 2px 0; }
+.mc-swatch { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+/* the report: print, PDF, email */
+.mc-report { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--mc-line); border-radius: 10px; }
+.mc-email-form { display: grid; gap: 8px; margin-top: 8px; max-width: 640px; }
+.mc-email-form label { display: grid; gap: 4px; font-size: 13px; color: var(--mc-dim); }
+.mc-email-form input, .mc-email-form textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.mc-3d label, .mc-compare label { max-width: 100%; min-width: 0; }
+.mc-3d select { max-width: 100%; min-width: 0; }

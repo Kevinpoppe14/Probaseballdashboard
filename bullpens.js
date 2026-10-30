@@ -601,6 +601,17 @@
       const vaa = v != null && ivbFt != null && rz != null && pz != null && window.TrackmanImport && window.TrackmanImport.vaaOf ? window.TrackmanImport.vaaOf({ speed: v, ivb: ivbFt * 12, relHeight: rz, plateHeight: pz, extension: ext }) : null;
       return [String(r.player_id), { ext, relSide: rx == null ? null : Math.abs(rx), vaa, armAngle: num(r.arm_angle) }];
     })), () => new Map());
+  // Savant's pitcher_break_x is how far a pitch breaks sideways, never which way (it's positive for every pitch, a
+  // curveball's included), so the side comes from the way its movement points (Savant's movement-inferred clock, from
+  // behind the pitcher: past 12 toward 6 on the right is a righty's arm side, on the left a lefty's), or failing that
+  // from the pitch type: curves, sliders, sweepers, slurves and cutters to the glove side, the rest to the arm side
+  const GLOVE_SIDE = new Set(["CU", "KC", "SL", "ST", "SV", "FC"]);
+  const armSideSign = (hand, code, dir) => {
+    const m = dir ? num(dir.movement_inferred_clock_minutes) : null;
+    const s = m == null ? 0 : Math.sin((m / 720) * 2 * Math.PI);
+    if (Math.abs(s) > 0.05) return (hand === "L" ? -1 : 1) * Math.sign(s);
+    return GLOVE_SIDE.has(code) ? -1 : 1;
+  };
   // every MLB pitcher who threw this pitch type that season: velo, IVB, HB (arm side +), spin, spin direction and active
   // spin, release height and side, extension, arm angle, VAA, and how the pitch did (res)
   async function mlbPitchers(codes, year) {
@@ -622,7 +633,7 @@
       const nm = String(r["last_name, first_name"] || "").split(",").map((x) => x.trim());
       out.push({
         id, name: nm.length > 1 ? `${nm[1]} ${nm[0]}` : nm[0], team: r.team_name_abbrev || "", hand: r.pitch_hand, code,
-        velo: num(r.avg_speed), ivb: num(r.pitcher_break_z_induced), hb: num(r.pitcher_break_x),
+        velo: num(r.avg_speed), ivb: num(r.pitcher_break_z_induced), hb: num(r.pitcher_break_x) == null ? null : Math.abs(num(r.pitcher_break_x)) * armSideSign(r.pitch_hand, code, dir),
         spin: sp ? num(sp[`${code.toLowerCase()}_avg_spin`] || (code === "KC" ? sp.cu_avg_spin : null)) : null,
         relHeight: arm ? num(arm.release_ball_z) : null, armAngle: arm ? num(arm.ball_angle) : ss.armAngle != null ? ss.armAngle : null,
         ext: ss.ext != null ? ss.ext : null, relSide: ss.relSide != null ? ss.relSide : null, vaa: ss.vaa != null ? ss.vaa : null,
@@ -1929,7 +1940,7 @@
       if (!box || !window.MoCap) return undefined;
       const store = window.AthleteStore;
       window.MoCap.mount(box, {
-        athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws },
+        athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, email: athlete.email || "" },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
         onDelete: async (rec) => { store.deleteAssessment(rec.id); },
         history: () => (store.getMocap ? store.getMocap(athlete.id) : []),
