@@ -276,23 +276,14 @@
         }
       });
       decalMaps.script = alphaMap(600, 235, (g, w) => {
-        g.textAlign = "left";
+        g.textAlign = "center";
         g.font = "190px Yellowtail, 'Brush Script MT', cursive";
-        // "itching" in the script, with a heavier pen than the font's own (outlined in ink as well as filled), set to
-        // the right of a P drawn by hand
-        const word = "itching", pW = 150, base = 178;
-        const tw = g.measureText(word).width, k = Math.min(1, (530 - pW) / tw), xi = w - tw * k - 20;
-        g.save(); g.translate(xi, base); g.scale(k, 1);
+        // a heavier pen than the font's own: the same letters, outlined in ink as well as filled
+        const tw = g.measureText("Pitching").width, k = Math.min(1, 560 / tw);
+        g.save(); g.translate(w / 2, 172); g.scale(k, 1);
         g.lineWidth = 5; g.lineJoin = "round"; g.strokeStyle = g.fillStyle;
-        g.strokeText(word, 0, 0); g.fillText(word, 0, 0);
+        g.strokeText("Pitching", 0, 0); g.fillText("Pitching", 0, 0);
         g.restore();
-        // the P, built like Rawlings' R: its whole left side one big slanted loop, the bowl off the top of it. A broad
-        // pen: each stroke twice, a little apart side to side, so uprights come out thick and the turns thin.
-        const px = xi - pW + 10;
-        g.lineCap = "round"; g.lineJoin = "round";
-        const pen = (draw) => [-4, 4].forEach((dx) => { g.save(); g.translate(dx, 0); g.lineWidth = 10; g.beginPath(); draw(); g.stroke(); g.restore(); });
-        pen(() => { g.save(); g.translate(px + 40, base - 72); g.rotate(-0.32); g.ellipse(0, 0, 40, 74, 0, Math.PI * 1.62, Math.PI * 3.45); g.restore(); });
-        pen(() => { g.moveTo(px + 52, base - 140); g.bezierCurveTo(px + 120, base - 150, px + 170, base - 128, px + 150, base - 98); g.bezierCurveTo(px + 132, base - 72, px + 90, base - 70, px + 66, base - 80); });
       });
       decalMaps.plate = alphaMap(440, 240, (g, w, h) => {
         const rr = 26;
