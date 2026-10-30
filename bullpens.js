@@ -214,7 +214,7 @@
     return { d: [up[0] * Math.sin(a), up[1] * Math.sin(a), Math.cos(a)], R: across, U: [up[0] * Math.cos(a), up[1] * Math.cos(a), -Math.sin(a)], hw, hh };
   };
   const DECALS = [
-    { ...placed(0, 0.46, 0.286), key: "stamp" },
+    { ...placed(0, 0.64, 0.26), key: "stamp" }, // as wide as it likes; this tall keeps ~10° clear of the stitches,
     { ...placed(56, 0.44, 0.172), key: "script" },
     { ...placed(-56, 0.29, 0.158), key: "plate" },
   ];
@@ -247,19 +247,18 @@
     const sigIn = new Promise((ok) => { sig.onload = ok; sig.onerror = ok; sig.src = "assets/signature.jpg"; });
     const fonts = document.fonts ? Promise.all(["800 96px 'Barlow Condensed'", "150px Yellowtail", "120px 'Mrs Saint Delafield'"].map((f) => document.fonts.load(f).catch(() => null))) : Promise.resolve();
     decalsReady = Promise.all([logoIn, sigIn, fonts]).then(() => {
-      decalMaps.stamp = alphaMap(900, 560, (g, w) => {
+      decalMaps.stamp = alphaMap(1000, 406, (g, w) => {
         g.textAlign = "center"; g.textBaseline = "alphabetic";
-        g.font = "800 112px 'Barlow Condensed', 'Arial Narrow', sans-serif";
+        g.font = "800 118px 'Barlow Condensed', 'Arial Narrow', sans-serif";
         const ow = g.measureText("OFFICIAL").width;
-        g.fillText("OFFICIAL", w / 2, 130);
-        star(g, w / 2 - ow / 2 - 50, 92, 30); star(g, w / 2 + ow / 2 + 50, 92, 30);
-        g.font = "800 100px 'Barlow Condensed', 'Arial Narrow', sans-serif";
-        fitText(g, "DYNAMIC SPORTS TRAINING", w / 2, 255, 880);
+        g.fillText("OFFICIAL", w / 2, 112);
+        star(g, w / 2 - ow / 2 - 52, 72, 32); star(g, w / 2 + ow / 2 + 52, 72, 32);
+        fitText(g, "DYNAMIC SPORTS TRAINING", w / 2, 234, 980);
         if (sig.naturalWidth) {
           // the signature as written: its strokes (the light parts of the picture) become ink, thickened a little so
           // they still show at the size of the ball
           const sx = 280, sy = 10, sw = sig.naturalWidth > 820 ? 540 : sig.naturalWidth, sh = Math.min(335, sig.naturalHeight);
-          const dh = 250, dw = Math.round((dh * sw) / sh), t = document.createElement("canvas");
+          const dh = 158, dw = Math.round((dh * sw) / sh), t = document.createElement("canvas");
           t.width = dw; t.height = dh;
           const tg = t.getContext("2d"), R = 3;
           tg.globalCompositeOperation = "lighten";
@@ -267,10 +266,10 @@
           const id = tg.getImageData(0, 0, dw, dh), p = id.data;
           for (let i = 0; i < p.length; i += 4) { const l = Math.max(p[i], p[i + 1], p[i + 2]); p[i] = INK[0]; p[i + 1] = INK[1]; p[i + 2] = INK[2]; p[i + 3] = Math.max(0, Math.min(255, (l - 45) * 2.2)); }
           tg.putImageData(id, 0, 0);
-          g.drawImage(t, (w - dw) / 2, 282);
+          g.drawImage(t, (w - dw) / 2, 246);
         } else {
-          g.font = "150px 'Mrs Saint Delafield', 'Brush Script MT', cursive";
-          fitText(g, "Kevin Poppe", w / 2, 420, 520);
+          g.font = "110px 'Mrs Saint Delafield', 'Brush Script MT', cursive";
+          fitText(g, "Kevin Poppe", w / 2, 380, 420);
         }
       });
       decalMaps.script = alphaMap(600, 235, (g, w) => {
