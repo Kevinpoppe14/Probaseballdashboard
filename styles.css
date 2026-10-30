@@ -4318,3 +4318,21 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-savant-head h3 small { font-weight: 400; color: var(--text-dim); margin-left: 4px; }
 .bp-ball-stats .bp-ball-velo small { font-size: 11px; font-weight: 400; color: var(--text-dim); }
 .bp-mod-btn.on { border-color: var(--dst-red); color: var(--text); background: var(--overlay-soft); }
+
+/* Pitching > Pitch Design (bullpens.js): the pitch as it is and as designed, side by side, with its controls */
+.pd-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 10px 0; }
+.pd-grid { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(260px, 1.3fr); gap: 16px; align-items: start; }
+.pd-grid.pd-results { grid-template-columns: minmax(280px, 1.2fr) minmax(260px, 1fr); margin-top: 16px; }
+.pd-col h3 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); text-align: center; }
+.pd-controls h3 { text-align: left; }
+.pd-slider { display: block; margin-bottom: 14px; }
+.pd-slider-top { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.pd-slider-top b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.pd-slider-top small { min-width: 64px; text-align: right; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.pd-slider-top small.on { color: var(--dst-red); font-weight: 700; }
+.pd-slider input[type="range"] { width: 100%; accent-color: var(--dst-red); }
+.pd-seam-btns { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 6px; }
+.pd-table td:first-child { color: var(--text-dim); }
+.pd-table .pd-chg { color: var(--dst-red); font-weight: 700; }
+.pd-chart { width: 100%; max-width: 360px; justify-self: center; }
+@media (max-width: 900px) { .pd-grid, .pd-grid.pd-results { grid-template-columns: 1fr; } }

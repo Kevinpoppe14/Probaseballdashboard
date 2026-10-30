@@ -443,6 +443,7 @@
     const live = useRef(ctl);
     live.current = ctl;
     const kick = useRef(null);
+    const turned = useRef(0); // how far it has turned, kept when its spin changes (a slider being dragged) so it carries on from there
     const gyro = gyroOf(s.spinEff);
     useEffect(() => {
       const cv = ref.current;
@@ -457,18 +458,18 @@
       const thRad = s.tilt != null ? (s.tilt / 720) * 2 * Math.PI : null;
       const revPerSec = s.spinAvg ? s.spinAvg / 9600 : 0; // at 1x, a quarter of a turn a second per 2400 rpm (life is ~40 turns a second)
       const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      let raf = 0, last = null, ang = 0, visible = true;
+      let raf = 0, last = null, visible = true;
       const flipped = mulM(mirrorM(u), start);
       const paint = () => {
         const pov = live.current.pov === "pitcher" ? "pitcher" : "catcher";
         const arrow = thRad == null ? null : pov === "pitcher" ? thRad : -thRad; // the pitcher's clock, or the catcher's mirror of it
         const flip = !!live.current.flip;
-        drawBall(ctx, size, mulM(POV_M[pov], mulM(rotM(u, ang), flip ? flipped : start)), colorOf(s.type), arrow, flip);
+        drawBall(ctx, size, mulM(POV_M[pov], mulM(rotM(u, turned.current), flip ? flipped : start)), colorOf(s.type), arrow, flip);
       };
       const moving = () => !reduce && revPerSec > 0 && visible && !live.current.paused;
       const frame = (ts) => {
         raf = 0;
-        if (last != null) ang += ((ts - last) / 1000) * revPerSec * (live.current.speed || 1) * 2 * Math.PI;
+        if (last != null) turned.current += ((ts - last) / 1000) * revPerSec * (live.current.speed || 1) * 2 * Math.PI;
         last = ts;
         paint();
         if (moving()) raf = requestAnimationFrame(frame); else last = null;
@@ -1237,7 +1238,224 @@
     );
   }
 
+  // ---- pitch design: what a change in spin would do to one of the pitcher's pitches --------------------------------
+  // Start from a pitch (a bullpen's averages, or the pitcher's MLB season from Savant) and move its velo, spin, spin
+  // direction and spin efficiency; the designed pitch's movement is predicted from the change in its Magnus lift. Lift
+  // goes with the spin factor S = r·ω(active)/v, through Alan Nathan's fit C_L = S / (0.4 + 2.32·S), and the break it
+  // makes over the flight is in proportion to C_L (the force's v² and the flight time's 1/v² cancel). So the new break
+  // is the pitch's own measured break × C_L(new) / C_L(old), turned to the new spin direction and then by its seam
+  // effects: the pitch's own offset between its spin direction and where it really moves, as it was or as set. Break here is the pitcher's
+  // view, as TrackMan gives it: + to the pitcher's right (a righty's arm side). Savant's (arm side +) is turned to match.
+  const BALL_R_FT = 1.45 / 12;
+  const liftOf = (rpm, effPct, mph) => {
+    if (!rpm || !mph) return null;
+    const S = (BALL_R_FT * rpm * (effPct / 100) * 2 * Math.PI / 60) / (mph * 1.4667);
+    return S / (0.4 + 2.32 * S);
+  };
+  const clockRad = (min) => (min / 720) * 2 * Math.PI;
+  const toClock = (rad) => { const m = Math.round((rad / (2 * Math.PI)) * 720) % 720; return m < 0 ? m + 720 : m; };
+  const wrapMin = (m) => ((Math.round(m) % 720) + 720) % 720;
+  const ASSUMED_EFF = 95; // when a pitch has no spin efficiency on file
+  const moveDir = (p) => Math.atan2(p.hb, p.ivb); // the way it actually moves, as a clock angle: from 12 toward the right
+  // seam effects: how far (clock minutes, + clockwise from behind the pitcher) a pitch moves off its spin direction,
+  // from the wake its seams shift
+  const seamOf = (b) => {
+    if (b.tilt == null) return 0;
+    let m = Math.round(((moveDir(b) - clockRad(b.tilt)) / (2 * Math.PI)) * 720);
+    if (m > 360) m -= 720;
+    if (m < -360) m += 720;
+    return m;
+  };
+  // the movement seam effects add: the gap between where spin alone would send it and where it goes
+  const seamInches = (m, offMin) => 2 * m * Math.abs(Math.sin(clockRad(offMin) / 2));
+  function designed(base, d) {
+    const effB = base.spinEff != null ? base.spinEff : ASSUMED_EFF, mB = Math.hypot(base.hb, base.ivb);
+    const k = (liftOf(d.spin, d.eff, d.velo) || 0) / (liftOf(base.spinAvg, effB, base.speedAvg) || 1);
+    const m = mB * k, dir = clockRad(d.tilt) + clockRad(d.seam);
+    return { hb: m * Math.sin(dir), ivb: m * Math.cos(dir), m, dirMin: toClock(dir) };
+  }
+  const startOf = (b) => ({ velo: b.speedAvg, spin: b.spinAvg, tilt: b.tilt != null ? b.tilt : toClock(moveDir(b)), eff: b.spinEff != null ? b.spinEff : ASSUMED_EFF, seam: seamOf(b) });
+
+  // the pitcher's pitches on a movement plot, with an arrow from the pitch as it is to the pitch as designed
+  function DesignChart({ pitches, base, out }) {
+    const vals = [...pitches.flatMap((p) => [p.hb, p.ivb]), out.hb, out.ivb].map(Math.abs);
+    const R = Math.max(20, Math.ceil(Math.max(...vals) / 5) * 5 + 5);
+    const S = 320, pad = 36, sc = (S - 2 * pad) / (2 * R);
+    const X = (v) => pad + (v + R) * sc, Y = (v) => pad + (R - v) * sc;
+    const ticks = [];
+    for (let t = -Math.floor(R / 10) * 10; t <= R; t += 10) ticks.push(t);
+    const col = colorOf(base.type);
+    const far = Math.hypot(out.hb - base.hb, out.ivb - base.ivb) > 0.6;
+    return (
+      <svg className="pd-chart" viewBox={`0 0 ${S} ${S}`} role="img" aria-label={`Movement: ${base.type} now ${base.ivb} IVB, ${base.hb} HB; designed ${out.ivb.toFixed(1)} IVB, ${out.hb.toFixed(1)} HB`}>
+        <defs><marker id="pd-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill={col} /></marker></defs>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={X(t)} x2={X(t)} y1={pad} y2={S - pad} stroke="var(--chart-grid)" strokeWidth={t === 0 ? 1.5 : 0.6} />
+            <line x1={pad} x2={S - pad} y1={Y(t)} y2={Y(t)} stroke="var(--chart-grid)" strokeWidth={t === 0 ? 1.5 : 0.6} />
+            <text x={X(t)} y={S - pad + 14} textAnchor="middle" fontSize="10" fill="var(--text-dim)">{t}</text>
+            <text x={pad - 6} y={Y(t) + 3} textAnchor="end" fontSize="10" fill="var(--text-dim)">{t}</text>
+          </g>
+        ))}
+        <text x={S / 2} y={S - 4} textAnchor="middle" fontSize="11" fill="var(--text-dim)">Horz. break (in), pitcher's view</text>
+        <text x={11} y={S / 2} textAnchor="middle" fontSize="11" fill="var(--text-dim)" transform={`rotate(-90 11 ${S / 2})`}>Induced vert. break (in)</text>
+        {pitches.filter((p) => p !== base).map((p) => (
+          <g key={p.type}><circle cx={X(p.hb)} cy={Y(p.ivb)} r="6" fill={colorOf(p.type)} opacity="0.4" /><title>{`${p.type}: ${p.ivb} IVB, ${p.hb} HB`}</title></g>
+        ))}
+        {far && <line x1={X(base.hb)} y1={Y(base.ivb)} x2={X(out.hb)} y2={Y(out.ivb)} stroke={col} strokeWidth="2" markerEnd="url(#pd-arrow)" />}
+        <circle cx={X(base.hb)} cy={Y(base.ivb)} r="8" fill={col} stroke="var(--panel)" strokeWidth="2" />
+        <circle cx={X(out.hb)} cy={Y(out.ivb)} r="9" fill="none" stroke={col} strokeWidth="3" strokeDasharray="4 3" />
+      </svg>
+    );
+  }
+
+  function PitchDesignTab({ athlete, mlbId }) {
+    const id = String(mlbId || mlbIdOf(athlete));
+    const sessions = getBullpens(athlete.id);
+    const latest = sessions[sessions.length - 1] || null;
+    const sources = [
+      ...(latest ? [{ key: "latest", label: `Latest bullpen (${shortDate(latest.date)})` }] : []),
+      ...(sessions.length > 1 ? [{ key: "all", label: `All bullpens (${sessions.length})` }] : []),
+      ...(id ? [{ key: "mlb", label: "MLB games" }] : []),
+    ];
+    const [source, setSource] = useState(sources.length ? sources[0].key : "");
+    const [season, setSeason] = useState(defaultSeason);
+    const [mlb, setMlb] = useState({ loading: false, rows: [] });
+    useEffect(() => {
+      if (source !== "mlb" || !id) return undefined;
+      let off = false;
+      setMlb({ loading: true, rows: [] });
+      mlbArsenal(id, athlete.throws, season).then((rows) => { if (!off) setMlb({ loading: false, rows }); }, () => { if (!off) setMlb({ loading: false, rows: [] }); });
+      return () => { off = true; };
+    }, [source, id, season]); // eslint-disable-line
+    // the pitches to start from, each with velo, spin, spin direction, efficiency and its break (pitcher's view)
+    const usable = (p) => p.type && p.ivb != null && p.hb != null && p.spinAvg && p.speedAvg;
+    const pitches = (source === "mlb"
+      ? mlb.rows.filter((r) => CODE_TYPE[r.code]).map((r) => {
+        const left = (r.hand || athlete.throws) === "L";
+        return { type: CODE_TYPE[r.code], speedAvg: r.velo, spinAvg: r.spin != null ? Math.round(r.spin) : r.spinRate, tilt: r.tilt, spinEff: r.spinEff, ivb: r.ivb, hb: r.hb != null ? (left ? -r.hb : r.hb) : null, qty: r.res.pitches };
+      })
+      : source ? typeStats(source === "all" ? { pitches: sessions.flatMap(livePitches) } : latest).filter((s) => s.type !== UNTAGGED).map((s) => ({ type: s.type, speedAvg: s.speedAvg, spinAvg: s.spinAvg, tilt: s.tilt, spinEff: s.spinEff, ivb: s.ivb, hb: s.hb, qty: s.qty }))
+      : []).filter(usable);
+    const [pick, setPick] = useState("");
+    const base = pitches.find((p) => p.type === pick) || pitches[0] || null;
+    const baseKey = base ? `${source}|${season}|${base.type}|${base.speedAvg}|${base.spinAvg}` : "";
+    const [d, setD] = useState(null);
+    useEffect(() => { setD(base ? startOf(base) : null); }, [baseKey]); // eslint-disable-line
+    const [spinCtl, setSpinCtl] = useSpinCtl();
+
+    if (!sources.length) {
+      return <div className="panel"><h2>Pitch Design</h2><div className="empty-state">Import a TrackMan bullpen, or link this pitcher to MLB, to design from one of his pitches.</div></div>;
+    }
+    const start = base ? startOf(base) : null;
+    const dd = d && base && d.velo != null ? d : start;
+    const out = base && dd ? designed(base, dd) : null;
+    const set = (k, v) => setD({ ...dd, [k]: v });
+    const sign = (v, dp = 1) => { const r = Number(v.toFixed(dp)); return r === 0 ? "–" : `${r > 0 ? "+" : ""}${r.toFixed(dp)}`; };
+    const slider = (label, k, min, max, step, fmt, deltaFmt) => {
+      const changed = Math.abs(dd[k] - start[k]) > 1e-9;
+      return (
+        <label className="pd-slider">
+          <span className="pd-slider-top"><span>{label}</span><b>{fmt(dd[k])}</b><small className={changed ? "on" : ""}>{changed ? deltaFmt(dd[k] - start[k]) : "as is"}</small></span>
+          <input type="range" min={min} max={max} step={step} value={dd[k]} aria-label={label} onChange={(e) => set(k, Number(e.target.value))} />
+        </label>
+      );
+    };
+    const effB = base && base.spinEff != null ? base.spinEff : ASSUMED_EFF;
+    const seamText = (m) => (Math.abs(m) < 3 ? "none" : `${Math.round(Math.abs(m) / 2)}° ${m > 0 ? "clockwise" : "counterclockwise"}`);
+    const mNow = base ? Math.hypot(base.hb, base.ivb) : 0;
+    const rows = base && out ? [
+      ["IVB", `${base.ivb.toFixed(1)}"`, `${out.ivb.toFixed(1)}"`, sign(out.ivb - base.ivb)],
+      ["Horz. break", `${base.hb.toFixed(1)}"`, `${out.hb.toFixed(1)}"`, sign(out.hb - base.hb)],
+      ["Total break", `${Math.hypot(base.hb, base.ivb).toFixed(1)}"`, `${out.m.toFixed(1)}"`, sign(out.m - Math.hypot(base.hb, base.ivb))],
+      ["Moves toward", tiltText(toClock(moveDir(base))), tiltText(out.dirMin), ""],
+      ["Velo", `${base.speedAvg} mph`, `${dd.velo.toFixed(1)} mph`, sign(dd.velo - base.speedAvg)],
+      ["Spin", `${base.spinAvg} rpm`, `${Math.round(dd.spin)} rpm`, sign(dd.spin - base.spinAvg, 0)],
+      ["Spin direction", base.tilt != null ? tiltText(base.tilt) : "–", tiltText(wrapMin(dd.tilt)), ""],
+      ["Spin eff. / gyro", `${effB}% / ${100 - effB}%`, `${Math.round(dd.eff)}% / ${100 - Math.round(dd.eff)}%`, sign(dd.eff - effB, 0)],
+      ["Active spin", `${Math.round((base.spinAvg * effB) / 100)} rpm`, `${Math.round((dd.spin * dd.eff) / 100)} rpm`, sign((dd.spin * dd.eff) / 100 - (base.spinAvg * effB) / 100, 0)],
+      ["Seam effects", seamText(start.seam), seamText(dd.seam), ""],
+      ["Break from seams", `${seamInches(mNow, start.seam).toFixed(1)}"`, `${seamInches(out.m, dd.seam).toFixed(1)}"`, sign(seamInches(out.m, dd.seam) - seamInches(mNow, start.seam))],
+    ] : [];
+    const ballNow = base && { type: base.type, spinAvg: base.spinAvg, tilt: base.tilt, spinEff: base.spinEff, speedAvg: base.speedAvg };
+    const ballNew = base && { type: base.type, spinAvg: Math.round(dd.spin), tilt: wrapMin(dd.tilt), spinEff: Math.round(dd.eff), speedAvg: Math.round(dd.velo * 10) / 10 };
+    return (
+      <div className="panel pd-wrap">
+        <h2>Pitch Design <small>change the spin, see what it would do to the movement</small></h2>
+        <div className="bp-comps-bar">
+          <span className="pill-tabs bp-scope" role="group" aria-label="Start from">
+            {sources.map((s) => <button key={s.key} type="button" className={`pill-tab ${source === s.key ? "active" : ""}`} onClick={() => { setSource(s.key); setPick(""); }}>{s.label}</button>)}
+          </span>
+          {source === "mlb" && (
+            <select className="bp-tag" value={season} aria-label="MLB season" onChange={(e) => setSeason(Number(e.target.value))}>
+              {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
+            </select>
+          )}
+          {source === "mlb" && mlb.loading && <span className="timestamp-note">Loading Baseball Savant…</span>}
+        </div>
+        {pitches.length > 0 && (
+          <div className="bp-key" role="group" aria-label="Pitch to design from">
+            {pitches.map((p) => (
+              <button key={p.type} type="button" className={`bp-key-chip${base && base.type === p.type ? " on" : ""}`} aria-pressed={base && base.type === p.type} onClick={() => setPick(p.type)}>
+                <span className="bp-dot" style={{ background: colorOf(p.type) }} />{p.type} <small>{p.qty}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        {!pitches.length && !(source === "mlb" && mlb.loading) && <p className="assess-row-note">No pitches here with velo, spin and movement to design from.</p>}
+        {base && out && (
+          <React.Fragment>
+            <div className="pd-top">
+              <SpinControls ctl={spinCtl} set={setSpinCtl} />
+              <button type="button" className="btn btn-small-grey" onClick={() => setD(startOf(base))}>Reset to his {base.type.toLowerCase()}</button>
+            </div>
+            <div className="pd-grid">
+              <div className="pd-col">
+                <h3>Now</h3>
+                <SpinBall key={`now-${baseKey}`} s={ballNow} ctl={spinCtl} size={200} />
+              </div>
+              <div className="pd-col">
+                <h3>Designed</h3>
+                <SpinBall key={`new-${baseKey}`} s={ballNew} ctl={spinCtl} size={200} />
+              </div>
+              <div className="pd-col pd-controls">
+                <h3>Change it</h3>
+                {slider("Velo", "velo", Math.round((start.velo - 10) * 2) / 2, Math.round((start.velo + 10) * 2) / 2, 0.5, (v) => `${v.toFixed(1)} mph`, (v) => `${sign(v)} mph`)}
+                {slider("Spin rate", "spin", Math.max(0, Math.round(start.spin - 1000)), Math.round(start.spin + 1000), 10, (v) => `${Math.round(v)} rpm`, (v) => `${sign(v, 0)} rpm`)}
+                {slider("Spin direction", "tilt", start.tilt - 360, start.tilt + 360, 5, (v) => tiltText(wrapMin(v)), (v) => `${v > 0 ? "+" : "−"}${Math.floor(Math.abs(v) / 60)}:${String(Math.round(Math.abs(v) % 60)).padStart(2, "0")}`)}
+                {slider("Spin efficiency", "eff", 0, 100, 1, (v) => `${Math.round(v)}% · ${100 - Math.round(v)}% gyro`, (v) => `${sign(v, 0)}%`)}
+                {slider("Seam effects", "seam", -Math.max(120, Math.abs(start.seam) + 30), Math.max(120, Math.abs(start.seam) + 30), 5, (v) => seamText(v), (v) => `${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) / 2)}°`)}
+                <div className="pd-seam-btns">
+                  <button type="button" className={`bp-mod-btn${dd.seam === start.seam ? " on" : ""}`} onClick={() => set("seam", start.seam)}>As he throws it</button>
+                  <button type="button" className={`bp-mod-btn${dd.seam === 0 ? " on" : ""}`} onClick={() => set("seam", 0)}>None (spin only)</button>
+                </div>
+              </div>
+            </div>
+            <div className="pd-grid pd-results">
+              <div className="bp-table-wrap">
+                <table className="assess-table bp-table pd-table">
+                  <thead><tr><th></th><th>Now</th><th>Designed</th><th>Change</th></tr></thead>
+                  <tbody>{rows.map(([k, a, b, c]) => <tr key={k}><td>{k}</td><td>{a}</td><td><b>{b}</b></td><td className={c && c !== "–" ? "pd-chg" : ""}>{c}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <DesignChart pitches={pitches} base={base} out={out} />
+            </div>
+            <p className="timestamp-note">
+              Predicted from the change in Magnus lift (Alan Nathan's model of how lift grows with active spin for the speed), scaled from this pitch's own measured break, so leaving everything as is predicts no change. Spin direction is the pitcher's clock, as TrackMan's tilt; horizontal break is the pitcher's view (+ to his right).
+              {Math.abs(start.seam) >= 6
+                ? ` Seam effects: his ${base.type.toLowerCase()} moves ${seamText(start.seam)} of where its spin sends it (seen from behind the pitcher), about ${seamInches(mNow, start.seam).toFixed(1)}" of its movement, from the wake its seams shift. The design starts there and lets you set it (+ clockwise): two-seam sinkers and changeups often run 15–30° off their spin, a clean four-seamer close to none.`
+                : " This pitch moves close to where its spin sends it, so little of its movement is seam effects; set some with the slider to see what a seam-shifted wake would add (two-seam sinkers and changeups often run 15–30° off their spin)."}
+              {base.spinEff == null ? ` This pitch has no spin efficiency on file, so ${ASSUMED_EFF}% is assumed.` : ""}
+              {" "}It's a guide for small changes: a big change in grip or axis can change the seam effects too, which no model of spin alone can see.
+            </p>
+          </React.Fragment>
+        )}
+      </div>
+    );
+  }
+
   window.BullpensTab = BullpensTab;
+  window.PitchDesignTab = PitchDesignTab; // the Pitching tab's Pitch Design (index.html)
   window.MlbArsenalPanel = MlbArsenal; // the Statcast tab's Savant arsenal, spin and comps (index.html)
   window.BullpenKit = { importReports, typeStats, resultText, FASTBALLS, livePitches, SpinBall };
 })();
