@@ -1989,8 +1989,17 @@
       const scan = (store.getBodyComp ? store.getBodyComp(athlete.id) : []).slice().reverse().find((s) => s.weightLb || s.weightKg);
       const plate = forceTests().slice().reverse().find((t) => typeof t.systemWeight === "number" && t.systemWeight > 300);
       const weightLb = scan ? scan.weightLb || scan.weightKg * 2.20462 : plate ? plate.systemWeight / 4.44822 : null;
+      // results sent to his biomechanical assessment: his latest from the last two weeks, or a new one dated today
+      const fillAssessment = async (entries) => {
+        const today = new Date().toISOString().slice(0, 10), recent = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+        const list = store.getAssessments ? store.getAssessments(athlete.id) : [];
+        const last = list.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).pop();
+        const base = last && (last.date || "") >= recent ? last : { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, athleteId: athlete.id, date: today, coach: "" };
+        store.saveAssessment(window.MoCap.lib.applyToAssessment(base, entries));
+        return base === last ? `the ${last.date} assessment` : `a new assessment dated ${today}`;
+      };
       window.MoCap.mount(box, {
-        kind, forceTests, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb },
+        kind, forceTests, fillAssessment, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
         onDelete: async (rec) => { store.deleteAssessment(rec.id); },
         saveAny: async (rec) => { store.saveAssessment(rec); }, // another pitcher's session, re-run (it keeps its own athleteId)

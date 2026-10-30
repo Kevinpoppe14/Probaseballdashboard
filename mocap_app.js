@@ -63,7 +63,7 @@
   }
 
   // which movement: pitching (pitchers and coaches), hitting, a sprint or a jump (anyone)
-  const KINDS = [["pitching", "Pitching", "a delivery"], ["hitting", "Hitting", "a swing"], ["sprint", "Sprint", "a start or a fly sprint"], ["jump", "Jump", "a jump"]];
+  const KINDS = [["pitching", "Pitching", "a delivery"], ["hitting", "Hitting", "a swing"], ["sprint", "Sprint", "a start or a fly sprint"], ["jump", "Jump", "a jump"], ["screen", "Movement Screen", "a screen test (ROM, overhead squat)"]];
   let kind = "pitching";
   function chooseKind() {
     sheet(el("h2", null, "Motion Capture"), note("What are you filming?"),
@@ -114,6 +114,19 @@
         const res = await sb.from("assessments").upsert({ id: rec.id, athlete_id: String(p.id), data: record });
         if (res.error) throw new Error("check your connection and try again");
         history = [...history.filter((h) => h.id !== record.id), record];
+      },
+      // results sent to his biomechanical assessment: his latest from the last two weeks, or a new one dated today
+      fillAssessment: async (entries) => {
+        const { data, error } = await sb.from("assessments").select("id, data").eq("athlete_id", String(p.id)).limit(500);
+        if (error) throw new Error("check your connection and try again");
+        const today = new Date().toISOString().slice(0, 10), recent = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+        const last = (data || []).map((r) => ({ ...r.data, id: r.data.id || r.id })).filter((r) => !r.kind && r.date).sort((a, b) => a.date.localeCompare(b.date)).pop();
+        const athleteId = /^\d+$/.test(String(p.id)) ? Number(p.id) : p.id;
+        const base = last && last.date >= recent ? last : { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, athleteId, date: today, coach: "" };
+        const rec = window.MoCap.lib.applyToAssessment(base, entries);
+        const res = await sb.from("assessments").upsert({ id: rec.id, athlete_id: String(p.id), data: rec });
+        if (res.error) throw new Error("check your connection and try again");
+        return base === last ? `the ${last.date} assessment` : `a new assessment dated ${today}`;
       },
       // another pitcher's session, re-run from here: saved to him
       saveAny: async (rec) => {

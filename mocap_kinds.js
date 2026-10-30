@@ -285,11 +285,12 @@
     // nothing at vmax, and power peaks at F0·vmax/4), which projects his times over longer distances
     steps.forEach((s) => { s.speed = s.len != null && s.stepT && mPx ? (s.len * Hpx * mPx) / s.stepT : null; });
     const kg = weightKg || null;
-    let splits = [], fv = null;
+    let splits = [], fv = null, tenYd = null;
     if (start && mPx) {
       const vMs = hipV.map((v) => (v == null ? null : v * Hpx * mPx)), x0 = hips[ST][0];
       const at = (d) => hips.findIndex((h, k) => k >= ST && dir * (h[0] - x0) * mPx >= d);
       splits = [1, 2, 3, 5, 10, 15, 20].map((d) => { const i = at(d); return i < 0 ? null : { d, ms: Math.round((tReal[i] - tReal[ST]) * 1000), v: vMs[i] }; }).filter(Boolean);
+      tenYd = (() => { const i = at(9.144); return i < 0 ? null : tReal[i] - tReal[ST]; })();
       const ts = [], vs = [];
       // (fitted from the first move to a little before the clip's end, where the smoothing runs out of frames)
       for (let i = ST; i < n - Math.ceil(sig * 6); i++) if (vMs[i] != null) { ts.push(tReal[i] - tReal[ST]); vs.push(Math.max(0, vMs[i])); }
@@ -350,6 +351,7 @@
           rows: splits.map((s) => [`${s.d} m (${(s.d / 0.9144).toFixed(1)} yd)`, `${(s.ms / 1000).toFixed(2)} s`, s.v == null ? null : `${s.v.toFixed(1)} m/s (${mph(s.v).toFixed(1)} mph)`]),
         } : null,
       ].filter(Boolean),
+      assessment: start && start !== "steal" && (tenYd != null || fv) ? [{ section: "performanceTesting", key: "tenYdStart", value: tenYd != null ? `${tenYd.toFixed(2)} s` : `${fv.timeTo(9.144).toFixed(2)} s (projected)` }] : [],
       hint: `${START_NAMES[start || "maxv"]}. ${steps.length < 2 ? "Fewer than two ground contacts were found: check that his feet stay in the picture and the camera doesn't move. " : ""}Contact and flight times are only as fine as the frames: at 240 fps each frame is 4 ms. ${mPx ? "" : "Enter his height for speed in m/s and lengths in feet and inches. "}Joint angles from video are good to about 5 to 10 degrees.${fvNote}`,
     };
   }
@@ -448,6 +450,7 @@
       n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs,
       events: { ST, LO, TO, PK, LA }, evLabels: { ST: "Start", LO: "Bottom", TO: "Takeoff", PK: "Peak", LA: "Landing" },
       phaseKeys: ["LO", "TO", "PK", "LA"], zeroKey: "TO", groundKey: "LO",
+      assessment: !broad && !single && heightM != null ? [{ section: "performanceTesting", key: "cmj", value: `${(heightM / 0.0254).toFixed(1)}"` }] : [],
       metrics: metrics.filter(Boolean),
       series: { kneeFlex, hipFlex, trunkLean, hipVy },
       charts: [

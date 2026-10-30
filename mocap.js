@@ -1659,6 +1659,19 @@
           el("p", { class: "mc-hint" }, `The report goes as a PDF, sent from your own email address${sk3d ? ", with the 3D skeleton as it's set now" : ""}.`),
           el("div", { class: "mc-row" }, sendBtn, el("button", { type: "button", class: "mc-btn ghost", onclick: close }, "Cancel"), msg)));
       };
+      // Send to assessment: what this clip measured, into his biomechanical assessment (the host finds or starts it)
+      const assessMsg = el("span", { class: "mc-status", role: "status" });
+      const sendAssess = async () => {
+        const list = assessmentWords(R.assessment);
+        const q = { title: "Send to his biomechanical assessment?", text: `${list.join("; ")}. It goes into his latest assessment from the last two weeks, or a new one dated today.`, ok: "Send" };
+        if (!(window.askConfirm ? await window.askConfirm(q) : window.confirm(`${q.title} ${q.text}`))) return;
+        assessMsg.textContent = "Sending…";
+        try { const where = await opts.fillAssessment(R.assessment); assessMsg.textContent = `Filled in on ${where}: ${list.join("; ")}.`; } catch (e) { assessMsg.textContent = `Couldn't fill it in (${(e && e.message) || e}).`; }
+      };
+      const assessRow = R.assessment && R.assessment.length && opts.fillAssessment
+        ? el("div", { class: "mc-report" }, el("div", { class: "mc-row" }, el("b", null, "Biomechanical assessment"), el("button", { type: "button", class: "mc-btn small", onclick: sendAssess }, "Send to assessment"), assessMsg),
+          el("p", { class: "mc-hint" }, `Fills in: ${assessmentWords(R.assessment).join("; ")}.`))
+        : null;
       const reportRow = el("div", { class: "mc-report" },
         el("div", { class: "mc-row" }, el("b", null, "Report"),
           el("button", { type: "button", class: "mc-btn ghost small", onclick: printIt }, "Print"),
@@ -1682,7 +1695,7 @@
         el("p", { class: "mc-hint" }, R.hint ? R.hint : R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
           : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at release. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
-        reportRow,
+        assessRow, reportRow,
         opts.onSave ? el("div", { class: "mc-save" }, note,
           saved ? null : el("label", { class: "mc-keep" }, keep, " Also keep the video, to replay it with the skeleton later (needs room in storage)"),
           el("div", { class: "mc-row" },
@@ -1790,8 +1803,45 @@
     return { n, tReal, dt, perSec, sig, med, pts, wpts, fr, Hpx: longest(pts, leg2) / 0.49, wLegs: longest(wpts, leg3) };
   }
 
+  // Results laid into a biomechanical assessment record (assessment.js): a ROM or performance number into its left or
+  // right cell (a single-value test's into left); a movement test's pass or fail for the side, joined with the other
+  // side's ("L & R"), and its reading added to the notes (replacing this side's last video reading); an overhead squat
+  // finding marked (never unmarked: video only adds what it saw). A copy comes back; the one given isn't touched.
+  function applyToAssessment(rec, entries) {
+    const out = JSON.parse(JSON.stringify(rec || {}));
+    const at = (path) => { let o = out; path.forEach((k) => { if (!o[k] || typeof o[k] !== "object") o[k] = {}; o = o[k]; }); return o; };
+    const sidesIn = (v) => new Set(v === "L & R" || v === "L/R" ? ["L", "R"] : v ? [v] : []);
+    const word = (set) => (set.has("L") && set.has("R") ? "L & R" : set.has("L") ? "L" : set.has("R") ? "R" : "");
+    (entries || []).forEach((e) => {
+      if (e.section === "isolatedSpecific" || e.section === "performanceTesting") at([e.section, e.key])[e.side || "left"] = e.value;
+      else if (e.section === "movementTests") {
+        const cell = at(["movementTests", e.key]), s = e.side === "right" ? "R" : "L";
+        const pass = sidesIn(cell.pass), fail = sidesIn(cell.fail);
+        if (e.pass != null) { (e.pass ? pass : fail).add(s); (e.pass ? fail : pass).delete(s); }
+        cell.pass = word(pass); cell.fail = word(fail);
+        if (e.note) {
+          const kept = String(cell.notes || "").split("; ").filter((x) => x && !(x.startsWith(`${s} `) && x.endsWith("(video)")));
+          cell.notes = [...kept, `${s} ${e.note} (video)`].join("; ");
+        }
+      } else if (e.section === "squat" && e.check) {
+        const cell = at(["squat", ...e.path]);
+        if (e.side) cell[e.side] = { ...(cell[e.side] || {}), c1: true }; else cell.c1 = true;
+      }
+    });
+    return out;
+  }
+  // the same, in words, for asking before and saying after
+  const ASSESS_NAMES = { activeStraightLegRaise: "Active straight leg raise", modifiedThomasTest: "Modified Thomas test", proneHipExtension: "Prone hip extension", singleLegBalance: "Single-leg balance", seatedThoracicRotation: "Seated thoracic rotation", hamstringLengthPslr: "Hamstring (pSLR)", hamstringLength9090: "Hamstring (90/90)", shoulderFlexRom: "Shoulder flexion", shoulderErRom: "Shoulder ER", shoulderIrRom: "Shoulder IR", elbowExtRom: "Elbow extension", elbowFlexRom: "Elbow flexion", hipIrSupine: "Hip IR (supine)", hipErSupine: "Hip ER (supine)", hipIrProne: "Hip IR (prone)", hipErProne: "Hip ER (prone)", ankleDorsiflexion: "Ankle dorsiflexion", cmj: "CMJ", tenYdStart: "10yd start", adduction: "Overhead squat: knee adduction", frontalPlaneWeightShift: "Overhead squat: weight shift", barDriftForward: "Overhead squat: arms fall forward", forwardHead: "Overhead squat: forward head" };
+  function assessmentWords(entries) {
+    return (entries || []).map((e) => {
+      const name = ASSESS_NAMES[e.key || (e.path || [])[(e.path || []).length - 1]] || e.key;
+      const side = e.side && e.section !== "performanceTesting" ? `, ${e.side}` : "";
+      return e.section === "movementTests" ? `${name}${side}: ${e.pass == null ? "" : e.pass ? "pass, " : "fail, "}${e.note || ""}` : e.section === "squat" ? `${name}${side}` : `${name}${side}: ${e.value}`;
+    });
+  }
+
   window.MoCap = {
     mount, analyze, sequenceBlock, HOW_TO, bodyOf, poseNumbers, kinds: KINDS,
-    lib: { P, sidesOf, clean, applyEdits, mid, angleAt, deriv, unwrap, argBest, smoothSeries, comOf, r1, deg, wrapDeg, prepare, groundForce, forceMetrics },
+    lib: { P, sidesOf, clean, applyEdits, mid, angleAt, deriv, unwrap, argBest, smoothSeries, comOf, r1, deg, wrapDeg, prepare, groundForce, forceMetrics, applyToAssessment },
   };
 })();

@@ -67,6 +67,7 @@
 <script src="trackman_import.js"></script>
 <script src="mocap.js"></script>
 <script src="mocap_kinds.js"></script>
+<script src="mocap_screen.js"></script>
 <script type="text/babel" data-presets="react" src="bullpen_video.js"></script>
 <script type="text/babel" data-presets="react" src="bullpens.js"></script>
 <script type="text/babel" data-presets="react" src="pitching_assessment.js"></script>
@@ -6995,7 +6996,7 @@ function ThrowingProgramsPanel({ athlete, onOpen }) {
 }
 
 // the tabs grouped under Assessments on a player profile
-const ASSESSMENT_TABS = ["assessment", "reassess", "bodycomp"];
+const ASSESSMENT_TABS = ["assessment", "screen", "reassess", "bodycomp"];
 const PITCHING_TABS = ["pitching", "bullpens", "design", "mocap", "statcast", "throwing"]; // pitchers only: the Pitching tab
 const HITTING_TABS = ["statcast", "throwing", "hitmocap"]; // everyone else: the Hitting / Fielding tab, their Statcast, Throwing Progression and swing motion capture
 const MOVEMENT_TABS = ["sprint", "jump"]; // everyone: the Movement tab, sprint and jump motion capture
@@ -7104,6 +7105,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       {ASSESSMENT_TABS.includes(activeTab) && (
         <div className="pill-tabs profile-subtabs no-print">
           <button className={`pill-tab ${activeTab === "assessment" ? "active" : ""}`} data-tab="assessment" onClick={() => setActiveTab("assessment")}>Biomechanical</button>
+          <button className={`pill-tab ${activeTab === "screen" ? "active" : ""}`} data-tab="screen" onClick={() => setActiveTab("screen")}>Movement Screen</button>
           <button className={`pill-tab ${activeTab === "reassess" ? "active" : ""}`} data-tab="reassess" onClick={() => setActiveTab("reassess")}>Re-Assessment</button>
           <button className={`pill-tab ${activeTab === "bodycomp" ? "active" : ""}`} data-tab="bodycomp" onClick={() => setActiveTab("bodycomp")}>Body Composition</button>
         </div>
@@ -7231,6 +7233,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       {!isPitcher && activeTab === "hitmocap" && window.MoCapTab && <window.MoCapTab key="hitting" athlete={athlete} kind="hitting" />}
       {activeTab === "sprint" && window.MoCapTab && <window.MoCapTab key="sprint" athlete={athlete} kind="sprint" />}
       {activeTab === "jump" && window.MoCapTab && <window.MoCapTab key="jump" athlete={athlete} kind="jump" />}
+      {activeTab === "screen" && window.MoCapTab && <window.MoCapTab key="screen" athlete={athlete} kind="screen" />}
       <div className={activeTab === "throwing" ? "" : "tab-hidden"}>
         {isPitcher && <ThrowingProgramsPanel athlete={athlete} onOpen={(nav) => { setProgramOpen(nav); setActiveTab("programming"); }} />}
         {window.ThrowingProgressionTab && <window.ThrowingProgressionTab athlete={athlete} />}
