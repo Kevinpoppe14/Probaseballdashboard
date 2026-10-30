@@ -677,7 +677,14 @@
   .timer-mini button.mini-minus, .timer-mini button.mini-plus, .timer-mini button.mini-expand { height: 36px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 14px; font-weight: 700; }
   .timer-mini button.mini-plus { background: var(--accent); border-color: var(--accent); color: #fff; }
   .timer-mini button.mini-minus { width: 36px; padding: 0; }
+  /* Coach tab › Motion Capture (mocap_app.js): the tool full screen over the app */
+  .mc-app-layer { position: fixed; inset: 0; z-index: 40; overflow-y: auto; background: var(--bg); padding: calc(10px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom)); }
+  body.mc-app-open { overflow: hidden; }
+  .mc-app-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .mc-app-back, .mc-app-close { background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text); height: 36px; padding: 0 12px; font-size: 15px; }
+  .mc-app-close { width: 36px; padding: 0; font-size: 20px; }
 </style>
+<link rel="stylesheet" href="mocap.css" />
 </head>
 <body>
 <div id="app"><div class="empty">Loading your program…</div></div>
@@ -691,6 +698,8 @@
 <script src="tour.js"></script>
 <script src="foods_db.js"></script>
 <script src="nutrition_engine.js"></script>
+<script src="mocap.js"></script>
+<script src="mocap_app.js"></script>
 <script src="athlete.js"></script>
 </body>
 </html>

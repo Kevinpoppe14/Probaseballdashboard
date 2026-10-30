@@ -1363,6 +1363,7 @@
         el("button", { class: "primary", onclick: to("coach.html?from=app") }, "Coach Mode"),
         el("button", { class: "primary", onclick: to("index.html?from=app") }, "Dashboard"),
         quickTools(),
+        window.MoCapApp ? el("button", { class: "primary", onclick: () => window.MoCapApp.open({ overlay, close: closeVideo }) }, "Motion Capture") : null,
         el("button", { onclick: closeVideo }, "Cancel"))));
     overlay.className = "overlay show";
   }
