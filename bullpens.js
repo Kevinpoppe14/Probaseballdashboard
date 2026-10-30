@@ -201,7 +201,7 @@
   const mirrorM = (u) => [0, 1, 2].map((i) => [0, 1, 2].map((j) => (i === j ? 1 : 0) - 2 * u[i] * u[j]));
 
   // ---- what's printed on the ball, all in the navy of an MLB ball's stamps -----------------------------------------
-  // On the sweet spot (the narrow waist between the seams), "★ OFFICIAL ★ / LEAGUE BASEBALL" over Kevin Poppe's
+  // On the sweet spot (the narrow waist between the seams), "★ OFFICIAL ★ / DYNAMIC SPORTS TRAINING" over Kevin Poppe's
   // signature; above the seam beyond it, "Pitching" in a script like Rawlings'; below the other seam, a navy plate
   // with the DST logo cut out of it. Each is drawn once into an alpha map, then painted onto the turning sphere pixel
   // by pixel (each pixel on the ball traced back to the ball's own surface, and into the stamp laid flat there).
@@ -213,7 +213,7 @@
     return { d: [up[0] * Math.sin(a), up[1] * Math.sin(a), Math.cos(a)], R: across, U: [up[0] * Math.cos(a), up[1] * Math.cos(a), -Math.sin(a)], hw, hh };
   };
   const DECALS = [
-    { ...placed(0, 0.46, 0.32), key: "stamp" },
+    { ...placed(0, 0.6, 0.32), key: "stamp" },
     { ...placed(50, 0.6, 0.19), key: "script" },
     { ...placed(-53, 0.24, 0.13), key: "plate" },
   ];
@@ -244,13 +244,14 @@
     const logoIn = new Promise((ok) => { logo.onload = ok; logo.onerror = ok; logo.src = "assets/dst-logo.png"; });
     const fonts = document.fonts ? Promise.all(["800 96px 'Barlow Condensed'", "150px Yellowtail", "120px 'Mrs Saint Delafield'"].map((f) => document.fonts.load(f).catch(() => null))) : Promise.resolve();
     decalsReady = Promise.all([logoIn, fonts]).then(() => {
-      decalMaps.stamp = alphaMap(680, 480, (g, w) => {
+      decalMaps.stamp = alphaMap(900, 480, (g, w) => {
         g.textAlign = "center"; g.textBaseline = "alphabetic";
         g.font = "800 112px 'Barlow Condensed', 'Arial Narrow', sans-serif";
         const ow = g.measureText("OFFICIAL").width;
         g.fillText("OFFICIAL", w / 2, 130);
         star(g, w / 2 - ow / 2 - 50, 92, 30); star(g, w / 2 + ow / 2 + 50, 92, 30);
-        fitText(g, "LEAGUE BASEBALL", w / 2, 260, 660);
+        g.font = "800 100px 'Barlow Condensed', 'Arial Narrow', sans-serif";
+        fitText(g, "DYNAMIC SPORTS TRAINING", w / 2, 255, 880);
         g.font = "150px 'Mrs Saint Delafield', 'Brush Script MT', cursive";
         fitText(g, "Kevin Poppe", w / 2, 410, 520);
       });
