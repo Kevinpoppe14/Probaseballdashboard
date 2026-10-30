@@ -103,6 +103,11 @@
         if (res.error) throw new Error("check your connection and try again");
         history = [...history.filter((h) => h.id !== record.id), record];
       },
+      // another pitcher's session, re-run from here: saved to him
+      saveAny: async (rec) => {
+        const res = await sb.from("assessments").upsert({ id: rec.id, athlete_id: String(rec.athleteId), data: rec });
+        if (res.error) throw new Error("check your connection and try again");
+      },
       onDelete: async (rec) => {
         const res = await sb.from("assessments").delete().eq("id", rec.id);
         if (res.error) throw new Error("check your connection and try again");

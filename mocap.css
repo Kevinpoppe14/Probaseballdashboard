@@ -90,3 +90,6 @@
 .mc-email-form input, .mc-email-form textarea { width: 100%; box-sizing: border-box; font: inherit; }
 .mc-3d label, .mc-compare label { max-width: 100%; min-width: 0; }
 .mc-3d select { max-width: 100%; min-width: 0; }
+/* re-running saved sessions */
+.mc-rerun { margin: 4px 0 10px; }
+.mc-old { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #b7791f; border: 1px solid #b7791f; white-space: nowrap; }

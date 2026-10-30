@@ -16,6 +16,11 @@
   // the larger, slower, more accurate of the pose models (better on a fast arm), and the standard one to fall back on
   const MODELS = ["https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task", "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task"];
   const MAX_FRAMES = 900; // at most this many frames of a clip are analyzed (a long high-speed clip is thinned evenly)
+  // Which analysis and which tracking a saved session's numbers come from. Raise ANALYSIS_V when a change to analyze()
+  // changes the numbers, and TRACK_V when a change to track() changes where the points land: sessions saved before
+  // then show as older, and can be re-run (Saved sessions › Re-run, or Re-track from their kept video).
+  // (A session saved before these were kept counts as 1 of each.)
+  const ANALYSIS_V = 2, TRACK_V = 1;
 
   const el = (tag, attrs, ...kids) => {
     const n = document.createElement(tag);
@@ -115,13 +120,18 @@
   // × 33] }. Each frame is looked at fresh (the model's own frame-to-frame following lags a fast arm, or loses it when
   // the hand leaves the area it was watching), on a crop around where he was the frame before, with plenty of room for
   // the arm to reach into, so he fills more of what the model sees. If he isn't found there, the whole frame is tried.
-  async function track(v, t0, t1, fps, onProgress) {
+  // (`times`, given, are the exact moments to look at: a session tracked again looks at the same frames it did before,
+  // so its moments set by hand and its fixed points still line up)
+  async function track(v, t0, t1, fps, onProgress, times) {
     const lm = await model();
-    const step = Math.max(1 / fps, (t1 - t0) / MAX_FRAMES);
+    const step = times ? (times.length > 1 ? times[1] - times[0] : 1 / fps) : Math.max(1 / fps, (t1 - t0) / MAX_FRAMES);
+    if (!times) { times = []; for (let t = t0; t <= t1 + 1e-6; t += step) times.push(t); }
+    t0 = times[0]; t1 = times[times.length - 1];
     const W = v.videoWidth, H = v.videoHeight, out = [];
     const crop = document.createElement("canvas"), cctx = crop.getContext("2d");
     let box = null;
-    for (let t = t0, i = 0; t <= t1 + 1e-6; t += step, i++) {
+    for (let i = 0; i < times.length; i++) {
+      const t = times[i];
       await seek(v, t);
       let res = null, bx = 0, by = 0, bw = W, bh = H;
       if (box) {
@@ -554,6 +564,21 @@
   });
   // the PDF's own fonts have no arrows or the like
   const pdfSafe = (s) => String(s == null ? "" : s).replace(/→/g, "to").replace(/[≈~]/g, "about ").replace(/[^\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, "");
+  // what a saved session keeps of an analysis: the numbers with their labels, the moments (ms from foot strike), a
+  // thinned copy of the curves, the sequence, and which analysis made them
+  function summaryOf(R) {
+    const S = R.series;
+    const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
+    return {
+      rotSource: R.rotSource,
+      metrics: Object.fromEntries(R.metrics.map((m) => [m.key, m.value])),
+      labels: Object.fromEntries(R.metrics.map((m) => [m.key, [m.label, m.unit, m.range]])),
+      events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)])),
+      series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), armV: thin(S.armV), elbowV: thin(S.elbowV), comV: thin(S.comV) },
+      sequence: R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })), inOrder: R.inOrder,
+      analysisV: ANALYSIS_V,
+    };
+  }
   const setupName = (s) => (s === "two" ? "Two cameras" : s === "edger" ? "Edgertronic" : "One camera");
   const EV_LABEL = { LL: "Leg lift", FS: "Foot strike", MER: "Max layback", BR: "Release" };
   // a small line chart of one curve through the delivery, with the moments marked
@@ -815,15 +840,10 @@
         }
       }
       if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; store.elbowDepth = state.elbowDepth !== false; }
-      const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
       const rec = {
         id, kind: "mocap", athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
-        setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, captureFps: state.cap, rotSource: R.rotSource,
-        metrics: Object.fromEntries(R.metrics.map((m) => [m.key, m.value])),
-        labels: Object.fromEntries(R.metrics.map((m) => [m.key, [m.label, m.unit, m.range]])),
-        events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - R.tReal[R.events.FS]) * 1000)])),
-        series: { t: thin(R.tReal.map((t) => (t - R.tReal[R.events.FS]) * 1000)), kneeFlex: thin(S.kneeFlex), trunkFwd: thin(S.trunkFwd), sep: thin(S.sep), pelvisV: thin(S.pelvisV), trunkV: thin(S.trunkV), armV: thin(S.armV), elbowV: thin(S.elbowV), comV: thin(S.comV) },
-        sequence: R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })), inOrder: R.inOrder,
+        setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, captureFps: state.cap,
+        ...summaryOf(R), trackV: was ? was.trackV || 1 : TRACK_V,
         note, files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean), store,
       };
       await opts.onSave(rec);
@@ -1080,6 +1100,74 @@
       };
       return { node: box, setFrame: (i) => { frame = i; paint3D(); }, report, describe };
     }
+
+    // ---- saved sessions worked out again --------------------------------------------------------------------------
+    // Re-run: a session's kept points through the analysis as it is now (quick); its moments set by hand, fixed points
+    // and settings stay. Re-track: its kept video through the pose model again first, at the same frames (a minute or
+    // two each), for when the tracking itself has improved. Either way its saved numbers, curves and sequence are replaced.
+    const isOld = (rec) => (rec.analysisV || 1) < ANALYSIS_V;
+    const trackOld = (rec) => (rec.trackV || 1) < TRACK_V;
+    const canRerun = (rec) => !!(rec.store && rec.store.path);
+    const canRetrack = (rec) => canRerun(rec) && !!rec.store.sideVideo && (rec.setup !== "two" || !!rec.store.behindVideo);
+    async function rerun(rec, retrack, onProgress) {
+      const dl = await sbc().storage.from(STORE).download(rec.store.path);
+      if (dl.error) throw dl.error;
+      const data = JSON.parse(await dl.data.text());
+      let side = unpack(data.side), behind = data.behind ? unpack(data.behind) : null, trackV = rec.trackV || 1;
+      if (retrack) {
+        await model();
+        const again = async (tr, path, name) => {
+          const s = await sbc().storage.from(STORE).createSignedUrl(path, 3600);
+          if (s.error || !s.data) throw new Error(`couldn't open the ${name} video`);
+          const v = await openVideo(s.data.signedUrl);
+          try {
+            const out = await track(v, 0, 0, 30, (p) => onProgress && onProgress(`${name} video, ${Math.round(p * 100)}%`), tr.frames.map((f) => f.t));
+            return { W: out.W, H: out.H, frames: out.frames };
+          } finally { v.remove(); }
+        };
+        side = await again(side, rec.store.sideVideo, "open side");
+        if (behind && rec.store.behindVideo) behind = await again(behind, rec.store.behindVideo, "behind");
+        const body = JSON.stringify({ v: 1, side: pack(side), behind: behind ? pack(behind) : null });
+        const up = await sbc().storage.from(STORE).upload(rec.store.path, new Blob([body], { type: "application/json" }), { contentType: "application/json", upsert: true });
+        if (up.error) throw up.error;
+        trackV = TRACK_V;
+      }
+      const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
+      const R = analyze({
+        side, behind: rec.setup === "two" ? behind : null, throws: rec.throws || "R", heightIn: rec.heightIn || null, captureFps: cap,
+        sideScale: (rec.store.sideFps || 30) / cap, behindScale: (rec.store.behindFps || 30) / cap, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false,
+      });
+      const { _athlete, _name, _mine, ...kept } = rec; // eslint-disable-line no-unused-vars
+      const athleteId = kept.athleteId != null ? kept.athleteId : _athlete ? (/^\d+$/.test(_athlete) ? Number(_athlete) : _athlete) : athlete.id;
+      return { ...kept, athleteId, ...summaryOf(R), trackV, rerunAt: new Date().toISOString() };
+    }
+    // one after another, saying how far along it is; another pitcher's session is saved to him (opts.saveAny)
+    async function rerunMany(list, retrack, label) {
+      if (state.rerunning || !list.length) return;
+      state.rerunning = true;
+      const failed = [];
+      const say = (s) => { state.rerunMsg = s; root.querySelectorAll(".mc-rerun-msg").forEach((m) => { m.textContent = s; }); };
+      root.querySelectorAll(".mc-rerun button").forEach((b) => { b.disabled = true; });
+      for (let k = 0; k < list.length; k++) {
+        const rec = list[k], who = `${rec._name && rec._athlete !== String(athlete.id) ? `${rec._name}, ` : ""}${rec.date || ""}`;
+        say(`${label} ${k + 1} of ${list.length} (${who})…`);
+        try {
+          const out = await rerun(rec, retrack, (p) => say(`${label} ${k + 1} of ${list.length} (${who}): tracking the ${p}…`));
+          if (rec._athlete && rec._athlete !== String(athlete.id)) await opts.saveAny(out);
+          else await opts.onSave(out);
+          delete loaded[out.id]; // the 3D comparison reads it afresh
+          if (state.saved && state.saved.id === out.id) state.saved = out;
+        } catch (e) { failed.push(`${who}: ${(e && e.message) || e}`); }
+      }
+      state.rerunning = false;
+      state.dir = null; // every pitcher's sessions read again next time, with their new numbers
+      state.rerunMsg = `${label} done: ${list.length - failed.length} of ${list.length} updated.${failed.length ? ` Couldn't do ${failed.join("; ")}.` : ""}`;
+      const h = root.querySelector(".mc-history");
+      if (h) h.replaceWith(historyBlock());
+      // the report that's open is worked out with the latest analysis already; reopened if it was re-tracked
+      if (retrack && state.saved && list.some((r) => r.id === state.saved.id)) openSaved(state.saved);
+    }
+    const askFirst = async (title, text, ok) => (window.askConfirm ? window.askConfirm({ title, text, ok }) : window.confirm(`${title} ${text}`));
 
     const backToStart = () => { if (state.side && state.side.video) state.side.video.remove(); if (state.behind && state.behind.video) state.behind.video.remove(); state.result = null; state.summary = null; state.saved = null; state.manual = null; state.edits = {}; state.side = null; state.behind = null; render(); };
 
@@ -1530,13 +1618,38 @@
       if (!list.length) return el("div", { class: "mc-history" });
       const keys = ["stride", "kneeFS", "kneeExt", "trunkBR", "sepMax", "fsbr", "comPeak"];
       const labelOf = (key) => { const r = list.find((x) => x.labels && x.labels[key]); return r ? r.labels[key][0].replace(/ \(estimate\)$/, "") : key; };
-      return el("div", { class: "mc-history" }, el("h3", null, "Saved sessions"),
+      // working them out again with the latest analysis (or tracking), his, or every pitcher's
+      const kept = list.filter(canRerun), older = kept.filter(isOld), vids = kept.filter(canRetrack), oldTrack = vids.filter(trackOld);
+      const busy = !!state.rerunning;
+      const them = (n) => (n === 1 ? "it" : `all ${n}`);
+      const rerunBar = el("div", { class: "mc-rerun" },
+        el("div", { class: "mc-row" },
+          kept.length ? el("button", { type: "button", class: `mc-btn ${older.length ? "" : "ghost "}small`, disabled: busy, onclick: () => rerunMany(kept, false, "Re-running") }, `Re-run ${them(kept.length)} with the latest analysis`) : null,
+          vids.length ? el("button", { type: "button", class: `mc-btn ${oldTrack.length ? "" : "ghost "}small`, disabled: busy, onclick: async () => {
+            if (await askFirst(`Re-track ${them(vids.length)} from video?`, `Each kept video goes through the pose model again (a minute or two each, on this device; keep this page open), then its numbers are worked out again. Moments set by hand and fixed points stay.`, "Re-track")) rerunMany(vids, true, "Re-tracking");
+          } }, `Re-track ${them(vids.length)} from video`) : null,
+          opts.saveAny ? el("button", { type: "button", class: "mc-btn ghost small", disabled: busy, onclick: async () => {
+            let all;
+            try { all = (await directory()).recs; } catch (e) { state.rerunMsg = `Couldn't read the other sessions (${(e && e.message) || e}).`; const h = root.querySelector(".mc-history"); if (h) h.replaceWith(historyBlock()); return; }
+            if (await askFirst(`Re-run every pitcher's sessions (${all.length})?`, "Every saved session with its tracking kept, for every pitcher, is worked out again with the latest analysis and its saved numbers replaced. Moments set by hand and fixed points stay. Each one updated shows in the daily activity email.", "Re-run them all")) rerunMany(all, false, "Re-running every pitcher's:");
+          } }, "Re-run every pitcher's sessions") : null,
+          el("span", { class: "mc-status mc-rerun-msg", role: "status" }, state.rerunMsg || "")),
+        el("p", { class: "mc-hint" }, [
+          older.length ? `${older.length === kept.length ? (kept.length === 1 ? "This session was" : "These sessions were") : `${older.length} of these were`} worked out with an older analysis: re-run for the latest numbers. ` : "",
+          oldTrack.length ? `${oldTrack.length} ${oldTrack.length === 1 ? "was" : "were"} tracked before the latest tracking: re-track from video for it. ` : "",
+          "Re-run works the numbers out again from the kept tracking with the analysis as it is now (quick); re-track runs the kept video through the pose model again first, for when the tracking itself improves. Moments set by hand, fixed points and settings stay either way.",
+        ].join("")));
+      const status = (r) => (!canRerun(r) ? el("small", null, "summary only") : isOld(r) ? el("span", { class: "mc-old", title: "Worked out with an older analysis: re-run it" }, "older") : trackOld(r) && canRetrack(r) ? el("span", { class: "mc-old", title: "Tracked before the latest tracking: re-track it" }, "older tracking") : el("small", null, "latest"));
+      return el("div", { class: "mc-history" }, el("h3", null, "Saved sessions"), rerunBar,
         el("div", { class: "mc-scroll" }, el("table", { class: "mc-table" },
-          el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"), el("th", null, ""))),
+          el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"), el("th", null, "Analysis"), el("th", null, ""))),
           el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, setupName(r.setup)),
             keys.map((key) => el("td", null, r.metrics && r.metrics[key] != null ? String(r.metrics[key]) : "–")), el("td", { class: "mc-note-cell" }, r.note || ""),
+            el("td", null, status(r)),
             el("td", { class: "mc-row-btns" },
               el("button", { type: "button", class: "mc-btn ghost small", onclick: () => openSaved(r) }, "Open report"),
+              canRerun(r) ? el("button", { type: "button", class: "mc-btn ghost small", disabled: busy, title: "Work its numbers out again with the latest analysis", onclick: () => rerunMany([r], false, "Re-running") }, "Re-run") : null,
+              canRetrack(r) ? el("button", { type: "button", class: "mc-btn ghost small", disabled: busy, title: "Run its kept video through the pose model again, then re-run it", onclick: async () => { if (await askFirst("Re-track this session from its video?", "Its kept video goes through the pose model again (a minute or two, on this device; keep this page open), then its numbers are worked out again. Moments set by hand and fixed points stay.", "Re-track")) rerunMany([r], true, "Re-tracking"); } }, "Re-track") : null,
               opts.onDelete ? el("button", { type: "button", class: "mc-btn ghost small", title: "Delete this session", "aria-label": `Delete the ${r.date} session`, onclick: () => removeSaved(r) }, "✕") : null)))))));
     }
 

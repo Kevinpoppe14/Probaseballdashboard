@@ -1943,6 +1943,7 @@
         athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, email: athlete.email || "" },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
         onDelete: async (rec) => { store.deleteAssessment(rec.id); },
+        saveAny: async (rec) => { store.saveAssessment(rec); }, // another pitcher's session, re-run (it keeps its own athleteId)
         history: () => (store.getMocap ? store.getMocap(athlete.id) : []),
       });
       return () => box.replaceChildren();
