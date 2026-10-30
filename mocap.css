@@ -72,3 +72,4 @@
 .mc-warn .mc-btn { margin-left: 6px; }
 .mc-speed { flex-direction: row !important; align-items: center; gap: 6px !important; }
 .mc-speed select { min-width: 0; height: 32px; }
+.mc-filefps { height: 30px !important; min-width: 0 !important; font-size: 13px !important; }

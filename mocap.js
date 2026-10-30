@@ -100,7 +100,8 @@
     });
     v.pause();
     const d = times.slice(1).map((t, i) => t - times[i]).filter((x) => x > 0.0005).sort((a, b) => a - b);
-    const fps = d.length ? 1 / d[Math.floor(d.length / 2)] : 30;
+    // the smallest gap between frames shown is one frame (a busy or background page skips some, making others look wider)
+    const fps = d.length ? 1 / d[0] : 30;
     return [24, 25, 30, 48, 50, 60, 120, 240].reduce((best, f) => (Math.abs(f - fps) < Math.abs(best - fps) ? f : best), 30);
   }
   // Every frame from t0 to t1 through the model: { t (file seconds), p: [[x px, y px, visibility] × 33], w: [[x, y, z] m
@@ -599,14 +600,17 @@
       const v = f.video;
       v.className = "mc-preview"; v.controls = true; v.style.cssText = ""; // out of hiding, into the page where it's shown
       const label = el("span", { class: "mc-hint" });
-      const show = () => { label.textContent = `Analyzing ${f.start.toFixed(2)}s to ${f.end.toFixed(2)}s of ${(v.duration || 0).toFixed(2)}s · the file runs at ${f.fps} fps`; };
+      const show = () => { label.textContent = `Analyzing ${f.start.toFixed(2)}s to ${f.end.toFixed(2)}s of ${(v.duration || 0).toFixed(2)}s · the file plays at`; };
+      // the file's own frame rate, as measured, and changeable if the measure is off
+      const fileRate = el("select", { class: "mc-filefps", "aria-label": "The file's frame rate", onchange: (e) => { f.fps = Number(e.target.value); } },
+        [...new Set([24, 25, 30, 50, 60, 120, 240, f.fps])].sort((a, b) => a - b).map((r) => el("option", { value: r, selected: r === f.fps }, `${r} fps`)));
       show();
       return el("div", { class: "mc-trim" }, v,
         el("div", { class: "mc-row" },
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { f.start = Math.min(v.currentTime, f.end - 0.05); show(); } }, "Start here"),
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { f.end = Math.max(v.currentTime, f.start + 0.05); show(); } }, "End here"),
           el("button", { type: "button", class: "mc-btn ghost", onclick: () => { f.start = 0; f.end = v.duration || 0; show(); } }, "Whole clip")),
-        label,
+        el("div", { class: "mc-row" }, label, fileRate),
         el("p", { class: "mc-hint" }, "Trim to the delivery: from just before he comes set to just after the follow-through."));
     }
 
