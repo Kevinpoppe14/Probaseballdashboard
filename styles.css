@@ -4367,3 +4367,11 @@ button.pt-label.on { color: var(--dst-red); }
   .pd-summary { color: #000 !important; }
   .pd-badge { color: #000 !important; background: none !important; border: 1px solid #000; }
 }
+
+/* Pitch Design: handles drawn over the designed ball */
+.bp-ball-stage { position: relative; margin: 0 auto; }
+.bp-ball .pd-handles { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; touch-action: none; }
+.pd-h { cursor: grab; }
+.pd-h:active { cursor: grabbing; }
+.pd-handles-key { margin: 6px 0 0; font-size: 11.5px; color: var(--text-dim); text-align: center; }
+.pd-handles-key b { font-weight: 700; color: var(--text); }

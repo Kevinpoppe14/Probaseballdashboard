@@ -438,7 +438,7 @@
   }
 
   // `ctl` is { paused, speed (x the default), pov ("catcher" | "pitcher"), flip (seams mirrored) }, shared by every ball on the page
-  function SpinBall({ s, ctl, size = 132, onZoom }) {
+  function SpinBall({ s, ctl, size = 132, onZoom, overlay }) {
     const ref = useRef(null);
     const live = useRef(ctl);
     live.current = ctl;
@@ -493,7 +493,10 @@
     return (
       <div className={`bp-ball${size > 200 ? " big" : ""}`}>
         <div className="bp-ball-type" style={{ color: colorOf(s.type) }}>{s.type}</div>
-        <canvas ref={ref} className={`bp-ball-canvas${onZoom ? " zoomable" : ""}`} style={{ width: size, height: size }} title={onZoom ? "Click to zoom in" : undefined} onClick={onZoom || undefined} role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}, ${isTwoSeam(s.type) ? "two" : "four"}-seam, ${ctl.pov === "pitcher" ? "pitcher's" : "catcher's"} view`} />
+        <div className="bp-ball-stage" style={{ width: size, height: size }}>
+          <canvas ref={ref} className={`bp-ball-canvas${onZoom ? " zoomable" : ""}`} style={{ width: size, height: size }} title={onZoom ? "Click to zoom in" : undefined} onClick={onZoom || undefined} role="img" aria-label={`${s.type}: ${s.spinAvg || "?"} rpm${s.tilt != null ? `, tilt ${tiltText(s.tilt)}` : ""}${gyro != null ? `, ${gyro}% gyro` : ""}, ${isTwoSeam(s.type) ? "two" : "four"}-seam, ${ctl.pov === "pitcher" ? "pitcher's" : "catcher's"} view`} />
+          {overlay ? overlay(size) : null}
+        </div>
         <div className="bp-ball-stats">
           {s.speedAvg != null && <b className="bp-ball-velo">{s.speedAvg} mph <small>avg</small></b>}
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
@@ -1409,6 +1412,70 @@
     );
   }
 
+  // ---- handles on the designed ball: shape the spin by hand ------------------------------------------------------
+  // Three, drawn over the ball, from whichever side it's seen:
+  //   the solid knob on the ring: the spin direction (the way spin pushes the ball), dragged round the clock
+  //   the hollow knob on the ring: where the pitch really goes, spin direction plus seam effects
+  //   the white knob on the axis line: the spin axis as you see it. Pulled in toward the middle it points at you (all
+  //     gyro); pushed out to the edge it lies flat across the ball (all efficient); dragged round, it turns the spin.
+  // The axis knob is the end facing you. Spin efficiency e leans the axis between flat (e = 1) and pointing at you
+  // (e = 0) as spinAxis does, so the knob sits sin(lean) of the way out: ρ = e / √(e² + (1 − e)²), and back again
+  // e = ρ / (ρ + √(1 − ρ²)).
+  function DesignHandles({ size, tilt, eff, seam, pov, color, seamMax, onChange }) {
+    const svgRef = useRef(null);
+    const drag = useRef(null);
+    const c = size / 2, rBall = size * 0.38, rRing = size * 0.47;
+    const th = clockRad(tilt), mine = pov === "pitcher";
+    // the ring: an angle clockwise from 12 on screen, for a clock angle (the catcher sees the pitcher's clock mirrored)
+    const screenA = (rad) => (mine ? rad : -rad);
+    const onRing = (a) => [c + rRing * Math.sin(a), c - rRing * Math.cos(a)];
+    const [sx, sy] = onRing(screenA(th));
+    const [mx, my] = onRing(screenA(th + clockRad(seam)));
+    // the axis knob: the axis end facing you, as far out as the axis lies flat
+    const e = Math.max(0, Math.min(1, eff / 100)), rho = e / (Math.hypot(e, 1 - e) || 1);
+    const kx = c - rBall * rho * Math.cos(th), ky = c - rBall * rho * (mine ? Math.sin(th) : -Math.sin(th));
+    const at = (ev) => {
+      const b = svgRef.current.getBoundingClientRect(), k = size / b.width;
+      return [(ev.clientX - b.left) * k - c, (ev.clientY - b.top) * k - c];
+    };
+    const toMin = (rad) => (rad / (2 * Math.PI)) * 720;
+    const move = (ev) => {
+      if (!drag.current) return;
+      const [dx, dy] = at(ev), a = Math.atan2(dx, -dy); // clockwise from 12 on screen
+      if (drag.current === "spin") {
+        onChange({ tilt: Math.round(nearTo(toMin(mine ? a : -a), tilt)) });
+      } else if (drag.current === "seam") {
+        let s = Math.round((nearTo(toMin(mine ? a : -a), tilt) - tilt) / 2) * 2;
+        onChange({ seam: Math.max(-seamMax, Math.min(seamMax, s)) });
+      } else {
+        const r = Math.min(1, Math.hypot(dx, dy) / rBall);
+        const patch = { eff: Math.round((100 * r) / (r + Math.sqrt(Math.max(0, 1 - r * r)))) };
+        if (r > 0.08) { // far enough out to have a direction: the knob's angle sets the spin direction too
+          // the knob sits at (−cos θ, sin θ) from behind the pitcher and (−cos θ, −sin θ) from the catcher (y up)
+          const t = mine ? Math.atan2(-dy, -dx) : Math.atan2(dy, -dx);
+          patch.tilt = Math.round(nearTo(toMin(t), tilt));
+        }
+        onChange(patch);
+      }
+    };
+    const start = (which) => (ev) => { ev.preventDefault(); drag.current = which; svgRef.current.setPointerCapture(ev.pointerId); };
+    const end = () => { drag.current = null; };
+    const knob = (x, y, which, title, body) => (
+      <g className={`pd-h pd-h-${which}`} onPointerDown={start(which)}><title>{title}</title>{body(x, y)}<circle cx={x} cy={y} r={size * 0.075} fill="transparent" /></g>
+    );
+    return (
+      <svg ref={svgRef} className="pd-handles" viewBox={`0 0 ${size} ${size}`} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+        <circle cx={c} cy={c} r={rRing} fill="none" stroke="var(--chart-grid)" strokeDasharray="3 4" />
+        <line x1={2 * c - kx} y1={2 * c - ky} x2={kx} y2={ky} stroke="rgba(20, 20, 20, 0.55)" strokeWidth="2" strokeDasharray="5 3" />
+        {knob(mx, my, "seam", "Where it really goes: drag to set its seam effects", (x, y) => <circle cx={x} cy={y} r={size * 0.035} fill="var(--panel)" stroke={color} strokeWidth="2.5" />)}
+        {knob(sx, sy, "spin", "Spin direction: drag around the clock", (x, y) => <circle cx={x} cy={y} r={size * 0.04} fill={color} stroke="var(--panel)" strokeWidth="2" />)}
+        {knob(kx, ky, "axis", "Spin axis: pull in for more gyro, push out for more efficiency, drag around to turn it", (x, y) => (
+          <g><circle cx={x} cy={y} r={size * 0.042} fill="#fff" stroke="#222" strokeWidth="2" /><circle cx={x} cy={y} r={size * 0.012} fill="#222" /></g>
+        ))}
+      </svg>
+    );
+  }
+
   function PitchDesignTab({ athlete, mlbId }) {
     const id = String(mlbId || mlbIdOf(athlete));
     const sessions = getBullpens(athlete.id);
@@ -1581,7 +1648,9 @@
               </div>
               <div className="pd-col">
                 <h3>Designed</h3>
-                <SpinBall key={`new-${baseKey}`} s={ballNew} ctl={spinCtl} size={200} />
+                <SpinBall key={`new-${baseKey}`} s={ballNew} ctl={spinCtl} size={200}
+                  overlay={(sz) => <DesignHandles size={sz} tilt={dd.tilt} eff={dd.eff} seam={dd.seam} pov={spinCtl.pov} color={colorOf(base.type)} seamMax={Math.max(120, Math.abs(start.seam) + 30)} onChange={(patch) => setD((p) => ({ ...(p && p.velo != null ? p : dd), ...patch }))} />} />
+                <p className="pd-handles-key">Drag on the ball: <b className="pd-k-spin">●</b> spin direction · <b className="pd-k-seam">○</b> where it really goes (seam effects) · <b className="pd-k-axis">◉</b> the spin axis: pull in for gyro, push out for efficiency, drag around to turn it</p>
               </div>
               <div className="pd-col pd-controls">
                 <h3>Change it</h3>
