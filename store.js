@@ -717,6 +717,11 @@
   function getBullpens(athleteId) {
     return assessmentsOf(athleteId, "bullpen");
   }
+  // a pitcher's pitch design goals (bullpens.js, Pitch Design), kind "pitchdesign": one record, { goals: [...] }
+  function getPitchDesign(athleteId) {
+    const recs = assessmentsOf(athleteId, "pitchdesign");
+    return recs[recs.length - 1] || null;
+  }
   // monthly re-assessments (reassessment.js), kind "reassess"
   function getReassessments(athleteId) {
     return assessmentsOf(athleteId, "reassess");
@@ -1288,6 +1293,7 @@
     getAssessments,
     getPitchingAssessments,
     getBullpens,
+    getPitchDesign,
     getBodyCompSheets,
     getNutritionPlan,
     getNutritionPrefs,

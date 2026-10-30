@@ -1274,6 +1274,8 @@
     const m = mB * k, dir = clockRad(d.tilt) + clockRad(d.seam);
     return { hb: m * Math.sin(dir), ivb: m * Math.cos(dir), m, dirMin: toClock(dir) };
   }
+  // a clock angle (minutes) taken round to the same turn as `ref`, so a dial centered on ref can show it
+  const nearTo = (t, ref) => { let x = t; while (x - ref > 360) x -= 720; while (x - ref < -360) x += 720; return x; };
   const startOf = (b) => ({ velo: b.speedAvg, spin: b.spinAvg, tilt: b.tilt != null ? b.tilt : toClock(moveDir(b)), eff: b.spinEff != null ? b.spinEff : ASSUMED_EFF, seam: seamOf(b) });
 
   // the pitcher's pitches on a movement plot, with an arrow from the pitch as it is to the pitch as designed
@@ -1309,6 +1311,104 @@
     );
   }
 
+  // ---- pitch design goals: each pitch either changed (the pitch now, and as designed) or kept as it is ------------
+  // Kept on the pitcher as one record, kind "pitchdesign": { goals: [{ type, mode: "change" | "maintain", source, now,
+  // goal, note, savedAt, savedBy }] }, now and goal each { velo, spin, tilt, eff, seam, ivb, hb } (break in the
+  // pitcher's view). One goal per pitch type: saving another replaces it.
+  const clockAt = (m) => { const w = ((Math.round(m) % 720) + 720) % 720, h = Math.floor(w / 60); return `${h === 0 ? 12 : h}:${String(w % 60).padStart(2, "0")}`; };
+  const inch = (v) => `${Math.abs(v).toFixed(1)}"`;
+  const listOf = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  // horizontal break in words, from the pitcher's-view number and his throwing hand
+  const sideOf = (hb, throws) => { const arm = throws === "L" ? -hb : hb; return { arm, words: `${inch(arm)} of ${arm >= 0 ? "arm-side run" : "glove-side sweep"}` }; };
+  const vertOf = (ivb) => (ivb >= 0 ? `${inch(ivb)} of induced vertical break` : `${inch(ivb)} of drop below a spinless pitch`);
+  const seamWords = (m) => (Math.abs(m) < 3 ? "none" : `${Math.round(Math.abs(m) / 2)}° ${m > 0 ? "clockwise" : "counterclockwise"}`);
+  // the goal in plain words, for the printed plan
+  function goalSummary(g, throws) {
+    const t = g.type.toLowerCase(), n = g.now, G = g.goal;
+    const shape = (m) => `${m.velo.toFixed(1)} mph with ${Math.round(m.spin).toLocaleString()} rpm spinning toward ${clockAt(m.tilt)} (${Math.round(m.eff)}% efficient, ${100 - Math.round(m.eff)}% gyro)`;
+    if (g.mode === "maintain") {
+      return [
+        `Keep the ${t} where it is: ${shape(n)}, for ${vertOf(n.ivb)} and ${sideOf(n.hb, throws).words}.`,
+        Math.abs(n.seam) >= 6 ? `Its seams move it about ${Math.round(Math.abs(n.seam) / 2)}° off where its spin alone would send it (about ${seamInches(Math.hypot(n.hb, n.ivb), n.seam).toFixed(1)}" of its movement), so keep the grip and release that give it that.` : null,
+        "The goal is consistency: the same velo, spin direction and efficiency from one bullpen to the next.",
+      ].filter(Boolean).join(" ");
+    }
+    const asks = [], why = [];
+    const dt = G.tilt - n.tilt, de = G.eff - n.eff, dv = G.velo - n.velo, ds = G.seam - n.seam;
+    if (Math.abs(dt) >= 3) {
+      asks.push(`move the spin direction from ${clockAt(n.tilt)} to ${clockAt(G.tilt)} (about ${Math.round(Math.abs(dt) / 2)}° ${dt > 0 ? "clockwise" : "counterclockwise"}, seen from behind the pitcher)`);
+      why.push("a change in spin direction usually comes from the hand and wrist position at release, or the arm slot");
+    }
+    if (Math.abs(de) >= 1) {
+      asks.push(de < 0 ? `add gyro (from ${Math.round(n.eff)}% to ${Math.round(G.eff)}% efficient, so ${100 - Math.round(G.eff)}% gyro)` : `clean up the spin (from ${Math.round(n.eff)}% to ${Math.round(G.eff)}% efficient, ${100 - Math.round(G.eff)}% gyro)`);
+      why.push(de < 0 ? "more gyro usually means getting more to the side of the ball at release, toward bullet spin" : "more efficiency usually means staying behind the ball through release, so more of the spin moves it");
+    }
+    if (Math.abs(dv) >= 0.3) asks.push(`${dv > 0 ? "add" : "take off"} ${Math.abs(dv).toFixed(1)} mph (${n.velo.toFixed(1)} to ${G.velo.toFixed(1)})`);
+    if (Math.abs(ds) >= 4) asks.push(`${Math.abs(G.seam) > Math.abs(n.seam) ? "get more" : "get less"} from seam effects (${seamWords(n.seam)} to ${seamWords(G.seam)} off its spin)`);
+    const sN = sideOf(n.hb, throws), sG = sideOf(G.hb, throws), dArm = sG.arm - sN.arm, dIvb = G.ivb - n.ivb;
+    const moves = [];
+    if (Math.abs(dIvb) >= 0.3) moves.push(`${inch(dIvb)} ${dIvb > 0 ? "more" : "less"} vertical break`);
+    if (Math.abs(dArm) >= 0.3) moves.push(`${inch(dArm)} more ${dArm > 0 ? "to the arm side" : "to the glove side"}`);
+    return [
+      asks.length ? `Goal for the ${t}: ${listOf(asks)}.` : `Goal for the ${t}: no change to its spin, velo or seam effects yet.`,
+      `Predicted, that takes it from ${vertOf(n.ivb)} and ${sN.words} to ${vertOf(G.ivb)} and ${sG.words}${moves.length ? ` (${listOf(moves)})` : ""}; total break ${inch(Math.hypot(n.hb, n.ivb))} to ${inch(Math.hypot(G.hb, G.ivb))}.`,
+      Math.abs(dt) >= 3 || Math.abs(de) >= 1 ? `The spin rate stays about ${Math.round(n.spin).toLocaleString()} rpm: the change is in how the spin is put on the ball, not how much of it there is.` : null,
+      why.length ? `For reference: ${why.join("; ")}.` : null,
+    ].filter(Boolean).join(" ");
+  }
+  const STILL = { paused: true, speed: 1, pov: "pitcher", flip: false }; // printed balls: one still frame, from behind the pitcher
+
+  // the plan: every goal, with its balls standing still, the numbers and the summary; it's what prints from this tab
+  function PitchPlan({ athlete, plan, onRemove, onNote, onOpen }) {
+    const goals = (plan && plan.goals) || [];
+    if (!goals.length) return null;
+    const ballOf = (g, m) => ({ type: g.type, spinAvg: Math.round(m.spin), tilt: m.tilt, spinEff: Math.round(m.eff), speedAvg: Math.round(m.velo * 10) / 10 });
+    const row = (label, f, g) => <tr><td>{label}</td><td>{f(g.now)}</td>{g.mode === "change" && <td><b>{f(g.goal)}</b></td>}</tr>;
+    return (
+      <div className="panel pd-plan">
+        <div className="pd-plan-head">
+          <h2>Pitch Design Plan <small>{athlete.name}</small></h2>
+          <button type="button" className="btn btn-secondary no-print" onClick={() => window.print()}>Print plan</button>
+        </div>
+        {goals.map((g) => (
+          <div key={g.type} className="pd-goal">
+            <div className="pd-goal-head">
+              <h3><span className="bp-dot" style={{ background: colorOf(g.type) }} />{g.type}</h3>
+              <span className={`pd-badge ${g.mode}`}>{g.mode === "change" ? "Change" : "Maintain shape and qualities"}</span>
+              <span className="timestamp-note">set {g.savedAt ? shortDate(g.savedAt.slice(0, 10)) : ""}{g.source ? ` from ${g.source}` : ""}</span>
+              <span className="pd-goal-btns no-print">
+                <button type="button" className="bp-mod-btn" onClick={() => onOpen(g)}>Open in designer</button>
+                <button type="button" className="bp-mod-btn" onClick={() => onRemove(g)}>Remove</button>
+              </span>
+            </div>
+            <div className="pd-goal-body">
+              <div className="pd-goal-balls">
+                <div><div className="pd-goal-cap">{g.mode === "change" ? "Now" : "Keep"}</div><SpinBall s={ballOf(g, g.now)} ctl={STILL} size={130} /></div>
+                {g.mode === "change" && <div><div className="pd-goal-cap">Goal</div><SpinBall s={ballOf(g, g.goal)} ctl={STILL} size={130} /></div>}
+              </div>
+              <table className="assess-table bp-table pd-goal-table">
+                <thead><tr><th></th><th>{g.mode === "change" ? "Now" : "Keep"}</th>{g.mode === "change" && <th>Goal</th>}</tr></thead>
+                <tbody>
+                  {row("Velo", (m) => `${m.velo.toFixed(1)} mph`, g)}
+                  {row("Spin", (m) => `${Math.round(m.spin)} rpm`, g)}
+                  {row("Spin direction", (m) => clockAt(m.tilt), g)}
+                  {row("Efficiency / gyro", (m) => `${Math.round(m.eff)}% / ${100 - Math.round(m.eff)}%`, g)}
+                  {row("IVB", (m) => `${m.ivb.toFixed(1)}"`, g)}
+                  {row("Horz. break", (m) => sideOf(m.hb, athlete.throws).words.replace(" of ", " "), g)}
+                  {row("Seam effects", (m) => seamWords(m.seam), g)}
+                </tbody>
+              </table>
+            </div>
+            <p className="pd-summary">{goalSummary(g, athlete.throws)}</p>
+            <textarea className="bp-notes-box no-print" rows={2} value={g.note || ""} placeholder="Cues, grip notes, what to work on…" onChange={(e) => onNote(g, e.target.value)} />
+            {g.note ? <p className="print-only pd-note-print"><b>Notes:</b> {g.note}</p> : null}
+          </div>
+        ))}
+        <p className="timestamp-note">Goal movement is predicted from the change in Magnus lift, scaled from the pitch's own measured break and keeping (or setting) its seam effects; it's a guide for the work, not a guarantee. Horizontal break is described from the pitcher's arm side.</p>
+      </div>
+    );
+  }
+
   function PitchDesignTab({ athlete, mlbId }) {
     const id = String(mlbId || mlbIdOf(athlete));
     const sessions = getBullpens(athlete.id);
@@ -1341,8 +1441,42 @@
     const base = pitches.find((p) => p.type === pick) || pitches[0] || null;
     const baseKey = base ? `${source}|${season}|${base.type}|${base.speedAvg}|${base.spinAvg}` : "";
     const [d, setD] = useState(null);
-    useEffect(() => { setD(base ? startOf(base) : null); }, [baseKey]); // eslint-disable-line
+    const opening = useRef(null); // a saved goal being opened: its design, once its pitch is picked
+    useEffect(() => {
+      const o = opening.current;
+      setD(base ? (o && o.type === base.type ? { ...o.d, tilt: nearTo(o.d.tilt, startOf(base).tilt) } : startOf(base)) : null);
+      opening.current = null;
+    }, [baseKey]); // eslint-disable-line
     const [spinCtl, setSpinCtl] = useSpinCtl();
+    // the goals, kept on the pitcher
+    const store = window.AthleteStore;
+    const [plan, setPlan] = useState(() => (store.getPitchDesign ? store.getPitchDesign(athlete.id) : null));
+    const [goalMsg, setGoalMsg] = useState("");
+    const saveGoals = (goals) => {
+      const rec = plan ? { ...plan, goals } : { id: uid(), kind: "pitchdesign", athleteId: athlete.id, date: new Date().toISOString().slice(0, 10), goals };
+      store.saveAssessment(rec);
+      setPlan(rec);
+    };
+    const putGoal = (g) => saveGoals([...((plan && plan.goals) || []).filter((x) => x.type !== g.type), g].sort((a, b) => byType(a.type, b.type)));
+    const removeGoal = async (g) => {
+      const ok = await window.askConfirm({ title: `Remove the ${g.type.toLowerCase()} goal?`, text: "It comes off the plan; the pitch itself isn't touched.", ok: "Remove", danger: true });
+      if (ok) saveGoals(plan.goals.filter((x) => x.type !== g.type));
+    };
+    const noteTimer = useRef(null);
+    const noteGoal = (g, note) => {
+      const goals = plan.goals.map((x) => (x.type === g.type ? { ...x, note } : x));
+      setPlan({ ...plan, goals });
+      clearTimeout(noteTimer.current);
+      noteTimer.current = setTimeout(() => saveGoals(goals), 600);
+    };
+    const openGoal = (g) => {
+      const design = { velo: g.goal.velo, spin: g.goal.spin, tilt: g.goal.tilt, eff: g.goal.eff, seam: g.goal.seam };
+      if (base && base.type === g.type) setD({ ...design, tilt: nearTo(design.tilt, startOf(base).tilt) });
+      else if (pitches.some((p) => p.type === g.type)) { opening.current = { type: g.type, d: design }; setPick(g.type); }
+      else { setGoalMsg(`There's no ${g.type.toLowerCase()} in ${(sources.find((s) => s.key === source) || {}).label || "this source"} to open it on; pick another source.`); return; }
+      setGoalMsg("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
     if (!sources.length) {
       return <div className="panel"><h2>Pitch Design</h2><div className="empty-state">Import a TrackMan bullpen, or link this pitcher to MLB, to design from one of his pitches.</div></div>;
@@ -1390,8 +1524,22 @@
     ] : [];
     const ballNow = base && { type: base.type, spinAvg: base.spinAvg, tilt: base.tilt, spinEff: base.spinEff, speedAvg: base.speedAvg };
     const ballNew = base && { type: base.type, spinAvg: Math.round(dd.spin), tilt: wrapMin(dd.tilt), spinEff: Math.round(dd.eff), speedAvg: Math.round(dd.velo * 10) / 10 };
+    // saving the pitch as a goal: changed (now and as designed), or kept where it is
+    const goalFor = (type) => ((plan && plan.goals) || []).find((x) => x.type === type) || null;
+    const srcText = source === "mlb" ? `${season} MLB games` : ((sources.find((s) => s.key === source) || {}).label || "").toLowerCase();
+    const nowM = base && { velo: base.speedAvg, spin: base.spinAvg, tilt: start.tilt, eff: effB, seam: start.seam, ivb: base.ivb, hb: base.hb };
+    const stamp = () => ({ note: (goalFor(base.type) || {}).note || "", savedAt: new Date().toISOString(), savedBy: (store.currentUserEmail && store.currentUserEmail()) || "" });
+    const saveChange = () => {
+      putGoal({ type: base.type, mode: "change", source: srcText, now: nowM, goal: { velo: Math.round(dd.velo * 10) / 10, spin: dd.spin, tilt: wrapMin(dd.tilt), eff: Math.round(dd.eff), seam: dd.seam, ivb: r1(out.ivb), hb: r1(out.hb) }, ...stamp() });
+      setGoalMsg(`Saved: the ${base.type.toLowerCase()} goal is on the plan below.`);
+    };
+    const saveMaintain = () => {
+      putGoal({ type: base.type, mode: "maintain", source: srcText, now: nowM, goal: nowM, ...stamp() });
+      setGoalMsg(`Saved: keep the ${base.type.toLowerCase()} as it is. It's on the plan below.`);
+    };
     return (
-      <div className="panel pd-wrap">
+      <React.Fragment>
+      <div className="panel pd-wrap no-print">
         <h2>Pitch Design <small>change the spin, see what it would do to the movement</small></h2>
         <div className="bp-comps-bar">
           <span className="pill-tabs bp-scope" role="group" aria-label="Start from">
@@ -1409,6 +1557,7 @@
             {pitches.map((p) => (
               <button key={p.type} type="button" className={`bp-key-chip${base && base.type === p.type ? " on" : ""}`} aria-pressed={base && base.type === p.type} onClick={() => setPick(p.type)}>
                 <span className="bp-dot" style={{ background: colorOf(p.type) }} />{p.type} <small>{p.qty}</small>
+                {goalFor(p.type) && <span className={`pd-chip-goal ${goalFor(p.type).mode}`}>{goalFor(p.type).mode === "change" ? "goal" : "keep"}</span>}
               </button>
             ))}
           </div>
@@ -1419,6 +1568,11 @@
             <div className="pd-top">
               <SpinControls ctl={spinCtl} set={setSpinCtl} />
               <button type="button" className="btn btn-small-grey" onClick={() => setD(startOf(base))}>Reset to his {base.type.toLowerCase()}</button>
+              <span className="pd-save">
+                <button type="button" className="btn btn-primary" onClick={saveChange}>Save as goal: change</button>
+                <button type="button" className="btn btn-secondary" onClick={saveMaintain}>Goal: maintain shape and qualities</button>
+              </span>
+              {goalMsg && <span className="assess-row-note" role="status">{goalMsg}</span>}
             </div>
             <div className="pd-grid">
               <div className="pd-col">
@@ -1461,6 +1615,8 @@
           </React.Fragment>
         )}
       </div>
+      <PitchPlan athlete={athlete} plan={plan} onRemove={removeGoal} onNote={noteGoal} onOpen={openGoal} />
+      </React.Fragment>
     );
   }
 

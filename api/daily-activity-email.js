@@ -203,7 +203,7 @@ async function isSignedInCoach(bearerToken) {
 // created_by), not "updated" (credited to whoever happened to touch it afterward).
 const EDIT_TABLES = [
   { table: "athletes", select: "id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `${(row.data && row.data.name) || row.id} ${action}` },
-  { table: "assessments", select: "id,athlete_id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `${({ bullpen: "Bullpen (TrackMan)", pitching: "Pitching assessment", reassess: "Re-assessment", bodycomp: "Body comp sheet" })[(row.data || {}).kind] || "Assessment"} for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`} ${action}` },
+  { table: "assessments", select: "id,athlete_id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `${({ bullpen: "Bullpen (TrackMan)", pitchdesign: "Pitch design goals", pitching: "Pitching assessment", reassess: "Re-assessment", bodycomp: "Body comp sheet" })[(row.data || {}).kind] || "Assessment"} for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`} ${action}` },
   { table: "periodization", select: "athlete_id,data,updated_by,updated_at,created_by,created_at", describe: (row, names, action) => `Periodization plan ${action} for ${names.get(row.athlete_id) || `athlete ${row.athlete_id}`}` },
 ];
 
