@@ -276,14 +276,23 @@
         }
       });
       decalMaps.script = alphaMap(600, 235, (g, w) => {
-        g.textAlign = "center";
+        g.textAlign = "left";
         g.font = "190px Yellowtail, 'Brush Script MT', cursive";
-        // a heavier pen than the font's own: the same letters, outlined in ink as well as filled
-        const tw = g.measureText("Pitching").width, k = Math.min(1, 560 / tw);
-        g.save(); g.translate(w / 2, 172); g.scale(k, 1);
+        // a heavier pen than the font's own: the same letters, outlined in ink as well as filled; set to the right, to
+        // leave room for the P's loop
+        const tw = g.measureText("Pitching").width, k = Math.min(1, 500 / tw), x0 = w - tw * k - 30, base = 175;
+        g.save(); g.translate(x0, base); g.scale(k, 1);
         g.lineWidth = 5; g.lineJoin = "round"; g.strokeStyle = g.fillStyle;
         g.strokeText("Pitching", 0, 0); g.fillText("Pitching", 0, 0);
         g.restore();
+        // a loop on the P like the one on Rawlings' R: out from the top of its bowl to the left, round, and back across
+        const L = x0 + 27 * k;
+        g.lineCap = "round"; g.lineWidth = 9; g.beginPath();
+        g.moveTo(L + 75, base - 130);
+        g.bezierCurveTo(L + 20, base - 140, L - 55, base - 115, L - 40, base - 80);
+        g.bezierCurveTo(L - 28, base - 50, L + 30, base - 62, L + 25, base - 95);
+        g.bezierCurveTo(L + 20, base - 120, L - 20, base - 120, L - 30, base - 105);
+        g.stroke();
       });
       decalMaps.plate = alphaMap(440, 240, (g, w, h) => {
         const rr = 26;
