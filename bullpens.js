@@ -732,8 +732,11 @@
       .map(([k, v]) => { const t = RARE_TRAITS.find((x) => x[0] === k); return v > 0 ? t[1] : t[2]; });
     return { score: Math.round((nearest.filter((x) => x < mine).length / nearest.length) * 100), stand, n: nearest.length };
   }
-  // the distance between two pitches' traits (root mean square over the traits both have, at least four of them)
-  const traitDistance = (a, b) => { let s = 0, c = 0; for (const k in a) if (b[k] != null) { s += (a[k] - b[k]) ** 2; c++; } return c >= 4 ? Math.sqrt(s / c) : null; };
+  // How much each trait counts toward looking alike: the shape (the break) and where it's let go count most; velo, VAA,
+  // extension and arm path next; spin direction as is; spin rate and efficiency least, as their work already shows in the break
+  const RARE_WEIGHTS = { ivb: 2, hb: 2, relHeight: 2, relSide: 1.5, ext: 1.5, armAngle: 1.5, velo: 1.5, vaa: 1.5, tilt: 1, spin: 0.75, eff: 0.75 };
+  // the distance between two pitches' traits: the weighted root mean square over the traits both have (at least four)
+  const traitDistance = (a, b) => { let s = 0, w = 0, c = 0; for (const k in a) if (b[k] != null) { const wt = RARE_WEIGHTS[k] || 1; s += wt * (a[k] - b[k]) ** 2; w += wt; c++; } return c >= 4 ? Math.sqrt(s / w) : null; };
   // the distance to the 5th most similar pitch (skipping the pitch itself, at index `skip`)
   const kthNearest = (z, zs, skip) => {
     const ds = [];
@@ -928,7 +931,7 @@
             </div>
           );
         })}
-        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension and VAA together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA and arm angle: 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
+        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension and VAA together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA and arm angle (break and release height count most; release side, extension, arm angle, velo and VAA next; spin rate and efficiency least): 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
       </div>
     );
   }
