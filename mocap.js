@@ -255,7 +255,7 @@
   // ---- the analysis ---------------------------------------------------------------------------------------------
   // side: tracked open-side video; behind: tracked behind video or null. timeScale turns file seconds into real
   // seconds (a 30 fps file of 240 fps slow-mo runs 8× slow).
-  function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual, edits }) {
+  function analyze({ side, behind, throws, heightIn, captureFps, sideScale, behindScale, events: manual, edits, elbowDepth = true }) {
     const S = sidesOf(throws), n = side.frames.length;
     const tReal = side.frames.map((f) => (f.t - side.frames[0].t) * sideScale);
     const dt = (tReal[n - 1] - tReal[0]) / Math.max(1, n - 1);
@@ -372,6 +372,18 @@
     // the upper arm swings through around release; the elbow straightens from max layback to release
     const avI = argBest(armV, MER - fr(0.03), BR + fr(0.03), (a, b) => a > b);
     const evI = argBest(elbowV, MER - fr(0.01), BR + fr(0.015), (a, b) => a > b);
+    // An earlier elbow peak (before the real one, which comes between max layback and release) is usually depth: the
+    // forearm turning toward or away from the camera makes the elbow look like it straightens. When there is one, the
+    // curve can start from the dip between the two (elbowDepth), so only the real extension shows.
+    let elbowFirst = null;
+    if (evI > 0) {
+      const p1 = argBest(elbowV, FS - fr(0.1), evI - fr(0.02), (a, b) => a > b);
+      const dip = p1 >= 0 ? argBest(elbowV, p1, evI, (a, b) => a < b) : -1;
+      if (p1 >= 0 && dip > p1 && dip < evI && elbowV[p1] > 0.25 * elbowV[evI] && elbowV[p1] - elbowV[dip] > 0.15 * elbowV[evI]) {
+        elbowFirst = { i: p1, dip, ms: Math.round((tReal[p1] - tReal[FS]) * 1000), peak: Math.round(elbowV[p1]) };
+        if (elbowDepth) for (let i = 0; i < dip; i++) elbowV[i] = null;
+      }
+    }
     // the kinematic sequence: each segment's peak speed and when it comes, which should run hips, trunk, arm, elbow
     const seq = [["Pelvis", pelvisV, pvI, "#2ec4b6"], ["Trunk", trunkV, tvI, "#ff4d5e"], ["Upper arm", armV, avI, "#ff9f1c"], ["Elbow extension", elbowV, evI, "#c77dff"]]
       .map(([name, ys, i, color]) => ({ name, color, i, peak: i < 0 || ys[i] == null ? null : Math.round(Math.abs(ys[i])), fromFS: ms(FS, i), beforeBR: i < 0 ? null : Math.round((tReal[BR] - tReal[i]) * 1000) }));
@@ -416,7 +428,7 @@
       ["comFS", "Center-of-mass speed at foot strike", comV ? r1(comV[FS]) : null, "m/s", "", "How much of that speed is left when the foot lands."],
     ].filter(Boolean).map(([key, label, value, unit, range, note]) => ({ key, label, value, unit, range, note }));
     return {
-      n, tReal, dir, Hpx, pts, events: { LL, FS, MER, BR }, metrics: M, rotSource, seq, inOrder,
+      n, tReal, dir, Hpx, pts, events: { LL, FS, MER, BR }, metrics: M, rotSource, seq, inOrder, elbowFirst,
       series: { kneeFlex, trunkFwd, sep, pelvisV, trunkV, comV, elbowFlex, armV, elbowV },
     };
   }
@@ -651,7 +663,7 @@
     function compute(manual) {
       const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
       state.result = analyze({
-        side: state.side.tracked, edits: state.edits, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
+        side: state.side.tracked, edits: state.edits, elbowDepth: state.elbowDepth !== false, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
       });
       state.cap = cap;
@@ -696,7 +708,7 @@
           warn = /bucket not found/i.test((e && e.message) || "") ? " Only the summary will reopen until supabase/migration_032_mocap.sql is run." : " The tracking couldn't be stored, so only the summary will reopen later.";
         }
       }
-      if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; }
+      if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; store.elbowDepth = state.elbowDepth !== false; }
       const thin = (arr) => (arr ? arr.filter((_, i) => i % Math.max(1, Math.ceil(R.n / 120)) === 0).map((v) => (v == null ? null : Math.round(v * 10) / 10)) : null);
       const rec = {
         id, kind: "mocap", athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
@@ -732,6 +744,7 @@
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
         state.edits = rec.store.edits || {};
+        state.elbowDepth = rec.store.elbowDepth !== false;
         state.saved = rec;
         compute();
         state.frame = state.result.events.FS;
@@ -939,6 +952,8 @@
         timing,
         canvas, slider, caption, evBtns, fixDots, fix,
         seqEl,
+        R.elbowFirst ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: state.elbowDepth !== false, onchange: (e) => { state.elbowDepth = e.target.checked; compute(); render(); } }),
+          ` Treat the elbow's first peak (${R.elbowFirst.peak.toLocaleString()}°/s, ${R.elbowFirst.ms} ms from foot strike) as depth, not extension: the forearm turning toward or away from the camera, not straightening. The elbow line then starts at the dip after it.`) : null,
         el("div", { class: "mc-grid" }, table, charts),
         el("p", { class: "mc-hint" }, R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
