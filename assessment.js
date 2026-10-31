@@ -1112,7 +1112,90 @@
     );
   }
 
+  // ---- the assessment beside the program builder: a drawer from the right edge ------------------------------------
+  // While building a program (the Programming tab), the coach can pull out the athlete's biomechanical assessment to
+  // work from, without leaving the page: read-only and compact, what needs attention first. The key takeaways, the
+  // body regions flagged (with their findings and notes), the movement tests (fails first), the isolated ROM left and
+  // right beside each target, the overhead squat's findings, and performance testing. Any of his dated assessments can
+  // be picked; it opens on the latest. Open or closed is remembered on this computer.
+  function AssessmentDrawer({ athlete, onOpenFull }) {
+    const store = window.AthleteStore;
+    const list = (store.getAssessments ? store.getAssessments(athlete.id) : []).slice().sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const [open, setOpenState] = useState(() => { try { return localStorage.getItem("assessDrawerOpen") === "1"; } catch (e) { return false; } });
+    const setOpen = (v) => { setOpenState(v); try { localStorage.setItem("assessDrawerOpen", v ? "1" : "0"); } catch (e) { /* not remembered */ } };
+    const [pickId, setPickId] = useState(null);
+    const found = list.find((a) => a.id === pickId) || list[list.length - 1] || null;
+    const rec = found ? withDefaults(found, athlete.id) : null;
+    const has = (v) => v != null && String(v).trim() !== "";
+    const marks = (d) => (d && (d.c1 || d.c2) ? (d.c2 ? "needs correction" : "present") : "");
+    const tagsOf = (region, saved) => region.options.flatMap((o) => [saved.tags && saved.tags[o.label] ? o.label : null, ...(o.qualifiers || []).map((q) => (saved.tags && saved.tags[`${o.label}::${q}`] ? `${o.label} ${q}` : null))]).filter(Boolean);
+    const section = (title, rows) => (rows.length ? <div className="ad-sec"><h4>{title}</h4>{rows}</div> : null);
+    let body = null;
+    if (rec) {
+      const regions = BODY_REGIONS.map((r) => ({ r, s: rec.bodyRegions[r.key] || {} })).filter(({ r, s }) => s.flagged || has(s.notes) || tagsOf(r, s).length);
+      const tests = MOVEMENT_TESTS.map((t) => ({ t, v: rec.movementTests[t.key] || {} })).filter(({ v }) => has(v.pass) || has(v.fail) || has(v.notes) || (v.check && (v.check.c1 || v.check.c2)));
+      tests.sort((a, b) => (has(b.v.fail) ? 1 : 0) - (has(a.v.fail) ? 1 : 0));
+      const rom = ISOLATED_SPECIFIC.map((t) => ({ t, v: rec.isolatedSpecific[t.key] || {} })).filter(({ v }) => has(v.left) || has(v.right) || has(v.notes) || marks(v.leftCheck) || marks(v.rightCheck));
+      const sq = rec.squat || {};
+      const squatRows = [
+        ...SQUAT_ANKLE_ROWS.map((r) => ["Ankle", r, (sq.ankle || {})[r.key]]), ...SQUAT_KNEE_ROWS.map((r) => ["Knee", r, (sq.knee || {})[r.key]]), ...SQUAT_PELVIS_ROWS.map((r) => ["Pelvis", r, (sq.pelvis || {})[r.key]]),
+      ].map(([part, r, v]) => ({ part, r, l: marks(v && v.left), rt: marks(v && v.right) })).filter((x) => x.l || x.rt);
+      const ub = sq.upperBody || {};
+      const upper = [["Lordosis", ub.lordosis], ["Forward head", ub.forwardHead], ["Bar drifts forward", ub.barDriftForward], ["Bar drifts back", ub.barDriftBack]].filter(([, v]) => marks(v));
+      const perf = PERFORMANCE_TESTING.map((t) => ({ t, v: rec.performanceTesting[t.key] || {} })).filter(({ v }) => has(v.left) || has(v.right) || has(v.notes));
+      body = (
+        <React.Fragment>
+          {section("Needs attention", has(rec.keyTakeawaysAttention) ? [<p key="a" className="ad-text ad-attn">{rec.keyTakeawaysAttention}</p>] : [])}
+          {section("Noted", has(rec.keyTakeawaysNoted) ? [<p key="n" className="ad-text">{rec.keyTakeawaysNoted}</p>] : [])}
+          {section("Posture", [
+            ...regions.map(({ r, s }) => <div key={r.key} className="ad-row"><b>{r.label}</b><span>{[tagsOf(r, s).join(", "), s.notes].filter(has).join(" · ") || "flagged"}</span></div>),
+            ...(has(rec.visualNotes) ? [<p key="v" className="ad-text">{rec.visualNotes}</p>] : []),
+          ])}
+          {section("Movement tests", tests.map(({ t, v }) => (
+            <div key={t.key} className="ad-row"><b>{t.label}</b><span>{[has(v.fail) ? <em key="f" className="ad-fail">fail {v.fail}</em> : null, has(v.pass) ? <em key="p" className="ad-pass">pass {v.pass}</em> : null, has(v.notes) ? <span key="n"> {v.notes}</span> : null]}</span></div>
+          )))}
+          {section("Isolated ROM", rom.map(({ t, v }) => (
+            <div key={t.key} className="ad-row"><b>{t.label}{t.note ? <small> {t.note}</small> : null}</b><span>{[has(v.left) ? `L ${v.left}` : null, has(v.right) ? `R ${v.right}` : null, marks(v.leftCheck) ? `L ${marks(v.leftCheck)}` : null, marks(v.rightCheck) ? `R ${marks(v.rightCheck)}` : null, has(v.notes) ? v.notes : null].filter(Boolean).join(" · ")}</span></div>
+          )))}
+          {section("Overhead squat", [
+            ...squatRows.map((x) => <div key={`${x.part}${x.r.key}`} className="ad-row"><b>{x.part}: {x.r.label}</b><span>{[x.l ? `L ${x.l}` : null, x.rt ? `R ${x.rt}` : null].filter(Boolean).join(" · ")}</span></div>),
+            ...upper.map(([label, v]) => <div key={label} className="ad-row"><b>{label}</b><span>{marks(v)}</span></div>),
+            ...(sq.pelvis && (sq.pelvis.depthEarly || sq.pelvis.depthAfter90) ? [<div key="d" className="ad-row"><b>Depth</b><span>{[sq.pelvis.depthEarly && "early", sq.pelvis.depthAfter90 && "after 90°"].filter(Boolean).join(", ")}</span></div>] : []),
+            ...(has(ub.score) ? [<div key="s" className="ad-row"><b>Score</b><span>{ub.score}</span></div>] : []),
+          ])}
+          {section("Performance testing", perf.map(({ t, v }) => <div key={t.key} className="ad-row"><b>{t.label}</b><span>{[has(v.left) ? (t.single ? v.left : `L ${v.left}`) : null, has(v.right) && !t.single ? `R ${v.right}` : null, has(v.notes) ? v.notes : null].filter(Boolean).join(" · ")}</span></div>))}
+        </React.Fragment>
+      );
+    }
+    return (
+      <React.Fragment>
+        {!open && <button type="button" className="ad-tab no-print" onClick={() => setOpen(true)} title="Show his biomechanical assessment beside the program">Assessment</button>}
+        {open && (
+          <aside className="ad-drawer no-print" aria-label="Biomechanical assessment">
+            <div className="ad-head">
+              <h3>Biomechanical assessment</h3>
+              <button type="button" className="ad-close" aria-label="Close the assessment" onClick={() => setOpen(false)}>×</button>
+            </div>
+            {list.length > 1 && (
+              <select className="ad-pick" value={found ? found.id : ""} aria-label="Which assessment" onChange={(e) => setPickId(e.target.value)}>
+                {list.slice().reverse().map((a) => <option key={a.id} value={a.id}>{fmtDate(a.date)}{a.coach ? ` · ${a.coach}` : ""}</option>)}
+              </select>
+            )}
+            {rec ? (
+              <div className="ad-body">
+                {list.length === 1 && <p className="ad-meta">{fmtDate(rec.date)}{rec.coach ? ` · ${rec.coach}` : ""} · his only assessment</p>}
+                {body}
+                {onOpenFull && <button type="button" className="btn btn-secondary ad-full" onClick={onOpenFull}>Open the full assessment</button>}
+              </div>
+            ) : <p className="ad-empty">{athlete.name || "He"} has no biomechanical assessment yet. Add one under Assessments › Biomechanical.</p>}
+          </aside>
+        )}
+      </React.Fragment>
+    );
+  }
+
   window.AssessmentTab = AssessmentTab;
+  window.AssessmentDrawer = AssessmentDrawer; // beside the program builder (index.html, Programming)
   // the form's field layout and record helpers, for the monthly re-assessments (reassessment.js)
   window.AssessmentLayouts = { MOVEMENT_TESTS, ISOLATED_SPECIFIC, BODY_REGIONS, SQUAT_ANKLE_ROWS, SQUAT_KNEE_ROWS, SQUAT_PELVIS_ROWS, PERFORMANCE_TESTING, SCORE_OPTIONS, withDefaults, newAssessment, fmtDate };
 })();

@@ -7158,6 +7158,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       </div>
 
       {activeTab === "programming" && window.PeriodizationBoard && <window.PeriodizationBoard key={`prog-${programOpen ? programOpen.blockId || programOpen.laneId : "top"}`} athlete={athlete} mode="programming" openNav={programOpen} />}
+      {/* his biomechanical assessment in a drawer from the right, to build the program from (assessment.js) */}
+      {activeTab === "programming" && window.AssessmentDrawer && <window.AssessmentDrawer key={`ad-${athlete.id}`} athlete={athlete} onOpenFull={() => setActiveTab("assessment")} />}
 
       <div className={activeTab === "statcast" ? "" : "tab-hidden"} data-tab-content="statcast">
         <div className="no-print" style={{ marginBottom: 10 }}>
