@@ -627,6 +627,64 @@
       if (rootRef.current) rootRef.current.focus({ preventScroll: true }); // out of the box, onto the builder, where Ctrl+Z undoes the paste
       pasteAt(wi, si, Number(p[1]), p[2], text);
     };
+    // ---- series made after the fact: highlight drills' rows (or right-click one) and right-click: Make a series (named,
+    // and gathered together where the first of them is, in its section), or Take out of their series (each put just
+    // after what's left of its series, so that stays together). In this week; Ctrl+Z undoes either.
+    const [rowMenu, setRowMenu] = useState(null); // { x, y, wi, si, rows: [drill indices, in the order shown] }
+    const makeSeries = (wi, si, rows, name) => edit((d) => {
+      const xs = sess(d, wi, si).exercises, picked = rows.map((i) => xs[i]).filter(Boolean);
+      if (!picked.length) return;
+      const section = picked[0].section, first = Math.min(...rows);
+      const before = xs.slice(0, first).filter((e) => !picked.includes(e)).length;
+      const rest = xs.filter((e) => !picked.includes(e));
+      picked.forEach((e) => { e.series = name; e.section = section; });
+      rest.splice(before, 0, ...picked);
+      xs.splice(0, xs.length, ...rest);
+    });
+    const unlinkSeries = (wi, si, rows) => edit((d) => {
+      const xs = sess(d, wi, si).exercises, picked = rows.map((i) => xs[i]).filter((e) => e && (e.series || ""));
+      picked.forEach((e) => {
+        const old = e.series, at = xs.indexOf(e);
+        xs.splice(at, 1);
+        e.series = "";
+        let last = -1;
+        xs.forEach((x, i) => { if (x.section === e.section && (x.series || "") === old) last = i; });
+        xs.splice(last >= 0 ? last + 1 : at, 0, e);
+      });
+    });
+    const tableMenu = (ev) => {
+      const p = posOf(ev.target.closest && ev.target.closest("[data-pt]"));
+      if (!p) return;
+      ev.preventDefault();
+      const s = draftRef.current.weeks[p.wi].sessions[p.si], order = drillOrder(s);
+      let rows;
+      if (sel && sel.wi === p.wi && sel.si === p.si && p.r >= box(sel).r0 && p.r <= box(sel).r1) { const R = box(sel); rows = order.slice(R.r0, R.r1 + 1); }
+      else { rows = [order[p.r]]; setSel({ wi: p.wi, si: p.si, a: [p.r, 0], b: [p.r, dayCols(s).length - 1] }); }
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      setRowMenu({ x: ev.clientX, y: ev.clientY, wi: p.wi, si: p.si, rows });
+    };
+    React.useEffect(() => {
+      if (!rowMenu) return undefined;
+      const close = (ev) => { if (!ev.target.closest || !ev.target.closest(".spt-rowmenu")) setRowMenu(null); };
+      const esc = (ev) => { if (ev.key === "Escape") setRowMenu(null); };
+      document.addEventListener("mousedown", close, true);
+      document.addEventListener("keydown", esc, true);
+      window.addEventListener("scroll", close, true);
+      return () => { document.removeEventListener("mousedown", close, true); document.removeEventListener("keydown", esc, true); window.removeEventListener("scroll", close, true); };
+    }, [rowMenu]);
+    const rowMenuBox = rowMenu && (() => {
+      const xs = draft.weeks[rowMenu.wi].sessions[rowMenu.si].exercises, picked = rowMenu.rows.map((i) => xs[i]).filter(Boolean);
+      const inSeries = picked.filter((e) => (e.series || "")).length, n = picked.length;
+      const names = [...new Set(picked.map((e) => e.series || "").filter(Boolean))];
+      const go = (fn) => { const m = rowMenu; setRowMenu(null); setSel(null); fn(m); };
+      return (
+        <div className="spt-rowmenu" role="menu" style={{ left: Math.min(rowMenu.x, window.innerWidth - 260), top: Math.min(rowMenu.y, window.innerHeight - 140) }}>
+          <div className="spt-rowmenu-title">{n === 1 ? `${picked[0].name || "This drill"}` : `${n} drills`}</div>
+          <button type="button" role="menuitem" onClick={() => go((m) => window.askText({ title: n === 1 ? "Make it a series" : `Make these ${n} drills a series`, text: "Named, and kept together where the first of them is.", placeholder: "T-Spine Series", value: names.length === 1 ? names[0] : "", ok: "Make the series", maxLength: 60 }).then((name) => { if (name && name.trim()) makeSeries(m.wi, m.si, m.rows, name.trim()); }))}>Make a series…</button>
+          {inSeries > 0 && <button type="button" role="menuitem" onClick={() => go((m) => unlinkSeries(m.wi, m.si, m.rows))}>Take {n === 1 ? "it" : inSeries === n ? "them" : `the ${inSeries} in a series`} out of {names.length === 1 ? names[0] : "their series"}</button>}
+        </div>
+      );
+    })();
     const tableDown = (ev) => {
       const p = posOf(ev.target.closest && ev.target.closest("[data-pt]"));
       if (!p) { if (sel) setSel(null); return; }
@@ -739,7 +797,7 @@
               ))}
             </div>
           )}
-          <div className="pt-scroll" onKeyDown={tableKeys} onPaste={tablePaste} onMouseDown={tableDown} onMouseOver={tableOver}>
+          <div className="pt-scroll" onKeyDown={tableKeys} onPaste={tablePaste} onMouseDown={(ev) => { if (ev.button === 0) tableDown(ev); }} onMouseOver={tableOver} onContextMenu={tableMenu}>
             <table className="pt-table spt-table" style={{ minWidth: 150 + 56 * 2 + 72 + (THROW || REED ? 72 : 0) + 80 * xl.length + 130 + 70 }}>
               <thead>
                 <tr>
@@ -820,6 +878,7 @@
         <datalist id="exercise-library-names">
           {window.AthleteStore.allExercises().map((e) => <option key={e.id} value={e.name} />)}
         </datalist>
+        {rowMenuBox}
         <div className="program-editor-top">
           <h2>{`${initial && initial.id ? "Edit" : "New"} ${THROW ? "throwing" : REED ? "re-education" : "speed"} program`}</h2>
           <span className="program-zoom" role="group" aria-label="View">

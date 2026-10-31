@@ -4437,3 +4437,9 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .bp-trend-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
 .bp-trend-title small { font-weight: 400; color: var(--text-dim); }
 .bp-mod-head h3 { min-width: 140px; } /* the title keeps its room; a module's switches wrap under it */
+
+/* the program table's right-click menu for series (speed_builder.js) */
+.spt-rowmenu { position: fixed; z-index: 1000; min-width: 220px; max-width: 280px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.spt-rowmenu-title { padding: 4px 8px 6px; font-size: 12px; color: var(--text-dim); border-bottom: 1px solid var(--chart-grid); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spt-rowmenu button { display: block; width: 100%; text-align: left; padding: 7px 8px; border: none; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.spt-rowmenu button:hover, .spt-rowmenu button:focus { background: var(--surface-muted); }
