@@ -1016,10 +1016,17 @@
   }
 
   // how a coach has arranged a session's modules (order, half width, folded away), kept per coach on this computer
-  const DEFAULT_LAYOUT = { order: ["types", "goals", "movement", "release", "spin", "comps", "arsenal", "pitches", "trend", "notes"], half: { movement: true, release: true }, closed: { pitches: true } };
+  // the report's modules in order; the ones under `hidden` are off the report until a coach adds them (Add a module),
+  // and any can be taken off (✕)
+  const DEFAULT_LAYOUT = {
+    order: ["types", "goals", "movement", "release", "spin", "tilt", "heatmap", "location", "ranges", "comps", "arsenal", "pitches", "trend", "sessions", "notes"],
+    half: { movement: true, release: true, tilt: true, heatmap: true, location: true },
+    closed: { pitches: true },
+    hidden: { tilt: true, heatmap: true, location: true, ranges: true, sessions: true },
+  };
   const layoutKey = () => `bullpenLayout:${(window.AthleteStore.currentUserEmail && window.AthleteStore.currentUserEmail()) || "me"}`;
   const readLayout = () => {
-    try { const v = JSON.parse(localStorage.getItem(layoutKey()) || "null"); if (v && Array.isArray(v.order)) return { order: v.order, half: v.half || {}, closed: v.closed || {} }; } catch (e) { /* private window */ }
+    try { const v = JSON.parse(localStorage.getItem(layoutKey()) || "null"); if (v && Array.isArray(v.order)) return { order: v.order, half: { ...Object.fromEntries(Object.entries(DEFAULT_LAYOUT.half).filter(([k]) => !v.order.includes(k))), ...(v.half || {}) }, closed: v.closed || {}, hidden: { ...Object.fromEntries(Object.entries(DEFAULT_LAYOUT.hidden).filter(([k]) => !v.order.includes(k))), ...(v.hidden || {}) } }; } catch (e) { /* private window */ }
     return DEFAULT_LAYOUT;
   };
   const writeLayout = (v) => { try { localStorage.setItem(layoutKey(), JSON.stringify(v)); } catch (e) { /* private window: not remembered */ } };
@@ -1123,6 +1130,13 @@
     ) : null;
     const spinStats = stats.filter((s) => s.spinAvg != null && s.type !== UNTAGGED);
     const spinControls = <SpinControls ctl={spinCtl} set={setSpinCtl} />;
+    // the added charts' own switches (remembered on this computer)
+    const remembered = (key, dflt) => { try { return localStorage.getItem(key) || dflt; } catch (e) { return dflt; } };
+    const [tiltMode, setTiltModeState] = useState(() => remembered("bullpenTiltMode", "measured"));
+    const setTiltMode = (v) => { setTiltModeState(v); try { localStorage.setItem("bullpenTiltMode", v); } catch (e) { /* not remembered */ } };
+    const [rangeMetric, setRangeMetricState] = useState(() => remembered("bullpenRangeMetric", "speed"));
+    const setRangeMetric = (v) => { setRangeMetricState(v); try { localStorage.setItem("bullpenRangeMetric", v); } catch (e) { /* not remembered */ } };
+    const hasLoc = chartPitches.some((p) => typeof p.plateSide === "number" && typeof p.plateHeight === "number");
     const modules = {
       types: {
         title: "Pitch types",
@@ -1220,6 +1234,62 @@
           </React.Fragment>
         ),
       },
+      tilt: {
+        title: "Tilt plot", sub: tiltMode === "move" ? "from the movement, pitcher's view" : "TrackMan's tilt, pitcher's view",
+        extra: (
+          <React.Fragment>
+            {scopeToggle}
+            <span className="pill-tabs bp-scope" role="group" aria-label="Tilt from">
+              <button type="button" className={`pill-tab ${tiltMode !== "move" ? "active" : ""}`} onClick={() => setTiltMode("measured")}>Measured</button>
+              <button type="button" className={`pill-tab ${tiltMode === "move" ? "active" : ""}`} onClick={() => setTiltMode("move")}>From movement</button>
+            </span>
+          </React.Fragment>
+        ),
+        body: (
+          <React.Fragment>
+            {pitchKey}
+            <TiltPlot pts={chartPitches} mode={tiltMode} focus={focus} />
+            <p className="timestamp-note">Each pitch on the clock as seen from behind the pitcher (12:00 is backspin), farther out for more spin; ringed dots are each type's average. Measured is TrackMan's tilt; From movement is the direction it actually broke, the spin axis its movement implies.</p>
+          </React.Fragment>
+        ),
+      },
+      heatmap: {
+        title: "Location heatmap", sub: all ? "catcher's view, every session" : "catcher's view", extra: scopeToggle,
+        body: (
+          <React.Fragment>
+            <LocationHeat pts={focus.length ? chartPitches.filter((p) => focus.includes(p.type || UNTAGGED)) : chartPitches} />
+            {hasLoc && <p className="timestamp-note">The share of {focus.length ? focus.join(" and ") : "his"} pitches in each ninth of the zone and the four corners around it: red most, blue fewest. Pick types in another chart's key to see just them.</p>}
+          </React.Fragment>
+        ),
+      },
+      location: {
+        title: "Pitch location", sub: all ? "catcher's view, every session" : "catcher's view", extra: scopeToggle,
+        body: (
+          <React.Fragment>
+            {pitchKey}
+            <LocationPlot pts={chartPitches} focus={focus} picked={picked} onPick={setPicked} />
+            {hasLoc && <p className="timestamp-note">Every pitch where it crossed the plate, numbered in order. Click one to see it, change its type or take it out.</p>}
+          </React.Fragment>
+        ),
+      },
+      ranges: {
+        title: "Ranges by pitch type", sub: all ? "every session" : "",
+        extra: (
+          <React.Fragment>
+            {scopeToggle}
+            <select className="bp-tag" value={rangeMetric} aria-label="Range of" onChange={(e) => setRangeMetric(e.target.value)}>
+              {RANGE_METRICS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+          </React.Fragment>
+        ),
+        body: (
+          <React.Fragment>
+            <RangesChart pts={chartPitches} metric={rangeMetric} focus={focus} />
+            <p className="timestamp-note">Each type's lowest to highest, with its average marked and written at the right.</p>
+          </React.Fragment>
+        ),
+      },
+      sessions: many ? { title: "By session", sub: "each type's average, session to session", body: <SessionTrends sessions={sessions} focus={focus} /> } : null,
       goals: goalPlan && goalPlan.goals && goalPlan.goals.length ? { title: "Pitch design goals", sub: "this bullpen against each goal", body: <GoalStatus session={session} sessions={sessions} goals={goalPlan.goals} throws={athlete && athlete.throws} /> } : null,
       comps: athlete && stats.some((s) => s.type !== UNTAGGED && codesOf(s.type)) ? { title: "Comps", sub: "MLB (Baseball Savant) and DST", body: <CompsModule athlete={athlete} stats={stats} /> } : null,
       arsenal: athlete && mlbIdOf(athlete) ? { title: "MLB arsenal", sub: "his pitches in MLB games (Baseball Savant)", body: <MlbArsenal athlete={athlete} /> } : null,
@@ -1239,6 +1309,7 @@
     // a module added since the coach arranged them goes in after the one it follows by default
     const order = layout.order.filter((k) => DEFAULT_LAYOUT.order.includes(k));
     DEFAULT_LAYOUT.order.forEach((k, i) => { if (!order.includes(k)) order.splice(i ? order.indexOf(DEFAULT_LAYOUT.order[i - 1]) + 1 : 0, 0, k); });
+    const hidden = layout.hidden || DEFAULT_LAYOUT.hidden;
     const [pitchesOpen, setPitchesOpen] = useState(untagged > 0); // untagged pitches open Every pitch once, however it was left
     const isClosed = (k) => !!layout.closed[k] && !(k === "pitches" && pitchesOpen);
     const toggleClosed = (k) => { if (k === "pitches") setPitchesOpen(false); setLayout({ ...layout, closed: { ...layout.closed, [k]: !isClosed(k) } }); };
@@ -1260,12 +1331,20 @@
       <div className="panel bp-session">
         <div className="bp-session-head">
           <h2>{fmtDate(session.date)} <small>{[session.sessionType, session.facility, `${total} pitches`].filter(Boolean).join(" · ")}</small></h2>
-          <button type="button" className="btn btn-small-grey" title="Put the modules back in their usual order and sizes" onClick={() => setLayout(DEFAULT_LAYOUT)}>Reset layout</button>
+          <span className="bp-mod-tools">
+            {order.some((k) => modules[k] && hidden[k]) && (
+              <select className="bp-tag bp-add-mod" value="" aria-label="Add a module" onChange={(e) => { const k = e.target.value; if (k) setLayout({ ...layout, hidden: { ...hidden, [k]: false } }); }}>
+                <option value="">+ Add a module</option>
+                {order.filter((k) => modules[k] && hidden[k]).map((k) => <option key={k} value={k}>{modules[k].title}</option>)}
+              </select>
+            )}
+            <button type="button" className="btn btn-small-grey" title="Put the modules back in their usual order, sizes and set" onClick={() => setLayout(DEFAULT_LAYOUT)}>Reset layout</button>
+          </span>
         </div>
         {BV && <BV.VideoBar session={session} athlete={athlete} onSave={(v) => saveVideo(session.id, v)} />}
         {untagged > 0 && <p className="bp-untagged">{untagged} pitch{untagged === 1 ? " isn't" : "es aren't"} tagged. Click one on a chart, pick a type for each under Every pitch, or check several and tag them at once.</p>}
         <div className="bp-mods">
-          {order.filter((k) => modules[k]).map((k) => {
+          {order.filter((k) => modules[k] && !hidden[k]).map((k) => {
             const m = modules[k], half = !!layout.half[k], closed = isClosed(k);
             return (
               <section key={k} className={`bp-mod${half ? " half" : ""}${over === k ? " over" : ""}${closed ? " closed" : ""}`}
@@ -1280,6 +1359,7 @@
                   {!closed && m.extra}
                   <button type="button" className="bp-mod-btn" title={half ? "Make it full width" : "Make it half width, to sit beside another"} onClick={() => setLayout({ ...layout, half: { ...layout.half, [k]: !half } })}>{half ? "Full" : "Half"}</button>
                   <button type="button" className="bp-mod-btn" title={closed ? "Show it" : "Fold it away"} aria-expanded={!closed} onClick={() => toggleClosed(k)}>{closed ? "▸" : "▾"}</button>
+                  <button type="button" className="bp-mod-btn" title="Take it off the report (Add a module brings it back)" aria-label={`Remove ${m.title}`} onClick={() => setLayout({ ...layout, hidden: { ...hidden, [k]: true } })}>✕</button>
                 </div>
                 {!closed && <div className="bp-mod-body">{m.body}</div>}
               </section>
@@ -1330,6 +1410,136 @@
         </table>
       </div>
     );
+  }
+
+  // ---- more charts, to add to the report (the ones in TrackMan's practice report) --------------------------------------
+  // Tilt plot: each pitch on the clock (pitcher's view), from TrackMan's tilt or from where it moved (the spin axis its
+  // break implies), farther out for more spin; each type's average ringed
+  function TiltPlot({ pts, mode, focus }) {
+    const S = 300, c = S / 2, rIn = 62, rOut = 118;
+    const minOf = (p) => (mode === "move" ? (typeof p.hb === "number" && typeof p.ivb === "number" ? toClock(Math.atan2(p.hb, p.ivb)) : null) : tiltMinutes(p.tilt));
+    const dots = pts.map((p) => ({ p, m: minOf(p) })).filter((d) => d.m != null);
+    const spins = dots.map((d) => d.p.spin).filter((v) => typeof v === "number"), lo = Math.min(...spins), hi = Math.max(...spins);
+    const rad = (spin) => (typeof spin === "number" && hi > lo ? rIn + ((spin - lo) / (hi - lo)) * (rOut - rIn) : (rIn + rOut) / 2);
+    const at = (m, r) => { const a = (m / 720) * 2 * Math.PI; return [c + r * Math.sin(a), c - r * Math.cos(a)]; };
+    const types = [...new Set(dots.map((d) => d.p.type || UNTAGGED))].sort(byType);
+    const avg = (t) => { const ds = dots.filter((d) => (d.p.type || UNTAGGED) === t), a = ds.map((d) => (d.m / 720) * 2 * Math.PI); const m = toClock(Math.atan2(a.reduce((s, x) => s + Math.sin(x), 0), a.reduce((s, x) => s + Math.cos(x), 0))); const sp = ds.map((d) => d.p.spin).filter((v) => typeof v === "number"); return { m, r: rad(sp.length ? sp.reduce((s, x) => s + x, 0) / sp.length : null) }; };
+    const dim = (t) => focus.length > 0 && !focus.includes(t);
+    if (!dots.length) return <p className="timestamp-note">{mode === "move" ? "No pitches with movement here." : "No pitches with a tilt here."}</p>;
+    return (
+      <svg className="bp-chart bp-tilt" viewBox={`0 0 ${S} ${S}`} role="img" aria-label={`Tilt plot, ${mode === "move" ? "from the movement" : "TrackMan's tilt"}, one dot per pitch`}>
+        <circle cx={c} cy={c} r={(rIn + rOut) / 2} fill="none" stroke="var(--chart-grid)" strokeWidth={rOut - rIn + 10} opacity="0.55" />
+        {Array.from({ length: 12 }, (_, h) => { const [x1, y1] = at(h * 60, rIn - 14), [x2, y2] = at(h * 60, rOut + 6), [tx, ty] = at(h * 60, rOut + 20); return (
+          <g key={h}><line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--chart-grid)" /><text x={tx} y={ty + 4} textAnchor="middle" fontSize="11" fill="var(--text-dim)">{h === 0 ? 12 : h}</text></g>
+        ); })}
+        {dots.map(({ p, m }, i) => { const [x, y] = at(m, rad(p.spin)), t = p.type || UNTAGGED; return <circle key={i} cx={x} cy={y} r="5" fill={t === UNTAGGED ? "#888" : colorOf(t)} opacity={dim(t) ? 0.12 : 0.7}><title>{`${t}: ${mode === "move" ? "moves toward" : "tilt"} ${tiltText(m)}${p.spin ? `, ${p.spin} rpm` : ""}`}</title></circle>; })}
+        {types.filter((t) => t !== UNTAGGED).map((t) => { const a = avg(t), [x, y] = at(a.m, a.r); return <g key={t} opacity={dim(t) ? 0.2 : 1}><circle cx={x} cy={y} r="9" fill={colorOf(t)} stroke="var(--panel)" strokeWidth="2.5" /><title>{`${t} average: ${tiltText(a.m)}`}</title></g>; })}
+        <text x={c} y={c + 4} textAnchor="middle" fontSize="10" fill="var(--text-dim)">{hi > lo ? "out: more spin" : ""}</text>
+      </svg>
+    );
+  }
+  // the strike zone (catcher's view, feet): 17 inches and a ball wide, 1.5 to 3.5 feet up
+  const ZONE = { x0: -0.83, x1: 0.83, z0: 1.5, z1: 3.5 };
+  // Location heatmap: the share of his pitches in each ninth of the zone and the four corners around it
+  function LocationHeat({ pts }) {
+    const loc = pts.filter((p) => typeof p.plateSide === "number" && typeof p.plateHeight === "number");
+    if (!loc.length) return <p className="timestamp-note">No pitch locations here (they come from the report's location chart).</p>;
+    const w = (ZONE.x1 - ZONE.x0) / 3, h = (ZONE.z1 - ZONE.z0) / 3, cells = Array(9).fill(0), outer = [0, 0, 0, 0]; // up-left, up-right, down-left, down-right
+    loc.forEach((p) => {
+      const inside = p.plateSide >= ZONE.x0 && p.plateSide <= ZONE.x1 && p.plateHeight >= ZONE.z0 && p.plateHeight <= ZONE.z1;
+      if (inside) cells[Math.min(2, Math.floor((ZONE.z1 - p.plateHeight) / h)) * 3 + Math.min(2, Math.floor((p.plateSide - ZONE.x0) / w))]++;
+      else outer[(p.plateHeight < (ZONE.z0 + ZONE.z1) / 2 ? 2 : 0) + (p.plateSide > 0 ? 1 : 0)]++;
+    });
+    const all = [...cells, ...outer], top = Math.max(...all) || 1, pct = (k) => `${Math.round((k / loc.length) * 1000) / 10}%`;
+    // blue for few, through white, to red for the most
+    const heat = (k) => { const t = k / top; const mix = (a, b, f) => Math.round(a + (b - a) * f); return t < 0.5 ? `rgb(${mix(47, 245, t * 2)},${mix(127, 245, t * 2)},${mix(216, 245, t * 2)})` : `rgb(${mix(245, 211, (t - 0.5) * 2)},${mix(245, 47, (t - 0.5) * 2)},${mix(245, 47, (t - 0.5) * 2)})`; };
+    const S = 260, pad = 30, sc = (S - 2 * pad) / 2.6, X = (x) => S / 2 + x * sc, Y = (z) => pad + (4.1 - z) * sc;
+    const ox0 = X(-1.25), ox1 = X(1.25), oy0 = Y(4.2), oy1 = Y(0.8), mx = X(0), my = Y((ZONE.z0 + ZONE.z1) / 2);
+    const quad = [[ox0, oy0, mx, my], [mx, oy0, ox1, my], [ox0, my, mx, oy1], [mx, my, ox1, oy1]];
+    return (
+      <svg className="bp-chart bp-heat" viewBox={`0 0 ${S} ${S}`} role="img" aria-label="Location heatmap: the share of pitches in each part of the zone, catcher's view">
+        {quad.map(([x0, y0, x1, y1], i) => <g key={i}><rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill={heat(outer[i])} stroke="var(--panel)" /><text x={i % 2 ? x1 - 6 : x0 + 6} y={i < 2 ? y0 + 14 : y1 - 6} textAnchor={i % 2 ? "end" : "start"} fontSize="10" fill="#111">{outer[i] ? pct(outer[i]) : ""}</text></g>)}
+        {cells.map((k, i) => { const x = X(ZONE.x0 + (i % 3) * w), y = Y(ZONE.z1 - Math.floor(i / 3) * h); return <g key={i}><rect x={x} y={y} width={w * sc} height={h * sc} fill={heat(k)} stroke="#1a1a1a" strokeWidth="1.5" /><text x={x + (w * sc) / 2} y={y + (h * sc) / 2 + 4} textAnchor="middle" fontSize="11" fontWeight="600" fill="#111">{k ? pct(k) : "–"}</text></g>; })}
+        <polygon points={`${X(-0.71)},${S - 16} ${X(0.71)},${S - 16} ${X(0.71)},${S - 10} ${X(0)},${S - 4} ${X(-0.71)},${S - 10}`} fill="none" stroke="var(--text-dim)" />
+      </svg>
+    );
+  }
+  // Pitch location: every pitch where it crossed the plate, numbered, by type
+  function LocationPlot({ pts, focus, picked, onPick }) {
+    const loc = pts.filter((p) => typeof p.plateSide === "number" && typeof p.plateHeight === "number");
+    if (!loc.length) return <p className="timestamp-note">No pitch locations here (they come from the report's location chart).</p>;
+    const S = 300, pad = 24, xr = [-2.5, 2.5], zr = [-0.3, 5], sc = (S - 2 * pad) / (zr[1] - zr[0]), X = (x) => S / 2 + x * sc, Y = (z) => pad + (zr[1] - z) * sc;
+    const dim = (t) => focus.length > 0 && !focus.includes(t);
+    return (
+      <svg className="bp-chart bp-loc" viewBox={`0 0 ${S} ${S}`} role="img" aria-label="Pitch location, catcher's view, numbered in pitch order">
+        <rect x={X(ZONE.x0)} y={Y(ZONE.z1)} width={(ZONE.x1 - ZONE.x0) * sc} height={(ZONE.z1 - ZONE.z0) * sc} fill="none" stroke="var(--text-dim)" strokeWidth="1.5" />
+        {[1, 2].map((k) => <g key={k}><line x1={X(ZONE.x0 + (k * (ZONE.x1 - ZONE.x0)) / 3)} x2={X(ZONE.x0 + (k * (ZONE.x1 - ZONE.x0)) / 3)} y1={Y(ZONE.z1)} y2={Y(ZONE.z0)} stroke="var(--chart-grid)" /><line y1={Y(ZONE.z0 + (k * (ZONE.z1 - ZONE.z0)) / 3)} y2={Y(ZONE.z0 + (k * (ZONE.z1 - ZONE.z0)) / 3)} x1={X(ZONE.x0)} x2={X(ZONE.x1)} stroke="var(--chart-grid)" /></g>)}
+        <polygon points={`${X(-0.71)},${Y(0.15)} ${X(0.71)},${Y(0.15)} ${X(0.71)},${Y(0.05)} ${X(0)},${Y(-0.1)} ${X(-0.71)},${Y(0.05)}`} fill="none" stroke="var(--text-dim)" />
+        {loc.map((p) => { const t = p.type || UNTAGGED, x = X(Math.max(xr[0], Math.min(xr[1], p.plateSide))), y = Y(Math.max(zr[0], Math.min(zr[1], p.plateHeight))), on = picked === p.key; return (
+          <g key={p.key} opacity={dim(t) ? 0.15 : 1} style={{ cursor: onPick ? "pointer" : "default" }} onClick={onPick ? () => onPick(p.key) : undefined}>
+            <circle cx={x} cy={y} r={on ? 10 : 8} fill={t === UNTAGGED ? "#888" : colorOf(t)} stroke={on ? "#fff" : "var(--panel)"} strokeWidth={on ? 2.5 : 1} opacity="0.85" />
+            <text x={x} y={y + 3} textAnchor="middle" fontSize="8" fontWeight="700" fill="#111">{p.no}</text>
+            <title>{`#${p.no} ${t}${p.speed ? `, ${p.speed} mph` : ""}: ${p.plateHeight.toFixed(1)} ft high, ${Math.abs(p.plateSide).toFixed(1)} ft ${p.plateSide >= 0 ? "right" : "left"} (catcher's view)`}</title>
+          </g>
+        ); })}
+      </svg>
+    );
+  }
+  // Ranges by pitch type: each type's lowest to highest of one number, its average marked
+  const RANGE_METRICS = [["speed", "Velo", "mph"], ["spin", "Spin", "rpm"], ["ivb", "IVB", "in"], ["hb", "HB", "in"], ["extension", "Extension", "ft"], ["relHeight", "Release height", "ft"]];
+  function RangesChart({ pts, metric, focus }) {
+    const [, label, unit] = RANGE_METRICS.find((m) => m[0] === metric) || RANGE_METRICS[0];
+    const types = [...new Set(pts.map((p) => p.type || UNTAGGED))].sort(byType).map((t) => { const v = pts.filter((p) => (p.type || UNTAGGED) === t && typeof p[metric] === "number").map((p) => p[metric]); return v.length ? { t, lo: Math.min(...v), hi: Math.max(...v), avg: v.reduce((s, x) => s + x, 0) / v.length, n: v.length } : null; }).filter(Boolean);
+    if (!types.length) return <p className="timestamp-note">No {label.toLowerCase()} here.</p>;
+    const lo = Math.min(...types.map((r) => r.lo)), hi = Math.max(...types.map((r) => r.hi)), span = hi - lo || 1, a = lo - span * 0.08, b = hi + span * 0.08;
+    const W = 520, left = 100, right = 70, rowH = 30, H = types.length * rowH + 34, X = (v) => left + ((v - a) / (b - a)) * (W - left - right);
+    const step = (b - a) > 40 ? 10 : (b - a) > 12 ? 5 : (b - a) > 4 ? 1 : 0.5;
+    const ticks = []; for (let v = Math.ceil(a / step) * step; v <= b; v += step) ticks.push(Math.round(v * 10) / 10);
+    const dp = unit === "ft" ? 2 : unit === "rpm" ? 0 : 1;
+    return (
+      <svg className="bp-chart bp-ranges" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label} range by pitch type`}>
+        {ticks.map((v) => <g key={v}><line x1={X(v)} x2={X(v)} y1={6} y2={H - 22} stroke="var(--chart-grid)" /><text x={X(v)} y={H - 8} textAnchor="middle" fontSize="10" fill="var(--text-dim)">{v}</text></g>)}
+        {types.map((r, i) => { const y = 14 + i * rowH, col = r.t === UNTAGGED ? "#888" : colorOf(r.t), off = focus.length > 0 && !focus.includes(r.t); return (
+          <g key={r.t} opacity={off ? 0.2 : 1}>
+            <text x={left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="var(--text)">{r.t}</text>
+            <line x1={X(r.lo)} x2={X(r.hi)} y1={y} y2={y} stroke={col} strokeWidth="8" strokeLinecap="round" opacity="0.75" />
+            <line x1={X(r.avg)} x2={X(r.avg)} y1={y - 8} y2={y + 8} stroke="var(--text)" strokeWidth="2" />
+            <text x={W - right + 8} y={y + 4} fontSize="11" fill="var(--text)">{r.avg.toFixed(dp)} {unit}</text>
+            <title>{`${r.t}: ${r.lo.toFixed(dp)} to ${r.hi.toFixed(dp)} ${unit}, average ${r.avg.toFixed(dp)} (${r.n} pitches)`}</title>
+          </g>
+        ); })}
+      </svg>
+    );
+  }
+  // By session: each pitch type's average of speed, spin, IVB and HB, session after session, spaced by date
+  function SessionTrends({ sessions, focus }) {
+    const per = sessions.slice().sort((x, y) => (x.date || "").localeCompare(y.date || "")).map((s) => ({ s, day: new Date(`${s.date}T12:00:00`).getTime(), stats: typeStats(s) }));
+    const types = [...new Set(per.flatMap((x) => x.stats.map((t) => t.type)))].filter((t) => t !== UNTAGGED).sort(byType);
+    const d0 = per[0].day, d1 = per[per.length - 1].day;
+    const chart = ([key, label, unit]) => {
+      const lines = types.map((t) => ({ t, pts: per.map((x) => { const st = x.stats.find((q) => q.type === t); return st && typeof st[key] === "number" ? { day: x.day, v: st[key], date: x.s.date } : null; }).filter(Boolean) })).filter((l) => l.pts.length);
+      const vals = lines.flatMap((l) => l.pts.map((p) => p.v));
+      if (!vals.length) return null;
+      const lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.15 || 1, a = lo - pad, b = hi + pad;
+      const W = 300, H = 150, L = 38, R = 8, T = 10, B = 22, X = (d) => L + (d1 > d0 ? ((d - d0) / (d1 - d0)) * (W - L - R) : (W - L - R) / 2), Y = (v) => T + ((b - v) / (b - a)) * (H - T - B);
+      return (
+        <div className="bp-trend-box" key={key}>
+          <div className="bp-trend-title">{label} <small>{unit}</small></div>
+          <svg viewBox={`0 0 ${W} ${H}`} className="bp-chart" role="img" aria-label={`${label} by session, by pitch type`}>
+            {[a + (b - a) * 0.15, (a + b) / 2, b - (b - a) * 0.15].map((v, i) => <g key={i}><line x1={L} x2={W - R} y1={Y(v)} y2={Y(v)} stroke="var(--chart-grid)" /><text x={L - 4} y={Y(v) + 3} textAnchor="end" fontSize="9" fill="var(--text-dim)">{key === "spinAvg" ? Math.round(v) : v.toFixed(1)}</text></g>)}
+            <text x={L} y={H - 6} fontSize="9" fill="var(--text-dim)">{shortDate(per[0].s.date)}</text>
+            <text x={W - R} y={H - 6} textAnchor="end" fontSize="9" fill="var(--text-dim)">{shortDate(per[per.length - 1].s.date)}</text>
+            {lines.map((l) => { const off = focus.length > 0 && !focus.includes(l.t); return (
+              <g key={l.t} opacity={off ? 0.15 : 1}>
+                <polyline points={l.pts.map((p) => `${X(p.day)},${Y(p.v)}`).join(" ")} fill="none" stroke={colorOf(l.t)} strokeWidth="2" />
+                {l.pts.map((p, i) => <circle key={i} cx={X(p.day)} cy={Y(p.v)} r="3" fill={colorOf(l.t)}><title>{`${l.t}, ${shortDate(p.date)}: ${p.v} ${unit}`}</title></circle>)}
+              </g>
+            ); })}
+          </svg>
+        </div>
+      );
+    };
+    return <div className="bp-trends">{[["speedAvg", "Velo", "mph"], ["spinAvg", "Spin", "rpm"], ["ivb", "IVB", "in"], ["hb", "HB", "in"]].map(chart)}</div>;
   }
 
   function BullpensTab({ athlete }) {

@@ -4426,3 +4426,14 @@ button.pt-label.on { color: var(--dst-red); }
 .ad-empty { padding: 14px; color: var(--text-dim); }
 .ad-full { margin-top: 12px; }
 @media print { .ad-tab, .ad-drawer { display: none !important; } }
+
+/* the bullpen report's added charts (bullpens.js): tilt plot, location heatmap and plot, ranges, by session */
+.bp-mod-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bp-add-mod { min-width: 170px; }
+svg.bp-tilt, svg.bp-heat, svg.bp-loc { display: block; width: 100%; max-width: 380px; margin: 0 auto; }
+svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
+.bp-trends { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.bp-trend-box svg { display: block; width: 100%; }
+.bp-trend-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.bp-trend-title small { font-weight: 400; color: var(--text-dim); }
+.bp-mod-head h3 { min-width: 140px; } /* the title keeps its room; a module's switches wrap under it */
