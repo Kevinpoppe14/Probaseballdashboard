@@ -4443,3 +4443,28 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .spt-rowmenu-title { padding: 4px 8px 6px; font-size: 12px; color: var(--text-dim); border-bottom: 1px solid var(--chart-grid); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spt-rowmenu button { display: block; width: 100%; text-align: left; padding: 7px 8px; border: none; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .spt-rowmenu button:hover, .spt-rowmenu button:focus { background: var(--surface-muted); }
+
+/* Pitch Design: a new pitch, and grips to try (bullpens.js, pitch_grips.js) */
+.pd-new-pick { margin-left: 4px; }
+.pd-new-chip { border-style: dashed !important; }
+.pd-new-x { margin-left: 6px; opacity: 0.7; cursor: pointer; }
+.pd-new-x:hover { opacity: 1; }
+.pd-grips { margin-top: 16px; }
+.pd-grips h3 { margin: 0 0 8px; font-size: 15px; }
+.pd-grip-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.pd-grip-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); font-size: 13px; }
+.pd-grip-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.pd-grip-card p { margin: 0; }
+.pd-grip-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.pd-grip-top b { font-size: 14px; }
+.pd-grip-photo { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.pd-grip-photo img { width: 72px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+.pd-grip-nophoto { font-size: 11px; color: var(--text-dim); }
+.pd-grip-does { color: var(--text-dim); }
+.pd-grip-cues ul { margin: 2px 0 0; padding-left: 18px; }
+.pd-grip-fix { font-size: 12px; }
+.pd-grip-links { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+.pd-grip-links a { color: var(--info); }
+.pd-grip-use { margin-top: auto; align-self: flex-start; }
+.pd-goal-grip { display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; font-size: 13px; }
+.pd-goal-grip p { margin: 2px 0; }

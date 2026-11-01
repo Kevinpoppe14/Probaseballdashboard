@@ -1719,6 +1719,15 @@
   function goalSummary(g, throws) {
     const t = g.type.toLowerCase(), n = g.now, G = g.goal;
     const shape = (m) => `${m.velo.toFixed(1)} mph with ${Math.round(m.spin).toLocaleString()} rpm spinning toward ${clockAt(m.tilt)} (${Math.round(m.eff)}% efficient, ${100 - Math.round(m.eff)}% gyro)`;
+    const grip = gripById(g.grip);
+    const gripLine = grip ? `Grip to try: ${grip.name.toLowerCase()} (${grip.grip.charAt(0).toLowerCase()}${grip.grip.slice(1).replace(/\.$/, "")}). Cues: ${grip.cues.join("; ").toLowerCase()}.` : null;
+    if (g.isNew) {
+      return [
+        `A new ${t}: ${shape(G)}, for ${vertOf(G.ivb)} and ${sideOf(G.hb, throws).words}.`,
+        `It starts from a typical ${t} at his fastball's speed and is shaped from there; its first bullpens show what his hand actually gives it.`,
+        gripLine,
+      ].filter(Boolean).join(" ");
+    }
     if (g.mode === "maintain") {
       return [
         `Keep the ${t} where it is: ${shape(n)}, for ${vertOf(n.ivb)} and ${sideOf(n.hb, throws).words}.`,
@@ -1747,9 +1756,86 @@
       `Predicted, that takes it from ${vertOf(n.ivb)} and ${sN.words} to ${vertOf(G.ivb)} and ${sG.words}${moves.length ? ` (${listOf(moves)})` : ""}; total break ${inch(Math.hypot(n.hb, n.ivb))} to ${inch(Math.hypot(G.hb, G.ivb))}.`,
       Math.abs(dt) >= 3 || Math.abs(de) >= 1 ? `The spin rate stays about ${Math.round(n.spin).toLocaleString()} rpm: the change is in how the spin is put on the ball, not how much of it there is.` : null,
       why.length ? `For reference: ${why.join("; ")}.` : null,
+      gripLine,
     ].filter(Boolean).join(" ");
   }
   const STILL = { paused: true, speed: 1, pov: "pitcher", flip: false }; // printed balls: one still frame, from behind the pitcher
+
+  // ---- a new pitch, and grips to try --------------------------------------------------------------------------------
+  // A pitch he doesn't throw yet starts from a typical one of its kind (a righty's, mirrored for a lefty): its Savant
+  // code, its velo off his fastball, spin, spin direction (clock minutes), efficiency, IVB and horizontal break (the
+  // pitcher's view), then is designed like any other.
+  const NEW_SHAPES = {
+    fourSeam: ["FF", 0, 2300, 75, 95, 16, 8], sinker: ["SI", -1, 2150, 105, 90, 8, 15], cutter: ["FC", -5, 2400, 705, 50, 9, -3],
+    bulletSlider: ["SL", -8, 2450, 600, 25, 2, -3], sweeper: ["ST", -11, 2600, 540, 75, 1, -15], verticalSlider: ["SL", -7, 2450, 420, 35, -4, -2],
+    curveball: ["CU", -15, 2600, 435, 80, -12, -9], knuckleCurve: ["KC", -12, 2500, 450, 75, -10, -8], changeup: ["CH", -8, 1750, 120, 85, 7, 14],
+    kickChange: ["CH", -5, 1300, 165, 60, 2, 9], splitter: ["FS", -7, 1350, 140, 55, 3, 9], splitChange: ["FS", -8, 1500, 130, 70, 5, 12],
+  };
+  function newPitchBase(key, throws, pitches) {
+    const s = NEW_SHAPES[key], t = window.PITCH_GRIPS && window.PITCH_GRIPS.types.find((x) => x.key === key);
+    if (!s || !t) return null;
+    const fbs = pitches.filter((p) => /fastball|four|sinker|two/i.test(p.type));
+    const fb = fbs.length ? fbs.reduce((a, b) => (b.speedAvg > a.speedAvg ? b : a)) : pitches[0] || { speedAvg: 90 };
+    const [code, dv, spin, tilt, eff, ivb, hb] = s, L = throws === "L";
+    return { type: t.name, key, code, isNew: true, speedAvg: Math.round((fb.speedAvg + dv) * 10) / 10, spinAvg: spin, tilt: L ? wrapMin(720 - tilt) : tilt, spinEff: eff, ivb, hb: L ? -hb : hb, qty: 0, relHeight: fb.relHeight, relSide: fb.relSide, extension: fb.extension, vaa: null, armAngle: fb.armAngle };
+  }
+  const gripById = (id) => { const G = window.PITCH_GRIPS; if (!G || !id) return null; for (const t of G.types) { const g = t.grips.find((x) => x.id === id); if (g) return { ...g, typeName: t.name }; } return null; };
+  // our own photo of a grip from the library (the public grips storage, lib-<grip id>), shared by every pitcher
+  function LibGripPhoto({ id, label }) {
+    const key = `lib-${id}`;
+    const [file, setFile] = useState(null);
+    const [stamp, setStamp] = useState(0);
+    const [busy, setBusy] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => { let off = false; gripIndex().then((m) => { if (!off) setFile(m.get(key) || null); }); return () => { off = true; }; }, [key]);
+    const url = file ? `${window.supabaseClient.storage.from(GRIPS).getPublicUrl(file).data.publicUrl}${stamp ? `?v=${stamp}` : ""}` : null;
+    const add = async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      setBusy(true);
+      const ext = (((f.name || "").match(/\.(\w{2,4})$/) || [])[1] || "jpg").toLowerCase(), path = `${key}.${ext}`;
+      const { error } = await window.supabaseClient.storage.from(GRIPS).upload(path, f, { upsert: true, contentType: f.type || "image/jpeg" });
+      setBusy(false);
+      if (error) { window.alert("Couldn't add the photo. Check your connection and try again."); return; }
+      await gripIndex(true);
+      setFile(path); setStamp(Date.now());
+    };
+    return (
+      <span className="pd-grip-photo">
+        {url ? <a href={url} target="_blank" rel="noopener noreferrer" title={label}><img src={url} alt={label} /></a> : <span className="pd-grip-nophoto">No photo yet</span>}
+        <button type="button" className="bp-grip-btn" disabled={busy} title={url ? "Replace our photo of this grip" : "Add our photo of this grip (every pitcher sees it)"} onClick={() => ref.current && ref.current.click()}>📷</button>
+        <input ref={ref} type="file" accept="image/*" hidden onChange={add} />
+      </span>
+    );
+  }
+  // three grips to try for a pitch type, with cues, what each does, a fix, and where to read or watch more
+  function GripLibrary({ type, chosen, onChoose }) {
+    const G = window.PITCH_GRIPS, t = G && G.forType(type);
+    if (!t) return null;
+    return (
+      <div className="pd-grips">
+        <h3>Grips to try: {t.name}</h3>
+        <div className="pd-grip-cards">
+          {t.grips.map((g) => {
+            const on = chosen === g.id;
+            return (
+              <div key={g.id} className={`pd-grip-card${on ? " on" : ""}`}>
+                <div className="pd-grip-top"><b>{g.name}</b><LibGripPhoto id={g.id} label={`${t.name}: ${g.name}`} /></div>
+                <p className="pd-grip-hold">{g.grip}</p>
+                <p className="pd-grip-does">{g.does}</p>
+                <div className="pd-grip-cues"><b>Cues</b><ul>{g.cues.map((c) => <li key={c}>{c}</li>)}</ul></div>
+                <p className="pd-grip-fix"><b>If it isn't working:</b> {g.fix}</p>
+                <div className="pd-grip-links">{[...g.refs, ...G.searches(t, g)].map(([label, url]) => <a key={url} href={url} target="_blank" rel="noopener noreferrer">{label}</a>)}</div>
+                <button type="button" className={`btn ${on ? "btn-primary" : "btn-secondary"} pd-grip-use`} onClick={() => onChoose(on ? null : g.id)}>{on ? "✓ Using this grip" : "Use this grip"}</button>
+              </div>
+            );
+          })}
+        </div>
+        <p className="timestamp-note">Grips and cues written from Driveline's grip guides and How to Throw articles and reporting on the kick change and split-change (linked on each), in our own words. Their photos and videos stay on their sites: open them from the links, and add our own photo of a grip with 📷 (it shows for every pitcher). The grip you use goes on the goal and the printed plan.</p>
+      </div>
+    );
+  }
 
   // the plan: every goal, with its balls standing still, the numbers and the summary; it's what prints from this tab
   function PitchPlan({ athlete, plan, onRemove, onNote, onOpen }) {
@@ -1767,7 +1853,7 @@
           <div key={g.type} className="pd-goal">
             <div className="pd-goal-head">
               <h3><span className="bp-dot" style={{ background: colorOf(g.type) }} />{g.type}</h3>
-              <span className={`pd-badge ${g.mode}`}>{g.mode === "change" ? "Change" : "Maintain shape and qualities"}</span>
+              <span className={`pd-badge ${g.mode}`}>{g.isNew ? "New pitch" : g.mode === "change" ? "Change" : "Maintain shape and qualities"}</span>
               <span className="timestamp-note">set {g.savedAt ? shortDate(g.savedAt.slice(0, 10)) : ""}{g.source ? ` from ${g.source}` : ""}</span>
               <span className="pd-goal-btns no-print">
                 <button type="button" className="bp-mod-btn" onClick={() => onOpen(g)}>Open in designer</button>
@@ -1776,11 +1862,11 @@
             </div>
             <div className="pd-goal-body">
               <div className="pd-goal-balls">
-                <div><div className="pd-goal-cap">{g.mode === "change" ? "Now" : "Keep"}</div><SpinBall s={ballOf(g, g.now)} ctl={STILL} size={130} /></div>
+                <div><div className="pd-goal-cap">{g.isNew ? "Typical start" : g.mode === "change" ? "Now" : "Keep"}</div><SpinBall s={ballOf(g, g.now)} ctl={STILL} size={130} /></div>
                 {g.mode === "change" && <div><div className="pd-goal-cap">Goal</div><SpinBall s={ballOf(g, g.goal)} ctl={STILL} size={130} /></div>}
               </div>
               <table className="assess-table bp-table pd-goal-table">
-                <thead><tr><th></th><th>{g.mode === "change" ? "Now" : "Keep"}</th>{g.mode === "change" && <th>Goal</th>}</tr></thead>
+                <thead><tr><th></th><th>{g.isNew ? "Typical start" : g.mode === "change" ? "Now" : "Keep"}</th>{g.mode === "change" && <th>Goal</th>}</tr></thead>
                 <tbody>
                   {row("Velo", (m) => `${m.velo.toFixed(1)} mph`, g)}
                   {row("Spin", (m) => `${Math.round(m.spin)} rpm`, g)}
@@ -1793,6 +1879,9 @@
               </table>
             </div>
             <p className="pd-summary">{goalSummary(g, athlete.throws)}</p>
+            {gripById(g.grip) && (() => { const gr = gripById(g.grip); return (
+              <div className="pd-goal-grip"><LibGripPhoto id={gr.id} label={`${gr.typeName}: ${gr.name}`} /><div><b>Grip: {gr.name}</b><p>{gr.grip}</p><p><b>Cues:</b> {gr.cues.join(" · ")}</p></div></div>
+            ); })()}
             <textarea className="bp-notes-box no-print" rows={2} value={g.note || ""} placeholder="Cues, grip notes, what to work on…" onChange={(e) => onNote(g, e.target.value)} />
             {g.note ? <p className="print-only pd-note-print"><b>Notes:</b> {g.note}</p> : null}
           </div>
@@ -1972,7 +2061,11 @@
       : source ? typeStats(source === "all" ? { pitches: sessions.flatMap(livePitches) } : latest).filter((s) => s.type !== UNTAGGED).map((s) => ({ type: s.type, speedAvg: s.speedAvg, spinAvg: s.spinAvg, tilt: s.tilt, spinEff: s.spinEff, ivb: s.ivb, hb: s.hb, qty: s.qty, relHeight: s.relHeight, relSide: s.relSide, extension: s.extension, vaa: s.vaa }))
       : []).filter(usable);
     const [pick, setPick] = useState("");
-    const base = pitches.find((p) => p.type === pick) || pitches[0] || null;
+    // a pitch he doesn't throw yet, started from a typical one of its kind (+ New pitch)
+    const [newKey, setNewKey] = useState(null);
+    const newBase = newKey ? newPitchBase(newKey, athlete.throws, pitches) : null;
+    const choices = newBase ? [...pitches.filter((p) => p.type !== newBase.type), newBase] : pitches;
+    const base = choices.find((p) => p.type === pick) || pitches[0] || choices[0] || null;
     const baseKey = base ? `${source}|${season}|${base.type}|${base.speedAvg}|${base.spinAvg}` : "";
     const [d, setD] = useState(null);
     const opening = useRef(null); // a saved goal being opened: its design, once its pitch is picked
@@ -2016,8 +2109,10 @@
       noteTimer.current = setTimeout(() => saveGoals(goals), 600);
     };
     const openGoal = (g) => {
-      const design = { velo: g.goal.velo, spin: g.goal.spin, tilt: g.goal.tilt, eff: g.goal.eff, seam: g.goal.seam };
+      const design = { velo: g.goal.velo, spin: g.goal.spin, tilt: g.goal.tilt, eff: g.goal.eff, seam: g.goal.seam, grip: g.grip || null };
+      const lib = g.isNew && window.PITCH_GRIPS ? window.PITCH_GRIPS.forType(g.type) : null;
       if (base && base.type === g.type) setD({ ...design, tilt: nearTo(design.tilt, startOf(base).tilt) });
+      else if (lib) { opening.current = { type: g.type, d: design }; setNewKey(lib.key); setPick(g.type); }
       else if (pitches.some((p) => p.type === g.type)) { opening.current = { type: g.type, d: design }; setPick(g.type); }
       else { setGoalMsg(`There's no ${g.type.toLowerCase()} in ${(sources.find((s) => s.key === source) || {}).label || "this source"} to open it on; pick another source.`); return; }
       setGoalMsg("");
@@ -2082,7 +2177,7 @@
     // he releases it now (its VAA moved by the change in velo and IVB, worked out the way a bullpen's is)
     const vaaAt = (v, ivb) => (window.TrackmanImport && window.TrackmanImport.vaaOf ? window.TrackmanImport.vaaOf({ speed: v, ivb, relHeight: base.relHeight || 6, plateHeight: 2.5, extension: base.extension }) : null);
     const shifted = base && out && base.vaa != null && vaaAt(dd.velo, out.ivb) != null && vaaAt(base.speedAvg, base.ivb) != null ? r1(base.vaa + vaaAt(dd.velo, out.ivb) - vaaAt(base.speedAvg, base.ivb)) : base && base.vaa;
-    const goalStat = base && out && { type: base.type, speedAvg: r1(dd.velo), ivb: r1(out.ivb), hb: r1(out.hb), spinAvg: Math.round(dd.spin), relHeight: base.relHeight, relSide: base.relSide, extension: base.extension, vaa: shifted, tilt: wrapMin(dd.tilt), spinEff: Math.round(dd.eff), armAngle: base.armAngle };
+    const goalStat = base && out && { type: base.isNew ? CODE_TYPE[base.code] || base.type : base.type, speedAvg: r1(dd.velo), ivb: r1(out.ivb), hb: r1(out.hb), spinAvg: Math.round(dd.spin), relHeight: base.relHeight, relSide: base.relSide, extension: base.extension, vaa: shifted, tilt: wrapMin(dd.tilt), spinEff: Math.round(dd.eff), armAngle: base.armAngle };
     const nowStat = base && { type: base.type, speedAvg: base.speedAvg, ivb: base.ivb, hb: base.hb, spinAvg: base.spinAvg, relHeight: base.relHeight, relSide: base.relSide, extension: base.extension, vaa: base.vaa, tilt: base.tilt, spinEff: base.spinEff, armAngle: base.armAngle };
     // saving the pitch as a goal: changed (now and as designed), or kept where it is
     const goalFor = (type) => ((plan && plan.goals) || []).find((x) => x.type === type) || null;
@@ -2090,11 +2185,11 @@
     const nowM = base && { velo: base.speedAvg, spin: base.spinAvg, tilt: start.tilt, eff: effB, seam: start.seam, ivb: base.ivb, hb: base.hb };
     const stamp = () => ({ note: (goalFor(base.type) || {}).note || "", savedAt: new Date().toISOString(), savedBy: (store.currentUserEmail && store.currentUserEmail()) || "" });
     const saveChange = () => {
-      putGoal({ type: base.type, mode: "change", source: srcText, now: nowM, goal: { velo: Math.round(dd.velo * 10) / 10, spin: dd.spin, tilt: wrapMin(dd.tilt), eff: Math.round(dd.eff), seam: dd.seam, ivb: r1(out.ivb), hb: r1(out.hb) }, ...stamp() });
+      putGoal({ type: base.type, mode: "change", ...(base.isNew ? { isNew: true } : {}), grip: dd.grip || null, source: base.isNew ? "a typical pitch of its kind" : srcText, now: nowM, goal: { velo: Math.round(dd.velo * 10) / 10, spin: dd.spin, tilt: wrapMin(dd.tilt), eff: Math.round(dd.eff), seam: dd.seam, ivb: r1(out.ivb), hb: r1(out.hb) }, ...stamp() });
       setGoalMsg(`Saved: the ${base.type.toLowerCase()} goal is on the plan below.`);
     };
     const saveMaintain = () => {
-      putGoal({ type: base.type, mode: "maintain", source: srcText, now: nowM, goal: nowM, ...stamp() });
+      putGoal({ type: base.type, mode: "maintain", grip: dd.grip || null, source: srcText, now: nowM, goal: nowM, ...stamp() });
       setGoalMsg(`Saved: keep the ${base.type.toLowerCase()} as it is. It's on the plan below.`);
     };
     return (
@@ -2112,14 +2207,21 @@
           )}
           {source === "mlb" && mlb.loading && <span className="timestamp-note">Loading Baseball Savant…</span>}
         </div>
-        {pitches.length > 0 && (
+        {choices.length > 0 && (
           <div className="bp-key" role="group" aria-label="Pitch to design from">
-            {pitches.map((p) => (
-              <button key={p.type} type="button" className={`bp-key-chip${base && base.type === p.type ? " on" : ""}`} aria-pressed={base && base.type === p.type} onClick={() => setPick(p.type)}>
-                <span className="bp-dot" style={{ background: colorOf(p.type) }} />{p.type} <small>{p.qty}</small>
-                {goalFor(p.type) && <span className={`pd-chip-goal ${goalFor(p.type).mode}`}>{goalFor(p.type).mode === "change" ? "goal" : "keep"}</span>}
+            {choices.map((p) => (
+              <button key={p.type} type="button" className={`bp-key-chip${base && base.type === p.type ? " on" : ""}${p.isNew ? " pd-new-chip" : ""}`} aria-pressed={base && base.type === p.type} onClick={() => setPick(p.type)}>
+                <span className="bp-dot" style={{ background: colorOf(p.type) }} />{p.type} <small>{p.isNew ? "new" : p.qty}</small>
+                {goalFor(p.type) && <span className={`pd-chip-goal ${goalFor(p.type).mode}`}>{goalFor(p.type).isNew ? "new" : goalFor(p.type).mode === "change" ? "goal" : "keep"}</span>}
+                {p.isNew && <span className="pd-new-x" role="button" title="Take the new pitch off" onClick={(e) => { e.stopPropagation(); setNewKey(null); setPick(""); }}>✕</span>}
               </button>
             ))}
+            {window.PITCH_GRIPS && (
+              <select className="bp-tag pd-new-pick" value="" aria-label="Design a new pitch" title="Design a pitch he doesn't throw yet, starting from a typical one of its kind" onChange={(e) => { const k = e.target.value; if (!k) return; const t = window.PITCH_GRIPS.types.find((x) => x.key === k); setNewKey(k); setPick(t.name); }}>
+                <option value="">+ New pitch</option>
+                {window.PITCH_GRIPS.types.filter((t) => NEW_SHAPES[t.key]).map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
+              </select>
+            )}
           </div>
         )}
         {!pitches.length && !(source === "mlb" && mlb.loading) && <p className="assess-row-note">No pitches here with velo, spin and movement to design from.</p>}
@@ -2127,16 +2229,16 @@
           <React.Fragment>
             <div className="pd-top">
               <SpinControls ctl={spinCtl} set={setSpinCtl} />
-              <button type="button" className="btn btn-small-grey" onClick={() => setD(startOf(base))}>Reset to his {base.type.toLowerCase()}</button>
+              <button type="button" className="btn btn-small-grey" onClick={() => setD(startOf(base))}>{base.isNew ? "Reset to a typical one" : `Reset to his ${base.type.toLowerCase()}`}</button>
               <span className="pd-save">
-                <button type="button" className="btn btn-primary" onClick={saveChange}>Save as goal: change</button>
-                <button type="button" className="btn btn-secondary" onClick={saveMaintain}>Goal: maintain shape and qualities</button>
+                <button type="button" className="btn btn-primary" onClick={saveChange}>{base.isNew ? "Save as goal: new pitch" : "Save as goal: change"}</button>
+                {!base.isNew && <button type="button" className="btn btn-secondary" onClick={saveMaintain}>Goal: maintain shape and qualities</button>}
               </span>
               {goalMsg && <span className="assess-row-note" role="status">{goalMsg}</span>}
             </div>
             <div className="pd-grid">
               <div className="pd-col">
-                <h3>Now</h3>
+                <h3>{base.isNew ? "Typical start" : "Now"}</h3>
                 <SpinBall key={`now-${baseKey}`} s={ballNow} ctl={spinCtl} size={200} />
               </div>
               <div className="pd-col">
@@ -2155,16 +2257,18 @@
             <div className="pd-grid pd-results">
               <div className="bp-table-wrap">
                 <table className="assess-table bp-table pd-table">
-                  <thead><tr><th></th><th>Now</th><th>Designed</th><th>Change</th></tr></thead>
+                  <thead><tr><th></th><th>{base.isNew ? "Typical start" : "Now"}</th><th>Designed</th><th>Change</th></tr></thead>
                   <tbody>{rows.map(([k, a, b, c]) => <tr key={k}><td>{k}</td><td>{a}</td><td><b>{b}</b></td><td className={c && c !== "–" ? "pd-chg" : ""}>{c}</td></tr>)}</tbody>
                 </table>
               </div>
-              <DesignChart pitches={pitches} base={base} out={out} />
+              <DesignChart pitches={choices} base={base} out={out} />
             </div>
+            <GripLibrary type={base.type} chosen={dd.grip || null} onChoose={(id) => setD((p) => ({ ...(p && p.velo != null ? p : dd), grip: id }))} />
+            {base.isNew && <p className="timestamp-note">A new {base.type.toLowerCase()} starts from a typical one of its kind for a {athlete.throws === "L" ? "lefty" : "righty"}, its velo set off his fastball ({base.speedAvg} mph): shape it with the dials, pick a grip to try, and save it as a goal. Its first bullpens show what his hand actually gives it.</p>}
             {goalStat && (
               <div className="pd-goal-comps">
                 <h3>The designed pitch: its rarity and 5 closest MLB pitches</h3>
-                <CompsModule athlete={athlete} stats={[goalStat]} meLabel="designed" nowStat={nowStat} />
+                <CompsModule athlete={athlete} stats={[goalStat]} meLabel="designed" nowStat={base.isNew ? undefined : nowStat} />
               </div>
             )}
             <p className="timestamp-note">
