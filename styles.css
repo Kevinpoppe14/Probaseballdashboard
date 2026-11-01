@@ -4468,3 +4468,15 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .pd-grip-use { margin-top: auto; align-self: flex-start; }
 .pd-goal-grip { display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; font-size: 13px; }
 .pd-goal-grip p { margin: 2px 0; }
+
+/* Pitch Design: another pitcher's pitch as the design (bullpens.js, TargetPicker) */
+.pd-design-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pd-design-head h3 { margin: 0; }
+.pd-target-pick { position: relative; margin: 6px 0; }
+.pd-target-pick input { width: 100%; box-sizing: border-box; }
+.pd-target-hits { position: absolute; z-index: 30; left: 0; right: 0; top: 100%; max-height: 280px; overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45); }
+.pd-target-hits button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: none; background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.pd-target-hits button:hover { background: var(--surface-muted); }
+.pd-target-hits small { color: var(--text-dim); margin-left: 4px; }
+.pd-target-note { font-size: 13px; margin: 4px 0 8px; }
+.pd-mirror { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; color: var(--text-dim); }

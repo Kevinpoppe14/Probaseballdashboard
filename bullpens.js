@@ -1752,6 +1752,7 @@
     if (Math.abs(dIvb) >= 0.3) moves.push(`${inch(dIvb)} ${dIvb > 0 ? "more" : "less"} vertical break`);
     if (Math.abs(dArm) >= 0.3) moves.push(`${inch(dArm)} more ${dArm > 0 ? "to the arm side" : "to the glove side"}`);
     return [
+      g.model ? `Modeled on ${g.model}.` : null,
       asks.length ? `Goal for the ${t}: ${listOf(asks)}.` : `Goal for the ${t}: no change to its spin, velo or seam effects yet.`,
       `Predicted, that takes it from ${vertOf(n.ivb)} and ${sN.words} to ${vertOf(G.ivb)} and ${sG.words}${moves.length ? ` (${listOf(moves)})` : ""}; total break ${inch(Math.hypot(n.hb, n.ivb))} to ${inch(Math.hypot(G.hb, G.ivb))}.`,
       Math.abs(dt) >= 3 || Math.abs(de) >= 1 ? `The spin rate stays about ${Math.round(n.spin).toLocaleString()} rpm: the change is in how the spin is put on the ball, not how much of it there is.` : null,
@@ -1778,6 +1779,42 @@
     const fb = fbs.length ? fbs.reduce((a, b) => (b.speedAvg > a.speedAvg ? b : a)) : pitches[0] || { speedAvg: 90 };
     const [code, dv, spin, tilt, eff, ivb, hb] = s, L = throws === "L";
     return { type: t.name, key, code, isNew: true, speedAvg: Math.round((fb.speedAvg + dv) * 10) / 10, spinAvg: spin, tilt: L ? wrapMin(720 - tilt) : tilt, spinEff: eff, ivb, hb: L ? -hb : hb, qty: 0, relHeight: fb.relHeight, relSide: fb.relSide, extension: fb.extension, vaa: null, armAngle: fb.armAngle };
+  }
+  // ---- another pitcher's pitch, as the design --------------------------------------------------------------------------
+  // Every MLB pitcher who threw this kind of pitch that season (Baseball Savant), and every other DST athlete with it in
+  // his TrackMan bullpens, by name: picking one shows his real pitch where the design would be. Each comes as
+  // { label, hand, velo, spin, tilt (clock minutes, pitcher's view), eff, ivb, hb (pitcher's view), relHeight, relSide,
+  // extension, vaa, armAngle }.
+  function TargetPicker({ codes, year, type, athleteId, onPick }) {
+    const [list, setList] = useState(null);
+    const [q, setQ] = useState("");
+    useEffect(() => {
+      let off = false;
+      const same = (t) => String(t || "").toLowerCase() === String(type || "").toLowerCase() || (codes && codesOf(t) && codesOf(t).some((c) => codes.includes(c)));
+      const dst = [];
+      (window.AthleteStore.allAthletes ? window.AthleteStore.allAthletes() : []).forEach((a) => {
+        if (String(a.id) === String(athleteId)) return;
+        const ss = getBullpens(a.id);
+        if (!ss.length) return;
+        const st = typeStats({ pitches: ss.flatMap(livePitches) }).find((s) => s.type !== UNTAGGED && same(s.type) && s.ivb != null && s.hb != null && s.speedAvg);
+        if (st) dst.push({ label: `${a.name} (DST bullpens, ${st.qty} pitches)`, hand: a.throws === "L" ? "L" : "R", velo: st.speedAvg, spin: st.spinAvg, tilt: st.tilt, eff: st.spinEff, ivb: st.ivb, hb: st.hb, relHeight: st.relHeight, relSide: st.relSide, extension: st.extension, vaa: st.vaa, armAngle: null });
+      });
+      setList(dst);
+      if (codes && codes.length) mlbPitchers(codes, year).then((rows) => {
+        if (off) return;
+        const mlb = rows.filter((r) => r.velo && r.ivb != null && r.hb != null).map((r) => ({ label: `${r.name} (${r.team || "MLB"} ${year}, ${CODE_TYPE[r.code] || r.code})`, hand: r.hand === "L" ? "L" : "R", velo: r.velo, spin: r.spin, tilt: r.tilt, eff: r.eff, ivb: r.ivb, hb: r.hand === "L" ? -r.hb : r.hb, relHeight: r.relHeight, relSide: r.relSide, extension: r.ext, vaa: r.vaa, armAngle: r.armAngle }));
+        setList([...dst, ...mlb.sort((a, b) => a.label.localeCompare(b.label))]);
+      }, () => {});
+      return () => { off = true; };
+    }, [type, year, (codes || []).join("+")]); // eslint-disable-line
+    const hits = list && q.trim().length >= 2 ? list.filter((x) => x.label.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 12) : [];
+    return (
+      <div className="pd-target-pick">
+        <input type="search" value={q} placeholder={list ? `Search ${list.length} pitchers with a ${String(type || "").toLowerCase()}…` : "Loading pitchers…"} aria-label="Find a pitcher" onChange={(e) => setQ(e.target.value)} />
+        {hits.length > 0 && <div className="pd-target-hits">{hits.map((x) => <button key={x.label} type="button" onClick={() => { onPick(x); setQ(""); }}>{x.label} <small>{x.hand === "L" ? "LHP" : "RHP"} · {x.velo} mph · {x.ivb}" IVB</small></button>)}</div>}
+        {list && q.trim().length >= 2 && !hits.length && <p className="timestamp-note">No pitcher with a {String(type || "").toLowerCase()} matches that.</p>}
+      </div>
+    );
   }
   const gripById = (id) => { const G = window.PITCH_GRIPS; if (!G || !id) return null; for (const t of G.types) { const g = t.grips.find((x) => x.id === id); if (g) return { ...g, typeName: t.name }; } return null; };
   // our own photo of a grip from the library (the public grips storage, lib-<grip id>), shared by every pitcher
@@ -2074,6 +2111,11 @@
       setD(base ? (o && o.type === base.type ? { ...o.d, tilt: nearTo(o.d.tilt, startOf(base).tilt) } : startOf(base)) : null);
       opening.current = null;
     }, [baseKey]); // eslint-disable-line
+    // the design as another pitcher's real pitch instead of the dials (null: custom), mirrored to his hand if wanted
+    const [target, setTarget] = useState(null);
+    const [mirrorTarget, setMirrorTarget] = useState(true);
+    const [designMode, setDesignMode] = useState("custom");
+    useEffect(() => { setTarget(null); }, [base && base.type]); // eslint-disable-line
     const [spinCtl, setSpinCtl] = useSpinCtl();
     // the seam-shifted wake model for this pitch type: every MLB pitch of the type that season (the bullpen's, last season's)
     const sswCodes = base ? (base.code ? [base.code] : codesOf(base.type)) : null;
@@ -2131,8 +2173,15 @@
     const sswNew = base && dd0 && sswPts ? sswAt(sswPts, hand, dd0.tilt, dd0.eff, dd0.velo) : null;
     const sswOk = !!(sswNow && sswNew && sswNew.n >= 5);
     const sswDelta = sswOk ? Math.round(sswNew.off - sswNow.off) : 0;
-    const dd = dd0 && { ...dd0, seam: start.seam + sswDelta };
-    const out = base && dd ? designed(base, dd) : null;
+    const ddCustom = dd0 && { ...dd0, seam: start.seam + sswDelta };
+    // another pitcher's pitch, when one is shown: his real numbers and movement, in this pitcher's hand if mirrored
+    const myHand = athlete.throws === "L" ? "L" : "R";
+    const tgt = base && target ? (() => {
+      const flip = mirrorTarget && target.hand !== myHand, tilt = target.tilt != null ? (flip ? wrapMin(720 - target.tilt) : target.tilt) : null, hb = flip ? -target.hb : target.hb;
+      return { ...target, flip, hb, tilt, shape: { velo: target.velo, spin: target.spin || base.spinAvg, tilt: nearTo(tilt != null ? tilt : toClock(Math.atan2(hb, target.ivb)), start.tilt), eff: target.eff != null ? target.eff : ASSUMED_EFF, seam: tilt != null ? seamOf({ hb, ivb: target.ivb, tilt }) : 0, grip: ddCustom && ddCustom.grip } };
+    })() : null;
+    const dd = tgt ? tgt.shape : ddCustom;
+    const out = base && dd ? (tgt ? { hb: tgt.hb, ivb: tgt.ivb, m: Math.hypot(tgt.hb, tgt.ivb), dirMin: toClock(Math.atan2(tgt.hb, tgt.ivb)) } : designed(base, dd)) : null;
     const set = (k, v) => setD({ ...dd, [k]: v });
     const sign = (v, dp = 1) => { const r = Number(v.toFixed(dp)); return r === 0 ? "–" : `${r > 0 ? "+" : ""}${r.toFixed(dp)}`; };
     // a dial: drag for big moves, − / + for the finest step it takes; `ends` labels its two ends
@@ -2168,7 +2217,7 @@
       ["Spin direction", base.tilt != null ? clockExact(base.tilt) : "–", clockExact(dd.tilt), ""],
       ["Spin eff. / gyro", `${effB}% / ${100 - effB}%`, `${Math.round(dd.eff)}% / ${100 - Math.round(dd.eff)}%`, sign(dd.eff - effB, 0)],
       ["Active spin", `${Math.round((base.spinAvg * effB) / 100)} rpm`, `${Math.round((dd.spin * dd.eff) / 100)} rpm`, sign((dd.spin * dd.eff) / 100 - (base.spinAvg * effB) / 100, 0)],
-      ["Seam effects", seamText(start.seam), seamText(dd.seam), Math.abs(sswDelta) < 2 ? "–" : `${sswDelta > 0 ? "+" : "−"}${Math.round(Math.abs(sswDelta) / 2)}°`],
+      ["Seam effects", seamText(start.seam), seamText(dd.seam), Math.abs(dd.seam - start.seam) < 2 ? "–" : `${dd.seam - start.seam > 0 ? "+" : "−"}${Math.round(Math.abs(dd.seam - start.seam) / 2)}°`],
       ["Break from seams", `${seamInches(mNow, start.seam).toFixed(1)}"`, `${seamInches(out.m, dd.seam).toFixed(1)}"`, sign(seamInches(out.m, dd.seam) - seamInches(mNow, start.seam))],
     ] : [];
     const ballNow = base && { type: base.type, spinAvg: base.spinAvg, tilt: base.tilt, spinEff: base.spinEff, speedAvg: base.speedAvg };
@@ -2185,7 +2234,7 @@
     const nowM = base && { velo: base.speedAvg, spin: base.spinAvg, tilt: start.tilt, eff: effB, seam: start.seam, ivb: base.ivb, hb: base.hb };
     const stamp = () => ({ note: (goalFor(base.type) || {}).note || "", savedAt: new Date().toISOString(), savedBy: (store.currentUserEmail && store.currentUserEmail()) || "" });
     const saveChange = () => {
-      putGoal({ type: base.type, mode: "change", ...(base.isNew ? { isNew: true } : {}), grip: dd.grip || null, source: base.isNew ? "a typical pitch of its kind" : srcText, now: nowM, goal: { velo: Math.round(dd.velo * 10) / 10, spin: dd.spin, tilt: wrapMin(dd.tilt), eff: Math.round(dd.eff), seam: dd.seam, ivb: r1(out.ivb), hb: r1(out.hb) }, ...stamp() });
+      putGoal({ type: base.type, mode: "change", ...(base.isNew ? { isNew: true } : {}), ...(tgt ? { model: `${tgt.label.replace(/ \(.*$/, "")}'s ${base.type.toLowerCase()}${tgt.flip ? " (mirrored)" : ""}` } : {}), grip: dd.grip || null, source: base.isNew ? "a typical pitch of its kind" : srcText, now: nowM, goal: { velo: Math.round(dd.velo * 10) / 10, spin: dd.spin, tilt: wrapMin(dd.tilt), eff: Math.round(dd.eff), seam: dd.seam, ivb: r1(out.ivb), hb: r1(out.hb) }, ...stamp() });
       setGoalMsg(`Saved: the ${base.type.toLowerCase()} goal is on the plan below.`);
     };
     const saveMaintain = () => {
@@ -2242,22 +2291,43 @@
                 <SpinBall key={`now-${baseKey}`} s={ballNow} ctl={spinCtl} size={200} />
               </div>
               <div className="pd-col">
-                <h3>Designed</h3>
+                <div className="pd-design-head">
+                  <h3>{tgt ? tgt.label.replace(/ \(.*$/, "") : "Designed"}</h3>
+                  <span className="pill-tabs bp-scope" role="group" aria-label="The design">
+                    <button type="button" className={`pill-tab ${designMode === "custom" ? "active" : ""}`} onClick={() => { setDesignMode("custom"); setTarget(null); }}>Custom</button>
+                    <button type="button" className={`pill-tab ${designMode === "pitcher" ? "active" : ""}`} onClick={() => setDesignMode("pitcher")}>Another pitcher's</button>
+                  </span>
+                </div>
+                {designMode === "pitcher" && (
+                  <React.Fragment>
+                    <TargetPicker codes={base.code ? [base.code] : codesOf(base.type)} year={source === "mlb" ? season : defaultSeason()} type={base.isNew ? CODE_TYPE[base.code] || base.type : base.type} athleteId={athlete.id} onPick={setTarget} />
+                    {tgt && <p className="pd-target-note">{tgt.label} · {tgt.hand === "L" ? "lefty" : "righty"}{tgt.hand !== myHand ? <label className="pd-mirror"><input type="checkbox" checked={mirrorTarget} onChange={(e) => setMirrorTarget(e.target.checked)} /> mirrored to {athlete.name ? athlete.name.split(" ")[0] : "his"}'s hand</label> : null}</p>}
+                  </React.Fragment>
+                )}
                 <SpinBall key={`new-${baseKey}`} s={ballNew} ctl={spinCtl} size={200}
-                  overlay={(sz) => <DesignHandles size={sz} tilt={dd.tilt} eff={dd.eff} pov={spinCtl.pov} color={colorOf(base.type)} onChange={(patch) => setD((p) => ({ ...(p && p.velo != null ? p : dd), ...patch }))} />} />
-                <p className="pd-handles-key">Drag on the ball: <b className="pd-k-spin">●</b> spin direction · <b className="pd-k-axis">◉</b> the spin axis: pull in for gyro, push out for efficiency, drag around to turn it</p>
+                  overlay={tgt ? undefined : (sz) => <DesignHandles size={sz} tilt={dd.tilt} eff={dd.eff} pov={spinCtl.pov} color={colorOf(base.type)} onChange={(patch) => setD((p) => ({ ...(p && p.velo != null ? p : dd), ...patch }))} />} />
+                {!tgt && <p className="pd-handles-key">Drag on the ball: <b className="pd-k-spin">●</b> spin direction · <b className="pd-k-axis">◉</b> the spin axis: pull in for gyro, push out for efficiency, drag around to turn it</p>}
               </div>
+              {tgt ? (
+                <div className="pd-col pd-controls">
+                  <h3>Their pitch</h3>
+                  <p className="pd-target-note">Shown as it really is: {tgt.velo} mph, {tgt.spin ? `${Math.round(tgt.spin).toLocaleString()} rpm, ` : ""}{tgt.tilt != null ? `spin toward ${clockExact(tgt.tilt)}, ` : ""}{tgt.eff != null ? `${Math.round(tgt.eff)}% efficient, ` : ""}{tgt.ivb}" IVB and {Math.abs(tgt.hb)}" of {(myHand === "L" ? -tgt.hb : tgt.hb) >= 0 ? "arm-side run" : "glove-side sweep"}{tgt.flip ? ", mirrored to his hand" : ""}.</p>
+                  <button type="button" className="btn btn-secondary" title="Put their velo, spin direction, efficiency and seam effects on the dials, to shape from" onClick={() => { const s = tgt.shape; setTarget(null); setDesignMode("custom"); setD({ velo: s.velo, spin: dd0 ? dd0.spin : start.spin, tilt: s.tilt, eff: s.eff, seam: s.seam, grip: s.grip }); }}>Start custom from this</button>
+                  <p className="timestamp-note">Custom keeps his spin rate and predicts from his own break, so the dials won't land exactly on their movement: it's where he'd be with their spin direction, efficiency and velo.</p>
+                </div>
+              ) : (
               <div className="pd-col pd-controls">
                 <h3>Change it</h3>
                 {slider({ label: "Velo", k: "velo", min: Math.round(start.velo - 10), max: Math.round(start.velo + 10), step: 0.1, fmt: (v) => `${v.toFixed(1)} mph`, deltaFmt: (v) => `${sign(v)} mph` })}
                 {slider({ label: "Spin direction", k: "tilt", min: start.tilt - 360, max: start.tilt + 360, step: 1, fmt: clockExact, deltaFmt: (v) => `${v > 0 ? "+" : "−"}${Math.floor(Math.abs(v) / 60)}:${String(Math.round(Math.abs(v) % 60)).padStart(2, "0")}`, note: `${Math.round(Math.abs(dd.tilt - start.tilt) / 2)}° ${dd.tilt >= start.tilt ? "clockwise" : "counterclockwise"} of where it is (behind the pitcher); the spin rate stays ${Math.round(dd.spin)} rpm` })}
                 {slider({ label: "Gyro ⇄ efficiency", k: "eff", min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}% eff. · ${100 - Math.round(v)}% gyro`, deltaFmt: (v) => `${sign(v, 0)}% eff.`, ends: ["← more gyro (cut, bullet spin)", "more efficient (ride, run) →"], note: `${Math.round((dd.spin * dd.eff) / 100)} rpm active (moves the ball) · ${Math.round(dd.spin - (dd.spin * dd.eff) / 100)} rpm gyro (doesn't)` })}
               </div>
+              )}
             </div>
             <div className="pd-grid pd-results">
               <div className="bp-table-wrap">
                 <table className="assess-table bp-table pd-table">
-                  <thead><tr><th></th><th>{base.isNew ? "Typical start" : "Now"}</th><th>Designed</th><th>Change</th></tr></thead>
+                  <thead><tr><th></th><th>{base.isNew ? "Typical start" : "Now"}</th><th>{tgt ? tgt.label.replace(/ (.*$/, "").split(" ").slice(-1)[0] : "Designed"}</th><th>Change</th></tr></thead>
                   <tbody>{rows.map(([k, a, b, c]) => <tr key={k}><td>{k}</td><td>{a}</td><td><b>{b}</b></td><td className={c && c !== "–" ? "pd-chg" : ""}>{c}</td></tr>)}</tbody>
                 </table>
               </div>
