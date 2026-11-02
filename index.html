@@ -7118,7 +7118,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           <button className={`pill-tab ${activeTab === "design" ? "active" : ""}`} data-tab="design" onClick={() => setActiveTab("design")}>Pitch Design</button>
           <button className={`pill-tab ${activeTab === "mocap" ? "active" : ""}`} data-tab="mocap" onClick={() => setActiveTab("mocap")}>Motion Capture</button>
           <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast</button>
-          <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing</button>
+          <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Program</button>
         </div>
       )}
       {!isPitcher && HITTING_TABS.includes(activeTab) && (

@@ -7,6 +7,9 @@
   const AREAS = ["Phone app", "Program builder", "Coach Mode", "Dashboard"]; // the order they appear in the email
 
   const WHATS_NEW = [
+    // ---- week of Nov 2 - 8, 2026 ----
+    { date: "2026-11-02", area: "Dashboard", title: "Throwing Program tab", detail: "Under Pitching, the Throwing tab is now called Throwing Program." },
+
     // ---- week of Oct 26 - Nov 1, 2026 ----
     { date: "2026-11-01", area: "Dashboard", title: "Pitch Design: another pitcher's pitch as the design", detail: "In Pitch Design, the Designed side can now be another pitcher's real pitch: switch it from Custom to Another pitcher's and search any MLB pitcher who threw that pitch (Baseball Savant) or any DST athlete with it in his bullpens. His pitch on the left, theirs on the right, with the table, movement chart, comps and spinning balls comparing them; a pitcher of the other hand is mirrored to his (or not, with the checkbox). Start custom from this puts their velo, spin direction, efficiency and seam effects on the dials to shape from, and a goal saved this way says what it's modeled on." },
     { date: "2026-11-01", area: "Dashboard", title: "Pitch Design: new pitches and grips to try", detail: "Pitch Design can now design a pitch he doesn't throw yet: + New pitch offers a four-seam, sinker, cutter, bullet (gyro) slider, sweeper, vertical slider, curveball, knuckle curve, changeup, kick change, splitter or split change, starting from a typical one of its kind with its velo set off his fastball, then shaped with the dials like any other (comps, rarity and seam effects included). Every pitch now shows three grips to try: how to hold it, what it does, cues, a fix if it isn't working, and links to Driveline's articles, reporting on the kick change and split-change, and video and image searches. Add our own photo of a grip with 📷 (every pitcher sees it), and Use this grip puts it and its cues on the goal and the printed plan." },
