@@ -2327,7 +2327,7 @@
             <div className="pd-grid pd-results">
               <div className="bp-table-wrap">
                 <table className="assess-table bp-table pd-table">
-                  <thead><tr><th></th><th>{base.isNew ? "Typical start" : "Now"}</th><th>{tgt ? tgt.label.replace(/ (.*$/, "").split(" ").slice(-1)[0] : "Designed"}</th><th>Change</th></tr></thead>
+                  <thead><tr><th></th><th>{base.isNew ? "Typical start" : "Now"}</th><th>{tgt ? tgt.label.replace(/ \(.*$/, "").split(" ").slice(-1)[0] : "Designed"}</th><th>Change</th></tr></thead>
                   <tbody>{rows.map(([k, a, b, c]) => <tr key={k}><td>{k}</td><td>{a}</td><td><b>{b}</b></td><td className={c && c !== "–" ? "pd-chg" : ""}>{c}</td></tr>)}</tbody>
                 </table>
               </div>
