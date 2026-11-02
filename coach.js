@@ -457,8 +457,9 @@
       .filter((a) => mocapView.kind !== "pitching" || /pitcher/i.test(a.position || "") || a.where === "Coaches");
     const theirs = (id) => (mocapRecs || []).filter((r) => r.athlete_id === id && r.motion === mocapView.kind && (!mocapView.variant || (r.variant || (variants ? variants[0][0] : "")) === mocapView.variant))
       .sort((x, y) => (y.date || "").localeCompare(x.date || ""));
-    const keys = kind ? (kind.historyKeys || []).slice(0, 3) : [];
     const labelOf = (key) => { const r = (mocapRecs || []).find((x) => x.motion === mocapView.kind && x.labels && x.labels[key]); return r ? r.labels[key] : [key, ""]; };
+    // the movement's main numbers, once a saved capture has named them
+    const keys = kind ? (kind.historyKeys || []).filter((k) => (mocapRecs || []).some((x) => x.motion === mocapView.kind && x.labels && x.labels[k])).slice(0, 3) : [];
     const rowsAll = pool.map((a) => ({ a, recs: theirs(a.id) }));
     const done = rowsAll.filter((r) => r.recs.length).length;
     const rows = rowsAll.filter((r) => mocapView.show === "all" || (mocapView.show === "done" ? r.recs.length : !r.recs.length));

@@ -5,7 +5,8 @@
 //     (3x5 @ 70%, then 2x3 @ 80%) has a row per line under it; the "+" in the Sets cell adds one and ✕ takes one off. Intensity is
 //     typed with its unit: 75%, RPE 8, 2 RIR; a bare number keeps the exercise's unit (a percentage if it has none).
 //   - The A1, A2, B1… labels are worked out as always (window.exerciseLabels): a row is in the block of the row
-//     above when it's linked to it. Clicking a row's label links it to the row above, or unlinks it.
+//     above when it's linked to it. Clicking a row's label links it to the row above, or unlinks it. The + under a
+//     label adds a row straight after it in its block (an A3 between A2 and B1).
 //   - Tab / Shift+Tab, Enter / Shift+Enter and the arrow keys move from cell to cell. Enter on the last row starts
 //     a new one. Arriving in a cell selects what's in it, so typing replaces it.
 //   - Rows copied from Google Sheets or Excel paste in with Ctrl+V: from the cell pasted into, across and down,
@@ -286,6 +287,11 @@
       const n = week.sessions[si].exercises.length;
       if (focus) pending.current = `${si}:${n}.0:name`;
       edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises.push(freshRow(s)); });
+    };
+    // a row straight after row ei, in its block (after A2 it's A3, and the A3 below becomes A4)
+    const insertRow = (si, ei) => {
+      pending.current = `${si}:${ei + 1}.0:name`;
+      edit((d) => { const s = d.weeks[wi].sessions[si]; s.exercises.splice(ei + 1, 0, { ...freshRow(s), linked: true }); });
     };
     // the day's columns in order, as pasted rows fill them
     const colsOf = (session) => { const sh = shownOf(session); return ["name", "sets", "reps", "int", ...(sh.tempo ? ["tempo"] : []), ...(sh.rest ? ["rest"] : []), ...extraColsOf(session).map((l) => `x:${l}`), ...(sh.notes ? ["notes"] : [])]; };
@@ -572,6 +578,7 @@
                                   <button className={`pt-label ${linked ? "on" : ""}`} title={linked ? `${lab}: supersetted with the row above. Click to make it a block of its own.` : `${lab}: click to superset it with the row above`} onClick={() => setEx(ei, "linked", !ex.linked)}>{lab}</button>
                                 ) : <span className="pt-label">{lab}</span>}
                                 {!linked && onProgress && <button className="pt-progress" tabIndex={-1} title={`Progress the ${letter} series across the weeks`} onClick={() => onProgress(si, letter)}>↗</button>}
+                                <button className="pt-progress pt-insert" tabIndex={-1} title={`Add ${letter}${Number(lab.slice(letter.length)) + 1} here: a new row under ${lab} in the ${letter} block (the rows below move down). Click its label to make it a block of its own.`} aria-label={`Add a row under ${lab}`} onClick={() => insertRow(si, ei)}>+</button>
                               </td>
                               <td rowSpan={n}>
                                 <WrapCell value={ex.name} cell={`${si}:${ei}.0:name`} cls={`pt-name${sc(`${ei}.0`, "name")}`} list="exercise-library-names" placeholder="Exercise" onChange={(v) => setEx(ei, "name", v)} onFocus={() => onNameFocus && onNameFocus(wi, si, ei, ex.name)} onBlur={() => onNameBlur && onNameBlur(wi, si, ei)} />
