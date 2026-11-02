@@ -100,13 +100,20 @@
       box);
     document.body.append(layer);
     document.body.classList.add("mc-app-open");
-    box.append(note("Loading…"));
+    mountFor(box, p, kind);
+  }
+
+  // the tool in `box` for athlete p ({ id, name, throws, bats, email }) and movement `which`, his sessions read
+  // first; saves go to his record. Coach Mode's Motion Capture screen (coach.js) uses this too.
+  async function mountFor(box, p, which) {
+    box.replaceChildren(note("Loading…"));
     const { data, error } = await sb.from("assessments").select("id,data").eq("athlete_id", String(p.id)).eq("data->>kind", "mocap").limit(200);
     let history = error ? [] : (data || []).map((r) => r.data);
     box.replaceChildren();
     if (!window.MoCap) { box.append(note("Motion capture didn't load. Reload the page.")); return; }
     window.MoCap.mount(box, {
-      kind, athlete: { id: String(p.id), name: p.name, throws: p.throws || "", bats: p.bats || "", email: p.email || "" },
+      kind: which,
+      athlete: { id: String(p.id), name: p.name, throws: p.throws || "", bats: p.bats || "", email: p.email || "" },
       history: () => history,
       onSave: async (rec) => {
         // the dashboard keeps an athlete's id as a number inside each record
@@ -141,5 +148,5 @@
     });
   }
 
-  window.MoCapApp = { open };
+  window.MoCapApp = { open, mountFor };
 })();

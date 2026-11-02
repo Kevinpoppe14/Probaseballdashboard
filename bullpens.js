@@ -1785,34 +1785,43 @@
   // his TrackMan bullpens, by name: picking one shows his real pitch where the design would be. Each comes as
   // { label, hand, velo, spin, tilt (clock minutes, pitcher's view), eff, ivb, hb (pitcher's view), relHeight, relSide,
   // extension, vaa, armAngle }.
-  function TargetPicker({ codes, year, type, athleteId, onPick }) {
+  // The pitches a comp can come from: his kind and its neighbors, so a pitcher changing the style of a pitch can model
+  // another's (a slider off a sweeper or a cutter, a splitter off a changeup). Savant's names for them differ (most
+  // hard, short sliders are SL, the big ones ST).
+  const PITCH_FAMILIES = [["FF", "SI"], ["FC", "SL"], ["SL", "ST", "SV"], ["CU", "KC", "SV"], ["CH", "FS"]];
+  const relatedCodes = (codes) => [...new Set((codes || []).flatMap((c) => [c, ...PITCH_FAMILIES.filter((f) => f.includes(c)).flat()]))];
+  function TargetPicker({ codes: own, year, type, athleteId, onPick }) {
     const [list, setList] = useState(null);
     const [q, setQ] = useState("");
+    const codes = relatedCodes(own);
+    const kinds = codes.map((c) => CODE_TYPE[c] || c).join(", ").toLowerCase().replace(/, ([^,]*)$/, " or $1");
     useEffect(() => {
       let off = false;
-      const same = (t) => String(t || "").toLowerCase() === String(type || "").toLowerCase() || (codes && codesOf(t) && codesOf(t).some((c) => codes.includes(c)));
+      const same = (t) => String(t || "").toLowerCase() === String(type || "").toLowerCase() || (codes.length && codesOf(t) && codesOf(t).some((c) => codes.includes(c)));
       const dst = [];
       (window.AthleteStore.allAthletes ? window.AthleteStore.allAthletes() : []).forEach((a) => {
         if (String(a.id) === String(athleteId)) return;
         const ss = getBullpens(a.id);
         if (!ss.length) return;
         const st = typeStats({ pitches: ss.flatMap(livePitches) }).find((s) => s.type !== UNTAGGED && same(s.type) && s.ivb != null && s.hb != null && s.speedAvg);
-        if (st) dst.push({ label: `${a.name} (DST bullpens, ${st.qty} pitches)`, hand: a.throws === "L" ? "L" : "R", velo: st.speedAvg, spin: st.spinAvg, tilt: st.tilt, eff: st.spinEff, ivb: st.ivb, hb: st.hb, relHeight: st.relHeight, relSide: st.relSide, extension: st.extension, vaa: st.vaa, armAngle: null });
+        if (st) dst.push({ label: `${a.name} (DST bullpens, ${st.type}, ${st.qty} pitches)`, hand: a.throws === "L" ? "L" : "R", velo: st.speedAvg, spin: st.spinAvg, tilt: st.tilt, eff: st.spinEff, ivb: st.ivb, hb: st.hb, relHeight: st.relHeight, relSide: st.relSide, extension: st.extension, vaa: st.vaa, armAngle: null });
       });
       setList(dst);
-      if (codes && codes.length) mlbPitchers(codes, year).then((rows) => {
+      if (codes.length) mlbPitchers(codes, year).then((rows) => {
         if (off) return;
-        const mlb = rows.filter((r) => r.velo && r.ivb != null && r.hb != null).map((r) => ({ label: `${r.name} (${r.team || "MLB"} ${year}, ${CODE_TYPE[r.code] || r.code})`, hand: r.hand === "L" ? "L" : "R", velo: r.velo, spin: r.spin, tilt: r.tilt, eff: r.eff, ivb: r.ivb, hb: r.hand === "L" ? -r.hb : r.hb, relHeight: r.relHeight, relSide: r.relSide, extension: r.ext, vaa: r.vaa, armAngle: r.armAngle }));
-        setList([...dst, ...mlb.sort((a, b) => a.label.localeCompare(b.label))]);
+        const mlb = rows.filter((r) => r.velo && r.ivb != null && r.hb != null).map((r) => ({ label: `${r.name} (${r.team || "MLB"} ${year}, ${CODE_TYPE[r.code] || r.code})`, hand: r.hand === "L" ? "L" : "R", velo: r.velo, spin: r.spin, tilt: r.tilt, eff: r.eff, ivb: r.ivb, hb: r.hand === "L" ? -r.hb : r.hb, relHeight: r.relHeight, relSide: r.relSide, extension: r.ext, vaa: r.vaa, armAngle: r.armAngle, code: r.code }));
+        // his own kind of pitch first, then its neighbors (each labeled with Savant's name for it)
+        const mine = (x) => ((own || []).includes(x.code) ? 0 : 1);
+        setList([...dst, ...mlb.sort((a, b) => mine(a) - mine(b) || a.label.localeCompare(b.label))]);
       }, () => {});
       return () => { off = true; };
-    }, [type, year, (codes || []).join("+")]); // eslint-disable-line
+    }, [type, year, codes.join("+")]); // eslint-disable-line
     const hits = list && q.trim().length >= 2 ? list.filter((x) => x.label.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 12) : [];
     return (
       <div className="pd-target-pick">
-        <input type="search" value={q} placeholder={list ? `Search ${list.length} pitchers with a ${String(type || "").toLowerCase()}…` : "Loading pitchers…"} aria-label="Find a pitcher" onChange={(e) => setQ(e.target.value)} />
+        <input type="search" value={q} placeholder={list ? `Search ${list.length} pitches (${kinds || String(type || "").toLowerCase()})…` : "Loading pitchers…"} aria-label="Find a pitcher" onChange={(e) => setQ(e.target.value)} />
         {hits.length > 0 && <div className="pd-target-hits">{hits.map((x) => <button key={x.label} type="button" onClick={() => { onPick(x); setQ(""); }}>{x.label} <small>{x.hand === "L" ? "LHP" : "RHP"} · {x.velo} mph · {x.ivb}" IVB</small></button>)}</div>}
-        {list && q.trim().length >= 2 && !hits.length && <p className="timestamp-note">No pitcher with a {String(type || "").toLowerCase()} matches that.</p>}
+        {list && q.trim().length >= 2 && !hits.length && <p className="timestamp-note">No pitcher with a {kinds || String(type || "").toLowerCase()} matches that.</p>}
       </div>
     );
   }

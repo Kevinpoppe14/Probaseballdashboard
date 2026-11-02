@@ -251,7 +251,17 @@
   .who .grip + .who-pick { padding-left: 2px; }
   .team-who, .kpi-who { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .kpi-who .grip { margin-left: -8px; }
+  /* Motion Capture: who has been filmed for a movement (coach.js), and the tool for one athlete */
+  .mocap-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .mocap-variant { height: 40px; padding: 0 10px; font-size: 14px; color: var(--text); background: var(--panel-2); border: 1px solid #444; border-radius: 10px; color-scheme: dark; }
+  .mocap-row { grid-template-columns: minmax(140px, 1.5fr) 1fr 1.1fr repeat(var(--mc-k, 1), 0.9fr) 96px; }
+  .mocap-row .team-name small { display: block; font-weight: 400; font-size: 11px; opacity: 0.6; }
+  .mocap-go { height: 34px; padding: 0 12px; }
+  .mocap-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .mocap .mc-wrap, .mocap .mc-results { max-width: 980px; }
+  @media (max-width: 760px) { .mocap-row { grid-template-columns: 1fr 1fr; } }
 </style>
+<link rel="stylesheet" href="mocap.css" />
 </head>
 <body>
 <div class="login" id="login" hidden>
@@ -274,7 +284,7 @@
     <!-- the side bar folds away to a slim edge (‹), and comes back from it (›); remembered on this device -->
     <button class="side-rail" id="side-open" type="button" title="Show the athletes" aria-label="Show the athletes side bar">›</button>
     <div class="side-head"><img src="assets/dst-logo-light.png" alt="Dynamic Sports Training" /><strong>Coach Mode</strong><button class="tour-btn" id="tour-btn" type="button" title="Take the tour" aria-label="Take the Coach Mode tour">?</button><a class="mode-switch" href="index.html" role="switch" aria-checked="true" title="Switch back to the dashboard" aria-label="Coach Mode is on. Switch back to the dashboard."><span></span></a></div>
-    <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button></div>
+    <div class="modes"><button id="speed-btn" class="kpi-btn" type="button">Speed</button><button id="kpi-btn" class="kpi-btn" type="button">Group Testing</button><button id="log-btn" class="kpi-btn" type="button">Log lifts</button><button id="team-btn" class="kpi-btn" type="button">Team today</button><button id="mocap-btn" class="kpi-btn" type="button">Motion Capture</button></div>
     <div class="add">
       <select id="grp" aria-label="Groups"><option value="">Groups</option></select>
       <select id="loc" aria-label="Location"><option value="">All locations</option></select>
@@ -293,6 +303,10 @@
 <script src="supabase-client.js"></script>
 <script src="holiday.js"></script>
 <script src="program_rx.js"></script>
+<script src="mocap.js"></script>
+<script src="mocap_kinds.js"></script>
+<script src="mocap_screen.js"></script>
+<script src="mocap_app.js"></script>
 <script src="coach.js"></script>
 </body>
 </html>

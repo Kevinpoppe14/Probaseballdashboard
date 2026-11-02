@@ -1090,13 +1090,14 @@
       return state.dir;
     }
     function skeleton3D(R) {
-      const sk = state.sk = state.sk || { yaw: state.throws === "L" ? 180 : 0, pitch: 6, roll: 0, zoom: 1, lock: "", line: "phase", show: "each+mean", me: true, mirror: true, sameHeight: true, own: true, others: false, othersAll: true, picked: [], sameHand: false, from: "", to: "", hidden: {}, q: "" };
+      const sk = state.sk = state.sk || { view: kindName === "pitching" ? "3d" : "side", yaw: state.throws === "L" ? 180 : 0, pitch: 6, roll: 0, zoom: 1, lock: "", line: "phase", show: "each+mean", me: true, mirror: true, sameHeight: true, own: true, others: false, othersAll: true, picked: [], sameHand: false, from: "", to: "", hidden: {}, q: "" };
+      const who = kindName === "pitching" ? "pitcher" : "athlete"; // whose sessions can be laid over his
       const box = el("div", { class: "mc-3d" });
       const evL = evLabelsOf(R), keys4 = phaseKeysOf(R), zName = zeroNameOf(R), endName = (evL[keys4[3]] || "release").toLowerCase();
       let frame = state.frame || 0, canvas = null, numsBox = null;
       const alive = () => box.isConnected;
       const inDates = (r) => (!sk.from || (r.date || "") >= sk.from) && (!sk.to || (r.date || "") <= sk.to);
-      const mine = () => history().filter((r) => r.store && r.store.path && !(state.saved && r.id === state.saved.id)).map((r) => ({ ...r, _name: athlete.name || "This pitcher", _mine: true }));
+      const mine = () => history().filter((r) => r.store && r.store.path && !(state.saved && r.id === state.saved.id)).map((r) => ({ ...r, _name: athlete.name || "This one", _mine: true }));
       const theirs = () => (state.dir ? state.dir.recs : []).filter((r) => r._athlete !== String(athlete.id) && (sk.othersAll || sk.picked.includes(r._athlete)) && (!sk.sameHand || (r.throws || "R") === state.throws));
       // a sprint or a jump only beside its own kind (acceleration beside acceleration, a broad jump beside broad jumps)
       const sameVariant = (r) => !kind.variants || (r.variant || kind.variants.options[0][0]) === state.variant;
@@ -1155,17 +1156,107 @@
         for (let x = -1.5; x <= 3.01; x += 0.5) { const a = proj([center[0] + x, 0, center[2] - 1.5]), b = proj([center[0] + x, 0, center[2] + 1.5]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
         for (let z = -1.5; z <= 1.51; z += 0.5) { const a = proj([center[0] - 1.5, 0, center[2] + z]), b = proj([center[0] + 3, 0, center[2] + z]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
         const pl = proj([center[0] + 3.2, 0, center[2]]);
-        ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText("to the plate →", pl[0], pl[1] + 14);
+        ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText(kindName === "pitching" ? "to the plate →" : kindName === "hitting" ? "to the pitcher →" : "forward →", pl[0], pl[1] + 14);
         const P3 = posed(fi);
         if (/each/.test(sk.show)) P3.list.forEach((o) => { if (o.q) drawBody3D(ctx, o.q, proj, o.body.throws, { color: o.color, width: 2, alpha: 0.75 }); });
         if (P3.group) drawBody3D(ctx, P3.group.q, proj, me.throws, { color: P3.group.med ? "#7fd8ff" : "#ffd23f", width: 4, alpha: 0.95, dash: P3.group.med ? [8, 5] : null });
         if (sk.me) drawBody3D(ctx, P3.myQ, proj, me.throws, { width: 3.5 });
         return P3;
       };
+      // ---- side by side: each body on its own, seen from the side, all at the same moment ----
+      // (from the same 3D points as the overlay, so they're the same height, run or throw the same way, and line up
+      // by the same choice; each is centered on its own hips, so a sprinter stays in his box)
+      const SIDE_MAX = 8;
+      let sideCanvases = [];
+      const drawSide = (c, q, throws, color, label) => {
+        const g = c.getContext("2d"), W = c.width, H = c.height, s = (H - 30) / 2.4, floor = H - 12;
+        g.fillStyle = "#111"; g.fillRect(0, 0, W, H);
+        g.strokeStyle = "rgba(255,255,255,0.15)"; g.lineWidth = 1; g.beginPath(); g.moveTo(0, floor); g.lineTo(W, floor); g.stroke();
+        if (q) {
+          const hx = (q[P.lHip][0] + q[P.rHip][0]) / 2;
+          drawSkeleton(g, q.map((p) => [W / 2 + (p[0] - hx) * s, floor - p[1] * s]), 1, 1, throws);
+        } else { g.fillStyle = "rgba(255,255,255,0.4)"; g.font = "12px sans-serif"; g.textAlign = "center"; g.fillText("not at this moment", W / 2, H / 2); }
+        g.fillStyle = color || "#fff"; g.fillRect(8, 9, 12, 4);
+        g.fillStyle = "rgba(255,255,255,0.85)"; g.font = "12px sans-serif"; g.textAlign = "left"; g.fillText(label, 26, 15);
+      };
+      const sidePanels = (P3) => [
+        sk.me ? { q: P3.myQ, throws: me.throws, color: "#fff", label: `This session, ${state.saved ? state.saved.date || "" : "today"}` } : null,
+        P3.group ? { q: P3.group.q, throws: me.throws, color: P3.group.med ? "#7fd8ff" : "#ffd23f", label: `${P3.group.med ? "Median" : "Mean"} of ${P3.group.n}` } : null,
+        ...P3.list.slice(0, SIDE_MAX).map((o) => ({ q: o.q, throws: o.body.throws, color: o.color, label: `${o.rec._mine ? "His" : o.rec._name.split(" ").slice(-1)[0]}, ${o.rec.date || ""}` })),
+      ].filter(Boolean);
+      const paintSide = () => {
+        const P3 = posed(frame), panels = /each/.test(sk.show) ? sidePanels(P3) : sidePanels({ ...P3, list: [] });
+        panels.forEach((p, k) => { if (sideCanvases[k]) drawSide(sideCanvases[k], p.q, p.throws, p.color, p.label); });
+        return P3;
+      };
+      // ---- the curves: his and each other session's on one chart per curve, lined up as the skeletons are ----
+      // (a pitch keeps its curves as series; every other movement says which it charts)
+      const curvesOf = (A) => A.charts || (A.series ? [
+        ["Lead knee flexion", "°", A.series.kneeFlex, "#3fa7ff"],
+        ["Trunk forward tilt", "°", A.series.trunkFwd, "#e0b03a"],
+        ["Hip-shoulder separation", "°", (A.series.sep || []).map((x) => (x == null ? null : Math.abs(x)))],
+        ["Pelvis rotation speed", "°/s", (A.series.pelvisV || []).map((x) => (x == null ? null : Math.abs(x)))],
+        ["Trunk rotation speed", "°/s", (A.series.trunkV || []).map((x) => (x == null ? null : Math.abs(x)))],
+        A.series.comV ? ["Center-of-mass speed toward the plate", "m/s", A.series.comV] : null,
+      ].filter(Boolean) : []);
+      // a time on another session's clock as the same moment on his, in seconds from his zero moment
+      const onMyClock = (B, x) => (sk.line === "phase" ? me.timeOfPhase(B.phaseOfTime(x)) : sk.line === "br" ? me.t[me.i3] + (x - B.t[B.i3]) : me.t[me.zeroI] + (x - B.t[B.zeroI])) - me.t[me.zeroI];
+      const overlayChart = (title, unit, lines) => {
+        const W = 420, H = 170, padL = 34, padB = 22;
+        const x0 = me.t[0] - me.t[me.zeroI], x1 = me.t[me.t.length - 1] - me.t[me.zeroI];
+        const pts = lines.map((l) => l.xs.map((x, i) => [x, l.ys[i]]).filter(([x, y]) => y != null && Number.isFinite(y) && x >= x0 && x <= x1));
+        const vals = pts.flat().map((p) => p[1]);
+        if (!vals.length) return null;
+        let lo = Math.min(...vals), hi = Math.max(...vals);
+        if (hi - lo < 1) { hi += 0.5; lo -= 0.5; }
+        const X = (x) => padL + ((x - x0) / (x1 - x0 || 1)) * (W - padL - 8), Y = (v) => 8 + (1 - (v - lo) / (hi - lo)) * (H - padB - 8);
+        const NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg");
+        s.setAttribute("viewBox", `0 0 ${W} ${H}`); s.setAttribute("class", "mc-chart"); s.setAttribute("role", "img"); s.setAttribute("aria-label", `${title}, this session and the ones compared`);
+        const add = (tag, a, text) => { const n = document.createElementNS(NS, tag); Object.entries(a).forEach(([k, v]) => n.setAttribute(k, v)); if (text != null) n.textContent = text; s.append(n); return n; };
+        phaseKeysOf(R).forEach((k) => { const i = R.events[k]; if (i == null) return; const x = X(me.t[i] - me.t[me.zeroI]); add("line", { x1: x, x2: x, y1: 6, y2: H - padB, stroke: "var(--mc-grid)", "stroke-dasharray": "3 3" }); add("text", { x, y: H - 6, "text-anchor": "middle", "font-size": 9, fill: "var(--mc-dim)" }, evL[k] || k); });
+        add("text", { x: 4, y: 12, "font-size": 9, fill: "var(--mc-dim)" }, `${Math.round(hi * 10) / 10}`);
+        add("text", { x: 4, y: H - padB - 2, "font-size": 9, fill: "var(--mc-dim)" }, `${Math.round(lo * 10) / 10}`);
+        // the others first, his on top
+        lines.map((l, k) => [l, pts[k]]).reverse().forEach(([l, p]) => { if (p.length > 1) add("polyline", { points: p.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(" "), fill: "none", stroke: l.color, "stroke-width": l.width || 1.6, "stroke-opacity": l.width ? 1 : 0.8 }); });
+        const wrap = el("div", { class: "mc-chart-box" }, el("div", { class: "mc-chart-title" }, title, el("small", null, ` ${unit} · seconds from ${zName}`)));
+        wrap.append(s);
+        return wrap;
+      };
+      const curvesView = () => {
+        const mine3 = curvesOf(R), shown = others.filter((o) => o.body && o.L && o.L.A && !sk.hidden[o.rec.id]);
+        if (!mine3.length) return el("p", { class: "mc-hint" }, "This movement has no curves to compare.");
+        const myXs = me.t.map((x) => x - me.t[me.zeroI]);
+        return el("div", { class: "mc-charts" }, mine3.map(([title, unit, ys], k) => overlayChart(title, unit, [
+          ...(sk.me ? [{ xs: myXs, ys, color: "#fff", width: 2.8 }] : []),
+          ...shown.map((o) => { const c = curvesOf(o.L.A)[k]; return c && c[1] === unit && c[2] ? { xs: o.body.t.map((x) => onMyClock(o.body, x)), ys: c[2], color: o.color } : null; }).filter(Boolean),
+        ])));
+      };
+      // ---- the numbers: his beside each session's, and their mean or median ----
+      const statOf = (xs, med) => { if (!med) return xs.reduce((s2, x) => s2 + x, 0) / xs.length; const s2 = xs.slice().sort((a, b) => a - b), m2 = s2.length >> 1; return s2.length % 2 ? s2[m2] : (s2[m2 - 1] + s2[m2]) / 2; };
+      const numbersView = () => {
+        const shown = others.filter((o) => o.L && o.L.A && !sk.hidden[o.rec.id]), cols = shown.slice(0, SIDE_MAX), med = /median/.test(sk.show), withGroup = shown.length > 1 || /mean|median/.test(sk.show);
+        const rows = (R.metrics || []).filter((m) => typeof m.value === "number" && Number.isFinite(m.value));
+        if (!rows.length) return el("p", { class: "mc-hint" }, "No numbers to compare.");
+        const valueIn = (A, key) => { const m = (A.metrics || []).find((x) => x.key === key); return m && typeof m.value === "number" && Number.isFinite(m.value) ? m.value : null; };
+        const f = (v) => (v == null ? "–" : String(Math.round(v * 100) / 100));
+        return el("div", { class: "mc-scroll" }, el("table", { class: "mc-table mc-compare-nums" },
+          el("thead", null, el("tr", null, el("th", null, ""), el("th", null, "This session"),
+            cols.map((o) => el("th", null, el("span", { class: "mc-swatch", style: `background:${o.color}` }), `${o.rec._mine ? "His" : o.rec._name}`, el("small", null, o.rec.date || ""))),
+            shown.length && withGroup ? el("th", null, `${med ? "Median" : "Mean"} of ${shown.length}`) : null, shown.length && withGroup ? el("th", null, "Difference") : null)),
+          el("tbody", null, rows.map((m) => {
+            const xs = shown.map((o) => valueIn(o.L.A, m.key)).filter((v) => v != null), g = xs.length ? statOf(xs, med) : null;
+            return el("tr", null, el("td", null, m.label), el("td", null, `${f(m.value)} ${m.unit || ""}`),
+              cols.map((o) => el("td", null, f(valueIn(o.L.A, m.key)))),
+              shown.length && withGroup ? el("td", null, f(g)) : null,
+              shown.length && withGroup ? el("td", null, g == null ? "–" : `${m.value - g >= 0 ? "+" : ""}${f(m.value - g)}`) : null);
+          }))),
+          shown.length > cols.length ? el("p", { class: "mc-hint" }, `The first ${cols.length} are shown one by one; the ${med ? "median" : "mean"} is of all ${shown.length}.`) : null);
+      };
+      let viewBox = null; // the curves or numbers, redrawn as sessions finish loading
       const paint3D = () => {
-        if (!canvas || !me) return;
-        const P3 = draw3D(canvas, frame);
-        if (numsBox) numsBox.replaceChildren(numbersTable(P3));
+        if (!me) return;
+        if (sk.view === "3d" && canvas) { const P3 = draw3D(canvas, frame); if (numsBox) numsBox.replaceChildren(numbersTable(P3)); }
+        else if (sk.view === "side") { const P3 = paintSide(); if (numsBox && kindName === "pitching") numsBox.replaceChildren(numbersTable(P3)); }
       };
       const numbersTable = (P3) => {
         const mine3 = poseNumbers(P3.myQ, me.throws, me.height), g = P3.group;
@@ -1209,14 +1300,14 @@
             if (!state.dirError) directory().then(() => { if (alive()) build(); }, (e) => { state.dirError = `Couldn't read the other sessions (${(e && e.message) || e}).`; if (alive()) build(); });
           } else {
             const people = [...new Map(state.dir.recs.filter((r) => r._athlete !== String(athlete.id)).map((r) => [r._athlete, r._name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-            const search = el("input", { type: "search", placeholder: "Add a pitcher…", value: sk.q, "aria-label": "Add a pitcher to compare" });
+            const search = el("input", { type: "search", placeholder: `Add ${who === "athlete" ? "an" : "a"} ${who}…`, value: sk.q, "aria-label": `Add ${who === "athlete" ? "an" : "a"} ${who} to compare` });
             const hits = el("div", { class: "mc-row" });
             const showHits = () => { const q = search.value.trim().toLowerCase(); sk.q = search.value; hits.replaceChildren(...(q ? people.filter(([id, name]) => name.toLowerCase().includes(q) && !sk.picked.includes(id)).slice(0, 8).map(([id, name]) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { sk.picked = [...sk.picked, id]; sk.othersAll = false; sk.q = ""; build(); } }, `+ ${name}`)) : [])); };
             search.addEventListener("input", showHits);
             whoBox = el("div", { class: "mc-who" },
-              el("span", { class: "mc-seg", role: "group", "aria-label": "Which pitchers" },
-                el("button", { type: "button", class: `mc-seg-btn${sk.othersAll ? " on" : ""}`, onclick: () => { sk.othersAll = true; build(); } }, `All pitchers (${people.length})`),
-                el("button", { type: "button", class: `mc-seg-btn${sk.othersAll ? "" : " on"}`, onclick: () => { sk.othersAll = false; build(); } }, "Chosen pitchers")),
+              el("span", { class: "mc-seg", role: "group", "aria-label": `Which ${who}s` },
+                el("button", { type: "button", class: `mc-seg-btn${sk.othersAll ? " on" : ""}`, onclick: () => { sk.othersAll = true; build(); } }, `All ${who}s (${people.length})`),
+                el("button", { type: "button", class: `mc-seg-btn${sk.othersAll ? "" : " on"}`, onclick: () => { sk.othersAll = false; build(); } }, `Chosen ${who}s`)),
               sk.othersAll ? null : el("div", { class: "mc-row" }, search,
                 sk.picked.map((id) => el("button", { type: "button", class: "mc-btn small", title: "Take off", onclick: () => { sk.picked = sk.picked.filter((x) => x !== id); build(); } }, `${(people.find((p) => p[0] === id) || [id, "?"])[1]} ✕`))),
               hits);
@@ -1228,27 +1319,41 @@
           el("span", { class: "mc-swatch", style: `background:${o.color}` }),
           ` ${o.rec._mine ? "His" : o.rec._name}, ${o.rec.date || ""} · ${setupName(o.rec.setup)}${(o.rec.throws || "R") !== state.throws ? (sk.mirror ? " · mirrored" : " · other hand") : ""}`,
           o.L && o.L.busy ? el("small", null, " loading…") : o.L && o.L.error ? el("small", { class: "mc-err" }, ` couldn't open (${o.L.error})`) : null)))
-          : el("p", { class: "mc-hint" }, sk.own || sk.others ? "No saved sessions with tracking match these choices yet." : "Pick his other sessions or other pitchers to lay over this one.");
-        box.replaceChildren(
-          el("div", { class: "mc-row" }, SK_VIEWS.map(([name, yaw, pitch]) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { sk.yaw = ((yaw + (yaw % 180 === 0 ? flip : 0) + 540) % 360) - 180; sk.pitch = pitch; sk.roll = 0; build(); } }, name)),
+          : el("p", { class: "mc-hint" }, sk.own || sk.others ? "No saved sessions with tracking match these choices yet." : `Pick his other sessions or other ${who}s to compare with this one.`);
+        // how to look at them: overlaid in 3D, side by side, their curves on one chart, or their numbers in a table
+        const VIEWS = [["3d", "3D overlay"], ["side", "Side by side"], ["curves", "Curves"], ["numbers", "Numbers"]];
+        const tabs = el("span", { class: "mc-seg", role: "group", "aria-label": "How to compare" }, VIEWS.map(([v, t]) => el("button", { type: "button", class: `mc-seg-btn${sk.view === v ? " on" : ""}`, "aria-pressed": sk.view === v ? "true" : "false", onclick: () => { sk.view = v; build(); } }, t)));
+        const P0 = sk.view === "side" ? posed(frame) : null, panels = P0 ? (/each/.test(sk.show) ? sidePanels(P0) : sidePanels({ ...P0, list: [] })).length : 0;
+        sideCanvases = Array.from({ length: panels }, () => { const c = el("canvas", { class: "mc-canvas mc-side-canvas" }); c.width = 220; c.height = 260; return c; });
+        viewBox = sk.view === "curves" ? curvesView() : sk.view === "numbers" ? numbersView() : null;
+        const main = sk.view === "3d" ? [
+          el("div", { class: "mc-row" }, SK_VIEWS.map(([name, yaw, pitch]) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { sk.yaw = ((yaw + (yaw % 180 === 0 ? flip : 0) + 540) % 360) - 180; sk.pitch = pitch; sk.roll = 0; build(); } }, kindName === "pitching" ? name : { "From the plate": "From the front", "Glove side": "Other side" }[name] || name)),
             el("button", { type: "button", class: "mc-btn ghost small", "aria-label": "Zoom in", onclick: () => { sk.zoom = Math.min(4, sk.zoom * 1.2); paint3D(); } }, "+"),
             el("button", { type: "button", class: "mc-btn ghost small", "aria-label": "Zoom out", onclick: () => { sk.zoom = Math.max(0.4, sk.zoom / 1.2); paint3D(); } }, "−")),
           el("div", { class: "mc-row" }, dial("Turn", "yaw", -180, 180), dial("Tilt", "pitch", -89, 89), dial("Roll", "roll", -180, 180)),
           canvas,
           el("p", { class: "mc-hint" }, "Drag to turn it, scroll or + / − to zoom. It moves with the frame above (play it, or step through the moments). From the pose model's 3D estimate from one camera: the depth (toward and away from the camera) is the least sure part."),
+        ] : sk.view === "side" ? [
+          el("div", { class: "mc-side-grid" }, sideCanvases),
+          el("p", { class: "mc-hint" }, `Each seen from the side, at the same moment as the frame above (play it, or step through the moments), scaled to the same height and facing the same way.${others.filter((o) => o.body && !sk.hidden[o.rec.id]).length > SIDE_MAX ? ` The first ${SIDE_MAX} are shown on their own; the mean or median is of them all.` : ""}`),
+        ] : [viewBox,
+          el("p", { class: "mc-hint" }, sk.view === "curves" ? `His curve in white, the others in their colors, lined up by ${sk.line === "phase" ? "the moments of the movement (the time between them stretched to match his)" : `time from ${sk.line === "br" ? endName : zName}`}.` : "His numbers beside each session compared, worked out with the analysis as it is now.")];
+        box.replaceChildren(
+          el("div", { class: "mc-row" }, tabs),
+          ...main,
           el("div", { class: "mc-row" },
             check("This session", "me"),
-            select("Show", "show", [["each", "Each skeleton"], ["each+mean", "Each, and their mean"], ["each+median", "Each, and their median"], ["mean", "Mean only"], ["median", "Median only"]]),
-            select("Pin them at", "lock", SK_LOCKS),
-            select("Line them up by", "line", [["phase", `The moments (${keys4.map((k) => (evL[k] || k).toLowerCase()).join(", ")})`], ["fs", `Time from ${zName}`], ["br", `Time from ${endName}`]])),
-          el("div", { class: "mc-row" }, check("Mirror the other hand to his", "mirror"), check("Scale everyone to the same height", "sameHeight")),
+            select("Show", "show", [["each", "Each one"], ["each+mean", "Each, and their mean"], ["each+median", "Each, and their median"], ["mean", "Mean only"], ["median", "Median only"]]),
+            sk.view === "3d" ? select("Pin them at", "lock", SK_LOCKS) : null,
+            sk.view === "numbers" ? null : select("Line them up by", "line", [["phase", `The moments (${keys4.map((k) => (evL[k] || k).toLowerCase()).join(", ")})`], ["fs", `Time from ${zName}`], ["br", `Time from ${endName}`]])),
+          el("div", { class: "mc-row" }, check("Mirror the other hand to his", "mirror"), sk.view === "3d" || sk.view === "side" ? check("Scale everyone to the same height", "sameHeight") : null),
           el("div", { class: "mc-compare" }, el("b", null, "Compare with"),
-            el("div", { class: "mc-row" }, check(`His other sessions (${mine().length})`, "own"), check("Other pitchers", "others"), sk.others ? check("Same hand only", "sameHand") : null,
+            el("div", { class: "mc-row" }, check(`His other sessions (${mine().length})`, "own"), check(`Other ${who}s`, "others"), sk.others ? check("Same hand only", "sameHand") : null,
               el("label", null, "From", el("input", { type: "date", value: sk.from, onchange: (e) => { sk.from = e.target.value; build(); } })),
               el("label", null, "to", el("input", { type: "date", value: sk.to, onchange: (e) => { sk.to = e.target.value; build(); } }))),
             whoBox, legend,
-            list.length >= 40 ? el("p", { class: "mc-hint" }, "Showing the first 40: narrow the dates or pick pitchers for the rest.") : null),
-          numsBox);
+            list.length >= 40 ? el("p", { class: "mc-hint" }, `Showing the first 40: narrow the dates or pick ${who}s for the rest.`) : null),
+          sk.view === "3d" || (sk.view === "side" && kindName === "pitching") ? numsBox : ""); // ("" not null: replaceChildren would write out a null)
         paint3D();
       }
       build();
@@ -1261,9 +1366,9 @@
       const describe = () => {
         const shown = others.filter((o) => o.body && !sk.hidden[o.rec.id]);
         if (!shown.length) return "";
-        const own = shown.filter((o) => o.rec._mine).length, theirs = shown.length - own, who = new Set(shown.filter((o) => !o.rec._mine).map((o) => o.rec._athlete)).size;
+        const own = shown.filter((o) => o.rec._mine).length, theirs = shown.length - own, nWho = new Set(shown.filter((o) => !o.rec._mine).map((o) => o.rec._athlete)).size;
         const dates = shown.map((o) => o.rec.date).filter(Boolean).sort();
-        const parts = [own ? `${own} of his other session${own === 1 ? "" : "s"}` : "", theirs ? `${theirs} session${theirs === 1 ? "" : "s"} from ${who} other pitcher${who === 1 ? "" : "s"}` : ""].filter(Boolean);
+        const parts = [own ? `${own} of his other session${own === 1 ? "" : "s"}` : "", theirs ? `${theirs} session${theirs === 1 ? "" : "s"} from ${nWho} other ${who}${nWho === 1 ? "" : "s"}` : ""].filter(Boolean);
         const line = sk.line === "phase" ? "the moments of the movement" : sk.line === "br" ? `time from ${endName}` : `time from ${zName}`;
         const pin = sk.lock ? `, pinned at the ${SK_LOCKS.find((l) => l[0] === sk.lock)[1].toLowerCase()}` : "";
         return `Compared with ${parts.join(" and ")}${dates.length ? ` (${dates[0]} to ${dates[dates.length - 1]})` : ""}, lined up by ${line}${pin}.`;
@@ -1499,7 +1604,7 @@
       const layers = el("div", { class: "mc-row" },
         f.video ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !state.hideVideo, onchange: (e) => { state.hideVideo = !e.target.checked; draw(state.frame || 0); } }), " Video") : null,
         el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !state.hideSkel, onchange: (e) => { state.hideSkel = !e.target.checked; draw(state.frame || 0); } }), " Skeleton"),
-        el("button", { type: "button", class: `mc-btn ${state.show3d ? "" : "ghost"} small`, "aria-pressed": state.show3d ? "true" : "false", onclick: () => { state.show3d = !state.show3d; render(); } }, state.show3d ? "Hide 3D skeleton" : "3D skeleton and comparisons"));
+        el("button", { type: "button", class: `mc-btn ${state.show3d ? "" : "ghost"} small`, "aria-pressed": state.show3d ? "true" : "false", onclick: () => { state.show3d = !state.show3d; render(); } }, state.show3d ? "Hide the comparisons" : "Compare: skeletons, curves, numbers"));
       // a moment found in the wrong place can be set by hand, to the frame showing (the moments after it follow)
       const fix = el("div", { class: "mc-row mc-fix" }, el("span", { class: "mc-hint" }, "Moment in the wrong place? Go to the right frame and set it:"),
         Object.keys(R.events).map((key) => el("button", { type: "button", class: "mc-btn ghost small", onclick: () => {
