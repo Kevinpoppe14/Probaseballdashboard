@@ -7124,7 +7124,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
       {!isPitcher && HITTING_TABS.includes(activeTab) && (
         <div className="pill-tabs profile-subtabs section-tabs no-print">
           <button className={`pill-tab ${activeTab === "statcast" ? "active" : ""}`} data-tab="statcast" onClick={() => setActiveTab("statcast")}>Statcast</button>
-          <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Progression</button>
+          <button className={`pill-tab ${activeTab === "throwing" ? "active" : ""}`} data-tab="throwing" onClick={() => setActiveTab("throwing")}>Throwing Program</button>
           <button className={`pill-tab ${activeTab === "hitmocap" ? "active" : ""}`} data-tab="hitmocap" onClick={() => setActiveTab("hitmocap")}>Motion Capture</button>
         </div>
       )}
