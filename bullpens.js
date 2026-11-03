@@ -114,7 +114,9 @@
 
   // A scatter chart on a grid with its zero lines: a small dot per pitch (click one to tag or remove it) and a ringed
   // dot at each pitch type's average. Used for movement (HB by IVB) and release point (side by height).
-  function ScatterChart({ pts, avgs, xr, yr, step, xLabel, yLabel, label, unit, picked, onPick, tip, focus, show = "both" }) {
+  // armLine: { deg, side (+1 arm side to the right, -1 to the left), note }: a dotted line from the middle out along his
+  // arm angle on the arm side, the way a pitch thrown straight off his hand would move (fastballs sit near it)
+  function ScatterChart({ pts, avgs, xr, yr, step, xLabel, yLabel, label, unit, picked, onPick, tip, focus, show = "both", armLine = null }) {
     // show: "both" (every pitch and each type's average), "pitches", or "avgs" (just the averages, labeled)
     const showPts = show !== "avgs", showAvgs = show !== "pitches";
     const dim = (t) => focus && focus.length > 0 && !focus.includes(t || UNTAGGED); // a pitch type the key isn't showing
@@ -137,6 +139,16 @@
         {ticks(yr).filter((t) => t !== y0).map((t) => <text key={`yl${t}`} x={x(x0) - 4} y={y(t) + 3} className="bp-tick" textAnchor="end">{t}</text>)}
         <text x={W / 2} y={H - 3} className="bp-axis-label" textAnchor="middle">{xLabel}</text>
         <text x={9} y={H / 2} className="bp-axis-label" textAnchor="middle" transform={`rotate(-90 9 ${H / 2})`}>{yLabel}</text>
+        {armLine && (() => {
+          const a = (armLine.deg * Math.PI) / 180, r = 0.92 * Math.min(xr[1], yr[1]), ex = armLine.side * Math.cos(a) * r, ey = Math.sin(a) * r;
+          const lx = armLine.side * Math.cos(a) * r * 0.62, ly = Math.sin(a) * r * 0.62;
+          return (
+            <g className="bp-arm">
+              <line x1={x(0)} y1={y(0)} x2={x(ex)} y2={y(ey)} className="bp-arm-line"><title>{armLine.note}</title></line>
+              <text x={x(lx)} y={y(ly) - 6} className="bp-arm-label" textAnchor="middle" transform={`rotate(${-armLine.side * armLine.deg} ${x(lx)} ${y(ly) - 6})`}>Arm angle {armLine.deg}°</text>
+            </g>
+          );
+        })()}
         {showAvgs && avgs.map((a) => (
           <g key={`a${a.type}`} opacity={dim(a.type) ? 0.12 : 1}>
             <circle cx={x(a.x)} cy={y(a.y)} r={show === "avgs" ? 10 : 8} fill={colorOf(a.type)} fillOpacity="0.85" stroke="var(--text)" strokeWidth="1.5" pointerEvents={show === "avgs" ? "auto" : "none"}><title>{a.type} average{a.tip ? `: ${a.tip}` : ""}</title></circle>
@@ -153,6 +165,16 @@
         ))}
       </svg>
     );
+  }
+  // Arm angle, as Baseball Savant gives it: the line from the throwing shoulder to the ball at release, in degrees above
+  // level (0 sidearm, about 45 three-quarters, 90 straight over the top). Savant sees the shoulder; a bullpen has only
+  // the release, so the shoulder is put at 70% of his height over the middle of the rubber, from the pitches' average
+  // release height and side (feet). Within a few degrees of Savant's for most pitchers.
+  function armAngleOf(pitches, heightIn) {
+    const ps = pitches.filter((p) => typeof p.relHeight === "number" && typeof p.relSide === "number");
+    if (!ps.length || !heightIn) return null;
+    const h = ps.reduce((s, p) => s + p.relHeight, 0) / ps.length, side = ps.reduce((s, p) => s + Math.abs(p.relSide), 0) / ps.length;
+    return Math.round((Math.atan2(h - (0.7 * heightIn) / 12, Math.max(0.1, side)) * 180) / Math.PI);
   }
   const rangeOf = (vals, min, pad) => { const a = Math.min(min[0], ...vals.map((v) => v - pad)), b = Math.max(min[1], ...vals.map((v) => v + pad)); return [Math.floor(a), Math.ceil(b)]; };
 
@@ -988,6 +1010,15 @@
       tilt: r.tilt, spinEff: r.spinEff, res: r.res,
     }));
     const balls = asTypes.filter((s) => s.spinAvg != null);
+    // the movement chart (pitcher's view, as a bullpen's: a righty's arm side to the right), each pitch at its season
+    // average, with his arm angle: Savant's measured one (by the pitches thrown), else worked out from his release
+    const left = athlete.throws === "L";
+    const moves = asTypes.filter((s) => s.ivb != null && s.hb != null).map((s) => ({ type: s.type, x: left ? -s.hb : s.hb, y: s.ivb, tip: `${s.ivb} IVB, ${s.hb} HB arm side, ${s.speedAvg} mph, ${s.qty} pitches` }));
+    const moveR = Math.max(25, Math.ceil(Math.max(0, ...moves.map((m) => Math.max(Math.abs(m.x), Math.abs(m.y)))) / 5) * 5 + 5);
+    const measured = asTypes.filter((s) => s.armAngle != null && s.qty);
+    const savantArm = measured.length ? Math.round(measured.reduce((n, s) => n + s.armAngle * s.qty, 0) / measured.reduce((n, s) => n + s.qty, 0)) : null;
+    const armDeg = savantArm != null ? savantArm : armAngleOf(asTypes.map((s) => ({ relHeight: s.relHeight, relSide: s.relSide })), athlete.heightIn || 74);
+    const armLine = armDeg == null ? null : { deg: armDeg, side: left ? -1 : 1, note: savantArm != null ? `Arm angle ${armDeg}°: Baseball Savant's, measured from his shoulder to the ball at release in his ${season} games.` : `Arm angle about ${armDeg}°, worked out from his average release in ${season} and his height.` };
     return (
       <div className="bp-comps">
         <div className="bp-comps-bar">
@@ -1015,6 +1046,16 @@
             </div>
           )}
         <p className="timestamp-note">His MLB regular-season games on Baseball Savant. Shape shows once he's thrown 50 of a pitch. Results are shaded against the same pitch from {athlete.throws === "L" ? "left" : athlete.throws === "R" ? "right" : "same"}-handed pitchers who threw at least 50 (red better, blue worse); hover for the rank.</p>
+        {full && moves.length > 0 && (
+          <div className="bp-savant-sec">
+            <div className="bp-savant-head"><h3>Movement <small>{season} MLB, pitcher's view</small></h3></div>
+            <div className="bp-savant-move">
+              <ScatterChart pts={[]} avgs={moves} xr={[-moveR, moveR]} yr={[-moveR, moveR]} step={10} xLabel="Horz. break (in)" yLabel="Induced vert. break (in)"
+                label={`Movement: each pitch's ${season} average`} picked={null} onPick={() => {}} tip={() => ""} show="avgs" armLine={armLine} />
+            </div>
+            <p className="timestamp-note">Each pitch at its average induced vertical break and horizontal break in his {season} games.{armLine ? ` The dotted line is his arm angle (${armDeg}°${savantArm != null ? ", Savant's" : ", estimated"}): a pitch thrown straight off his hand moves along it, and fastballs usually sit near it.` : ""}</p>
+          </div>
+        )}
         {full && balls.length > 0 && (
           <div className="bp-savant-sec">
             <div className="bp-savant-head"><h3>Spin by pitch <small>{season} MLB, {spinCtl.pov === "pitcher" ? "pitcher's view" : "catcher's view"}</small></h3><SpinControls ctl={spinCtl} set={setSpinCtl} /></div>
@@ -1117,6 +1158,28 @@
     const chartStats = all ? typeStats({ pitches: chartPitches }) : stats;
     const mv = chartPitches.filter((p) => typeof p.hb === "number" && typeof p.ivb === "number").map((p) => ({ ...p, x: p.hb, y: p.ivb }));
     const mvR = Math.max(25, Math.ceil(Math.max(0, ...mv.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y)))) / 5) * 5 + 5);
+    // his arm angle on the movement chart, from these pitches' release and his height (the profile's; for a player
+    // linked to MLB without one, MLB's, kept on the profile); TrackMan's break is the pitcher's view, so a righty's arm
+    // side is to the right
+    const [mlbHeight, setMlbHeight] = useState(null);
+    useEffect(() => {
+      if (!athlete || athlete.heightIn || !athlete.mlbamId) return undefined;
+      let live = true;
+      fetch(`https://statsapi.mlb.com/api/v1/people/${athlete.mlbamId}`).then((r) => r.json()).then((j) => {
+        const m = /^(\d)'\s*(\d{1,2})/.exec(((j.people || [])[0] || {}).height || "");
+        if (!m || !live) return;
+        const h = Number(m[1]) * 12 + Number(m[2]);
+        setMlbHeight(h);
+        window.AthleteStore.updateAthlete(athlete.id, { heightIn: h });
+      }).catch(() => {});
+      return () => { live = false; };
+    }, [athlete && athlete.id]); // eslint-disable-line
+    const heightIn = (athlete && athlete.heightIn) || mlbHeight;
+    const armDeg = armAngleOf(chartPitches, heightIn || 74);
+    const armLine = armDeg == null ? null : {
+      deg: armDeg, side: athlete && athlete.throws === "L" ? -1 : 1,
+      note: `Arm angle about ${armDeg}°: from ${all ? "these sessions'" : "this session's"} average release (${ftIn(chartPitches.filter((p) => typeof p.relHeight === "number").reduce((s, p, i, a) => s + p.relHeight / a.length, 0))} high) and ${heightIn ? `his height (${Math.floor(heightIn / 12)}'${Math.round(heightIn % 12)}")` : "a height of 6'2\" (none on his profile: add it there for a truer angle)"}, the shoulder taken as 70% of it.`,
+    };
     const rl = chartPitches.filter((p) => typeof p.relSide === "number" && typeof p.relHeight === "number").map((p) => ({ ...p, x: -p.relSide, y: p.relHeight })); // mirrored: TrackMan's release side is the pitcher's, this is the catcher's view
     const rlX = rangeOf(rl.map((p) => p.x), [-4, 4], 1), rlY = rangeOf(rl.map((p) => p.y), [0, 7], 1);
     const pk = picked != null ? chartPitches.find((p) => p.key === picked) : null;
@@ -1188,8 +1251,8 @@
             {pitchKey}
             <ScatterChart pts={mv} avgs={chartStats.filter((s) => s.ivb != null && s.hb != null && s.type !== UNTAGGED).map((s) => ({ type: s.type, x: s.hb, y: s.ivb, tip: `${s.ivb} IVB, ${s.hb} HB, ${s.speedAvg} mph, ${s.qty} pitches` }))}
               xr={[-mvR, mvR]} yr={[-mvR, mvR]} step={10} xLabel="Horz. break (in)" yLabel="Induced vert. break (in)" label="Movement: horizontal break by induced vertical break, one dot per pitch"
-              picked={picked} onPick={setPicked} focus={focus} show={chartShow} tip={(p) => `${p.ivb} IVB, ${p.hb} HB, ${p.speed} mph`} />
-            <p className="timestamp-note">Click a pitch to see it, change its type or take it out. Ringed dots are each type's average; show just the pitches or just the averages with the switch above.</p>
+              picked={picked} onPick={setPicked} focus={focus} show={chartShow} tip={(p) => `${p.ivb} IVB, ${p.hb} HB, ${p.speed} mph`} armLine={armLine} />
+            <p className="timestamp-note">Click a pitch to see it, change its type or take it out. Ringed dots are each type's average; show just the pitches or just the averages with the switch above.{armLine ? ` The dotted line is his arm angle (about ${armLine.deg}°, ${heightIn ? "from his release and height" : "from his release, assuming 6'2\": add his height to his profile"}): a pitch thrown straight off his hand moves along it, and fastballs usually sit near it.` : ""}</p>
           </React.Fragment>
         ),
       },
