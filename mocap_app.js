@@ -103,17 +103,49 @@
     mountFor(box, p, kind);
   }
 
+  // His height (from his profile) and his latest weight: the most recent of a force plate test (a CMJ's system
+  // weight), a body comp scan and a pre-weight logged in his program. Anything that can't be read is left blank.
+  async function bodyNumbers(athleteId) {
+    const id = String(athleteId);
+    const safe = (q) => q.then((r) => (r.error ? [] : r.data || []), () => []);
+    const [me, plate, scans, logs] = await Promise.all([
+      safe(sb.from("athletes").select("height:data->heightIn").eq("id", id).limit(1)),
+      safe(sb.from("force_tests").select("date:data->>date,w:data->systemWeight").eq("data->>athleteId", id).limit(2000)),
+      safe(sb.from("body_comp").select("date:data->>date,lb:data->weightLb,kg:data->weightKg").eq("data->>athleteId", id).limit(2000)),
+      safe(sb.from("athlete_logs").select("key,value").eq("athlete_id", id).like("key", "bw-%").neq("value", "").limit(2000)),
+    ]);
+    const all = [];
+    plate.forEach((r) => { const w = Number(r.w); if (r.date && w > 300) all.push({ date: String(r.date).slice(0, 10), lb: w / 4.44822, from: "force plate test" }); });
+    scans.forEach((r) => { const lb = Number(r.lb) || Number(r.kg) * 2.20462; if (r.date && lb > 50) all.push({ date: String(r.date).slice(0, 10), lb, from: "body comp scan" }); });
+    logs.forEach((r) => { const m = /^bw-(\d{4})(\d{2})(\d{2})\|0$/.exec(r.key), lb = parseFloat(r.value); if (m && lb > 50) all.push({ date: `${m[1]}-${m[2]}-${m[3]}`, lb, from: "logged weight in his program" }); });
+    all.sort((a, b) => a.date.localeCompare(b.date));
+    const last = all[all.length - 1];
+    return { heightIn: Number(me[0] && me[0].height) || null, weightLb: last ? Math.round(last.lb) : null, weightFrom: last ? `${last.from} (${last.date})` : "" };
+  }
+  // a height entered in motion capture, onto the profile of someone who had none
+  async function saveHeight(athleteId, heightIn) {
+    const { data, error } = await sb.from("athletes").select("data").eq("id", String(athleteId)).single();
+    if (error || !data) throw new Error("couldn't read the profile");
+    if (data.data && data.data.heightIn) return;
+    const res = await sb.from("athletes").update({ data: { ...(data.data || {}), heightIn } }).eq("id", String(athleteId));
+    if (res.error) throw new Error("couldn't save the height");
+  }
+
   // the tool in `box` for athlete p ({ id, name, throws, bats, email }) and movement `which`, his sessions read
   // first; saves go to his record. Coach Mode's Motion Capture screen (coach.js) uses this too.
   async function mountFor(box, p, which) {
     box.replaceChildren(note("Loading…"));
-    const { data, error } = await sb.from("assessments").select("id,data").eq("athlete_id", String(p.id)).eq("data->>kind", "mocap").limit(200);
+    const [{ data, error }, body] = await Promise.all([
+      sb.from("assessments").select("id,data").eq("athlete_id", String(p.id)).eq("data->>kind", "mocap").limit(200),
+      bodyNumbers(p.id),
+    ]);
     let history = error ? [] : (data || []).map((r) => r.data);
     box.replaceChildren();
     if (!window.MoCap) { box.append(note("Motion capture didn't load. Reload the page.")); return; }
     window.MoCap.mount(box, {
       kind: which,
-      athlete: { id: String(p.id), name: p.name, throws: p.throws || "", bats: p.bats || "", email: p.email || "" },
+      athlete: { id: String(p.id), name: p.name, throws: p.throws || "", bats: p.bats || "", email: p.email || "", heightIn: body.heightIn, weightLb: body.weightLb, weightFrom: body.weightFrom },
+      saveHeight: (h) => saveHeight(p.id, h),
       history: () => history,
       onSave: async (rec) => {
         // the dashboard keeps an athlete's id as a number inside each record
@@ -148,5 +180,5 @@
     });
   }
 
-  window.MoCapApp = { open, mountFor };
+  window.MoCapApp = { open, mountFor, bodyNumbers };
 })();

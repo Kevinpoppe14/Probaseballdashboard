@@ -836,7 +836,7 @@
     const athlete = opts.athlete || {};
     const kindName = KINDS[opts.kind] ? opts.kind : "pitching", kind = KINDS[kindName];
     const hKey = `mocapHeight:${athlete.id}`;
-    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, extras: Object.fromEntries((kind.extras || []).map((x) => [x.key, x.default])), heightIn: Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
+    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, extras: Object.fromEntries((kind.extras || []).map((x) => [x.key, x.default])), heightIn: Number(athlete.heightIn) || Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
     // his saved sessions of this movement
     const history = () => (opts.history ? opts.history() || [] : []).filter((r) => (r.motion || "pitching") === kindName);
     const variantName = (v) => (kind.variants && v ? (kind.variants.options.find((o) => o[0] === v) || [v, v])[1] : "");
@@ -905,6 +905,10 @@
             : el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; } },
               [["auto", "The file's own speed"], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t))))),
         el("p", { class: "mc-hint" }, kind.heightHint || "Height is needed for center-of-mass speed. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down."),
+        athlete.heightIn || athlete.weightFrom ? el("p", { class: "mc-hint" }, [
+          athlete.heightIn ? `Height from his profile${Number(state.heightIn) !== Number(athlete.heightIn) ? ` (${athlete.heightIn}")` : ""}.` : "",
+          athlete.weightFrom ? `Weight from his latest ${athlete.weightFrom}.` : "",
+        ].filter(Boolean).join(" ")) : (opts.saveHeight ? el("p", { class: "mc-hint" }, "His profile has no height: the one entered here is saved to it.") : null),
         state.setup === "edger"
           ? pick("side", "Edgertronic video", kind.edgerHint)
           : pick("side", kind.sideLabel, kind.sideHint),
@@ -940,6 +944,11 @@
     const scaleOf = (f) => { const cap = state.captureFps === "auto" ? f.fps : Number(state.captureFps); return f.fps / cap; };
     async function run() {
       state.error = "";
+      // a height typed in for someone whose profile has none goes onto the profile, so it's only ever entered once
+      if (Number(state.heightIn) && !athlete.heightIn && opts.saveHeight) {
+        athlete.heightIn = Number(state.heightIn);
+        Promise.resolve(opts.saveHeight(athlete.heightIn)).catch(() => { athlete.heightIn = null; });
+      }
       try {
         state.busy = "Loading the pose model (the first time takes a moment)…"; render();
         await model();

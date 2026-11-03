@@ -2398,10 +2398,15 @@
       if (!box || !window.MoCap) return undefined;
       const store = window.AthleteStore;
       const forceTests = () => (store.getForceTests ? store.getForceTests(athlete.id) : []);
-      // his weight, for force and power: the latest body comp scan, or else the force plate's system weight (newtons)
-      const scan = (store.getBodyComp ? store.getBodyComp(athlete.id) : []).slice().reverse().find((s) => s.weightLb || s.weightKg);
-      const plate = forceTests().slice().reverse().find((t) => typeof t.systemWeight === "number" && t.systemWeight > 300);
-      const weightLb = scan ? scan.weightLb || scan.weightKg * 2.20462 : plate ? plate.systemWeight / 4.44822 : null;
+      // his weight, for force and power: the most recent of a force plate test (system weight, newtons), a body comp
+      // scan and a pre-weight logged in his program ("bw-YYYYMMDD")
+      const weights = [];
+      forceTests().forEach((t) => { if (t.date && typeof t.systemWeight === "number" && t.systemWeight > 300) weights.push({ date: String(t.date).slice(0, 10), lb: t.systemWeight / 4.44822, from: "force plate test" }); });
+      (store.getBodyComp ? store.getBodyComp(athlete.id) : []).forEach((s) => { const lb = s.weightLb || (s.weightKg ? s.weightKg * 2.20462 : 0); if (s.date && lb > 50) weights.push({ date: s.date, lb, from: "body comp scan" }); });
+      (store.athleteLogEntries ? store.athleteLogEntries(athlete.id, store.getPeriodization(athlete.id)) : []).forEach((e) => { const m = /^bw-(\d{4})(\d{2})(\d{2})\|0$/.exec(e.key || ""), lb = parseFloat(e.value); if (m && lb > 50) weights.push({ date: `${m[1]}-${m[2]}-${m[3]}`, lb, from: "logged weight in his program" }); });
+      weights.sort((a, b) => a.date.localeCompare(b.date));
+      const latest = weights[weights.length - 1];
+      const weightLb = latest ? latest.lb : null, weightFrom = latest ? `${latest.from} (${latest.date})` : "";
       // results sent to his biomechanical assessment: his latest from the last two weeks, or a new one dated today
       const fillAssessment = async (entries) => {
         const today = new Date().toISOString().slice(0, 10), recent = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
@@ -2412,7 +2417,9 @@
         return base === last ? `the ${last.date} assessment` : `a new assessment dated ${today}`;
       };
       window.MoCap.mount(box, {
-        kind, forceTests, fillAssessment, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb },
+        kind, forceTests, fillAssessment, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb, weightFrom, heightIn: Number(athlete.heightIn) || null },
+        // a height entered here for someone whose profile has none is kept on the profile
+        saveHeight: (h) => { const now = store.allAthletes().find((x) => x.id === athlete.id); if (now && !now.heightIn) store.updateAthlete(athlete.id, { heightIn: h }); },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
         onDelete: async (rec) => { store.deleteAssessment(rec.id); },
         saveAny: async (rec) => { store.saveAssessment(rec); }, // another pitcher's session, re-run (it keeps its own athleteId)

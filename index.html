@@ -6915,9 +6915,10 @@ function ProfileNameEdit({ athlete, onDataChange }) {
   const [jersey, setJersey] = useState(hasJersey(athlete) ? athlete.jersey : "");
   const [throws, setThrows] = useState(athlete.throws || ""); // R or L (the Bullpens comps use it)
   const [bats, setBats] = useState(athlete.bats || ""); // R, L or S
-  // a player linked to MLB before hands were kept: fill them in from MLB's player record the first time the profile opens
+  const [height, setHeight] = useState(athlete.heightIn || ""); // inches (motion capture uses it)
+  // a player linked to MLB before hands (or height) were kept: fill them in from MLB's player record the first time the profile opens
   React.useEffect(() => {
-    if (!athlete.mlbamId || (athlete.throws && athlete.bats)) return;
+    if (!athlete.mlbamId || (athlete.throws && athlete.bats && athlete.heightIn)) return;
     let off = false;
     fetch(`https://statsapi.mlb.com/api/v1/people/${athlete.mlbamId}`).then((r) => (r.ok ? r.json() : null)).then((j) => {
       const p = j && j.people && j.people[0];
@@ -6925,14 +6926,17 @@ function ProfileNameEdit({ athlete, onDataChange }) {
       const patch = {};
       if (!athlete.throws && p.pitchHand && /^[RL]$/.test(p.pitchHand.code)) patch.throws = p.pitchHand.code;
       if (!athlete.bats && p.batSide && /^[RLS]$/.test(p.batSide.code)) patch.bats = p.batSide.code;
+      const ht = /^(\d)'\s*(\d{1,2})/.exec(p.height || ""); // MLB's "6' 2\""
+      if (!athlete.heightIn && ht) patch.heightIn = Number(ht[1]) * 12 + Number(ht[2]);
       if (Object.keys(patch).length) { window.AthleteStore.updateAthlete(athlete.id, patch); onDataChange(); }
     }).catch(() => { /* offline: left for next time */ });
     return () => { off = true; };
   }, [athlete.id, athlete.mlbamId]); // eslint-disable-line
-  const start = () => { setName(athlete.name); setJersey(hasJersey(athlete) ? athlete.jersey : ""); setThrows(athlete.throws || ""); setBats(athlete.bats || ""); setOpen(true); };
+  const start = () => { setName(athlete.name); setJersey(hasJersey(athlete) ? athlete.jersey : ""); setThrows(athlete.throws || ""); setBats(athlete.bats || ""); setHeight(athlete.heightIn || ""); setOpen(true); };
   const save = () => {
     if (!name.trim()) return;
-    window.AthleteStore.updateAthlete(athlete.id, { name: name.trim(), jersey: jersey.trim() || "--", throws, bats });
+    const h = Number(height);
+    window.AthleteStore.updateAthlete(athlete.id, { name: name.trim(), jersey: jersey.trim() || "--", throws, bats, heightIn: h >= 40 && h <= 96 ? Math.round(h * 2) / 2 : null });
     setOpen(false);
     onDataChange();
   };
@@ -6948,6 +6952,7 @@ function ProfileNameEdit({ athlete, onDataChange }) {
           <label><span>Jersey #</span><input className="inline-select" value={jersey} onChange={(e) => setJersey(e.target.value)} placeholder="#" style={{ width: 70 }} /></label>
           <label><span>Throws</span><select className="inline-select" value={throws} onChange={(e) => setThrows(e.target.value)}><option value="">–</option><option value="R">Right</option><option value="L">Left</option></select></label>
           <label><span>Bats</span><select className="inline-select" value={bats} onChange={(e) => setBats(e.target.value)}><option value="">–</option><option value="R">Right</option><option value="L">Left</option><option value="S">Switch</option></select></label>
+          <label><span>Height (in)</span><input className="inline-select" type="number" inputMode="decimal" min={40} max={96} step={0.5} value={height} onChange={(e) => setHeight(e.target.value)} placeholder="74" style={{ width: 70 }} title={"In inches (6'2\" is 74). Motion capture uses it."} /></label>
           <label><span>League</span><LeagueSelect athlete={athlete} onChanged={onDataChange} /></label>
           <label><span>Team</span><TeamSelectInline key={athlete.league || "none"} athlete={athlete} onChanged={onDataChange} /></label>
           <label><span>DST location</span><LocationSelect athlete={athlete} onChanged={onDataChange} /></label>

@@ -128,6 +128,13 @@
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
   function drawLogo(g, L, im) {
     if (!im) return;
+    if (L.plain) { // over the video itself: sized to it, with a soft shadow so it reads on a light background
+      const s = Math.min(L.W, L.H), w = Math.round(s * 0.26), h = (im.height / im.width) * w, m = Math.round(s * 0.035);
+      g.save(); g.shadowColor = "rgba(0,0,0,0.65)"; g.shadowBlur = Math.round(s * 0.02); g.globalAlpha = 0.95;
+      g.drawImage(im, L.W - w - m, L.H - h - m, w, h);
+      g.restore();
+      return;
+    }
     const w = L.W > L.H ? 280 : 300, h = (im.height / im.width) * w;
     g.globalAlpha = 0.95; g.drawImage(im, L.W - w - 30, L.H - h - 26, w, h); g.globalAlpha = 1;
   }
@@ -139,22 +146,35 @@
     v.muted = true; v.playsInline = true; v.preload = "auto"; v.crossOrigin = "anonymous"; // stored clips come from another origin: without this the frames couldn't be read back
     v.src = url;
     await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error("A video wouldn't open in this browser (it needs to be an MP4 or MOV it can play).")); });
+    // some files (browser and screen recordings) don't say how long they are: running off the end makes it find out
+    if (!Number.isFinite(v.duration)) {
+      await new Promise((ok) => { v.ontimeupdate = () => { if (Number.isFinite(v.duration)) { v.ontimeupdate = null; ok(); } }; v.currentTime = 1e9; setTimeout(ok, 8000); });
+      v.ontimeupdate = null;
+      await seek(v, 0);
+    }
     return v;
   }
   const seek = (v, t) => new Promise((ok) => { if (Math.abs(v.currentTime - t) < 1e-3) { ok(); return; } v.onseeked = () => { v.onseeked = null; ok(); }; v.currentTime = t; });
 
-  async function render({ layout = "horizontal", fill = false, title = null, segments, onProgress = () => {}, cancelled = () => false }) {
+  // layout "plain": the video alone at its own size (up to 1920 on its long side) with the logo in its corner, no panel
+  // (an exercise library video, athlete.js); `audioFrom` (the original file) carries its sound across, for a single
+  // segment played whole at its own speed
+  async function render({ layout = "horizontal", fill = false, title = null, segments, audioFrom = null, onProgress = () => {}, cancelled = () => false }) {
     if (!supported()) throw new Error("This browser can't make videos. Use Chrome or Edge on a computer, or Chrome on Android, or a recent iPhone.");
-    const L = LAYOUTS[layout] || LAYOUTS.horizontal;
     // How big: big enough that the video shows at its own resolution, not shrunk into its area (a 1080p Edgertronic clip
     // in the horizontal frame makes a 2560 x 1440 file, in the vertical one 4K), as far as this browser's encoder goes.
     // Everything is laid out in the layout's own units (1920 x 1080 or 1080 x 1920) and drawn scaled up.
     let srcW = 1920, srcH = 1080;
     try { const pv = await openVideo(segments[0].url); srcW = pv.videoWidth || srcW; srcH = pv.videoHeight || srcH; pv.removeAttribute("src"); pv.load(); } catch (e) { /* the segment itself will say */ }
+    let L = LAYOUTS[layout] || LAYOUTS.horizontal;
+    if (layout === "plain") {
+      const k = Math.min(1, 1920 / Math.max(srcW, srcH)), W = 2 * Math.round((srcW * k) / 2), H = 2 * Math.round((srcH * k) / 2);
+      L = { W, H, video: { x: 0, y: 0, w: W, h: H }, panel: null, plain: true };
+    }
     const want = 1 / Math.min((fill ? Math.max : Math.min)(L.video.w / srcW, L.video.h / srcH), 1);
-    const SCALES = [1, 4 / 3, 2];
-    let scale = SCALES.find((s) => s >= want - 0.01) || 2, cfg = null;
-    const bitrateAt = (s) => Math.round(16_000_000 * ((L.W * s * L.H * s) / (1920 * 1080)));
+    const SCALES = L.plain ? [1] : [1, 4 / 3, 2];
+    let scale = SCALES.find((s) => s >= want - 0.01) || SCALES[SCALES.length - 1], cfg = null;
+    const bitrateAt = (s) => Math.round((L.plain ? 8_000_000 : 16_000_000) * ((L.W * s * L.H * s) / (1920 * 1080)));
     if (canEncode()) {
       for (const s of SCALES.filter((x) => x <= scale).reverse()) {
         for (const codec of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.420033", "avc1.420028"]) {
@@ -179,10 +199,36 @@
     if (canEncode()) {
       await script(MUXER);
       const M = window.Mp4Muxer;
-      const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: cv.width, height: cv.height }, fastStart: "in-memory", firstTimestampBehavior: "offset" });
+      // the sound, when asked for: the original's track read whole and made AAC (none, or one this browser can't
+      // read or encode: the video goes without it)
+      let audio = null;
+      if (audioFrom && typeof AudioEncoder === "function" && typeof AudioData === "function") {
+        try {
+          const ac = new (window.AudioContext || window.webkitAudioContext)();
+          const ab = await ac.decodeAudioData(await audioFrom.arrayBuffer());
+          ac.close();
+          const ch = Math.min(2, ab.numberOfChannels), acfg = { codec: "mp4a.40.2", sampleRate: ab.sampleRate, numberOfChannels: ch, bitrate: 128000 };
+          if ((await AudioEncoder.isConfigSupported(acfg)).supported) audio = { ab, ch, acfg };
+        } catch (e) { audio = null; }
+      }
+      const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: cv.width, height: cv.height }, ...(audio ? { audio: { codec: "aac", sampleRate: audio.acfg.sampleRate, numberOfChannels: audio.ch } } : {}), fastStart: "in-memory", firstTimestampBehavior: "offset" });
       let failed = null;
       const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
       enc.configure(cfg);
+      const addAudio = async () => {
+        if (!audio) return;
+        const { ab, ch, acfg } = audio, rate = acfg.sampleRate, N = 8192;
+        const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => { failed = e; } });
+        aenc.configure(acfg);
+        for (let off = 0; off < ab.length; off += N) {
+          const n = Math.min(N, ab.length - off), data = new Float32Array(n * ch);
+          for (let c = 0; c < ch; c++) data.set(ab.getChannelData(c).subarray(off, off + n), c * n);
+          const ad = new AudioData({ format: "f32-planar", sampleRate: rate, numberOfFrames: n, numberOfChannels: ch, timestamp: Math.round((off / rate) * 1e6), data });
+          aenc.encode(ad); ad.close();
+          while (aenc.encodeQueueSize > 8) await sleep(2);
+        }
+        await aenc.flush(); aenc.close();
+      };
       let last = -1, lastKey = -10;
       emit = async (sec) => {
         if (failed) throw failed;
@@ -196,7 +242,7 @@
         frame.close();
         while (enc.encodeQueueSize > 6) await sleep(4);
       };
-      finish = async () => { await enc.flush(); if (failed) throw failed; muxer.finalize(); enc.close(); return new Blob([muxer.target.buffer], { type: "video/mp4" }); };
+      finish = async () => { await enc.flush(); await addAudio(); if (failed) throw failed; muxer.finalize(); enc.close(); return new Blob([muxer.target.buffer], { type: "video/mp4" }); };
       abort = () => { try { enc.close(); } catch (e) { /* closed */ } };
     } else {
       const type = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
@@ -232,6 +278,7 @@
         const v = await openVideo(sg.url);
         try {
           const start = sg.start || 0, end = Math.min(sg.end != null ? sg.end : v.duration, v.duration || Infinity);
+          if (!Number.isFinite(end)) throw new Error("Couldn't tell how long that video is. Save it as an MP4 and try again.");
           const base = tOut;
           const drawAt = async (t) => {
             g.fillStyle = "#000"; g.fillRect(0, 0, L.W, L.H);
