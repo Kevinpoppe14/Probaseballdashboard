@@ -4350,7 +4350,7 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-savant-move { max-width: 460px; }
 /* the pitcher's arm angle on a movement chart */
 .bp-plot .bp-arm-line { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 2 4; stroke-linecap: round; opacity: 0.75; }
-.bp-plot .bp-arm-label { fill: var(--text-dim); font-size: 10px; font-weight: 600; pointer-events: none; }
+.bp-plot .bp-arm-label { fill: var(--text-dim); font-size: 10px; font-weight: 600; pointer-events: none; paint-order: stroke; stroke: var(--panel, #161616); stroke-width: 3px; stroke-linejoin: round; }
 
 /* Bullpens: Edgertronic video synced to the pitches (bullpen_video.js) */
 .bp-video-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 4px 0 12px; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 10px; }

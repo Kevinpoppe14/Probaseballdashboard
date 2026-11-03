@@ -140,11 +140,14 @@
         <text x={W / 2} y={H - 3} className="bp-axis-label" textAnchor="middle">{xLabel}</text>
         <text x={9} y={H / 2} className="bp-axis-label" textAnchor="middle" transform={`rotate(-90 9 ${H / 2})`}>{yLabel}</text>
         {armLine && (() => {
-          const a = (armLine.deg * Math.PI) / 180, r = 0.92 * Math.min(xr[1], yr[1]), ex = armLine.side * Math.cos(a) * r, ey = Math.sin(a) * r;
-          const lx = armLine.side * Math.cos(a) * r * 0.62, ly = Math.sin(a) * r * 0.62;
+          // the whole way across the chart through the middle, to the edges in both directions
+          const a = (armLine.deg * Math.PI) / 180, dx = armLine.side * Math.cos(a), dy = Math.sin(a);
+          const reach = (sx, sy) => Math.min(sx > 1e-9 ? xr[1] / sx : sx < -1e-9 ? xr[0] / sx : Infinity, sy > 1e-9 ? yr[1] / sy : sy < -1e-9 ? yr[0] / sy : Infinity);
+          const out = reach(dx, dy), back = reach(-dx, -dy);
+          const r = Math.min(xr[1], yr[1]), lx = dx * r * 0.36, ly = dy * r * 0.36; // the label near the middle, clear of the fastballs
           return (
             <g className="bp-arm">
-              <line x1={x(0)} y1={y(0)} x2={x(ex)} y2={y(ey)} className="bp-arm-line"><title>{armLine.note}</title></line>
+              <line x1={x(-dx * back)} y1={y(-dy * back)} x2={x(dx * out)} y2={y(dy * out)} className="bp-arm-line"><title>{armLine.note}</title></line>
               <text x={x(lx)} y={y(ly) - 6} className="bp-arm-label" textAnchor="middle" transform={`rotate(${-armLine.side * armLine.deg} ${x(lx)} ${y(ly) - 6})`}>Arm angle {armLine.deg}°</text>
             </g>
           );
