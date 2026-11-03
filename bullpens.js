@@ -179,11 +179,11 @@
     const h = ps.reduce((s, p) => s + p.relHeight, 0) / ps.length, side = ps.reduce((s, p) => s + Math.abs(p.relSide), 0) / ps.length;
     return Math.round((Math.atan2(h - (0.7 * heightIn) / 12, Math.max(0.1, side)) * 180) / Math.PI);
   }
-  // How far a pitch's movement turns off the line of his arm angle, in degrees: + above it on the movement chart (a
-  // fastball riding more than his slot suggests, a sweeper with less drop), − below (more run or sink than the slot
-  // gives). Break is arm side + here. Hitters read the arm; a pitch that doesn't move the way it looks is harder to pick
-  // up.
-  const slotDevOf = (p) => (p.ivb == null || p.hb == null || p.armAngle == null ? null : (((((Math.atan2(p.ivb, p.hb) * 180) / Math.PI - p.armAngle) % 360) + 540) % 360) - 180);
+  // How far a pitch's movement turns off the line of his arm angle (the dotted line on the movement chart, which runs
+  // both ways through the middle), in degrees from whichever end it's nearer, −90 to 90: + more vertical than the slot
+  // gives (ride on a fastball, depth on a curveball), − more horizontal (run on a changeup, sweep on a slider). Break is
+  // arm side + here. Hitters read the arm; a pitch that doesn't move the way the arm looks is harder to pick up.
+  const slotDevOf = (p) => (p.ivb == null || p.hb == null || p.armAngle == null ? null : (((((Math.atan2(p.ivb, p.hb) * 180) / Math.PI - p.armAngle + 90) % 180) + 180) % 180) - 90);
   const withSlot = (p) => ({ ...p, slotDev: slotDevOf(p) });
   const fmtSlot = (v) => (v == null ? "–" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(Math.round(v))}°`);
   const rangeOf = (vals, min, pad) => { const a = Math.min(min[0], ...vals.map((v) => v - pad)), b = Math.max(min[1], ...vals.map((v) => v + pad)); return [Math.floor(a), Math.ceil(b)]; };
@@ -781,11 +781,11 @@
     ["spin", "more spin", "less spin"], ["eff", "more efficient spin", "more gyro"], ["tilt", "spin direction turned clockwise of the usual", "spin direction turned counterclockwise of the usual"],
     ["relHeight", "a higher release", "a lower release"], ["relSide", "a wider release", "a release closer to the middle"], ["ext", "longer extension", "shorter extension"],
     ["vaa", "a flatter approach angle", "a steeper approach angle"], ["armAngle", "a higher arm angle", "a lower arm angle"],
-    ["slotDev", "movement above the line of his arm slot", "movement below the line of his arm slot"],
+    ["slotDev", "more vertical movement than his arm slot gives", "more horizontal movement than his arm slot gives"],
   ];
   // traits that go around a circle (spin direction in clock minutes, the turn off the arm slot in degrees): their
   // middle is the circular mean, and each is measured the short way round from it
-  const CIRCULAR = { tilt: 720, slotDev: 360 };
+  const CIRCULAR = { tilt: 720, slotDev: 180 };
   function rarityOf(me, pop) {
     if (!pop.length) return null;
     const ckey = `${pop.length}|${pop[0].id}|${pop[0].code}|${pop[pop.length - 1].id}`;
@@ -982,7 +982,7 @@
                   {comps.length > 0 ? (
                     <div className="bp-table-wrap">
                       <table className="assess-table bp-table bp-comp-table">
-                        <thead><tr><th>Closest 5</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Rel. side</th><th>Ext.</th><th>VAA</th><th>Arm angle</th><th title="How far the pitch's movement turns off the line of his arm angle: + above it, − below">Off slot</th><th>Match</th>{resHeads()}<th>Grip</th></tr></thead>
+                        <thead><tr><th>Closest 5</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Rel. side</th><th>Ext.</th><th>VAA</th><th>Arm angle</th><th title="How far the pitch's movement turns off the line of his arm angle: + more vertical than his slot gives (ride, or depth), − more horizontal (run, or sweep)">Off slot</th><th>Match</th>{resHeads()}<th>Grip</th></tr></thead>
                         <tbody>
                           <tr className="bp-comp-me"><td>{athlete.name} <small>{meLabel || (fromMlb ? `${season} MLB games` : "this session")}</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>{ftIn(me.relSide)}</td><td>{ftIn(me.ext)}</td><td>{deg(me.vaa)}</td><td title={me.armEst ? "From his release and height" : "Baseball Savant's"}>{me.armAngle != null ? `${me.armEst ? "~" : ""}${me.armAngle}°` : "–"}</td><td>{fmtSlot(me.slotDev)}</td><td></td>{fromMlb ? resCells(s.res, resPool) : RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}<td></td></tr>
                           {meMlb && !fromMlb && (
@@ -1005,7 +1005,7 @@
             </div>
           );
         })}
-        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension, VAA, arm angle and how far the movement turns off the arm slot together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Arm angle is Savant's in MLB games; for a bullpen (marked ~) it's worked out from the pitch's release and his height on his profile (6'2" if there's none). Off slot is how far the pitch's movement turns off the line of his arm angle on the movement chart: + above it (a fastball riding more than his slot suggests), − below (more run or sink); hitters read the arm, so a pitch that doesn't move the way the arm looks is harder to pick up. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA, arm angle and off slot (break and release height count most; release side, extension, arm angle, off slot, velo and VAA next; spin rate and efficiency least): 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
+        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension, VAA, arm angle and how far the movement turns off the arm slot together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Arm angle is Savant's in MLB games; for a bullpen (marked ~) it's worked out from the pitch's release and his height on his profile (6'2" if there's none). Off slot is how far the pitch's movement turns off the line of his arm angle on the movement chart: + more vertical than his slot gives (ride on a fastball, depth on a curveball), − more horizontal (run on a changeup, sweep on a slider); hitters read the arm, so a pitch that doesn't move the way the arm looks is harder to pick up. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA, arm angle and off slot (break and release height count most; release side, extension, arm angle, off slot, velo and VAA next; spin rate and efficiency least): 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
       </div>
     );
   }
@@ -1056,7 +1056,7 @@
           : st.rows.length > 0 && (
             <div className="bp-table-wrap">
               <table className="assess-table bp-table bp-comp-table">
-                <thead><tr><th>Pitch</th><th>Pitches</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Ext.</th><th title="How far the pitch's movement turns off the line of his arm angle: + above it, − below">Off slot</th>{resHeads()}</tr></thead>
+                <thead><tr><th>Pitch</th><th>Pitches</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Ext.</th><th title="How far the pitch's movement turns off the line of his arm angle: + more vertical than his slot gives (ride, or depth), − more horizontal (run, or sweep)">Off slot</th>{resHeads()}</tr></thead>
                 <tbody>
                   {st.rows.map((r) => (
                     <tr key={r.code}>
