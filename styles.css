@@ -4480,3 +4480,12 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .pd-target-hits small { color: var(--text-dim); margin-left: 4px; }
 .pd-target-note { font-size: 13px; margin: 4px 0 8px; }
 .pd-mirror { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; color: var(--text-dim); }
+/* Bullpens › Export video (bullpen_video.js, video_export.js) */
+.bp-export-card { max-width: 760px; }
+.bp-export { display: grid; gap: 12px; }
+.bp-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.bp-export-row > b { min-width: 64px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+.bp-export-seg { display: inline-flex; gap: 6px; }
+.bp-export-only { width: 170px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-muted, var(--panel-2)); color: var(--text); }
+.bp-export-busy { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bp-export-busy progress { width: 260px; height: 10px; }

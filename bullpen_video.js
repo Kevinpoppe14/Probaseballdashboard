@@ -133,6 +133,25 @@
     peaks.forEach((p) => { if (p.s > 5 && p.d > 2 && far(big, p)) big.push(p); });
     return { segs, clear: left && left.s > 0 ? weakest / left.s : 99, seems: big.length + 1 };
   }
+  // A phone left recording the whole bullpen has no cuts to find: each pitch is where the picture moves most (the
+  // delivery), the n busiest moments at least a few seconds apart, each taken from `before` seconds ahead of it to
+  // `after` seconds past it.
+  function splitByMotion(scan, n, before = 2.5, after = 1.5) {
+    const { frames, dur } = scan;
+    const sm = frames.map((f, i) => {
+      let s = 0, c = 0;
+      for (let j = i; j >= 0 && f.t - frames[j].t <= 0.25; j--) { s += frames[j].d; c++; }
+      for (let j = i + 1; j < frames.length && frames[j].t - f.t <= 0.25; j++) { s += frames[j].d; c++; }
+      return { t: f.t, m: s / c };
+    });
+    const minGap = Math.max(3, Math.min(8, (dur / Math.max(1, n)) * 0.5));
+    const peaks = sm.filter((p, i) => i > 0 && i < sm.length - 1 && p.m >= sm[i - 1].m && p.m >= sm[i + 1].m).sort((a, b) => b.m - a.m);
+    const picked = [];
+    for (const p of peaks) { if (picked.length >= n) break; if (picked.every((q) => Math.abs(q.t - p.t) >= minGap)) picked.push(p); }
+    picked.sort((a, b) => a.t - b.t);
+    return { segs: picked.map((p) => ({ start: Math.max(0, p.t - before), end: Math.min(dur, p.t + after) })), clear: 99, seems: picked.length };
+  }
+  const CAMERAS = [["edgertronic", "Edgertronic"], ["phone", "Phone"]];
 
   // ---- adding video to a session ---------------------------------------------------------------------------------
   function VideoBar({ session, athlete, onSave }) {
@@ -143,20 +162,23 @@
     const [plan, setPlan] = useState(null); // { kind: "many", files } | { kind: "one", file, scan, n }
     const [busy, setBusy] = useState("");
     const [msg, setMsg] = useState("");
+    const [camera, setCamera] = useState((video && video.camera) || "edgertronic");
+    const [exporting, setExporting] = useState(false);
     const pick = async (e) => {
       const files = [...(e.target.files || [])].filter((f) => /^video\//i.test(f.type || "video/") || /\.(mov|mp4|m4v)$/i.test(f.name));
       e.target.value = "";
       setMsg("");
       if (!files.length) return;
       if (files.length > 1 || nos.length <= 1) { setPlan({ kind: "many", files: files.sort(byName) }); return; }
-      setBusy("Finding the cuts… 0%");
+      const finding = camera === "phone" ? "Finding the pitches" : "Finding the cuts";
+      setBusy(`${finding}… 0%`);
       try {
-        const scan = await scanVideo(files[0], (p) => setBusy(`Finding the cuts… ${Math.round(p * 100)}%`));
+        const scan = await scanVideo(files[0], (p) => setBusy(`${finding}… ${Math.round(p * 100)}%`));
         setPlan({ kind: "one", file: files[0], scan, n: nos.length });
       } catch (err) { setMsg(err.message || String(err)); }
       setBusy("");
     };
-    const split = plan && plan.kind === "one" ? splitAt(plan.scan, plan.n) : null;
+    const split = plan && plan.kind === "one" ? (camera === "phone" ? splitByMotion(plan.scan, plan.n) : splitAt(plan.scan, plan.n)) : null;
     const save = async () => {
       const files = plan.kind === "many" ? plan.files : [plan.file];
       const stored = [];
@@ -174,7 +196,7 @@
       if (plan.kind === "many") nos.forEach((n, i) => { if (i < stored.length) clips[n] = { f: i }; });
       else nos.forEach((n, i) => { const s = split.segs[i]; if (s) clips[n] = { f: 0, start: Math.round(s.start * 1000) / 1000, end: Math.round(s.end * 1000) / 1000 }; });
       const old = video;
-      onSave({ files: stored, clips, addedAt: new Date().toISOString(), addedBy: (window.AthleteStore.currentUserEmail && window.AthleteStore.currentUserEmail()) || "" });
+      onSave({ files: stored, clips, camera, addedAt: new Date().toISOString(), addedBy: (window.AthleteStore.currentUserEmail && window.AthleteStore.currentUserEmail()) || "" });
       if (old) removeFiles(old);
       setPlan(null); setBusy("");
       setMsg(`Video added: ${Object.keys(clips).length} of ${nos.length} pitches have a clip. Click 🎥 on a pitch to watch it.`);
@@ -188,12 +210,19 @@
     };
     return (
       <div className="bp-video-bar no-print">
-        <span className="bp-video-label"><CamIcon /> Edgertronic video</span>
+        <span className="bp-video-label"><CamIcon /> {video ? `${(CAMERAS.find((c) => c[0] === (video.camera || "edgertronic")) || CAMERAS[0])[1]} video` : "Video"}</span>
         {video
-          ? <span className="timestamp-note">{video.files.length === 1 && nos.length > 1 ? "One video, split at its cuts" : `${video.files.length} clip${video.files.length === 1 ? "" : "s"}`} · {matched} of {nos.length} pitches have a clip</span>
-          : !plan && !busy && <span className="timestamp-note">Add the clips (one per pitch, as the camera saves them) or one long video, and each pitch gets its own.</span>}
+          ? <span className="timestamp-note">{video.files.length === 1 && nos.length > 1 ? (video.camera === "phone" ? "One video, split at each delivery" : "One video, split at its cuts") : `${video.files.length} clip${video.files.length === 1 ? "" : "s"}`} · {matched} of {nos.length} pitches have a clip</span>
+          : !plan && !busy && <span className="timestamp-note">Add the clips (one per pitch) or one long video, and each pitch gets its own. A phone left recording the whole bullpen is split at each delivery.</span>}
+        {!plan && !busy && (
+          <select className="bp-tag" value={camera} aria-label="Which camera" title="Which camera filmed it: an Edgertronic video is split at its cuts, a phone's at each delivery" onChange={(e) => setCamera(e.target.value)}>
+            {CAMERAS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        )}
         {!plan && !busy && <button type="button" className="btn btn-secondary" onClick={() => fileRef.current && fileRef.current.click()}>{video ? "Replace video" : "Add video"}</button>}
+        {video && !plan && !busy && window.VideoExport && <button type="button" className="btn btn-primary" title="Make an MP4 of the pitches with their TrackMan numbers beside them, to download" onClick={() => setExporting(true)}>Export video</button>}
         {video && !plan && !busy && <button type="button" className="btn btn-small-grey" onClick={drop}>Remove video</button>}
+        {exporting && <ExportDialog session={session} athlete={athlete} onClose={() => setExporting(false)} />}
         <input ref={fileRef} type="file" accept="video/*,.mov,.mp4,.m4v" multiple hidden onChange={pick} />
         {busy && <span className="assess-row-note" role="status">{busy}</span>}
         {msg && !busy && <span className="assess-row-note" role="status">{msg}</span>}
@@ -210,8 +239,12 @@
                   <b>{plan.file.name}</b> ({mb(plan.file.size)}, {Math.round(plan.scan.dur)} s): split into
                   {" "}<input type="number" className="bp-video-n" min={1} max={300} value={plan.n} aria-label="Clips in the video" onChange={(e) => setPlan({ ...plan, n: Math.max(1, Math.min(300, Number(e.target.value) || 1)) })} />{" "}
                   clips for {nos.length} pitches.
-                  {split.seems !== plan.n && <span className="bp-video-warn"> The video looks like it has about {split.seems} clips. <button type="button" className="bp-link" onClick={() => setPlan({ ...plan, n: split.seems })}>Use {split.seems}</button></span>}
-                  {split.seems === plan.n && split.clear < 2 && <span className="bp-video-warn"> Some cuts are faint, so check a few pitches after it's added.</span>}
+                  {camera === "phone"
+                    ? <span className="bp-video-warn"> Each pitch is found by the motion of the delivery (2.5 s before it to 1.5 s after){split.seems < plan.n ? `, and only ${split.seems} were found` : ""}: check a few after it's added, and move clips from the player if one is off.</span>
+                    : <React.Fragment>
+                      {split.seems !== plan.n && <span className="bp-video-warn"> The video looks like it has about {split.seems} clips. <button type="button" className="bp-link" onClick={() => setPlan({ ...plan, n: split.seems })}>Use {split.seems}</button></span>}
+                      {split.seems === plan.n && split.clear < 2 && <span className="bp-video-warn"> Some cuts are faint, so check a few pitches after it's added.</span>}
+                    </React.Fragment>}
                 </p>
                 <p className="timestamp-note">Clip lengths: {split.segs.map((s) => `${(s.end - s.start).toFixed(1)}s`).join(", ")}</p>
               </React.Fragment>
@@ -223,6 +256,143 @@
           </div>
         )}
       </div>
+    );
+  }
+
+  // ---- an MP4 of the bullpen, to download ----------------------------------------------------------------------------
+  // The pitches picked, one after another, each with its TrackMan numbers in a panel (on the right, or along the bottom
+  // for a phone), the DST logo, and for an Edgertronic video the pitch's ball spinning as Pitch Design draws it and
+  // where its movement sits among the session's. Made in the browser when asked (video_export.js) and downloaded;
+  // nothing is stored.
+  const fmtDay = (key) => { const d = new Date(`${key}T00:00:00`); return isNaN(d) ? key || "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); };
+  const numOrNull = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  const inches = (v, d = 1) => (numOrNull(v) == null ? null : `${Number(v).toFixed(d)}"`);
+  const ftIn = (v) => { const n = numOrNull(v); if (n == null) return null; const ft = Math.floor(Math.abs(n)), inch = Math.round((Math.abs(n) - ft) * 12); return `${n < 0 ? "-" : ""}${inch === 12 ? ft + 1 : ft}' ${inch === 12 ? 0 : inch}"`; };
+  // the pitch numbers typed ("3, 7, 12-15"), or null for any
+  const parseNos = (text) => {
+    const s = String(text || "").trim();
+    if (!s) return null;
+    const out = new Set();
+    s.split(/[,\s]+/).forEach((part) => { const m = part.match(/^(\d+)(?:-(\d+))?$/); if (!m) return; const a = Number(m[1]), b = Number(m[2] || m[1]); for (let k = Math.min(a, b); k <= Math.max(a, b); k++) out.add(k); });
+    return out;
+  };
+  function ExportDialog({ session, athlete, onClose }) {
+    const B = window.BullpenBall, VE = window.VideoExport;
+    const phone = (session.video && session.video.camera) === "phone";
+    const live = (session.pitches || []).filter((p) => !p.removed && hasClip(session, p.no)).sort((a, b) => a.no - b.no);
+    const types = [...new Set(live.map((p) => p.type || "Untagged"))];
+    const [layout, setLayout] = useState(VE && VE.isPhone() ? "vertical" : "horizontal");
+    const [onTypes, setOnTypes] = useState(() => new Set(types));
+    const [only, setOnly] = useState("");
+    const [rate, setRate] = useState(1);
+    const [ball, setBall] = useState(!phone);
+    const [plot, setPlot] = useState(true);
+    const [title, setTitle] = useState(true);
+    const [busy, setBusy] = useState(null); // { text, f }
+    const [err, setErr] = useState("");
+    const [made, setMade] = useState(null); // { blob, name }
+    const stop = useRef(false);
+    const nos = parseNos(only);
+    const chosen = live.filter((p) => onTypes.has(p.type || "Untagged") && (!nos || nos.has(p.no)));
+    const color = (t) => (B ? B.colorOf(t) : "#c8102e");
+    // where this pitch's movement sits among the session's
+    const plotWidget = (p) => (g, x, y, s) => {
+      g.fillStyle = "rgba(255,255,255,0.04)"; g.fillRect(x, y, s, s);
+      g.strokeStyle = "rgba(255,255,255,0.14)"; g.lineWidth = 1.5;
+      const cx = x + s / 2, cy = y + s / 2, k = (s / 2 - 10) / 25; // ±25 inches across
+      g.beginPath(); g.moveTo(x + 6, cy); g.lineTo(x + s - 6, cy); g.moveTo(cx, y + 6); g.lineTo(cx, y + s - 6); g.stroke();
+      g.fillStyle = "rgba(255,255,255,0.55)"; g.font = `600 ${Math.round(s / 16)}px Arial, sans-serif`; g.textAlign = "left";
+      g.fillText("IVB", cx + 6, y + s / 14 + 6); g.textAlign = "right"; g.fillText("HB", x + s - 8, cy - 8); g.textAlign = "left";
+      const at = (q) => [cx + Math.max(-25, Math.min(25, numOrNull(q.hb) || 0)) * k, cy - Math.max(-25, Math.min(25, numOrNull(q.ivb) || 0)) * k];
+      live.forEach((q) => { if (numOrNull(q.ivb) == null || numOrNull(q.hb) == null) return; const [px, py] = at(q); g.globalAlpha = 0.45; g.fillStyle = color(q.type); g.beginPath(); g.arc(px, py, s / 55, 0, 2 * Math.PI); g.fill(); });
+      g.globalAlpha = 1;
+      if (numOrNull(p.ivb) != null && numOrNull(p.hb) != null) { const [px, py] = at(p); g.fillStyle = color(p.type); g.beginPath(); g.arc(px, py, s / 26, 0, 2 * Math.PI); g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 3; g.stroke(); }
+    };
+    const go = async () => {
+      setErr(""); setMade(null); stop.current = false;
+      setBusy({ text: "Getting the clips…", f: 0 });
+      try {
+        const segments = [];
+        for (let i = 0; i < chosen.length; i++) {
+          const p = chosen[i], clip = session.video.clips[p.no], file = session.video.files[clip.f];
+          const url = await linkOf(file);
+          const revPerSec = numOrNull(p.spin) ? p.spin / 9600 : 0; // as Pitch Design spins it at 1x
+          segments.push({
+            url, start: clip.start || 0, end: clip.end != null ? clip.end : null, rate,
+            panel: (g, box, info) => VE.panel(g, box, {
+              name: athlete.name, sub: [fmtDay(session.date), session.facility].filter(Boolean).join(" · "),
+              tag: [p.type || "Pitch", color(p.type)], tagNote: `#${p.no} · ${i + 1} of ${chosen.length}`,
+              big: numOrNull(p.speed) != null ? [Number(p.speed).toFixed(1), "mph"] : null,
+              rows: [["Spin", numOrNull(p.spin) != null ? `${Math.round(p.spin)} rpm` : null], ["Tilt", p.tilt || null], ["IVB", inches(p.ivb)], ["HB", inches(p.hb)],
+                ["Spin eff.", numOrNull(p.spinEff) != null ? `${Math.round(p.spinEff)}%` : null], ["Extension", ftIn(p.extension)], ["Rel. height", ftIn(p.relHeight)], ["Rel. side", ftIn(p.relSide)],
+                ["VAA", numOrNull(p.vaa) != null ? `${Number(p.vaa).toFixed(1)}°` : null]],
+              widgets: [ball && B ? (gg, x, y, s) => B.paint(gg, x, y, s, p, info.elapsed * revPerSec * 2 * Math.PI) : null, plot ? plotWidget(p) : null],
+            }),
+          });
+        }
+        const blob = await VE.render({
+          layout, segments, cancelled: () => stop.current,
+          title: title ? { lines: [athlete.name || "", `Bullpen · ${fmtDay(session.date)}`, `${chosen.length} pitch${chosen.length === 1 ? "" : "es"}${session.facility ? ` · ${session.facility}` : ""}`] } : null,
+          onProgress: (text, f) => setBusy({ text, f }),
+        });
+        const name = VE.fileName(athlete.name, `bullpen-${layout}`, session.date, blob);
+        setMade({ blob, name });
+        setBusy(null);
+        VE.download(blob, name, { share: VE.isPhone() });
+      } catch (e) {
+        setBusy(null);
+        if ((e && e.message) !== "cancelled") setErr((e && e.message) || String(e));
+      }
+    };
+    const box = (label, on, set, title2) => <label className="bp-video-loop" title={title2}><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> {label}</label>;
+    return ReactDOM.createPortal(
+      <div className="bp-zoom" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+        <div className="bp-zoom-card bp-export-card" role="dialog" aria-label="Export a video of this bullpen">
+          <div className="bp-zoom-head">
+            <h3 className="bp-video-title">Export video <small>{athlete.name} · {fmtDay(session.date)}</small></h3>
+            <button type="button" className="bp-mod-btn bp-zoom-close" disabled={!!busy} onClick={onClose}>✕ Close</button>
+          </div>
+          {!VE || !VE.supported() ? <p className="assess-row-note">This browser can't make videos. Use Chrome or Edge on a computer, Chrome on Android, or a recent iPhone.</p> : (
+            <div className="bp-export">
+              <div className="bp-export-row">
+                <b>Shape</b>
+                <span className="bp-export-seg">
+                  {[["horizontal", "Horizontal", "16:9, numbers on the right: a computer or TV"], ["vertical", "Vertical", "9:16, numbers along the bottom: a phone"]].map(([k, l, t]) => <button key={k} type="button" className={`bp-mod-btn${layout === k ? " on" : ""}`} aria-pressed={layout === k} title={t} onClick={() => setLayout(k)}>{l}</button>)}
+                </span>
+              </div>
+              <div className="bp-export-row">
+                <b>Pitches</b>
+                {types.map((t) => <label key={t} className="bp-video-loop" style={{ color: color(t) }}><input type="checkbox" checked={onTypes.has(t)} onChange={(e) => { const n = new Set(onTypes); if (e.target.checked) n.add(t); else n.delete(t); setOnTypes(n); }} /> {t} ({live.filter((p) => (p.type || "Untagged") === t).length})</label>)}
+                <input className="bp-export-only" value={only} placeholder="Only #: 3, 7, 12-15" aria-label="Only these pitch numbers" onChange={(e) => setOnly(e.target.value)} />
+              </div>
+              <div className="bp-export-row">
+                <b>Show</b>
+                {box("Title card", title, setTitle, "Two seconds of his name, the date and the pitches first")}
+                {box("The ball spinning", ball, setBall, "Each pitch's spin as Pitch Design draws it (made for Edgertronic video)")}
+                {box("Movement plot", plot, setPlot, "Where this pitch's IVB and HB sit among the session's")}
+                <select className="bp-tag" value={rate} aria-label="Speed" onChange={(e) => setRate(Number(e.target.value))}>
+                  <option value={1}>Speed as filmed</option><option value={0.5}>½ speed</option><option value={0.25}>¼ speed</option>
+                </select>
+              </div>
+              <p className="timestamp-note">{chosen.length} pitch{chosen.length === 1 ? "" : "es"} with video. It's made on this {VE.isPhone() ? "phone" : "computer"} (about as long as the video runs; keep this tab open and in front) and goes to your downloads. Nothing is saved to the dashboard.</p>
+              {busy ? (
+                <div className="bp-export-busy">
+                  <progress max={1} value={busy.f || 0} /> <span className="assess-row-note" role="status">{busy.text} {Math.round((busy.f || 0) * 100)}%</span>
+                  <button type="button" className="btn btn-small-grey" onClick={() => { stop.current = true; }}>Cancel</button>
+                </div>
+              ) : (
+                <div className="bp-video-actions">
+                  <button type="button" className="btn btn-primary" disabled={!chosen.length} onClick={go}>Make the video</button>
+                  {made && <button type="button" className="btn btn-secondary" onClick={() => VE.download(made.blob, made.name, { share: VE.isPhone() })}>Download again</button>}
+                  {made && <span className="assess-row-note" role="status">Done: {made.name} ({Math.max(1, Math.round(made.blob.size / 1048576))} MB)</span>}
+                </div>
+              )}
+              {err && <p className="assess-row-note" style={{ color: "var(--danger)" }}>{err}</p>}
+            </div>
+          )}
+        </div>
+      </div>,
+      document.body
     );
   }
 
@@ -332,5 +502,5 @@
     );
   }
 
-  window.BullpenVideo = { VideoBar, PitchVideo, CameraButton, removeFiles, hasClip, splitAt, scanVideo };
+  window.BullpenVideo = { VideoBar, PitchVideo, CameraButton, removeFiles, hasClip, splitAt, splitByMotion, scanVideo, linkOf };
 })();

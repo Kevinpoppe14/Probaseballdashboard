@@ -1850,6 +1850,47 @@
         ? el("div", { class: "mc-report" }, el("div", { class: "mc-row" }, el("b", null, "Biomechanical assessment"), el("button", { type: "button", class: "mc-btn small", onclick: sendAssess }, "Send to assessment"), assessMsg),
           el("p", { class: "mc-hint" }, `Fills in: ${assessmentWords(R.assessment).join("; ")}.`))
         : null;
+      // Export video: the clip with its skeleton, the moment showing and his numbers in a panel (on the right, or along the
+      // bottom for a phone), his name and the DST logo, made here as an MP4 and downloaded (video_export.js); not stored
+      const vidMsg = el("span", { class: "mc-status", role: "status" });
+      let vidStop = false;
+      const vidCancel = el("button", { type: "button", class: "mc-btn ghost small", hidden: true, onclick: () => { vidStop = true; } }, "Cancel");
+      const exportVideo = async (layout) => {
+        const VE = window.VideoExport;
+        if (!VE || !VE.supported()) { vidMsg.textContent = "This browser can't make videos: use Chrome or Edge on a computer, Chrome on Android or a recent iPhone."; return; }
+        if (!f.video || !(f.video.currentSrc || f.video.src)) { vidMsg.textContent = "No video was kept with this session, so there's nothing to export."; return; }
+        stopPlay();
+        vidStop = false; vidCancel.hidden = false;
+        const who = athlete.name || "", what = kind.label || "Pitching";
+        const rows = (R.metrics || []).filter((m) => m.value != null && m.value !== "").slice(0, 9)
+          .map((m) => [m.label.replace(/ \(estimate\)$/, ""), `${m.value}${m.unit ? ` ${String(m.unit).replace(/^° .*/, "°")}` : ""}`]);
+        const t0 = tr.frames[0].t, t1 = tr.frames[tr.frames.length - 1].t;
+        try {
+          const blob = await VE.render({
+            layout, cancelled: () => vidStop,
+            title: { lines: [who, `${what} · motion capture`, dateOf()] },
+            onProgress: (text, fr) => { vidMsg.textContent = `${text}… ${Math.round(fr * 100)}% (keep this tab open and in front)`; },
+            segments: [{
+              url: f.video.currentSrc || f.video.src, start: t0, end: t1, rate: 1,
+              overlay: (g, rect, info) => { if (state.hideSkel) return; const i = nearest(info.t), s = rect.w / tr.W; g.translate(rect.x, rect.y); drawSkeleton(g, R.pts[i], s, s, state.throws, hiddenAt(i)); },
+              panel: (g, box, info) => {
+                const i = nearest(info.t), ev = Object.entries(R.events).find(([, j]) => Math.abs(j - i) <= 1), ms = msOf(i);
+                VE.panel(g, box, { name: who, sub: [dateOf(), what, variantName(state.variant)].filter(Boolean).join(" · "),
+                  tag: [ev ? evL[ev[0]] : `${ms >= 0 ? "+" : ""}${ms} ms`, ev ? "#c8102e" : "#3a3a3a"], tagNote: ev ? `${ms >= 0 ? "+" : ""}${ms} ms from ${zName}` : `from ${zName}`, rows });
+              },
+            }],
+          });
+          VE.download(blob, VE.fileName(who, `${kindName}-motion-capture-${layout}`, dateOf(), blob), { share: VE.isPhone() });
+          vidMsg.textContent = "Done: it's in your downloads. Nothing was saved to the dashboard.";
+        } catch (e) { vidMsg.textContent = (e && e.message) === "cancelled" ? "Cancelled." : `Couldn't make it (${(e && e.message) || e}).`; }
+        vidCancel.hidden = true;
+      };
+      const videoRow = f.video && window.VideoExport ? el("div", { class: "mc-report" },
+        el("div", { class: "mc-row" }, el("b", null, "Video"),
+          el("button", { type: "button", class: "mc-btn ghost small", title: "16:9, his numbers on the right: a computer or TV", onclick: () => exportVideo("horizontal") }, "Export horizontal"),
+          el("button", { type: "button", class: "mc-btn ghost small", title: "9:16, his numbers along the bottom: a phone", onclick: () => exportVideo("vertical") }, "Export vertical"),
+          vidCancel, vidMsg),
+        el("p", { class: "mc-hint" }, "An MP4 of this clip with the skeleton (if it's showing), the moment, his numbers, his name and the DST logo, made on this device and downloaded. Nothing is stored.")) : null;
       const reportRow = el("div", { class: "mc-report" },
         el("div", { class: "mc-row" }, el("b", null, "Report"),
           el("button", { type: "button", class: "mc-btn ghost small", onclick: printIt }, "Print"),
@@ -1873,7 +1914,7 @@
         el("p", { class: "mc-hint" }, R.hint ? R.hint : R.rotSource === "estimate"
           ? "From one camera, hip-shoulder separation and rotation speeds are the pose model's own 3D estimate: good for spotting big changes, not for exact numbers. The two-camera setup measures them. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."
           : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at release. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
-        assessRow, reportRow,
+        assessRow, reportRow, videoRow,
         opts.onSave ? el("div", { class: "mc-save" }, note,
           saved ? null : el("label", { class: "mc-keep" }, keep, " Also keep the video, to replay it with the skeleton later (needs room in storage)"),
           el("div", { class: "mc-row" },

@@ -2432,4 +2432,21 @@
   window.PitchDesignTab = PitchDesignTab; // the Pitching tab's Pitch Design (index.html)
   window.MlbArsenalPanel = MlbArsenal; // the Statcast tab's Savant arsenal, spin and comps (index.html)
   window.BullpenKit = { importReports, typeStats, resultText, FASTBALLS, livePitches, SpinBall };
+  // one pitch's ball, as Pitch Design draws it, onto a canvas at `size` px, turned `turned` radians about its spin
+  // axis, from behind the pitcher (the video export's panel, video_export.js via bullpen_video.js)
+  const ballCanvas = document.createElement("canvas");
+  window.BullpenBall = {
+    colorOf, tiltMinutes, tiltText,
+    paint(g, x, y, size, p, turned) {
+      loadDecals();
+      const tilt = typeof p.tilt === "number" ? p.tilt : tiltMinutes(p.tilt);
+      const u = spinAxis(tilt, p.spinEff);
+      const seamAxis = isTwoSeam(p.type) ? SEAM_AXIS.two : SEAM_AXIS.four;
+      const start = mulM(alignM(seamAxis, u), rotM(seamAxis, 0.6));
+      const n = Math.round(size);
+      if (ballCanvas.width !== n) { ballCanvas.width = n; ballCanvas.height = n; }
+      drawBall(ballCanvas.getContext("2d"), n, mulM(POV_M.pitcher, mulM(rotM(u, turned || 0), start)), colorOf(p.type), tilt == null ? null : (tilt / 720) * 2 * Math.PI, false);
+      g.drawImage(ballCanvas, x, y, n, n);
+    },
+  };
 })();
