@@ -31,6 +31,24 @@
   const typeOfPitch = (p) => p.type || UNTAGGED;
   // a pitch taken out of the report (from a chart or the pitch table) is kept, marked removed, so it can be put back
   const livePitches = (session) => (session.pitches || []).filter((p) => !p.removed);
+  // TrackMan bullpens as a CSV (one row per pitch, the sessions oldest first) for a sheet: every pitch thrown, the
+  // taken-out ones marked; any figure the report had beyond these follows them
+  const CSV_COLS = [["speed", "Velo (mph)"], ["spin", "Spin (rpm)"], ["tilt", "Tilt"], ["spinEff", "Spin efficiency (%)"], ["ivb", "IVB (in)"], ["hb", "HB (in)"], ["vaa", "VAA (°)"], ["extension", "Extension (ft)"], ["relHeight", "Release height (ft)"], ["relSide", "Release side (ft)"], ["plateHeight", "Plate height (ft)"], ["plateSide", "Plate side (ft)"]];
+  function downloadBullpenCsv(athlete, sessions, what) {
+    const known = new Set(["no", "type", "removed", ...CSV_COLS.map(([k]) => k)]);
+    const more = [...new Set(sessions.flatMap((s) => (s.pitches || []).flatMap((p) => Object.keys(p).filter((k) => !known.has(k) && !k.startsWith("_") && ["number", "string"].includes(typeof p[k])))))];
+    const cell = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const rows = [["Athlete", "Date", "Facility", "Session", "Pitch #", "Pitch type", ...CSV_COLS.map(([, l]) => l), ...more, "Taken out of the report"]];
+    [...sessions].sort((a, b) => (a.date || "").localeCompare(b.date || "")).forEach((s) => (s.pitches || []).slice().sort((a, b) => a.no - b.no).forEach((p) => {
+      rows.push([athlete.name || "", s.date || "", s.facility || "", s.sessionType || "", p.no, typeOfPitch(p), ...CSV_COLS.map(([k]) => p[k]), ...more.map((k) => p[k]), p.removed ? "yes" : ""]);
+    }));
+    const blob = new Blob([`﻿${rows.map((r) => r.map(cell).join(",")).join("\r\n")}`], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(athlete.name || "pitcher").replace(/[^a-z0-9]+/gi, "_")}-bullpens-${what}.csv`;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
   // the average of clock-face tilts ("1:45"), around the clock (so 11:45 and 12:15 average to 12:00), to 15 minutes
   const tiltMinutes = (t) => { const m = String(t || "").match(/^(\d{1,2}):(\d{2})$/); return m ? ((Number(m[1]) % 12) * 60 + Number(m[2])) : null; };
   const tiltText = (mins) => { if (mins == null) return null; const q = Math.round(mins / 15) * 15 % 720, h = Math.floor(q / 60); return `${h === 0 ? 12 : h}:${String(q % 60).padStart(2, "0")}`; };
@@ -1588,6 +1606,8 @@
           <div className="assess-toolbar">
             <button className="btn btn-primary" disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>{busy ? "Importing…" : "Import TrackMan PDF"}</button>
             <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={pick} />
+            {selected && <button className="btn btn-secondary" title="Every pitch of this session, a row each, for Google Sheets or Excel" onClick={() => downloadBullpenCsv(athlete, [selected], selected.date || "session")}>Export CSV</button>}
+            {list.length > 1 && <button className="btn btn-secondary" title="Every pitch of every session, oldest first" onClick={() => downloadBullpenCsv(athlete, list, "all")}>Export all {list.length} sessions (CSV)</button>}
             {msg && <span className="assess-row-note" role="status">{msg}</span>}
           </div>
           <p className="timestamp-note">Choose one or more TrackMan "Pitching practice" PDFs. Each one becomes a session here, with every pitch and its type.</p>
