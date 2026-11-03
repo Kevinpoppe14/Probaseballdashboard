@@ -1,6 +1,7 @@
-// Bullpen video — Edgertronic clips synced to a bullpen's pitches (bullpens.js). The clips are kept in the private
-// "bullpen-videos" storage bucket (supabase/migration_031_bullpen_videos.sql) and watched through links that last an
-// hour. A session's record carries video: { files: [{ path, name, size }], clips: { [pitch no]: { f, start, end } } }:
+// Bullpen video — Edgertronic or phone clips synced to a bullpen's pitches (bullpens.js). The clips are kept in the
+// company's Google Drive once that's set up (api/drive-video.js: any size, a folder per athlete), otherwise in the
+// private "bullpen-videos" storage bucket (supabase/migration_031_bullpen_videos.sql), watched through links that last
+// an hour. A session's record carries video: { files: [{ path | drive, name, size }], clips: { [pitch no]: { f, start, end } } }:
 // f is which file holds the pitch, start/end (seconds) its stretch of that file when one long video holds them all.
 // Two ways in:
 //   one clip per pitch, as the Edgertronic saves them: matched to the pitches in order, by file name
@@ -19,10 +20,68 @@
   const pitchNos = (session) => (session.pitches || []).map((p) => p.no).sort((a, b) => a - b);
   const hasClip = (session, no) => !!(session && session.video && session.video.clips && session.video.clips[no]);
 
-  // a watchable link for a stored clip, kept until shortly before it runs out
+  // ---- Google Drive (api/drive-video.js) -----------------------------------------------------------------------------
+  // Once it's set up, new video goes to the company's Google Drive (any size, a folder per athlete) instead of storage
+  // here; a file kept there is { drive: id, name, size }. Video already in storage stays there and plays as before.
+  async function driveApi(body) {
+    const { data } = await sb().auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    if (!token) throw new Error("Sign in with your dashboard account to add video.");
+    const res = await fetch("/api/drive-video", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `Google Drive didn't answer (${res.status}).`);
+    return out;
+  }
+  let driveOn = null; // whether Drive is set up: asked once
+  const useDrive = () => driveOn || (driveOn = driveApi({ action: "status" }).then((r) => !!r.configured, () => false));
+  let readToken = null;
+  const driveToken = async () => {
+    if (readToken && readToken.expiresAt - Date.now() > 120000) return readToken.accessToken;
+    readToken = await driveApi({ action: "token" });
+    return readToken.accessToken;
+  };
+  // sent straight to Drive from here, 32 MB at a time (a dropped connection picks up where it got to)
+  async function driveUpload(file, athleteId, athleteName, sessionId, onProgress) {
+    const type = file.type || (/\.mov$/i.test(file.name) ? "video/quicktime" : "video/mp4");
+    const { uploadUrl } = await driveApi({ action: "start", name: file.name || "video.mp4", mimeType: type, size: file.size, athleteId, athleteName, sessionId });
+    const CHUNK = 32 * 1024 * 1024;
+    const put = (from, to, tries = 0) => new Promise((ok, bad) => {
+      const x = new XMLHttpRequest();
+      x.open("PUT", uploadUrl);
+      if (file.size) x.setRequestHeader("Content-Range", `bytes ${from}-${to - 1}/${file.size}`);
+      x.upload.onprogress = (e) => onProgress && onProgress((from + e.loaded) / file.size);
+      x.onload = () => ok(x);
+      x.onerror = () => (tries < 3 ? setTimeout(() => put(from, to, tries + 1).then(ok, bad), 2000 * (tries + 1)) : bad(new Error(`Couldn't upload ${file.name} to Google Drive. Check your connection and try again.`)));
+      x.send(file.slice(from, to));
+    });
+    let from = 0;
+    for (;;) {
+      const x = await put(from, Math.min(file.size, from + CHUNK));
+      if (x.status === 200 || x.status === 201) { const f = JSON.parse(x.responseText); return { drive: f.id, name: file.name, size: file.size }; }
+      if (x.status !== 308) throw new Error(`Google Drive stopped the upload of ${file.name} (${x.status}).`);
+      const got = x.getResponseHeader("Range"); // "bytes=0-N": what it has so far
+      from = got ? Number(got.split("-")[1]) + 1 : from;
+    }
+  }
+
+  // a watchable link for a stored clip: storage's lasts an hour (kept until shortly before it runs out); a Drive
+  // file is brought down once with a token (Drive won't take one in a link) and played from memory
   const links = new Map();
   async function linkOf(file) {
-    if (file.url) return file.url; // not uploaded yet (a preview)
+    if (file.url) return file.url; // not uploaded yet (a preview), or a file on this device
+    if (file.drive) {
+      if (!links.has(file.drive)) {
+        const p = (async () => {
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.drive)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${await driveToken()}` } });
+          if (res.status === 404) throw new Error("The video isn't in Google Drive any more.");
+          if (!res.ok) throw new Error("Couldn't open the video from Google Drive. Check your connection.");
+          return URL.createObjectURL(await res.blob());
+        })();
+        links.set(file.drive, p);
+        p.catch(() => links.delete(file.drive));
+      }
+      return links.get(file.drive);
+    }
     const hit = links.get(file.path);
     if (hit && hit.until > Date.now()) return hit.url;
     const { data, error } = await sb().storage.from(BUCKET).createSignedUrl(file.path, 3600);
@@ -30,22 +89,27 @@
     links.set(file.path, { url: data.signedUrl, until: Date.now() + 50 * 60 * 1000 });
     return data.signedUrl;
   }
-  async function upload(file, athleteId, sessionId) {
+  // into Google Drive once it's set up, otherwise into storage here
+  async function upload(file, athlete, sessionId, onProgress) {
+    if (await useDrive()) return driveUpload(file, athlete.id, athlete.name, sessionId, onProgress);
+    const athleteId = athlete.id;
     const ext = ((file.name || "").match(/\.(\w{2,4})$/) || [])[1] || (/quicktime/i.test(file.type) ? "mov" : "mp4");
     const path = `${athleteId}/${sessionId}/${uid()}.${ext.toLowerCase()}`;
     const { error } = await sb().storage.from(BUCKET).upload(path, file, { contentType: file.type || (ext.toLowerCase() === "mov" ? "video/quicktime" : "video/mp4"), cacheControl: "31536000", upsert: false });
     if (error) {
       const m = error.message || "";
       if (/bucket not found/i.test(m)) throw new Error("Video storage isn't set up yet: run supabase/migration_031_bullpen_videos.sql in the SQL Editor.");
-      if (/maximum allowed size|too large|413/i.test(m)) throw new Error(`${file.name} is ${mb(file.size)}, more than storage takes for one file. Raise the upload limit in Supabase (Storage settings) or export it smaller.`);
+      if (/maximum allowed size|too large|413/i.test(m)) throw new Error(`${file.name} is ${mb(file.size)}, more than storage here takes for one file. Set up Google Drive video storage (api/drive-video.js) for any size, or export it smaller.`);
       if (/row-level security|unauthorized|jwt/i.test(m)) throw new Error("Sign in with your dashboard account to add video.");
       throw new Error(`Couldn't upload ${file.name}. Check your connection and try again.`);
     }
     return { path, name: file.name, size: file.size };
   }
   async function removeFiles(video) {
-    const paths = ((video && video.files) || []).map((f) => f.path).filter(Boolean);
+    const files = (video && video.files) || [];
+    const paths = files.map((f) => f.path).filter(Boolean), ids = files.map((f) => f.drive).filter(Boolean);
     if (paths.length) await sb().storage.from(BUCKET).remove(paths).catch(() => null);
+    if (ids.length) await driveApi({ action: "delete", ids }).catch(() => null); // to the Drive's trash
   }
 
   // ---- finding the cuts in one long video ----------------------------------------------------------------------
@@ -202,8 +266,10 @@
       const stored = [];
       try {
         for (let i = 0; i < files.length; i++) {
-          setBusy(files.length > 1 ? `Uploading ${i + 1} of ${files.length}…` : `Uploading ${mb(files[0].size)}…`);
-          stored.push(await upload(files[i], athlete.id, session.id));
+          const where = (await useDrive()) ? " to Google Drive" : "";
+          const label = files.length > 1 ? `Uploading ${i + 1} of ${files.length}${where}` : `Uploading ${mb(files[0].size)}${where}`;
+          setBusy(`${label}…`);
+          stored.push(await upload(files[i], athlete, session.id, (f) => setBusy(`${label}… ${Math.round(f * 100)}%`)));
         }
       } catch (err) {
         await removeFiles({ files: stored });
@@ -464,7 +530,7 @@
       if (!file) { setSrc(""); return undefined; }
       linkOf(file).then((u) => { if (!off) setSrc(u); }, (e) => { if (!off) setErr(e.message || String(e)); });
       return () => { off = true; };
-    }, [file && (file.path || file.url)]); // eslint-disable-line
+    }, [file && (file.path || file.drive || file.url)]); // eslint-disable-line
     // to the pitch's own stretch, and keep it there
     const start = clip && clip.start != null ? clip.start : 0;
     const end = clip && clip.end != null ? clip.end : null;
