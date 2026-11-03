@@ -179,6 +179,13 @@
     const h = ps.reduce((s, p) => s + p.relHeight, 0) / ps.length, side = ps.reduce((s, p) => s + Math.abs(p.relSide), 0) / ps.length;
     return Math.round((Math.atan2(h - (0.7 * heightIn) / 12, Math.max(0.1, side)) * 180) / Math.PI);
   }
+  // How far a pitch's movement turns off the line of his arm angle, in degrees: + above it on the movement chart (a
+  // fastball riding more than his slot suggests, a sweeper with less drop), − below (more run or sink than the slot
+  // gives). Break is arm side + here. Hitters read the arm; a pitch that doesn't move the way it looks is harder to pick
+  // up.
+  const slotDevOf = (p) => (p.ivb == null || p.hb == null || p.armAngle == null ? null : (((((Math.atan2(p.ivb, p.hb) * 180) / Math.PI - p.armAngle) % 360) + 540) % 360) - 180);
+  const withSlot = (p) => ({ ...p, slotDev: slotDevOf(p) });
+  const fmtSlot = (v) => (v == null ? "–" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(Math.round(v))}°`);
   const rangeOf = (vals, min, pad) => { const a = Math.min(min[0], ...vals.map((v) => v - pad)), b = Math.max(min[1], ...vals.map((v) => v + pad)); return [Math.floor(a), Math.ceil(b)]; };
 
   // ---- the arsenal's spin: a real-looking baseball per pitch type, turning on the pitch's own spin axis ----------
@@ -628,6 +635,8 @@
   // the pitcher's MLB (Savant) id: saved on the profile, or read from their MLB headshot link the way the profile does
   const mlbIdOf = (athlete) => String((athlete && athlete.mlbamId) || (athlete && window.extractMlbamId && window.extractMlbamId(athlete)) || "");
   const defaultSeason = () => { const d = new Date(); return d.getMonth() >= 4 ? d.getFullYear() : d.getFullYear() - 1; };
+  // the seasons to choose from, newest first: back to 2020, the first Savant has arm angles for
+  const seasons = () => Array.from({ length: defaultSeason() - 2019 }, (_, k) => defaultSeason() - k);
   // every pitcher's results with each pitch type that season (Savant's pitch arsenal stats), by "id|code"
   const arsenalStats = (year) => savantCsv(`${SAVANT}pitch-arsenal-stats?type=pitcher&pitchType=&year=${year}&team=&min=1&csv=true`)
     .then((rows) => new Map(rows.map((r) => [`${r.player_id}|${r.pitch_type}`, {
@@ -743,12 +752,13 @@
       out.push({
         id: `dst-${a.id}`, name: a.name, team: "DST", hand: a.throws || "", dst: true, mlbamId: a.mlbamId || null, code,
         velo: st.speedAvg, ivb: st.ivb, hb: a.throws === "L" && st.hb != null ? -st.hb : st.hb, // TrackMan's break is the pitcher's view; comps go by arm side
-        spin: st.spinAvg, relHeight: st.relHeight, relSide: st.relSide != null ? Math.abs(st.relSide) : null, ext: st.extension, vaa: st.vaa, tilt: st.tilt, eff: st.spinEff, armAngle: null,
+        spin: st.spinAvg, relHeight: st.relHeight, relSide: st.relSide != null ? Math.abs(st.relSide) : null, ext: st.extension, vaa: st.vaa, tilt: st.tilt, eff: st.spinEff,
+        armAngle: armAngleOf([{ relHeight: st.relHeight, relSide: st.relSide }], a.heightIn), // (from his release and height, when his profile has it)
       });
     });
     return out;
   }
-  const FEATURES = [["velo", 1.5], ["ivb", 2], ["hb", 2], ["spin", 120], ["relHeight", 0.35], ["relSide", 0.35], ["ext", 0.35], ["vaa", 0.5]]; // what a mile, an inch, a foot, a degree is worth
+  const FEATURES = [["velo", 1.5], ["ivb", 2], ["hb", 2], ["spin", 120], ["relHeight", 0.35], ["relSide", 0.35], ["ext", 0.35], ["vaa", 0.5], ["armAngle", 6], ["slotDev", 8]]; // what a mile, an inch, a foot, a degree is worth
   const matchOf = (me, p) => {
     let sum = 0, n = 0;
     FEATURES.forEach(([k, scale]) => { if (me[k] != null && p[k] != null) { sum += ((me[k] - p[k]) / scale) ** 2; n++; } });
@@ -771,7 +781,11 @@
     ["spin", "more spin", "less spin"], ["eff", "more efficient spin", "more gyro"], ["tilt", "spin direction turned clockwise of the usual", "spin direction turned counterclockwise of the usual"],
     ["relHeight", "a higher release", "a lower release"], ["relSide", "a wider release", "a release closer to the middle"], ["ext", "longer extension", "shorter extension"],
     ["vaa", "a flatter approach angle", "a steeper approach angle"], ["armAngle", "a higher arm angle", "a lower arm angle"],
+    ["slotDev", "movement above the line of his arm slot", "movement below the line of his arm slot"],
   ];
+  // traits that go around a circle (spin direction in clock minutes, the turn off the arm slot in degrees): their
+  // middle is the circular mean, and each is measured the short way round from it
+  const CIRCULAR = { tilt: 720, slotDev: 360 };
   function rarityOf(me, pop) {
     if (!pop.length) return null;
     const ckey = `${pop.length}|${pop[0].id}|${pop[0].code}|${pop[pop.length - 1].id}`;
@@ -788,7 +802,7 @@
   }
   // How much each trait counts toward looking alike: the shape (the break) and where it's let go count most; velo, VAA,
   // extension and arm path next; spin direction as is; spin rate and efficiency least, as their work already shows in the break
-  const RARE_WEIGHTS = { ivb: 2, hb: 2, relHeight: 2, relSide: 1.5, ext: 1.5, armAngle: 1.5, velo: 1.5, vaa: 1.5, tilt: 1, spin: 0.75, eff: 0.75 };
+  const RARE_WEIGHTS = { ivb: 2, hb: 2, relHeight: 2, relSide: 1.5, ext: 1.5, armAngle: 1.5, slotDev: 1.5, velo: 1.5, vaa: 1.5, tilt: 1, spin: 0.75, eff: 0.75 };
   // the distance between two pitches' traits: the weighted root mean square over the traits both have (at least four)
   const traitDistance = (a, b) => { let s = 0, w = 0, c = 0; for (const k in a) if (b[k] != null) { const wt = RARE_WEIGHTS[k] || 1; s += wt * (a[k] - b[k]) ** 2; w += wt; c++; } return c >= 4 ? Math.sqrt(s / w) : null; };
   // the distance to the 5th most similar pitch (skipping the pitch itself, at index `skip`)
@@ -805,8 +819,9 @@
       let xs = pop.map((p) => p[k]).filter((v) => v != null && Number.isFinite(v));
       if (xs.length < 15) return;
       let center = 0;
-      if (k === "tilt") { const a = xs.map((x) => (x / 720) * 2 * Math.PI); center = (Math.atan2(a.reduce((s, x) => s + Math.sin(x), 0), a.reduce((s, x) => s + Math.cos(x), 0)) / (2 * Math.PI)) * 720; }
-      const rel = (v) => (k === "tilt" ? ((((v - center) % 720) + 1080) % 720) - 360 : v);
+      const per = CIRCULAR[k];
+      if (per) { const a = xs.map((x) => (x / per) * 2 * Math.PI); center = (Math.atan2(a.reduce((s, x) => s + Math.sin(x), 0), a.reduce((s, x) => s + Math.cos(x), 0)) / (2 * Math.PI)) * per; }
+      const rel = (v) => (per ? ((((v - center) % per) + 1.5 * per) % per) - per / 2 : v);
       xs = xs.map(rel);
       const mean = xs.reduce((s, x) => s + x, 0) / xs.length;
       const sd = Math.sqrt(xs.reduce((s, x) => s + (x - mean) ** 2, 0) / xs.length) || 1;
@@ -904,7 +919,7 @@
           </span>
           {!fromMlb && (
             <select className="bp-tag" value={season} aria-label="MLB season" onChange={(e) => setSeason(Number(e.target.value))}>
-              {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
+              {seasons().map((y) => <option key={y} value={y}>{y} MLB season</option>)}
             </select>
           )}
           {!hand && <span className="timestamp-note">Set which hand he throws with, so he's compared with the right pitchers.</span>}
@@ -913,21 +928,24 @@
         {mine.map((s) => {
           const d = data[s.type] || { list: [] };
           const codes = codesOf(s.type);
-          const mlb = d.list.filter((p) => p.hand === h && p.id !== myId);
+          const mlb = d.list.filter((p) => p.hand === h && p.id !== myId).map(withSlot);
           const dst = dstPitchers(athlete, codes).filter((p) => !p.hand || p.hand === h)
-            .map((p) => ({ ...p, res: p.mlbamId ? codes.map((c) => ars.get(`${p.mlbamId}|${c}`)).find(Boolean) || null : null }));
+            .map((p) => withSlot({ ...p, res: p.mlbamId ? codes.map((c) => ars.get(`${p.mlbamId}|${c}`)).find(Boolean) || null : null }));
           const pool = [...mlb, ...dst];
           // the pitch's traits on Savant's footing: break by arm side (TrackMan's is the pitcher's view), release side
-          // as distance from the middle
-          const meOf = (x) => ({
+          // as distance from the middle. A bullpen has no arm angle of its own: it's worked out from the pitch's release
+          // and his height (6'2" when his profile has none), as on the movement chart
+          const meOf = (x) => withSlot({
             velo: x.speedAvg, ivb: x.ivb, hb: x.hbArm != null ? x.hbArm : x.hb == null ? null : h === "L" ? -x.hb : x.hb, spin: x.spinAvg,
-            relHeight: x.relHeight, relSide: x.relSide != null ? Math.abs(x.relSide) : null, ext: x.extension, vaa: x.vaa, tilt: x.tilt, eff: x.spinEff, armAngle: x.armAngle,
+            relHeight: x.relHeight, relSide: x.relSide != null ? Math.abs(x.relSide) : null, ext: x.extension, vaa: x.vaa, tilt: x.tilt, eff: x.spinEff,
+            armAngle: x.armAngle != null ? x.armAngle : armAngleOf([{ relHeight: x.relHeight, relSide: x.relSide }], athlete.heightIn || 74),
+            armEst: x.armAngle == null,
           });
           const me = meOf(s);
           const rare = rarityOf(me, mlb), rareNow = nowStat ? rarityOf(meOf(nowStat), mlb) : null;
           const comps = pool.map((p) => ({ ...p, match: matchOf(me, p) })).filter((p) => p.match != null).sort((a, b) => b.match - a.match).slice(0, 5);
           const resPool = mlb.map((p) => p.res);
-          const meMlb = myId ? d.list.find((p) => p.id === myId) : null;
+          const meMlbRow = myId ? d.list.find((p) => p.id === myId) : null, meMlb = meMlbRow ? withSlot(meMlbRow) : null;
           // are the comps good pitches? their average results, ranked among everyone's
           const withRes = comps.filter((p) => p.res);
           const avgOf = (k) => { const xs = withRes.map((p) => p.res[k]).filter((v) => v != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
@@ -937,7 +955,9 @@
             const p = goodPct(v, resPool.map((r) => (r ? r[k] : null)), good);
             return `${label} ${fmt(k === "xwoba" ? v : Math.round(v * 10) / 10)}${p != null ? ` (${ordinal(p)} pct.)` : ""}`;
           }).filter(Boolean) : [];
-          const pcts = [["Velo", pctOf(me.velo, mlb.map((p) => p.velo)), `${show(me.velo)} mph`], ["IVB", pctOf(me.ivb, mlb.map((p) => p.ivb)), `${show(me.ivb)} in`], ["Arm-side run", pctOf(me.hb, mlb.map((p) => p.hb)), `${show(me.hb)} in`], ["Spin", pctOf(me.spin, mlb.map((p) => p.spin)), `${show(me.spin)} rpm`], ["Release ht", pctOf(me.relHeight, mlb.map((p) => p.relHeight)), ftIn(me.relHeight)], ["Release side", pctOf(me.relSide, mlb.map((p) => p.relSide)), ftIn(me.relSide)], ["Extension", pctOf(me.ext, mlb.map((p) => p.ext)), ftIn(me.ext)], ["VAA", pctOf(me.vaa, mlb.map((p) => p.vaa)), deg(me.vaa)]];
+          const pcts = [["Velo", pctOf(me.velo, mlb.map((p) => p.velo)), `${show(me.velo)} mph`], ["IVB", pctOf(me.ivb, mlb.map((p) => p.ivb)), `${show(me.ivb)} in`], ["Arm-side run", pctOf(me.hb, mlb.map((p) => p.hb)), `${show(me.hb)} in`], ["Spin", pctOf(me.spin, mlb.map((p) => p.spin)), `${show(me.spin)} rpm`], ["Release ht", pctOf(me.relHeight, mlb.map((p) => p.relHeight)), ftIn(me.relHeight)], ["Release side", pctOf(me.relSide, mlb.map((p) => p.relSide)), ftIn(me.relSide)], ["Extension", pctOf(me.ext, mlb.map((p) => p.ext)), ftIn(me.ext)], ["VAA", pctOf(me.vaa, mlb.map((p) => p.vaa)), deg(me.vaa)],
+            ["Arm angle", pctOf(me.armAngle, mlb.map((p) => p.armAngle)), me.armAngle == null ? "–" : `${me.armEst ? "~" : ""}${me.armAngle}°`],
+            ["Off arm slot", pctOf(me.slotDev, mlb.map((p) => p.slotDev)), fmtSlot(me.slotDev)]];
           return (
             <div key={s.type} className="bp-comp-type">
               <h4><span className="bp-dot" style={{ background: colorOf(s.type) }} />{s.type} <small>vs {season} {h === "L" ? "left" : "right"}-handed {codes.join("/")}s{mlb.length ? ` (${mlb.length} MLB pitchers)` : ""}</small></h4>
@@ -962,16 +982,16 @@
                   {comps.length > 0 ? (
                     <div className="bp-table-wrap">
                       <table className="assess-table bp-table bp-comp-table">
-                        <thead><tr><th>Closest 5</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Rel. side</th><th>Ext.</th><th>VAA</th><th>Arm angle</th><th>Match</th>{resHeads()}<th>Grip</th></tr></thead>
+                        <thead><tr><th>Closest 5</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Rel. ht</th><th>Rel. side</th><th>Ext.</th><th>VAA</th><th>Arm angle</th><th title="How far the pitch's movement turns off the line of his arm angle: + above it, − below">Off slot</th><th>Match</th>{resHeads()}<th>Grip</th></tr></thead>
                         <tbody>
-                          <tr className="bp-comp-me"><td>{athlete.name} <small>{meLabel || (fromMlb ? `${season} MLB games` : "this session")}</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>{ftIn(me.relSide)}</td><td>{ftIn(me.ext)}</td><td>{deg(me.vaa)}</td><td>{me.armAngle != null ? `${me.armAngle}°` : "–"}</td><td></td>{fromMlb ? resCells(s.res, resPool) : RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}<td></td></tr>
+                          <tr className="bp-comp-me"><td>{athlete.name} <small>{meLabel || (fromMlb ? `${season} MLB games` : "this session")}</small></td><td>{show(me.velo)}</td><td>{show(me.ivb)}</td><td>{show(me.hb)}</td><td>{show(me.spin)}</td><td>{ftIn(me.relHeight)}</td><td>{ftIn(me.relSide)}</td><td>{ftIn(me.ext)}</td><td>{deg(me.vaa)}</td><td title={me.armEst ? "From his release and height" : "Baseball Savant's"}>{me.armAngle != null ? `${me.armEst ? "~" : ""}${me.armAngle}°` : "–"}</td><td>{fmtSlot(me.slotDev)}</td><td></td>{fromMlb ? resCells(s.res, resPool) : RESULTS.map(([k], i) => <td key={k} className={i === 0 ? "bp-res-first" : ""}></td>)}<td></td></tr>
                           {meMlb && !fromMlb && (
-                            <tr className="bp-comp-me"><td>{athlete.name} <small>{season} MLB games</small></td><td>{show(meMlb.velo)}</td><td>{show(meMlb.ivb)}</td><td>{show(meMlb.hb)}</td><td>{show(meMlb.spin)}</td><td>{ftIn(meMlb.relHeight)}</td><td>{ftIn(meMlb.relSide)}</td><td>{ftIn(meMlb.ext)}</td><td>{deg(meMlb.vaa)}</td><td>{meMlb.armAngle != null ? `${meMlb.armAngle}°` : "–"}</td><td></td>{resCells(meMlb.res, resPool)}<td></td></tr>
+                            <tr className="bp-comp-me"><td>{athlete.name} <small>{season} MLB games</small></td><td>{show(meMlb.velo)}</td><td>{show(meMlb.ivb)}</td><td>{show(meMlb.hb)}</td><td>{show(meMlb.spin)}</td><td>{ftIn(meMlb.relHeight)}</td><td>{ftIn(meMlb.relSide)}</td><td>{ftIn(meMlb.ext)}</td><td>{deg(meMlb.vaa)}</td><td>{meMlb.armAngle != null ? `${meMlb.armAngle}°` : "–"}</td><td>{fmtSlot(meMlb.slotDev)}</td><td></td>{resCells(meMlb.res, resPool)}<td></td></tr>
                           )}
                           {comps.map((p) => (
                             <tr key={p.id}>
                               <td>{p.dst ? p.name : <a href={`https://baseballsavant.mlb.com/savant-player/${p.id}`} target="_blank" rel="noopener noreferrer">{p.name}</a>}{p.dst ? <span className="bp-dst-tag">DST</span> : <small> {p.team}</small>}</td>
-                              <td>{show(p.velo)}</td><td>{show(p.ivb)}</td><td>{show(p.hb)}</td><td>{show(p.spin)}</td><td>{ftIn(p.relHeight)}</td><td>{ftIn(p.relSide)}</td><td>{ftIn(p.ext)}</td><td>{deg(p.vaa)}</td><td>{p.armAngle != null ? `${p.armAngle}°` : "–"}</td><td><b>{p.match}%</b></td>{resCells(p.res, resPool)}
+                              <td>{show(p.velo)}</td><td>{show(p.ivb)}</td><td>{show(p.hb)}</td><td>{show(p.spin)}</td><td>{ftIn(p.relHeight)}</td><td>{ftIn(p.relSide)}</td><td>{ftIn(p.ext)}</td><td>{deg(p.vaa)}</td><td>{p.armAngle != null ? `${p.dst ? "~" : ""}${p.armAngle}°` : "–"}</td><td>{fmtSlot(p.slotDev)}</td><td><b>{p.match}%</b></td>{resCells(p.res, resPool)}
                               <td>{p.dst ? "" : <GripCell pitcherId={p.id} code={p.code} name={p.name} pitch={String(CODE_TYPE[p.code] || s.type).toLowerCase()} />}</td>
                             </tr>
                           ))}
@@ -985,7 +1005,7 @@
             </div>
           );
         })}
-        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension and VAA together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA and arm angle (break and release height count most; release side, extension, arm angle, velo and VAA next; spin rate and efficiency least): 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
+        <p className="timestamp-note">MLB numbers are each pitcher's season averages on Baseball Savant (at least 50 of that pitch); DST rows are our other pitchers' bullpens. Percentiles are among MLB pitchers throwing that pitch with the same hand. Match weighs velo, IVB, horizontal break, spin, release height, release side, extension, VAA, arm angle and how far the movement turns off the arm slot together (release side as distance from the middle of the rubber; MLB VAA worked out from each pitcher's average release, velo, IVB and plate height, as a bullpen's is), and the closest five are shown. Arm angle is Savant's in MLB games; for a bullpen (marked ~) it's worked out from the pitch's release and his height on his profile (6'2" if there's none). Off slot is how far the pitch's movement turns off the line of his arm angle on the movement chart: + above it (a fastball riding more than his slot suggests), − below (more run or sink); hitters read the arm, so a pitch that doesn't move the way the arm looks is harder to pick up. Rarity is how few MLB pitches of its type, thrown with the same hand, look like it, across velo, break, spin and its efficiency and direction, release height and side, extension, VAA, arm angle and off slot (break and release height count most; release side, extension, arm angle, off slot, velo and VAA next; spin rate and efficiency least): 99 means fewer pitches look like it than for 99% of MLB pitches, 0 that it has plenty of company. It measures how unusual the shape is, not how good the pitch is. Bullpen numbers run a little different from game ones (intensity, a different tracking system), so read comps as a shape match, not a projection. Usage, whiff, put-away, xwOBA and run value are each pitcher's results with that pitch in MLB games that season (Savant's pitch arsenal stats; run value is the pitcher's, plus is runs saved), shaded red for better than most of that pitch, blue for worse; hover a number for its rank and pitch count. A small sample (a reliever's third pitch) can swing them a lot.</p>
       </div>
     );
   }
@@ -1016,7 +1036,7 @@
     // the movement chart (pitcher's view, as a bullpen's: a righty's arm side to the right), each pitch at its season
     // average, with his arm angle: Savant's measured one (by the pitches thrown), else worked out from his release
     const left = athlete.throws === "L";
-    const moves = asTypes.filter((s) => s.ivb != null && s.hb != null).map((s) => ({ type: s.type, x: left ? -s.hb : s.hb, y: s.ivb, tip: `${s.ivb} IVB, ${s.hb} HB arm side, ${s.speedAvg} mph, ${s.qty} pitches` }));
+    const moves = asTypes.filter((s) => s.ivb != null && s.hb != null).map((s) => ({ type: s.type, x: left ? -s.hb : s.hb, y: s.ivb, tip: `${s.ivb} IVB, ${s.hb} HB arm side, ${s.speedAvg} mph, ${s.qty} pitches${s.armAngle != null ? `, ${fmtSlot(slotDevOf(s))} off his arm slot` : ""}` }));
     const moveR = Math.max(25, Math.ceil(Math.max(0, ...moves.map((m) => Math.max(Math.abs(m.x), Math.abs(m.y)))) / 5) * 5 + 5);
     const measured = asTypes.filter((s) => s.armAngle != null && s.qty);
     const savantArm = measured.length ? Math.round(measured.reduce((n, s) => n + s.armAngle * s.qty, 0) / measured.reduce((n, s) => n + s.qty, 0)) : null;
@@ -1026,7 +1046,7 @@
       <div className="bp-comps">
         <div className="bp-comps-bar">
           <select className="bp-tag" value={season} aria-label="MLB season" onChange={(e) => setSeason(Number(e.target.value))}>
-            {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
+            {seasons().map((y) => <option key={y} value={y}>{y} MLB season</option>)}
           </select>
           {st.loading && <span className="timestamp-note">Loading Baseball Savant…</span>}
           {!st.loading && total > 0 && <span className="timestamp-note">{total.toLocaleString()} pitches · <a href={`https://baseballsavant.mlb.com/savant-player/${id}`} target="_blank" rel="noopener noreferrer">Savant page</a></span>}
@@ -1036,12 +1056,12 @@
           : st.rows.length > 0 && (
             <div className="bp-table-wrap">
               <table className="assess-table bp-table bp-comp-table">
-                <thead><tr><th>Pitch</th><th>Pitches</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Ext.</th>{resHeads()}</tr></thead>
+                <thead><tr><th>Pitch</th><th>Pitches</th><th>Velo</th><th>IVB</th><th>HB</th><th>Spin</th><th>Ext.</th><th title="How far the pitch's movement turns off the line of his arm angle: + above it, − below">Off slot</th>{resHeads()}</tr></thead>
                 <tbody>
                   {st.rows.map((r) => (
                     <tr key={r.code}>
                       <td><span className="bp-dot" style={{ background: colorOf(CODE_TYPE[r.code]) }} />{r.res.pitchName || r.code}</td>
-                      <td>{show(r.res.pitches)}</td><td>{show(r.velo)}</td><td>{show(r.ivb)}</td><td>{show(r.hb)}</td><td>{show(r.spin)}</td><td>{ftIn(r.ext)}</td>{resCells(r.res, r.pool)}
+                      <td>{show(r.res.pitches)}</td><td>{show(r.velo)}</td><td>{show(r.ivb)}</td><td>{show(r.hb)}</td><td>{show(r.spin)}</td><td>{ftIn(r.ext)}</td><td>{fmtSlot(slotDevOf(r))}</td>{resCells(r.res, r.pool)}
                     </tr>
                   ))}
                 </tbody>
@@ -1049,13 +1069,20 @@
             </div>
           )}
         <p className="timestamp-note">His MLB regular-season games on Baseball Savant. Shape shows once he's thrown 50 of a pitch. Results are shaded against the same pitch from {athlete.throws === "L" ? "left" : athlete.throws === "R" ? "right" : "same"}-handed pitchers who threw at least 50 (red better, blue worse); hover for the rank.</p>
-        {full && moves.length > 0 && (
+        {full && !st.error && (
           <div className="bp-savant-sec">
-            <div className="bp-savant-head"><h3>Movement <small>{season} MLB, pitcher's view</small></h3></div>
-            <div className="bp-savant-move">
-              <ScatterChart pts={[]} avgs={moves} xr={[-moveR, moveR]} yr={[-moveR, moveR]} step={10} xLabel="Horz. break (in)" yLabel="Induced vert. break (in)"
-                label={`Movement: each pitch's ${season} average`} picked={null} onPick={() => {}} tip={() => ""} show="avgs" armLine={armLine} />
+            {/* its own year switch (the same season as the rest of the tab), to step back through his seasons */}
+            <div className="bp-savant-head"><h3>Movement <small>{season} MLB, pitcher's view</small></h3>
+              <span className="pill-tabs bp-scope" role="group" aria-label="Season">
+                {seasons().slice().reverse().map((y) => <button key={y} type="button" className={`pill-tab ${season === y ? "active" : ""}`} onClick={() => setSeason(y)}>{y}</button>)}
+              </span>
             </div>
+            {moves.length > 0 ? (
+              <div className="bp-savant-move">
+                <ScatterChart pts={[]} avgs={moves} xr={[-moveR, moveR]} yr={[-moveR, moveR]} step={10} xLabel="Horz. break (in)" yLabel="Induced vert. break (in)"
+                  label={`Movement: each pitch's ${season} average`} picked={null} onPick={() => {}} tip={() => ""} show="avgs" armLine={armLine} />
+              </div>
+            ) : <p className="assess-row-note">{st.loading ? "Loading Baseball Savant…" : `No movement for him in ${season}: a pitch shows once he's thrown 50 of it in a season.`}</p>}
             <p className="timestamp-note">Each pitch at its average induced vertical break and horizontal break in his {season} games.{armLine ? ` The dotted line is his arm angle (${armDeg}°${savantArm != null ? ", Savant's" : ", estimated"}): a pitch thrown straight off his hand moves along it, and fastballs usually sit near it.` : ""}</p>
           </div>
         )}
@@ -2346,7 +2373,7 @@
           </span>
           {source === "mlb" && (
             <select className="bp-tag" value={season} aria-label="MLB season" onChange={(e) => setSeason(Number(e.target.value))}>
-              {[0, 1, 2, 3].map((k) => defaultSeason() - k).map((y) => <option key={y} value={y}>{y} MLB season</option>)}
+              {seasons().map((y) => <option key={y} value={y}>{y} MLB season</option>)}
             </select>
           )}
           {source === "mlb" && mlb.loading && <span className="timestamp-note">Loading Baseball Savant…</span>}
