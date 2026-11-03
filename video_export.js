@@ -22,7 +22,7 @@
 
   const LAYOUTS = {
     horizontal: { W: 1920, H: 1080, video: { x: 0, y: 0, w: 1440, h: 1080 }, panel: { x: 1440, y: 0, w: 480, h: 1080 } },
-    vertical: { W: 1080, H: 1920, video: { x: 0, y: 0, w: 1080, h: 1320 }, panel: { x: 0, y: 1320, w: 1080, h: 600 } },
+    vertical: { W: 1080, H: 1920, video: { x: 0, y: 0, w: 1080, h: 1240 }, panel: { x: 0, y: 1240, w: 1080, h: 680 } },
   };
 
   const loaded = {};
@@ -58,8 +58,14 @@
     g.fillStyle = RED;
     if (vertical) g.fillRect(box.x, box.y, box.w, 6); else g.fillRect(box.x, box.y, 6, box.h);
     g.textBaseline = "alphabetic"; g.textAlign = "left";
-    // the left of a vertical panel (or all of a horizontal one) holds the words; widgets go right (or below)
-    const colW = vertical ? Math.round(box.w * 0.58) - pad : box.w - 2 * pad;
+    // the heading (name, date, the pitch or moment, the big number) across a horizontal panel, or down the left of a
+    // vertical one with its widgets (the ball, a movement plot) beside it; the figures under it, the panel's full width
+    const full = box.w - 2 * pad, colW = vertical ? Math.round(full * 0.56) : full;
+    const widgets = (p.widgets || []).filter(Boolean);
+    const drawWidgets = (area) => {
+      const n = widgets.length, gap = 16, size = Math.max(0, Math.min((area.w - gap * (n - 1)) / n, area.h));
+      if (size >= 90) widgets.forEach((wd, i) => { g.save(); wd(g, area.x + i * (size + gap), area.y, size); g.restore(); });
+    };
     let x = box.x + pad, y = box.y + pad + 34;
     if (p.name) { g.fillStyle = "#fff"; fitText(g, p.name, colW, vertical ? 46 : 38, 800); g.fillText(p.name, x, y); y += vertical ? 40 : 34; }
     if (p.sub) { g.fillStyle = DIM; fitText(g, p.sub, colW, 24, 500); g.fillText(p.sub, x, y); y += 26; }
@@ -81,17 +87,19 @@
       if (unit) { g.fillStyle = DIM; g.font = `700 30px "Helvetica Neue", Arial, sans-serif`; g.fillText(unit, x + vw + 10, y + (vertical ? 86 : 78)); }
       y += vertical ? 112 : 104;
     }
-    // the figures: two columns across (three on a vertical panel's wider text side), label over value
+    if (vertical && widgets.length) drawWidgets({ x: x + colW + 24, y: box.y + pad, w: full - colW - 24, h: y - box.y - pad - 4 });
+    // the figures: label over value in columns (two across a horizontal panel, four across a vertical one)
     const rows = (p.rows || []).filter((r) => r && r[1] != null && r[1] !== "");
     if (rows.length) {
-      g.strokeStyle = LINE; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + colW, y); g.stroke();
+      const rowW = full;
+      g.strokeStyle = LINE; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rowW, y); g.stroke();
       y += 16;
       // short labels (a pitch's): label over value in columns; long ones (a delivery's): a line each, label then value
       const up = (s) => String(s).toUpperCase();
       g.font = `700 16px "Helvetica Neue", Arial, sans-serif`;
-      const wide = rows.some(([label]) => g.measureText(up(label)).width > colW / (vertical ? 3 : 2) - 14);
+      const wide = rows.some(([label]) => g.measureText(up(label)).width > rowW / (vertical ? 4 : 2) - 14);
       if (!wide) {
-        const cols = vertical ? 3 : 2, cw = colW / cols, rh = vertical ? 66 : 70;
+        const cols = vertical ? 4 : 2, cw = rowW / cols, rh = vertical ? 66 : 70;
         rows.forEach(([label, value], i) => {
           const cx = x + (i % cols) * cw, cy = y + Math.floor(i / cols) * rh;
           g.fillStyle = DIM; fitText(g, up(label), cw - 12, 17, 700); g.fillText(up(label), cx, cy + 18);
@@ -99,9 +107,9 @@
         });
         y += Math.ceil(rows.length / cols) * rh + 8;
       } else {
-        const cols = vertical ? 2 : 1, cw = colW / cols, rh = vertical ? 46 : 50, gap = vertical ? 24 : 0;
+        const cols = vertical ? 2 : 1, gap = vertical ? 40 : 0, w = (rowW - gap * (cols - 1)) / cols, rh = vertical ? 46 : 50;
         rows.forEach(([label, value], i) => {
-          const cx = x + (i % cols) * (cw + gap / cols), cy = y + Math.floor(i / cols) * rh, w = cw - gap;
+          const cx = x + (i % cols) * (w + gap), cy = y + Math.floor(i / cols) * rh;
           g.textAlign = "right"; g.fillStyle = "#fff"; fitText(g, String(value), w * 0.42, vertical ? 30 : 28, 700); g.fillText(String(value), cx + w, cy + 32);
           const vw = g.measureText(String(value)).width;
           g.textAlign = "left"; g.fillStyle = DIM; fitText(g, up(label), w - vw - 14, 16, 700); g.fillText(up(label), cx, cy + 30);
@@ -110,16 +118,8 @@
         y += Math.ceil(rows.length / cols) * rh + 8;
       }
     }
-    // widgets (the spinning ball, a movement plot): squares side by side, clear of the logo
-    const widgets = (p.widgets || []).filter(Boolean);
-    if (widgets.length) {
-      const logoH = 96;
-      const area = vertical
-        ? { x: box.x + Math.round(box.w * 0.58), y: box.y + pad, w: Math.round(box.w * 0.42) - pad, h: box.h - 2 * pad - logoH }
-        : { x: box.x + pad, y: y + 6, w: box.w - 2 * pad, h: box.y + box.h - pad - logoH - (y + 6) };
-      const n = widgets.length, gap = 16, size = Math.max(0, Math.min((area.w - gap * (n - 1)) / n, area.h));
-      if (size >= 90) widgets.forEach((wd, i) => { g.save(); wd(g, area.x + i * (size + gap), area.y, size); g.restore(); });
-    }
+    // a horizontal panel's widgets: squares side by side under the figures, clear of the logo
+    if (!vertical && widgets.length) drawWidgets({ x: box.x + pad, y: y + 6, w: full, h: box.y + box.h - pad - 96 - (y + 6) });
     g.restore();
   }
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
