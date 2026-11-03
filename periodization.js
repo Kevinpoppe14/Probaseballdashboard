@@ -31,6 +31,43 @@
   const addDaysISO = (iso, n) => { const dt = parseISO(iso); dt.setDate(dt.getDate() + n); return toISO(dt); };
   const fmtMD = (iso) => parseISO(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const mondayOfToday = () => { const dt = new Date(); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return toISO(dt); };
+  const daysBetween = (a, b) => Math.round((parseISO(b) - parseISO(a)) / 86400000);
+
+  // ---- date notes ----------------------------------------------------------------------------
+  // plan.dateNotes = [{ id, from, to, text }]: a note on a day or a run of days (a wedding, a trip, a showcase), kept
+  // on its calendar dates so it stays put if week 1's start moves. Shown in a Notes row under the weeks.
+  const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const noteRange = (n) => (n.from === n.to ? fmtMD(n.from) : `${fmtMD(n.from)} – ${fmtMD(n.to)}`);
+  const noteWeek = (plan, n) => { const w = Math.floor(daysBetween(plan.startDate, n.from) / 7); return w >= 0 && w < plan.weeks ? `Wk ${w + 1}` : ""; };
+  const notesOf = (plan) => (plan.dateNotes || []).filter((n) => n.text && n.text.trim()).slice().sort((a, b) => a.from.localeCompare(b.from));
+  // each note's place on the chart in days from week 1 (clipped to the plan), and its row so overlapping notes stack
+  function placeNotes(plan, notes = notesOf(plan)) {
+    const total = plan.weeks * 7, ends = [], placed = [];
+    notes.map((n) => ({ note: n, s: Math.max(0, daysBetween(plan.startDate, n.from)), e: Math.min(total, daysBetween(plan.startDate, n.to) + 1) }))
+      .filter((x) => x.e > x.s).sort((a, b) => a.s - b.s)
+      .forEach((x) => {
+        let row = ends.findIndex((end) => end <= x.s);
+        if (row < 0) { row = ends.length; ends.push(0); }
+        ends[row] = x.e;
+        placed.push({ ...x, row });
+      });
+    return { placed, count: Math.max(1, ends.length) };
+  }
+  // the notes listed under the timeline (and printed with it); a click opens one when the plan is editable
+  function NotesList({ plan, onOpen }) {
+    const notes = notesOf(plan);
+    if (!notes.length) return null;
+    return (
+      <div className="period-notes-list">
+        <strong>Notes</strong>
+        {notes.map((n) => (
+          <div key={n.id} className={onOpen ? "period-notes-item open" : "period-notes-item"} onClick={onOpen ? () => onOpen(n) : undefined} title={onOpen ? "Click to edit" : undefined}>
+            <b>{[noteWeek(plan, n), noteRange(n)].filter(Boolean).join(" · ")}</b> {n.text}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   // ---- plan model ----------------------------------------------------------------------------
   // plan = { startDate, weeks, lanes: [{id,name,color}], blocks: [{id,lane,start,len,label,notes,color}] }
@@ -945,6 +982,8 @@
     const opened = openBlock && plan.blocks.find((b) => b.id === openBlock);
     const openedProgram = opened && (athlete ? withLogs(plan, athlete.id)._lookup : programById)(opened.programId);
     const logPlan = athlete ? withLogs(plan, athlete.id) : plan;
+    const dayPct = (days) => `${(days / (plan.weeks * 7)) * 100}%`;
+    const notes = placeNotes(plan);
     return (
       <div className="period-ro">
         {openedProgram && <ProgramModal program={openedProgram} athlete={athlete} maxes={planMaxes(logPlan)} startWeek={opened.start} log={(logPlan.programLog || {})[openedProgram.id] || {}} onLog={athlete ? (key, val) => {
@@ -959,6 +998,16 @@
             ))}
           </div>
         </div>
+        {notes.placed.length > 0 && (
+          <div className="period-ro-row">
+            <div className="period-ro-label"><i className="period-ro-note-dot" />Notes</div>
+            <div className="period-ro-track" style={{ height: notes.count * 20 + 6 }}>
+              {notes.placed.map(({ note, s, e, row }) => (
+                <div key={note.id} className="period-ro-note" style={{ left: `calc(${dayPct(s)} + 1px)`, width: `max(10px, calc(${dayPct(e - s)} - 2px))`, top: row * 20 + 3 }} title={`${noteRange(note)}: ${note.text}`}>{note.text}</div>
+              ))}
+            </div>
+          </div>
+        )}
         {lanes.map((lane) => {
           const laneBlocks = plan.blocks.filter((b) => b.lane === lane.id);
           const { rows, count } = packRows(laneBlocks);
@@ -983,6 +1032,7 @@
             </div>
           );
         })}
+        <NotesList plan={plan} />
       </div>
     );
   }
@@ -1223,7 +1273,7 @@
   // `bare` returns just the contents (no card / title); `showGoals={false}` leaves out goals + action plan.
   function PeriodizationView({ athleteId, onEdit, compact = false, bare = false, showGoals = true }) {
     const plan = window.AthleteStore.getPeriodization(athleteId);
-    const hasBlocks = !!plan && plan.blocks.length > 0;
+    const hasBlocks = !!plan && (plan.blocks.length > 0 || notesOf(plan).length > 0);
     const goalsToShow = showGoals && !!plan && hasGoalContent(plan);
     if (!plan || (!hasBlocks && !goalsToShow)) return null;
     const body = (
@@ -1432,7 +1482,7 @@
     }
     // Undo/redo only rewind the timeline — goals and the action plan are typed text with their own
     // editing, so they always carry over from the current plan instead of being rolled back.
-    const keepText = (snapshot, current) => ({ ...snapshot, goals: current.goals, actionPlan: current.actionPlan, programLog: current.programLog });
+    const keepText = (snapshot, current) => ({ ...snapshot, goals: current.goals, actionPlan: current.actionPlan, programLog: current.programLog, dateNotes: current.dateNotes });
     const undo = () => {
       if (!past.length) return;
       const current = planRef.current;
@@ -1455,6 +1505,29 @@
     };
     // Goal / action-plan edits save straight away without going into the undo history.
     const saveText = (patch) => apply({ ...planRef.current, ...patch });
+    // Date notes (a wedding, a trip): the one open in the editor below the chart. A new one is saved once it has
+    // words; clearing an old one's words deletes it. Read through a ref so a day button clicked straight after
+    // typing (the text saving on blur first) builds on the saved text.
+    const [noteOpen, setNoteOpen] = useState(null);
+    const noteRef = useRef(null);
+    const openNote = (n) => { noteRef.current = n; setNoteOpen(n); };
+    const editNote = (patch) => {
+      const n = { ...noteRef.current, ...patch };
+      if (n.to < n.from) n.to = n.from;
+      openNote(n);
+      const rest = (planRef.current.dateNotes || []).filter((x) => x.id !== n.id);
+      const saved = rest.length !== (planRef.current.dateNotes || []).length;
+      if (!n.text.trim()) { if (saved) saveText({ dateNotes: rest }); return; }
+      saveText({ dateNotes: [...rest, { ...n, text: n.text.trim() }] });
+    };
+    const deleteNote = () => { editNote({ text: "" }); openNote(null); };
+    // a click on the Notes row: a new note on that week
+    const onNotesDown = (e) => {
+      if (e.button !== 0 || e.target !== e.currentTarget) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const w = clamp(Math.floor((e.clientX - rect.left) / WEEK_W), 0, plan.weeks - 1);
+      openNote({ id: uid(), from: addDaysISO(plan.startDate, w * 7), to: addDaysISO(plan.startDate, w * 7 + 6), text: "" });
+    };
     // Program builder panel under the chart: which section (row) and tab (block) is open, and whether it has
     // unsaved edits. Clicking a row name or a block's Program button on the chart jumps to it. The builder lives on
     // the profile's Programming tab (mode "programming"); on the Player Plan (mode "plan") those clicks open that
@@ -1877,6 +1950,11 @@
     const single = selectedBlocks.length === 1 ? selectedBlocks[0] : null;
     const gridWidth = LABEL_W + plan.weeks * WEEK_W;
     const rangeText = (b) => `Wk ${b.start + 1}${b.len > 1 ? `–${b.start + b.len}` : ""} (${fmtMD(weekStarts[b.start] || plan.startDate)} – ${fmtMD(addDaysISO(plan.startDate, (b.start + b.len) * 7 - 1))})`;
+    const DAY_W = WEEK_W / 7;
+    const noteSaved = noteOpen && (plan.dateNotes || []).some((x) => x.id === noteOpen.id);
+    const notePlaces = placeNotes(plan);
+    // the week the open note starts in, for its day buttons
+    const noteWeekStart = noteOpen ? addDaysISO(plan.startDate, Math.floor(daysBetween(plan.startDate, noteOpen.from) / 7) * 7) : null;
 
     return (
       <div className="period-wrap" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
@@ -1962,7 +2040,7 @@
           <p className="period-help">
             Drag across an empty row to create a block &middot; drag a block to move it (across weeks and rows) &middot; drag its edges to resize &middot;
             double-click to rename &middot; Shift-click to select several &middot; Ctrl+C / Ctrl+V to copy &amp; paste (works across athletes) &middot;
-            Ctrl+Z to undo &middot; Delete to remove &middot; arrow keys nudge a week.
+            Ctrl+Z to undo &middot; Delete to remove &middot; arrow keys nudge a week &middot; click a week in the Notes row to note a day or a week (a wedding, a trip).
           </p>
         </div>
 
@@ -1992,6 +2070,34 @@
                   >
                     <strong>Wk {i + 1}</strong>
                     <span>{fmtMD(d)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* notes on days or weeks (a wedding, a trip): click a week to add one */}
+            <div className="period-lane period-notes-lane">
+              <div className="period-lane-label" style={{ width: LABEL_W }}>
+                <span className="period-lane-name period-notes-name" title="Click a week in this row to add a note (a wedding, a trip, a showcase)">Notes</span>
+              </div>
+              <div
+                className="period-track period-notes-track"
+                style={{ width: plan.weeks * WEEK_W, height: notePlaces.count * 22 + 8, backgroundSize: `${WEEK_W}px 100%` }}
+                onPointerDown={onNotesDown}
+                title="Click a week to add a note"
+              >
+                {noteOpen && !noteSaved && daysBetween(plan.startDate, noteOpen.from) >= 0 && (
+                  <div className="period-note-ghost" style={{ left: daysBetween(plan.startDate, noteOpen.from) * DAY_W + 1, width: (daysBetween(noteOpen.from, noteOpen.to) + 1) * DAY_W - 2 }} />
+                )}
+                {notePlaces.placed.map(({ note, s, e, row }) => (
+                  <div
+                    key={note.id}
+                    className={`period-note ${noteOpen && noteOpen.id === note.id ? "selected" : ""}`}
+                    style={{ left: s * DAY_W + 1, width: Math.max(DAY_W, (e - s) * DAY_W) - 2, top: row * 22 + 4 }}
+                    title={`${noteRange(note)}: ${note.text}`}
+                    onPointerDown={(ev) => { ev.stopPropagation(); openNote(note); }}
+                  >
+                    {note.text}
                   </div>
                 ))}
               </div>
@@ -2095,7 +2201,51 @@
             })}
           </div>
         </div>
+        <NotesList plan={plan} onOpen={openNote} />
         </div>
+
+        {noteOpen && (
+          <div className="panel period-editor period-note-editor no-print">
+            <h2>{noteSaved ? "Edit note" : "New note"} <small>{[noteWeek(plan, noteOpen), noteRange(noteOpen)].filter(Boolean).join(" · ")}</small></h2>
+            <div className="period-note-days">
+              <span>Days</span>
+              <button className={`period-note-day whole ${noteOpen.from === noteWeekStart && noteOpen.to === addDaysISO(noteWeekStart, 6) ? "on" : ""}`} onClick={() => editNote({ from: noteWeekStart, to: addDaysISO(noteWeekStart, 6) })}>Whole week</button>
+              {DAY_NAMES.map((name, i) => {
+                const d = addDaysISO(noteWeekStart, i);
+                const on = d >= noteOpen.from && d <= noteOpen.to;
+                return (
+                  <button
+                    key={name}
+                    className={`period-note-day ${on ? "on" : ""}`}
+                    title="Click for just this day · Shift-click to run the note to this day"
+                    onClick={(e) => editNote(e.shiftKey ? (d < noteOpen.from ? { from: d } : { to: d }) : { from: d, to: d })}
+                  >
+                    {name}<small>{fmtMD(d)}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="period-editor-grid" style={{ marginTop: 10 }}>
+              <div className="field">
+                <label>From</label>
+                <input type="date" value={noteOpen.from} onChange={(e) => e.target.value && editNote({ from: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>To</label>
+                <input type="date" min={noteOpen.from} value={noteOpen.to} onChange={(e) => e.target.value && editNote({ to: e.target.value })} />
+              </div>
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label>Note</label>
+              <textarea key={noteOpen.id} rows={2} autoFocus={!noteSaved} defaultValue={noteOpen.text} placeholder="e.g. At a wedding Fri–Sun, no lifting · bodyweight circuit at the hotel"
+                onBlur={(e) => e.target.value.trim() !== (noteRef.current.text || "").trim() && editNote({ text: e.target.value })} />
+            </div>
+            <div className="period-btn-group" style={{ marginTop: 10 }}>
+              <button className="btn btn-secondary" onClick={() => openNote(null)}>Done</button>
+              {noteSaved && <button className="btn btn-secondary" onClick={deleteNote}>Delete note</button>}
+            </div>
+          </div>
+        )}
 
         {single && (
           <div className="panel period-editor no-print">

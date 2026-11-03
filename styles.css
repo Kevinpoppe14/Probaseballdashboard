@@ -1298,6 +1298,71 @@ tbody tr:hover {
   gap: 12px;
 }
 
+/* date notes (a wedding, a trip): their own row under the weeks, a list under the chart, and an editor */
+.period-notes-lane .period-lane-label { background: #1d1a12; }
+.period-notes-name { color: #fbbf24; cursor: default; }
+.period-notes-track { cursor: copy; background-color: rgba(251, 191, 36, 0.04); }
+.period-note {
+  position: absolute;
+  height: 18px;
+  border-radius: 4px;
+  background: #fbbf24;
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 0 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+  cursor: pointer;
+  z-index: 2;
+}
+.period-note.selected { outline: 2px solid #fff; outline-offset: 1px; z-index: 3; }
+.period-note-ghost { position: absolute; top: 4px; height: 18px; border-radius: 4px; border: 2px dashed #fbbf24; box-sizing: border-box; pointer-events: none; }
+.period-notes-list { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; font-size: 12px; }
+.period-notes-list > strong { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.period-notes-item { padding: 3px 8px; border-left: 3px solid #fbbf24; border-radius: 3px; }
+.period-notes-item b { margin-right: 6px; }
+.period-notes-item.open { cursor: pointer; }
+.period-notes-item.open:hover { background: rgba(251, 191, 36, 0.1); }
+.period-note-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.period-note-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 48px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.period-note-day small { font-size: 10px; font-weight: 400; color: var(--text-dim); }
+.period-note-day.whole { justify-content: center; align-self: stretch; }
+.period-note-day.on { background: #fbbf24; border-color: #fbbf24; color: #1a1a1a; }
+.period-note-day.on small { color: #3a3a3a; }
+.period-ro-label i.period-ro-note-dot { background: #fbbf24; border-radius: 2px; }
+.period-ro-note {
+  position: absolute;
+  height: 16px;
+  border-radius: 3px;
+  background: #fbbf24;
+  color: #1a1a1a;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
 .period-swatches { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--text-dim); }
 
 .period-swatch {
