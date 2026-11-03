@@ -1855,6 +1855,7 @@
       const vidMsg = el("span", { class: "mc-status", role: "status" });
       let vidStop = false;
       const vidCancel = el("button", { type: "button", class: "mc-btn ghost small", hidden: true, onclick: () => { vidStop = true; } }, "Cancel");
+      const vidFill = el("input", { type: "checkbox" });
       const exportVideo = async (layout) => {
         const VE = window.VideoExport;
         if (!VE || !VE.supported()) { vidMsg.textContent = "This browser can't make videos: use Chrome or Edge on a computer, Chrome on Android or a recent iPhone."; return; }
@@ -1867,9 +1868,9 @@
         const t0 = tr.frames[0].t, t1 = tr.frames[tr.frames.length - 1].t;
         try {
           const blob = await VE.render({
-            layout, cancelled: () => vidStop,
+            layout, fill: vidFill.checked, cancelled: () => vidStop,
             title: { lines: [who, `${what} · motion capture`, dateOf()] },
-            onProgress: (text, fr) => { vidMsg.textContent = `${text}… ${Math.round(fr * 100)}% (keep this tab open and in front)`; },
+            onProgress: (text, fr) => { vidMsg.textContent = `${text}… ${Math.round(fr * 100)}% (keep this tab open)`; },
             segments: [{
               url: f.video.currentSrc || f.video.src, start: t0, end: t1, rate: 1,
               overlay: (g, rect, info) => { if (state.hideSkel) return; const i = nearest(info.t), s = rect.w / tr.W; g.translate(rect.x, rect.y); drawSkeleton(g, R.pts[i], s, s, state.throws, hiddenAt(i)); },
@@ -1889,6 +1890,7 @@
         el("div", { class: "mc-row" }, el("b", null, "Video"),
           el("button", { type: "button", class: "mc-btn ghost small", title: "16:9, his numbers on the right: a computer or TV", onclick: () => exportVideo("horizontal") }, "Export horizontal"),
           el("button", { type: "button", class: "mc-btn ghost small", title: "9:16, his numbers along the bottom: a phone", onclick: () => exportVideo("vertical") }, "Export vertical"),
+          el("label", { class: "mc-keep", title: "Zoom the video in to fill its area, trimming the edges, instead of showing all of it with bars beside it" }, vidFill, " Fill the frame"),
           vidCancel, vidMsg),
         el("p", { class: "mc-hint" }, "An MP4 of this clip with the skeleton (if it's showing), the moment, his numbers, his name and the DST logo, made on this device and downloaded. Nothing is stored.")) : null;
       const reportRow = el("div", { class: "mc-report" },

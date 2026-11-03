@@ -2443,10 +2443,11 @@
       const u = spinAxis(tilt, p.spinEff);
       const seamAxis = isTwoSeam(p.type) ? SEAM_AXIS.two : SEAM_AXIS.four;
       const start = mulM(alignM(seamAxis, u), rotM(seamAxis, 0.6));
-      const n = Math.round(size);
+      // drawn at the canvas's real resolution (the export draws scaled up for a 1440p or 4K file), so it stays sharp
+      const k = (g.getTransform && g.getTransform().a) || 1, n = Math.round(size * k);
       if (ballCanvas.width !== n) { ballCanvas.width = n; ballCanvas.height = n; }
       drawBall(ballCanvas.getContext("2d"), n, mulM(POV_M.pitcher, mulM(rotM(u, turned || 0), start)), colorOf(p.type), tilt == null ? null : (tilt / 720) * 2 * Math.PI, false);
-      g.drawImage(ballCanvas, x, y, n, n);
+      g.drawImage(ballCanvas, x, y, size, size);
     },
   };
 })();

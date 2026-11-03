@@ -22,7 +22,7 @@
 
   const LAYOUTS = {
     horizontal: { W: 1920, H: 1080, video: { x: 0, y: 0, w: 1440, h: 1080 }, panel: { x: 1440, y: 0, w: 480, h: 1080 } },
-    vertical: { W: 1080, H: 1920, video: { x: 0, y: 0, w: 1080, h: 1240 }, panel: { x: 0, y: 1240, w: 1080, h: 680 } },
+    vertical: { W: 1080, H: 1920, video: { x: 0, y: 0, w: 1080, h: 1200 }, panel: { x: 0, y: 1200, w: 1080, h: 720 } },
   };
 
   const loaded = {};
@@ -38,11 +38,14 @@
   const canRecord = () => typeof window.MediaRecorder === "function" && !!HTMLCanvasElement.prototype.captureStream;
   const supported = () => canEncode() || canRecord();
 
-  // the video into its area, whole (bars where its shape differs), and where it went
-  function fit(g, v, area) {
-    const vw = v.videoWidth || 16, vh = v.videoHeight || 9, s = Math.min(area.w / vw, area.h / vh);
+  // the video into its area, whole (bars where its shape differs), or filling it (`fill`: zoomed in, the edges trimmed),
+  // and where it went (beyond the area when filling; what's drawn over it is trimmed to the area the same way)
+  function fit(g, v, area, fill) {
+    const vw = v.videoWidth || 16, vh = v.videoHeight || 9, s = (fill ? Math.max : Math.min)(area.w / vw, area.h / vh);
     const w = vw * s, h = vh * s, x = area.x + (area.w - w) / 2, y = area.y + (area.h - h) / 2;
+    g.save(); g.beginPath(); g.rect(area.x, area.y, area.w, area.h); g.clip();
     g.drawImage(v, x, y, w, h);
+    g.restore();
     return { x, y, w, h, scale: s };
   }
 
@@ -119,13 +122,13 @@
       }
     }
     // a horizontal panel's widgets: squares side by side under the figures, clear of the logo
-    if (!vertical && widgets.length) drawWidgets({ x: box.x + pad, y: y + 6, w: full, h: box.y + box.h - pad - 96 - (y + 6) });
+    if (!vertical && widgets.length) drawWidgets({ x: box.x + pad, y: y + 6, w: full, h: box.y + box.h - pad - 130 - (y + 6) });
     g.restore();
   }
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
   function drawLogo(g, L, im) {
     if (!im) return;
-    const w = L.W > L.H ? 200 : 210, h = (im.height / im.width) * w;
+    const w = L.W > L.H ? 280 : 300, h = (im.height / im.width) * w;
     g.globalAlpha = 0.95; g.drawImage(im, L.W - w - 30, L.H - h - 26, w, h); g.globalAlpha = 1;
   }
 
@@ -140,12 +143,33 @@
   }
   const seek = (v, t) => new Promise((ok) => { if (Math.abs(v.currentTime - t) < 1e-3) { ok(); return; } v.onseeked = () => { v.onseeked = null; ok(); }; v.currentTime = t; });
 
-  async function render({ layout = "horizontal", title = null, segments, onProgress = () => {}, cancelled = () => false }) {
+  async function render({ layout = "horizontal", fill = false, title = null, segments, onProgress = () => {}, cancelled = () => false }) {
     if (!supported()) throw new Error("This browser can't make videos. Use Chrome or Edge on a computer, or Chrome on Android, or a recent iPhone.");
     const L = LAYOUTS[layout] || LAYOUTS.horizontal;
+    // How big: big enough that the video shows at its own resolution, not shrunk into its area (a 1080p Edgertronic clip
+    // in the horizontal frame makes a 2560 x 1440 file, in the vertical one 4K), as far as this browser's encoder goes.
+    // Everything is laid out in the layout's own units (1920 x 1080 or 1080 x 1920) and drawn scaled up.
+    let srcW = 1920, srcH = 1080;
+    try { const pv = await openVideo(segments[0].url); srcW = pv.videoWidth || srcW; srcH = pv.videoHeight || srcH; pv.removeAttribute("src"); pv.load(); } catch (e) { /* the segment itself will say */ }
+    const want = 1 / Math.min((fill ? Math.max : Math.min)(L.video.w / srcW, L.video.h / srcH), 1);
+    const SCALES = [1, 4 / 3, 2];
+    let scale = SCALES.find((s) => s >= want - 0.01) || 2, cfg = null;
+    const bitrateAt = (s) => Math.round(16_000_000 * ((L.W * s * L.H * s) / (1920 * 1080)));
+    if (canEncode()) {
+      for (const s of SCALES.filter((x) => x <= scale).reverse()) {
+        for (const codec of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.420033", "avc1.420028"]) {
+          const c = { codec, width: Math.round(L.W * s), height: Math.round(L.H * s), bitrate: bitrateAt(s), framerate: FPS };
+          try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch (e) { /* try the next */ }
+        }
+        if (cfg) { scale = s; break; }
+      }
+      if (!cfg) throw new Error("This browser can't encode H.264 video at this size.");
+    } else scale = 1; // recorded as it plays: kept to 1080p
     const cv = document.createElement("canvas");
-    cv.width = L.W; cv.height = L.H;
+    cv.width = Math.round(L.W * scale); cv.height = Math.round(L.H * scale);
     const g = cv.getContext("2d");
+    g.setTransform(scale, 0, 0, scale, 0, 0);
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     const im = await logo();
     const total = segments.reduce((s, sg) => s + Math.max(0.1, ((sg.end || 0) - (sg.start || 0)) / (sg.rate || 1)), 0) || 1;
     let done = 0;
@@ -155,15 +179,9 @@
     if (canEncode()) {
       await script(MUXER);
       const M = window.Mp4Muxer;
-      const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: L.W, height: L.H }, fastStart: "in-memory", firstTimestampBehavior: "offset" });
+      const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: cv.width, height: cv.height }, fastStart: "in-memory", firstTimestampBehavior: "offset" });
       let failed = null;
       const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
-      let cfg = null;
-      for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.420028"]) {
-        const c = { codec, width: L.W, height: L.H, bitrate: 10_000_000, framerate: FPS };
-        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch (e) { /* try the next */ }
-      }
-      if (!cfg) throw new Error("This browser can't encode H.264 video at this size.");
       enc.configure(cfg);
       let last = -1, lastKey = -10;
       emit = async (sec) => {
@@ -182,7 +200,7 @@
       abort = () => { try { enc.close(); } catch (e) { /* closed */ } };
     } else {
       const type = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
-      const rec = new MediaRecorder(cv.captureStream(FPS), { mimeType: type, videoBitsPerSecond: 10_000_000 });
+      const rec = new MediaRecorder(cv.captureStream(FPS), { mimeType: type, videoBitsPerSecond: bitrateAt(1) });
       const parts = [];
       rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
       rec.start(1000);
@@ -217,9 +235,9 @@
           const base = tOut;
           const drawAt = async (t) => {
             g.fillStyle = "#000"; g.fillRect(0, 0, L.W, L.H);
-            const rect = fit(g, v, L.video);
+            const rect = fit(g, v, L.video, fill);
             const info = { k, t, elapsed: (t - start) / rate };
-            if (sg.overlay) { g.save(); sg.overlay(g, rect, info); g.restore(); }
+            if (sg.overlay) { g.save(); g.beginPath(); g.rect(L.video.x, L.video.y, L.video.w, L.video.h); g.clip(); sg.overlay(g, rect, info); g.restore(); }
             if (sg.panel) sg.panel(g, L.panel, info);
             drawLogo(g, L, im);
             await emit(base + info.elapsed);
@@ -227,28 +245,33 @@
           };
           await seek(v, start);
           await drawAt(start);
-          if (v.requestVideoFrameCallback && !realTime) {
-            // played at its speed, each frame it shows drawn as it comes (paused while the encoder catches up)
-            v.playbackRate = rate >= 0.25 ? Math.min(1, rate) : 0.25;
-            await new Promise((ok, bad) => {
-              let over = false;
-              const stop = () => { if (over) return; over = true; v.pause(); ok(); };
+          // stepped through, a frame of the output at a time, from `from` on: sure, but slower (each one a seek)
+          const stepFrom = async (from) => { for (let t = from + rate / FPS; t < end; t += rate / FPS) { if (cancelled()) throw new Error("cancelled"); await seek(v, t); await drawAt(t); } };
+          if (v.requestVideoFrameCallback && !realTime && document.visibilityState === "visible") {
+            // played, each frame it shows drawn as it comes (paused while the encoder catches up; the timing comes from the
+            // file's own clock, so the playback speed doesn't matter). A browser window that's hidden or behind another
+            // one stops handing over frames: then the rest is stepped through instead.
+            const left = await new Promise((ok, bad) => {
+              let over = false, prev = start;
+              const stop = (rest) => { if (over) return; over = true; v.pause(); ok(rest); };
               const onFrame = async (now, meta) => {
                 if (over) return;
                 if (cancelled()) { over = true; v.pause(); bad(new Error("cancelled")); return; }
                 const t = meta.mediaTime;
-                if (t >= end - 1e-3) { stop(); return; }
+                if (t >= end - 1e-3) { stop(null); return; }
+                if (t - prev > 3 / FPS) { stop(prev); return; } // frames being skipped
                 v.pause();
                 try { await drawAt(t); } catch (e) { over = true; bad(e); return; }
+                prev = t;
                 if (over) return;
                 v.requestVideoFrameCallback(onFrame);
-                v.play().catch(stop);
+                v.play().catch(() => stop(prev));
               };
               v.requestVideoFrameCallback(onFrame);
-              v.onended = stop;
-              v.play().catch(bad);
+              v.onended = () => stop(null);
+              v.play().catch(() => stop(prev));
             });
-            // the timing: from the file's own clock, at the speed chosen (paused between frames, so the playback speed doesn't matter)
+            if (left != null) await stepFrom(left);
           } else if (realTime) {
             // recording: played in real time at the speed chosen, drawn on every animation frame
             v.playbackRate = rate;
@@ -256,10 +279,7 @@
               const tick = async () => { if (cancelled() || v.ended || v.currentTime >= end - 1e-3) { v.pause(); ok(); return; } await drawAt(v.currentTime); requestAnimationFrame(tick); };
               v.play().then(() => requestAnimationFrame(tick), ok);
             });
-          } else {
-            // no frame callbacks: stepped through, a frame of the output at a time
-            for (let t = start + rate / FPS; t < end; t += rate / FPS) { if (cancelled()) throw new Error("cancelled"); await seek(v, t); await drawAt(t); }
-          }
+          } else await stepFrom(start); // no frame callbacks, or a hidden page
           tOut = base + (end - start) / rate;
           done += (end - start) / rate;
         } finally { v.removeAttribute("src"); v.load(); }

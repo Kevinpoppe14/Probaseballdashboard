@@ -77,7 +77,7 @@
         out.push({ t, d: prev ? d / g.length : 0 });
         prev = g;
       };
-      if (v.requestVideoFrameCallback) {
+      if (v.requestVideoFrameCallback && document.visibilityState === "visible") {
         await new Promise((ok, bad) => {
           const onFrame = (now, meta) => { grab(meta.mediaTime); onProgress(Math.min(1, meta.mediaTime / dur)); if (!v.ended) v.requestVideoFrameCallback(onFrame); };
           v.requestVideoFrameCallback(onFrame);
@@ -86,8 +86,11 @@
           v.playbackRate = 4; // fast enough to scan a long video in a quarter of its length, slow enough to see most frames
           v.play().catch(bad);
         });
-      } else {
-        for (let t = 0; t < dur; t += 0.15) {
+      }
+      // a window that's hidden or behind another one hands over few frames as it plays: step through it instead
+      if (out.length < dur * 6) {
+        out.length = 0; prev = null;
+        for (let t = 0; t < dur; t += 0.1) {
           await new Promise((ok) => { v.onseeked = ok; v.currentTime = t; });
           grab(t); onProgress(t / dur);
         }
@@ -179,6 +182,21 @@
       setBusy("");
     };
     const split = plan && plan.kind === "one" ? (camera === "phone" ? splitByMotion(plan.scan, plan.n) : splitAt(plan.scan, plan.n)) : null;
+    // each pitch's clip: the files in order, or the stretches of the one video
+    const clipsFor = (files) => {
+      const clips = {};
+      if (plan.kind === "many") nos.forEach((n, i) => { if (i < files.length) clips[n] = { f: i }; });
+      else nos.forEach((n, i) => { const s = split.segs[i]; if (s) clips[n] = { f: 0, start: Math.round(s.start * 1000) / 1000, end: Math.round(s.end * 1000) / 1000 }; });
+      return clips;
+    };
+    // Export without uploading: the video stays on this device, read from the file chosen (any size), only for
+    // making the MP4; nothing is added to the bullpen
+    const [local, setLocal] = useState(null);
+    const exportLocal = () => {
+      const files = (plan.kind === "many" ? plan.files : [plan.file]).map((f) => ({ url: URL.createObjectURL(f), name: f.name, size: f.size }));
+      setLocal({ files, clips: clipsFor(files), camera });
+    };
+    const closeLocal = () => { local.files.forEach((f) => URL.revokeObjectURL(f.url)); setLocal(null); };
     const save = async () => {
       const files = plan.kind === "many" ? plan.files : [plan.file];
       const stored = [];
@@ -192,9 +210,7 @@
         setBusy(""); setMsg(err.message || String(err));
         return;
       }
-      const clips = {};
-      if (plan.kind === "many") nos.forEach((n, i) => { if (i < stored.length) clips[n] = { f: i }; });
-      else nos.forEach((n, i) => { const s = split.segs[i]; if (s) clips[n] = { f: 0, start: Math.round(s.start * 1000) / 1000, end: Math.round(s.end * 1000) / 1000 }; });
+      const clips = clipsFor(stored);
       const old = video;
       onSave({ files: stored, clips, camera, addedAt: new Date().toISOString(), addedBy: (window.AthleteStore.currentUserEmail && window.AthleteStore.currentUserEmail()) || "" });
       if (old) removeFiles(old);
@@ -213,7 +229,7 @@
         <span className="bp-video-label"><CamIcon /> {video ? `${(CAMERAS.find((c) => c[0] === (video.camera || "edgertronic")) || CAMERAS[0])[1]} video` : "Video"}</span>
         {video
           ? <span className="timestamp-note">{video.files.length === 1 && nos.length > 1 ? (video.camera === "phone" ? "One video, split at each delivery" : "One video, split at its cuts") : `${video.files.length} clip${video.files.length === 1 ? "" : "s"}`} · {matched} of {nos.length} pitches have a clip</span>
-          : !plan && !busy && <span className="timestamp-note">Add the clips (one per pitch) or one long video, and each pitch gets its own. A phone left recording the whole bullpen is split at each delivery.</span>}
+          : !plan && !busy && <span className="timestamp-note">Add the clips (one per pitch) or one long video, and each pitch gets its own. A phone left recording the whole bullpen is split at each delivery. To make a video without uploading (any size), choose the file, then Export without uploading.</span>}
         {!plan && !busy && (
           <select className="bp-tag" value={camera} aria-label="Which camera" title="Which camera filmed it: an Edgertronic video is split at its cuts, a phone's at each delivery" onChange={(e) => setCamera(e.target.value)}>
             {CAMERAS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -251,8 +267,10 @@
             )}
             <div className="bp-video-actions">
               <button type="button" className="btn btn-primary" onClick={save}>Add to this bullpen</button>
+              {window.VideoExport && <button type="button" className="btn btn-secondary" title="Make an MP4 with the TrackMan numbers straight from this file, without uploading it (any size; nothing is kept)" onClick={exportLocal}>Export without uploading</button>}
               <button type="button" className="btn btn-secondary" onClick={() => setPlan(null)}>Cancel</button>
             </div>
+            {local && <ExportDialog session={{ ...session, video: local }} athlete={athlete} onClose={closeLocal} />}
           </div>
         )}
       </div>
@@ -288,6 +306,21 @@
     const [ball, setBall] = useState(!phone);
     const [plot, setPlot] = useState(true);
     const [title, setTitle] = useState(true);
+    const [fill, setFill] = useState(false);
+    // a tall video (a phone held upright) suits the vertical shape: start there unless it's been picked
+    const picked = useRef(false);
+    useEffect(() => {
+      const first = live[0] && session.video.files[session.video.clips[live[0].no].f];
+      if (!first) return undefined;
+      let off = false;
+      linkOf(first).then((u) => {
+        const v = document.createElement("video");
+        v.preload = "metadata"; v.muted = true;
+        v.onloadedmetadata = () => { if (!off && !picked.current && v.videoHeight > v.videoWidth) setLayout("vertical"); v.removeAttribute("src"); v.load(); };
+        v.src = u;
+      }, () => {});
+      return () => { off = true; };
+    }, []); // eslint-disable-line
     const [busy, setBusy] = useState(null); // { text, f }
     const [err, setErr] = useState("");
     const [made, setMade] = useState(null); // { blob, name }
@@ -304,7 +337,7 @@
       g.fillStyle = "rgba(255,255,255,0.55)"; g.font = `600 ${Math.round(s / 16)}px Arial, sans-serif`; g.textAlign = "left";
       g.fillText("IVB", cx + 6, y + s / 14 + 6); g.textAlign = "right"; g.fillText("HB", x + s - 8, cy - 8); g.textAlign = "left";
       const at = (q) => [cx + Math.max(-25, Math.min(25, numOrNull(q.hb) || 0)) * k, cy - Math.max(-25, Math.min(25, numOrNull(q.ivb) || 0)) * k];
-      live.forEach((q) => { if (numOrNull(q.ivb) == null || numOrNull(q.hb) == null) return; const [px, py] = at(q); g.globalAlpha = 0.45; g.fillStyle = color(q.type); g.beginPath(); g.arc(px, py, s / 55, 0, 2 * Math.PI); g.fill(); });
+      (session.pitches || []).filter((q) => !q.removed).forEach((q) => { if (numOrNull(q.ivb) == null || numOrNull(q.hb) == null) return; const [px, py] = at(q); g.globalAlpha = 0.45; g.fillStyle = color(q.type); g.beginPath(); g.arc(px, py, s / 55, 0, 2 * Math.PI); g.fill(); });
       g.globalAlpha = 1;
       if (numOrNull(p.ivb) != null && numOrNull(p.hb) != null) { const [px, py] = at(p); g.fillStyle = color(p.type); g.beginPath(); g.arc(px, py, s / 26, 0, 2 * Math.PI); g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 3; g.stroke(); }
     };
@@ -331,7 +364,7 @@
           });
         }
         const blob = await VE.render({
-          layout, segments, cancelled: () => stop.current,
+          layout, fill, segments, cancelled: () => stop.current,
           title: title ? { lines: [athlete.name || "", `Bullpen · ${fmtDay(session.date)}`, `${chosen.length} pitch${chosen.length === 1 ? "" : "es"}${session.facility ? ` · ${session.facility}` : ""}`] } : null,
           onProgress: (text, f) => setBusy({ text, f }),
         });
@@ -357,7 +390,7 @@
               <div className="bp-export-row">
                 <b>Shape</b>
                 <span className="bp-export-seg">
-                  {[["horizontal", "Horizontal", "16:9, numbers on the right: a computer or TV"], ["vertical", "Vertical", "9:16, numbers along the bottom: a phone"]].map(([k, l, t]) => <button key={k} type="button" className={`bp-mod-btn${layout === k ? " on" : ""}`} aria-pressed={layout === k} title={t} onClick={() => setLayout(k)}>{l}</button>)}
+                  {[["horizontal", "Horizontal", "16:9, numbers on the right: a computer or TV"], ["vertical", "Vertical", "9:16, numbers along the bottom: a phone"]].map(([k, l, t]) => <button key={k} type="button" className={`bp-mod-btn${layout === k ? " on" : ""}`} aria-pressed={layout === k} title={t} onClick={() => { picked.current = true; setLayout(k); }}>{l}</button>)}
                 </span>
               </div>
               <div className="bp-export-row">
@@ -370,11 +403,12 @@
                 {box("Title card", title, setTitle, "Two seconds of his name, the date and the pitches first")}
                 {box("The ball spinning", ball, setBall, "Each pitch's spin as Pitch Design draws it (made for Edgertronic video)")}
                 {box("Movement plot", plot, setPlot, "Where this pitch's IVB and HB sit among the session's")}
+                {box("Fill the frame", fill, setFill, "Zoom the video in to fill its area, trimming the edges, instead of showing all of it with bars beside it")}
                 <select className="bp-tag" value={rate} aria-label="Speed" onChange={(e) => setRate(Number(e.target.value))}>
                   <option value={1}>Speed as filmed</option><option value={0.5}>½ speed</option><option value={0.25}>¼ speed</option>
                 </select>
               </div>
-              <p className="timestamp-note">{chosen.length} pitch{chosen.length === 1 ? "" : "es"} with video. It's made on this {VE.isPhone() ? "phone" : "computer"} (about as long as the video runs; keep this tab open and in front) and goes to your downloads. Nothing is saved to the dashboard.</p>
+              <p className="timestamp-note">{chosen.length} pitch{chosen.length === 1 ? "" : "es"} with video. It's made on this {VE.isPhone() ? "phone" : "computer"} (about as long as the video runs, a little longer if this window is behind another; keep this tab open) and goes to your downloads. Nothing is saved to the dashboard.</p>
               {busy ? (
                 <div className="bp-export-busy">
                   <progress max={1} value={busy.f || 0} /> <span className="assess-row-note" role="status">{busy.text} {Math.round((busy.f || 0) * 100)}%</span>
@@ -502,5 +536,5 @@
     );
   }
 
-  window.BullpenVideo = { VideoBar, PitchVideo, CameraButton, removeFiles, hasClip, splitAt, splitByMotion, scanVideo, linkOf };
+  window.BullpenVideo = { VideoBar, PitchVideo, CameraButton, ExportDialog, removeFiles, hasClip, splitAt, splitByMotion, scanVideo, linkOf };
 })();
