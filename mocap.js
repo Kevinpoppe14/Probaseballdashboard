@@ -19,7 +19,8 @@
   // Which analysis and which tracking a saved session's numbers come from. Raise ANALYSIS_V when a change to analyze()
   // changes the numbers, and TRACK_V when a change to track() changes where the points land: sessions saved before
   // then show as older, and can be re-run (Saved sessions › Re-run, or Re-track from their kept video).
-  // (A session saved before these were kept counts as 1 of each.)
+  // (A session saved before these were kept counts as 1 of each.) A movement's own analysis can be newer than this:
+  // its kind's analysisV (mocap_kinds.js), so a change to one movement doesn't mark every other movement older.
   const ANALYSIS_V = 2, TRACK_V = 1;
 
   const el = (tag, attrs, ...kids) => {
@@ -702,7 +703,7 @@
       events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - z) * 1000)])),
       series: { t: thin(R.tReal.map((t) => (t - z) * 1000)), ...Object.fromEntries(Object.entries(S).map(([k, v]) => [k, thin(v)])) },
       sequence: R.seq ? R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })) : null, inOrder: R.seq ? R.inOrder : null,
-      analysisV: ANALYSIS_V,
+      analysisV: R.analysisV || ANALYSIS_V,
     };
   }
   const setupName = (s) => (s === "two" ? "Two cameras" : s === "edger" ? "Edgertronic" : "One camera");
@@ -1389,7 +1390,7 @@
     // Re-run: a session's kept points through the analysis as it is now (quick); its moments set by hand, fixed points
     // and settings stay. Re-track: its kept video through the pose model again first, at the same frames (a minute or
     // two each), for when the tracking itself has improved. Either way its saved numbers, curves and sequence are replaced.
-    const isOld = (rec) => (rec.analysisV || 1) < ANALYSIS_V;
+    const isOld = (rec) => (rec.analysisV || 1) < (kindOf(rec).analysisV || ANALYSIS_V);
     const trackOld = (rec) => (rec.trackV || 1) < TRACK_V;
     const canRerun = (rec) => !!(rec.store && rec.store.path);
     const canRetrack = (rec) => canRerun(rec) && !!rec.store.sideVideo && (rec.setup !== "two" || !!rec.store.behindVideo);

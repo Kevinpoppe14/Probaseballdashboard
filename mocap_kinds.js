@@ -442,41 +442,86 @@
     const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, pts, wpts, fr, Hpx, perSec } = A;
     const m = manual || {}, kindOf = variant || "cmj", single = kindOf === "slL" ? "L" : kindOf === "slR" ? "R" : null, broad = kindOf === "broad";
     const LEGS = { L: [P.lHip, P.lKn, P.lAn, P.lHeel, P.lToe], R: [P.rHip, P.rKn, P.rAn, P.rHeel, P.rToe] };
-    const legs = single ? [LEGS[single]] : [LEGS.L, LEGS.R];
+    // Which feet to go by. From the side the far foot is often hidden behind the near leg: the pose model barely sees it
+    // (low visibility), and the smoothing fills it in from where it was last seen, so it looks planted through the
+    // jump. Only feet seen about as clearly as the clearest one count (a single-leg jump goes by its jumping foot).
+    const footVis = (l) => mean(side.frames.map((f) => (f.p ? Math.min(f.p[l[3]][2], f.p[l[4]][2]) : 0)));
+    const allLegs = single ? [LEGS[single]] : [LEGS.L, LEGS.R], vis = allLegs.map(footVis), clearest = Math.max(...vis);
+    const legs = allLegs.filter((l, k) => vis[k] >= clearest - 0.2);
     const hips = pts.map(hipOf), hipY = hips.map((h) => h[1]);
     const mPx = heightIn ? (heightIn * 0.0254) / Hpx : null;
-    const low = (q) => Math.min(...legs.map((l) => Math.max(q[l[3]][1], q[l[4]][1]))); // the jumping foot (or the higher of two) at its lowest point
-    const lowY = pts.map(low);
-    const early = lowY.slice(0, Math.max(3, Math.round(n * 0.2))).slice().sort((a, b) => a - b);
-    const groundY = early[early.length >> 1];
-    // takeoff to landing: the longest stretch with the jumping foot or feet off the ground
-    const air = lowY.map((y) => y < groundY - 0.03 * Hpx);
+    const footY = (q, l) => Math.max(q[l[3]][1], q[l[4]][1]); // a foot's lowest point (heel or toe)
+    const median = (xs) => { const s = xs.filter(Number.isFinite).sort((a, b) => a - b); return s.length ? s[s.length >> 1] : NaN; };
+    // takeoff to landing, roughly first: the longest stretch with every counted foot well up off the ground of the
+    // clip's start
+    const early = Math.max(3, Math.round(n * 0.2));
+    const ground0 = legs.map((l) => median(pts.slice(0, early).map((q) => footY(q, l))));
+    const upFrom = (grounds) => (q) => Math.min(...legs.map((l, k) => grounds[k] - footY(q, l))); // + up, px
+    const rough = pts.map(upFrom(ground0));
     let best = null;
-    for (let i = 0; i < n;) { if (!air[i]) { i++; continue; } let j = i; while (j + 1 < n && air[j + 1]) j++; if (!best || j - i > best[1] - best[0]) best = [i, j]; i = j + 1; }
-    // (that stretch needs the foot well up to be sure of; its ends are then taken out to where the foot first leaves and
-    // last touches the ground)
+    for (let i = 0; i < n;) { if (!(rough[i] > 0.03 * Hpx)) { i++; continue; } let j = i; while (j + 1 < n && rough[j + 1] > 0.03 * Hpx) j++; if (!best || j - i > best[1] - best[0]) best = [i, j]; i = j + 1; }
+    // Then exactly: each foot's ground taken just before takeoff and just after landing (a foot's point drifts a little
+    // over a clip, and seen from above a foot lands lower in the picture than where it stood), and takeoff and landing
+    // where the feet cross about an inch (1.2% of height) above it, between frames: at 30 fps a frame is 33 ms, an inch
+    // and a half of jump height, so the crossing is placed between the frame before and the frame after.
+    let fTO = null, fLA = null;
     if (best) {
-      const off = (i) => lowY[i] < groundY - 0.006 * Hpx;
-      while (best[0] > 0 && off(best[0] - 1)) best[0]--;
-      while (best[1] < n - 1 && off(best[1] + 1)) best[1]++;
+      const near = (from, to) => legs.map((l) => median(pts.slice(Math.max(0, from), Math.max(1, Math.min(n, to))).map((q) => footY(q, l))));
+      const before = near(best[0] - fr(0.35), best[0] - fr(0.08)), after = near(best[1] + fr(0.12), best[1] + fr(0.4));
+      const half = (best[0] + best[1]) / 2;
+      const up = pts.map((q, i) => upFrom(legs.map((_, k) => (i <= half ? (Number.isFinite(before[k]) ? before[k] : ground0[k]) : (Number.isFinite(after[k]) ? after[k] : ground0[k]))))(q));
+      const lvl = 0.012 * Hpx;
+      let a = best[0], b = best[1];
+      while (a > 0 && up[a - 1] > lvl) a--;
+      while (b < n - 1 && up[b + 1] > lvl) b++;
+      fTO = a > 0 && up[a] > up[a - 1] ? a - 1 + (lvl - up[a - 1]) / (up[a] - up[a - 1]) : a;
+      fLA = b < n - 1 && up[b] > up[b + 1] ? b + (up[b] - lvl) / (up[b] - up[b + 1]) : b + 1;
+      best = [a, b];
     }
+    // takeoff is the first frame in the air and landing the first back on the ground (either set by hand overrides
+    // the found one, and is then timed at its frame)
     const TO = m.TO != null ? m.TO : best ? best[0] : Math.round(n * 0.5);
     const LA = m.LA != null ? m.LA : best ? Math.min(n - 1, best[1] + 1) : Math.round(n * 0.7);
+    if (m.TO != null || fTO == null) fTO = TO;
+    if (m.LA != null || fLA == null) fLA = LA;
+    const clampI = (i) => Math.max(0, Math.min(n - 1, i));
+    const at = (xs, f) => { const i = clampI(Math.floor(f)), j = clampI(i + 1), t = f - Math.floor(f); return xs[i] + (xs[j] - xs[i]) * t; }; // between frames
     const PK = m.PK != null ? m.PK : argBest(hipY, TO, LA, (a, b) => a < b);
     const LO = m.LO != null ? m.LO : argBest(hipY, Math.max(0, TO - fr(1.5)), TO, (a, b) => a > b);
     const standY = (() => { const s = hipY.slice(0, Math.max(3, Math.min(LO, Math.round(n * 0.15)))).slice().sort((a, b) => a - b); return s[s.length >> 1]; })();
+    const hipVy = smoothSeries(deriv(hipY, dt).map((v) => (v == null ? null : -v / Hpx)), sig * 2); // heights a second, + up
+    // The start of the countermovement: back from the bottom to where the hips were last near standing, and no earlier
+    // than where they stop sinking at more than 3% of his height a second. A slow settle before the jump (the hips
+    // easing an inch or two lower over a second or more) puts no force on a plate, so it isn't the start.
     let ST = m.ST != null ? m.ST : 0;
-    if (m.ST == null) for (let i = LO; i >= 0; i--) if (hipY[i] <= standY + 0.015 * Hpx) { ST = i; break; }
+    if (m.ST == null) {
+      for (let i = LO; i >= 0; i--) if (hipY[i] <= standY + 0.015 * Hpx) { ST = i; break; }
+      let k = LO;
+      while (k > 0 && hipVy[k - 1] != null && hipVy[k - 1] < -0.03) k--;
+      ST = Math.max(ST, Math.min(k, LO));
+    }
     const dir = broad ? (Math.sign(hips[LA][0] - hips[TO][0]) || 1) : (Math.sign(pts[LO][legs[0][4]][0] - pts[LO][legs[0][3]][0]) || 1); // the way he jumps, or faces
-    const flight = tReal[LA] - tReal[TO];
-    const heightM = flight > 0 ? (9.81 * flight * flight) / 8 : null;
+    const flight = at(tReal, fLA) - at(tReal, fTO);
+    const heightFT = flight > 0 ? (9.81 * flight * flight) / 8 : null;
+    // Jump height as a force plate measures it: how far his center of mass rises after takeoff. Flight time gives that
+    // only if he lands as he took off; most land with the knees and ankles already bending, the hips lower than at
+    // takeoff, which adds time in the air. With his height known, that drop d (the hips at landing against takeoff)
+    // is measured and the rise h solved from the flight time: t = √(2h/g) + √(2(h + d)/g). (Landing a frame late
+    // lengthens the flight and the drop together, so this holds up where flight time alone doesn't.)
+    const drop = mPx && !broad ? (at(hipY, fLA) - at(hipY, fTO)) * mPx : null;
+    let heightM = heightFT;
+    if (heightFT != null && drop != null && Math.abs(drop) > 0.005) {
+      let lo = 0, hi = 2;
+      for (let k = 0; k < 50; k++) { const h = (lo + hi) / 2; if (Math.sqrt((2 * h) / 9.81) + Math.sqrt((2 * Math.max(0, h + drop)) / 9.81) > flight) hi = h; else lo = h; }
+      heightM = lo;
+    }
     const ms = (i, j) => Math.round((tReal[j] - tReal[i]) * 1000);
+    const msTO = (i) => Math.round((at(tReal, fTO) - tReal[i]) * 1000); // from frame i to takeoff
     const kneeFlex = pts.map((q) => mean(legs.map((l) => flexAt(q, l[0], l[1], l[2]))));
     const hipFlex = pts.map((q) => mean(legs.map((l) => flexAt(q, l[0] === P.lHip ? P.lSh : P.rSh, l[0], l[1])))); // trunk to thigh, each side
     const trunkLean = pts.map((q) => leanOf(hipOf(q), shOf(q), dir));
     const shin = pts.map((q) => mean(legs.map((l) => leanOf(q[l[2]], q[l[1]], dir))));
     const depthPx = hipY[LO] - standY;
-    const hipVy = smoothSeries(deriv(hipY, dt).map((v) => (v == null ? null : -v / Hpx)), sig * 2); // heights a second, + up
     const landKnee = Math.max(...kneeFlex.slice(LA, Math.min(n, LA + fr(0.3))).filter((x) => x != null));
     let distance = null, angle = null;
     if (broad) {
@@ -487,17 +532,20 @@
     }
     const name = single ? `Single-leg (${single === "L" ? "left" : "right"})` : broad ? "Broad jump" : "Countermovement jump";
     const metrics = [
-      metric("height", "Jump height (from flight time)", heightM == null ? null : r1(inches(heightM)), "in", "", "From the time in the air: g × t² ÷ 8. Exact only if he lands as he took off (no tucked legs)."),
+      heightM !== heightFT
+        ? metric("height", "Jump height", r1(inches(heightM)), "in", "", `How far his center of mass rises after takeoff, as a force plate measures it: from the time in the air, allowing for his hips landing ${r1(inches(drop))} in ${drop >= 0 ? "lower" : "higher"} than at takeoff.`)
+        : metric("height", "Jump height (from flight time)", heightM == null ? null : r1(inches(heightM)), "in", "", `From the time in the air: g × t² ÷ 8. Exact only if he lands as he took off (no tucked legs)${broad ? "" : ": enter his height and it allows for how he lands"}.`),
       metric("heightCm", "Jump height", heightM == null ? null : r1(heightM * 100), "cm", "", ""),
-      metric("flight", "Flight time", ms(TO, LA), "ms", "", "Takeoff to landing."),
+      heightM !== heightFT ? metric("heightFT", "Jump height from flight time alone", r1(inches(heightFT)), "in", "", "g × t² ÷ 8, as if he landed as he took off: higher than the jump height when he lands with his knees and ankles already bending.") : null,
+      metric("flight", "Flight time", Math.round(flight * 1000), "ms", "", "Takeoff to landing."),
       broad ? metric("distance", "Distance", distance == null ? null : r1(inches(distance)), "in", "", "Front toe at takeoff to the back heel on landing.") : null,
       broad ? metric("distanceFt", "Distance", ftIn(distance), "", "", "") : null,
       broad ? metric("angle", "Takeoff angle", r1(angle), "° above level", "", "The hips' direction of travel at takeoff.") : null,
       metric("depth", "Countermovement depth", mPx ? r1(inches(depthPx * mPx)) : r1((depthPx / Hpx) * 100), mPx ? "in" : "% of height", "", "How far the hips drop from standing to the bottom."),
-      metric("ttt", "Time to takeoff", ms(ST, TO), "ms", "", "From the hips starting down to leaving the ground."),
+      metric("ttt", "Time to takeoff", msTO(ST), "ms", "", "From the hips starting down to leaving the ground. Video can't see the first instant of the dip that a force plate feels, so it reads a little shorter than the plate's."),
       metric("ecc", "Down phase", ms(ST, LO), "ms", "", "Start to the bottom of the countermovement."),
-      metric("con", "Up phase", ms(LO, TO), "ms", "", "The bottom to takeoff."),
-      !broad && heightM != null ? metric("rsi", "RSI-modified", Math.round((heightM / Math.max(0.05, tReal[TO] - tReal[ST])) * 100) / 100, "", "", "Jump height (m) ÷ time to takeoff (s): how much jump for how much time.") : null,
+      metric("con", "Up phase", msTO(LO), "ms", "", "The bottom to takeoff."),
+      !broad && heightM != null ? metric("rsi", "RSI-modified", Math.round((heightM / Math.max(0.05, msTO(ST) / 1000)) * 100) / 100, "", "", "Jump height (m) ÷ time to takeoff (s): how much jump for how much time.") : null,
       metric("kneeLO", "Knee flexion at the bottom", r1(kneeFlex[LO]), "°", "", ""),
       metric("hipLO", "Hip flexion at the bottom", r1(hipFlex[LO]), "°", "", "Trunk to thigh."),
       metric("trunkLO", "Trunk lean at the bottom", r1(trunkLean[LO]), "° forward", "", ""),
@@ -509,7 +557,7 @@
     // Sayers' equation (from jump height and body mass, for a two-leg countermovement jump); the up phase's average
     // force from getting his mass from a stop to takeoff speed in its time, F = m(g + v/t), and its average power F·v/2;
     // peak takeoff and landing forces from his center of mass
-    const conT = Math.max(0.05, tReal[TO] - tReal[LO]);
+    const conT = Math.max(0.05, msTO(LO) / 1000);
     const vTo = broad ? (flight > 0 && distance != null ? Math.hypot(distance / flight, (9.81 * flight) / 2) : null) : heightM != null ? Math.sqrt(2 * 9.81 * heightM) : null;
     const kg = weightKg || null;
     const meanF = vTo != null ? 1 + vTo / (9.81 * conT) : null; // body weights
@@ -537,7 +585,8 @@
         ["Knee flexion", "°", kneeFlex, "#3fa7ff", { ys: hipFlex, color: "#ff9f1c", label: "hip (knee in blue)" }],
         [mPx ? "Hip vertical speed" : "Hip vertical speed (heights a second)", mPx ? "m/s" : "ht/s", mPx ? hipVy.map((v) => (v == null ? null : v * Hpx * mPx)) : hipVy, "#c77dff"],
       ],
-      hint: `${name}. ${best ? "" : "No time in the air was found: check that his feet are in the picture throughout. "}${perSec < 100 ? `This clip runs ${Math.round(perSec)} frames a second, so flight time (and the jump height from it) can be off by a frame: film in Slo-Mo for a sharper number. ` : ""}${mPx ? "" : "Enter his height for depth and distance in inches. "}Joint angles from video are good to about 5 to 10 degrees.`,
+      analysisV: 3,
+      hint: `${name}. ${best ? "" : "No time in the air was found: check that his feet are in the picture throughout. "}${legs.length < allLegs.length ? "Takeoff and landing go by his near foot: the far one is hidden behind the near leg for much of the jump. " : ""}${perSec < 100 ? `This clip runs ${Math.round(perSec)} frames a second, so flight time (and the jump height from it) can be off by a frame: film in Slo-Mo for a sharper number. ` : ""}${mPx ? "" : "Enter his height for depth and distance in inches. "}Joint angles from video are good to about 5 to 10 degrees.`,
     };
   }
 
@@ -636,6 +685,7 @@
       heightHint: "Height turns the picture into inches for depth and distance (jump height comes from flight time and needs no height). \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the jump",
       analyze: analyzeJump,
+      analysisV: 3, // 3: the hidden far foot left out, takeoff and landing between frames, the landing drop allowed for
       relate: relateForcePlate,
       historyKeys: ["height", "distance", "power", "forceUp", "depth", "ttt", "rsi"],
     },
