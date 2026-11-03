@@ -2002,7 +2002,8 @@
       return el("div", { class: "mc-history" }, el("h3", null, "Saved sessions"), rerunBar,
         el("div", { class: "mc-scroll" }, el("table", { class: "mc-table" },
           el("thead", null, el("tr", null, el("th", null, "Date"), el("th", null, "Setup"), keys.map((key) => el("th", null, labelOf(key))), el("th", null, "Notes"), el("th", null, "Analysis"), el("th", null, ""))),
-          el("tbody", null, list.slice(0, 20).map((r) => el("tr", null, el("td", null, r.date || ""), el("td", null, (kind.setups.find((s) => s[0] === (r.setup || "one")) || [0, setupName(r.setup)])[1], variantName(r.variant) ? el("small", null, ` · ${variantName(r.variant)}`) : null),
+          // a click anywhere on a row opens its report (its own buttons do their own thing)
+          el("tbody", null, list.slice(0, 20).map((r) => el("tr", { class: "mc-row-open", tabindex: "0", title: "Open the report", onclick: (e) => { if (!e.target.closest("button")) openSaved(r); }, onkeydown: (e) => { if (e.key === "Enter" && e.target === e.currentTarget) openSaved(r); } }, el("td", null, r.date || ""), el("td", null, (kind.setups.find((s) => s[0] === (r.setup || "one")) || [0, setupName(r.setup)])[1], variantName(r.variant) ? el("small", null, ` · ${variantName(r.variant)}`) : null),
             keys.map((key) => el("td", null, r.metrics && r.metrics[key] != null ? String(r.metrics[key]) : "–")), el("td", { class: "mc-note-cell" }, r.note || ""),
             el("td", null, status(r)),
             el("td", { class: "mc-row-btns" },

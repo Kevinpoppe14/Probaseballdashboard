@@ -65,6 +65,9 @@
 .mc-swatch { display: inline-block; width: 12px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .mc-seq-table { max-width: 640px; margin-top: 6px; }
 .mc-keep { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; color: var(--mc-dim); }
+.mc-row-open { cursor: pointer; }
+.mc-row-open:hover td, .mc-row-open:focus-visible td { background: rgba(127, 127, 127, 0.12); }
+.mc-row-open:focus-visible { outline: 2px solid var(--mc-accent); outline-offset: -2px; }
 .mc-row-btns { white-space: nowrap; }
 .mc-row-btns .mc-btn { margin-right: 4px; }
 .mc-canvas.fixing { cursor: crosshair; touch-action: none; }
