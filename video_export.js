@@ -175,10 +175,16 @@
     const SCALES = L.plain ? [1] : [1, 4 / 3, 2];
     let scale = SCALES.find((s) => s >= want - 0.01) || SCALES[SCALES.length - 1], cfg = null;
     const bitrateAt = (s) => Math.round((L.plain ? 8_000_000 : 16_000_000) * ((L.W * s * L.H * s) / (1920 * 1080)));
+    // A tall video is stored as a phone camera stores one: the picture on its side with a note to turn it upright when
+    // played. iPhones (and plenty else) won't play an H.264 picture taller than about 2300, so a 4K vertical stored
+    // standing up didn't play on the phone at all. (A plain video, an exercise clip, is never past 1920 tall: it's
+    // stored upright, as the exercise library has always had them.)
+    const turned = !L.plain && L.H > L.W;
     if (canEncode()) {
       for (const s of SCALES.filter((x) => x <= scale).reverse()) {
         for (const codec of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.420033", "avc1.420028"]) {
-          const c = { codec, width: Math.round(L.W * s), height: Math.round(L.H * s), bitrate: bitrateAt(s), framerate: FPS };
+          const w = Math.round(L.W * s), h = Math.round(L.H * s);
+          const c = { codec, width: turned ? h : w, height: turned ? w : h, bitrate: bitrateAt(s), framerate: FPS };
           try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch (e) { /* try the next */ }
         }
         if (cfg) { scale = s; break; }
@@ -211,7 +217,10 @@
           if ((await AudioEncoder.isConfigSupported(acfg)).supported) audio = { ab, ch, acfg };
         } catch (e) { audio = null; }
       }
-      const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: cv.width, height: cv.height }, ...(audio ? { audio: { codec: "aac", sampleRate: audio.acfg.sampleRate, numberOfChannels: audio.ch } } : {}), fastStart: "in-memory", firstTimestampBehavior: "offset" });
+      // (on its side: the frame drawn upright is copied turned a quarter left, and the file says to turn it back right)
+      const side = turned ? document.createElement("canvas") : null, sg2 = side && side.getContext("2d");
+      if (side) { side.width = cv.height; side.height = cv.width; }
+      const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: cfg.width, height: cfg.height, rotation: turned ? 90 : 0 }, ...(audio ? { audio: { codec: "aac", sampleRate: audio.acfg.sampleRate, numberOfChannels: audio.ch } } : {}), fastStart: "in-memory", firstTimestampBehavior: "offset" });
       let failed = null;
       const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
       enc.configure(cfg);
@@ -235,7 +244,8 @@
         const ts = Math.round(sec * 1e6);
         if (ts <= last) return; // the same moment twice (a repeated frame): once is enough
         last = ts;
-        const frame = new VideoFrame(cv, { timestamp: ts });
+        if (side) { sg2.setTransform(1, 0, 0, 1, 0, 0); sg2.translate(0, cv.width); sg2.rotate(-Math.PI / 2); sg2.drawImage(cv, 0, 0); }
+        const frame = new VideoFrame(side || cv, { timestamp: ts });
         const key = sec - lastKey >= 2;
         if (key) lastKey = sec;
         enc.encode(frame, { keyFrame: key });
@@ -339,15 +349,22 @@
 
   // to the phone's or computer's downloads (a phone that can share files offers its share sheet: Save Video there
   // puts it in the camera roll)
+  // A phone only opens its share sheet straight after a tap, and making a video takes longer than that: so on a phone
+  // the share sheet is tried, and when the phone says no (NotAllowedError) it returns "tap" without downloading, for
+  // the caller to show a Save button whose own tap opens the sheet. Otherwise it returns "done".
   async function download(blob, name, { share = false } = {}) {
     const file = typeof File === "function" ? new File([blob], name, { type: blob.type }) : null;
     if (share && file && navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e && e.name === "AbortError") return; }
+      try { await navigator.share({ files: [file], title: name }); return "done"; } catch (e) {
+        if (e && e.name === "AbortError") return "done";
+        if (e && e.name === "NotAllowedError") return "tap";
+      }
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    return "done";
   }
   const fileName = (who, what, date, blob) => `${String(who || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${what}${date ? `-${date}` : ""}.${/webm/.test((blob && blob.type) || "") ? "webm" : "mp4"}`;
   const isPhone = () => /iPhone|iPad|Android/i.test(navigator.userAgent || "");
