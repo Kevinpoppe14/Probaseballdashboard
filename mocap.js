@@ -1863,7 +1863,7 @@
         vidStop = false; vidCancel.hidden = false;
         const who = athlete.name || "", what = kind.label || "Pitching";
         const rows = (R.metrics || []).filter((m) => m.value != null && m.value !== "").slice(0, 9)
-          .map((m) => [m.label.replace(/ \(estimate\)$/, ""), `${m.value}${m.unit ? ` ${String(m.unit).replace(/^° .*/, "°")}` : ""}`]);
+          .map((m) => { const u = String(m.unit || "").replace(/^° .*/, "°"); return [m.label.replace(/ \(estimate\)$/, ""), `${m.value}${!u ? "" : /^[°%]/.test(u) ? u : ` ${u}`}`]; });
         const t0 = tr.frames[0].t, t1 = tr.frames[tr.frames.length - 1].t;
         try {
           const blob = await VE.render({

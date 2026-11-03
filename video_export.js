@@ -86,13 +86,29 @@
     if (rows.length) {
       g.strokeStyle = LINE; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + colW, y); g.stroke();
       y += 16;
-      const cols = vertical ? 3 : 2, cw = colW / cols, rh = vertical ? 66 : 70;
-      rows.forEach(([label, value], i) => {
-        const cx = x + (i % cols) * cw, cy = y + Math.floor(i / cols) * rh;
-        g.fillStyle = DIM; fitText(g, String(label).toUpperCase(), cw - 12, 17, 700); g.fillText(String(label).toUpperCase(), cx, cy + 18);
-        g.fillStyle = "#fff"; fitText(g, String(value), cw - 12, vertical ? 34 : 32, 700); g.fillText(String(value), cx, cy + 54);
-      });
-      y += Math.ceil(rows.length / cols) * rh + 8;
+      // short labels (a pitch's): label over value in columns; long ones (a delivery's): a line each, label then value
+      const up = (s) => String(s).toUpperCase();
+      g.font = `700 16px "Helvetica Neue", Arial, sans-serif`;
+      const wide = rows.some(([label]) => g.measureText(up(label)).width > colW / (vertical ? 3 : 2) - 14);
+      if (!wide) {
+        const cols = vertical ? 3 : 2, cw = colW / cols, rh = vertical ? 66 : 70;
+        rows.forEach(([label, value], i) => {
+          const cx = x + (i % cols) * cw, cy = y + Math.floor(i / cols) * rh;
+          g.fillStyle = DIM; fitText(g, up(label), cw - 12, 17, 700); g.fillText(up(label), cx, cy + 18);
+          g.fillStyle = "#fff"; fitText(g, String(value), cw - 12, vertical ? 34 : 32, 700); g.fillText(String(value), cx, cy + 54);
+        });
+        y += Math.ceil(rows.length / cols) * rh + 8;
+      } else {
+        const cols = vertical ? 2 : 1, cw = colW / cols, rh = vertical ? 46 : 50, gap = vertical ? 24 : 0;
+        rows.forEach(([label, value], i) => {
+          const cx = x + (i % cols) * (cw + gap / cols), cy = y + Math.floor(i / cols) * rh, w = cw - gap;
+          g.textAlign = "right"; g.fillStyle = "#fff"; fitText(g, String(value), w * 0.42, vertical ? 30 : 28, 700); g.fillText(String(value), cx + w, cy + 32);
+          const vw = g.measureText(String(value)).width;
+          g.textAlign = "left"; g.fillStyle = DIM; fitText(g, up(label), w - vw - 14, 16, 700); g.fillText(up(label), cx, cy + 30);
+          g.strokeStyle = LINE; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy + rh - 6); g.lineTo(cx + w, cy + rh - 6); g.stroke();
+        });
+        y += Math.ceil(rows.length / cols) * rh + 8;
+      }
     }
     // widgets (the spinning ball, a movement plot): squares side by side, clear of the logo
     const widgets = (p.widgets || []).filter(Boolean);
