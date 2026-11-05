@@ -487,7 +487,7 @@
           }))
         : el("div", { class: "kpi-note" }, pool.length ? (mocapView.show === "done" ? `Nobody here has a ${label.toLowerCase()} capture yet.` : `Everyone here has a ${label.toLowerCase()} capture.`) : mocapView.scope === "board" ? "Add athletes to the board first, or look at everyone." : "No active athletes here.");
     mocapEl.replaceChildren(...[
-      el("h2", { class: "speed-h" }, "Motion Capture", el("small", null, mocapRecs ? `${done} of ${pool.length} ${mocapView.scope === "board" ? "on the board" : locFilter ? `at ${locFilter}` : "active athletes"} have a ${label.toLowerCase()}${mocapView.variant ? ` (${vName(mocapView.variant).toLowerCase()})` : ""} capture` : "")),
+      el("h2", { class: "speed-h" }, "Motion Capture", el("small", null, mocapRecs ? `${done} of ${pool.length} ${mocapView.scope === "board" ? "on the board" : locFilter ? `at ${locFilter}` : "active athletes"} have a ${label.toLowerCase()}${mocapView.variant ? ` (${vName(mocapView.variant).toLowerCase()})` : ""}${mocapView.kind === "sprintassess" ? "" : " capture"}` : "")),
       el("div", { class: "mocap-controls" },
         seg("kind", MOCAP_KINDS.filter(([k]) => mocapOffered(k))),
         variants ? el("select", { class: "mocap-variant", "aria-label": "Which kind", onchange: (e) => { mocapView.variant = e.target.value; drawMocap(); } },
