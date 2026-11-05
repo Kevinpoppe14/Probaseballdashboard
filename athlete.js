@@ -495,9 +495,8 @@
 
   // ---- a video for an exercise that has none (signed-in coaches only) ----------------------------------
   // A camera button beside the switch button on an exercise with no video: film it there and then, or choose a video
-  // already on the phone or computer. The DST logo is put in its bottom right corner first (video_export.js, made on
-  // this device, sound kept; the original goes up as it is where this browser can't), then the clip is stored and
-  // becomes the exercise's video in the exercise library (the exercise is added to the library if it isn't there),
+  // already on the phone or computer. The clip is stored as filmed (one too big for the library is made smaller first)
+  // and becomes the exercise's video in the exercise library (the exercise is added to the library if it isn't there),
   // so it plays wherever the exercise is programmed, for every athlete.
   let canFilm = false; // set once we know a coach is signed in (Coach Mode, or a coach's own link after signing in)
   const CAMERA = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3z"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>';
@@ -514,26 +513,27 @@
     overlay.replaceChildren(el("div", { class: "sheet" },
       el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
       el("h2", null, `Video for ${name}`),
-      el("div", { class: "swap-note" }, "Film it now, or choose a video already on this phone or computer. The DST logo goes in its bottom right corner, and it becomes this exercise's video everywhere it's programmed."),
+      el("div", { class: "swap-note" }, "Film it now, or choose a video already on this phone or computer. It becomes this exercise's video everywhere it's programmed."),
       el("div", { class: "swap-actions" },
         el("button", { class: "primary", onclick: () => pick(true) }, "Film it"),
         el("button", { onclick: () => pick(false) }, "Choose a video"))));
     overlay.className = "overlay show";
   }
   async function addVideo(e, name, file) {
-    const note = el("div", { class: "swap-note" }, "Adding the DST logo…");
+    const note = el("div", { class: "swap-note" }, "Uploading…");
     const actions = el("div", { class: "swap-actions" });
     overlay.replaceChildren(el("div", { class: "sheet" }, el("h2", null, `Video for ${name}`), note, actions));
     overlay.className = "overlay show";
-    let toSend = file, branded = false;
-    const VE = window.VideoExport;
-    if (VE && VE.supported()) {
+    // The clip goes up as it was filmed. Only one too big for the library (a long or 4K clip) is made again first, on
+    // this device, smaller (video_export.js, sound kept; it takes about as long as the clip runs).
+    let toSend = file;
+    const VE = window.VideoExport, maxMb = window.ExerciseVideo.MAX_MB;
+    if (file.size / 1048576 > maxMb && VE && VE.supported()) {
       const src = URL.createObjectURL(file);
       try {
         const blob = await VE.render({ layout: "plain", segments: [{ url: src, start: 0, end: null, rate: 1 }], audioFrom: file,
-          onProgress: (t, f) => { note.textContent = `Adding the DST logo… ${Math.round(f * 100)}%. Keep this screen open.`; } });
+          onProgress: (t, f) => { note.textContent = `This clip is ${Math.round(file.size / 1048576)} MB, more than the library takes: making it smaller… ${Math.round(f * 100)}%. Keep this screen open.`; } });
         toSend = new File([blob], `${(name || "exercise").replace(/[^a-z0-9]+/gi, "-")}.mp4`, { type: "video/mp4" });
-        branded = true;
       } catch (err) { toSend = file; } finally { URL.revokeObjectURL(src); }
     }
     note.textContent = `Uploading… (${Math.max(1, Math.round(toSend.size / 1048576))} MB). Keep this screen open.`;
@@ -546,7 +546,7 @@
       else data.exercises.push({ name: entry.name || name, videoUrl: entry.videoUrl, cues: entry.cues || "" });
       closeVideo();
       render();
-      showStatus(entry.videoUrl === url ? (branded ? "Video added, with the DST logo" : "Video added (this browser couldn't add the logo)") : "This exercise already had a video");
+      showStatus(entry.videoUrl === url ? "Video added" : "This exercise already had a video");
     } catch (err) {
       note.textContent = (err && err.message) || "Could not upload the video. Check your connection and try again.";
       actions.replaceChildren(el("button", { class: "primary", onclick: () => filmVideo(e) }, "Try again"), el("button", { onclick: closeVideo }, "Close"));
