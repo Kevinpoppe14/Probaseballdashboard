@@ -37,7 +37,17 @@
 </div>
 
 <script>
+  // Only while the page is starting (React and the dashboard's scripts loading): once the dashboard is up, an error
+  // here (one in a click handler, or the browser's harmless "ResizeObserver loop" notice when a chart resizes) is
+  // logged and kept in window.__dashboardErrors, and the page is left as it is; it used to replace a working
+  // dashboard with "Failed to load" until a refresh.
   window.addEventListener("error", function (e) {
+    var msg = String((e && e.message) || "");
+    if (/ResizeObserver loop/i.test(msg)) return;
+    if (window.__dashboardMounted) {
+      (window.__dashboardErrors = window.__dashboardErrors || []).push({ at: new Date().toISOString(), message: msg, where: (e.filename || "") + ":" + (e.lineno || ""), stack: String((e.error && e.error.stack) || "") });
+      return;
+    }
     var root = document.getElementById("root");
     root.innerHTML =
       '<div style="padding:40px;font-family:sans-serif;color:#f87171;white-space:pre-wrap;">' +
@@ -10052,7 +10062,30 @@ function Root() {
   return <App userEmail={session.user.email} onLogout={() => window.supabaseClient.auth.signOut()} />;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+// A part of the page that throws while drawing shows what went wrong (and a way back) instead of taking the whole
+// dashboard down with it; the error is kept in window.__dashboardErrors for working out what happened.
+class PageErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    (window.__dashboardErrors = window.__dashboardErrors || []).push({ at: new Date().toISOString(), message: String((error && error.message) || error), stack: String((error && error.stack) || ""), component: String((info && info.componentStack) || "").slice(0, 2000) });
+    console.error("Dashboard: a part of the page failed to draw", error, info);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{ padding: 40, fontFamily: "sans-serif", color: "var(--text, #eee)" }}>
+        <h2 style={{ marginTop: 0 }}>Something on this page went wrong</h2>
+        <p style={{ color: "var(--text-dim, #9a9a9a)" }}>Everything saved before this is safe. Try again, or reload the page.</p>
+        <pre style={{ whiteSpace: "pre-wrap", color: "#f87171", fontSize: 13 }}>{String((this.state.error && this.state.error.message) || this.state.error)}</pre>
+        <button className="btn btn-primary" onClick={() => this.setState({ error: null })}>Try again</button>{" "}
+        <button className="btn btn-secondary" onClick={() => window.location.reload()}>Reload</button>
+      </div>
+    );
+  }
+}
+window.__dashboardMounted = true; // from here on, the page-wide error handler (top of the page) leaves the page alone
+ReactDOM.createRoot(document.getElementById("root")).render(<PageErrorBoundary><Root /></PageErrorBoundary>);
 </script>
 </body>
 </html>
