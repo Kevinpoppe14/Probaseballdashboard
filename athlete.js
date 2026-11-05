@@ -461,7 +461,9 @@
         : embed
           ? el("div", { class: `video${embed.vertical ? " vertical" : ""}` }, el("iframe", { src: embed.src, title: info.name, allow: "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture", allowfullscreen: true, referrerpolicy: "strict-origin-when-cross-origin" }))
           : info.videoUrl ? el("a", { href: info.videoUrl, target: "_blank", rel: "noopener" }, "Open the video") : null,
-      info.cues ? el("div", { class: "cues" }, info.cues) : null));
+      info.cues ? el("div", { class: "cues" }, info.cues) : null,
+      // a signed-in coach can film or choose a new one, which takes this one's place everywhere
+      canFilm && info.videoUrl ? el("div", { class: "swap-actions" }, el("button", { onclick: () => filmVideo(info, true) }, "Replace video")) : null));
     overlay.className = "overlay show";
   };
   // a tap outside the sheet closes it; outside a timer it shrinks the timer to its bar instead (openTimer), so the
@@ -500,26 +502,29 @@
   // so it plays wherever the exercise is programmed, for every athlete.
   let canFilm = false; // set once we know a coach is signed in (Coach Mode, or a coach's own link after signing in)
   const CAMERA = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3z"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>';
-  function filmVideo(e) {
+  // `replace`: the exercise has a video already, and the new one takes its place (Replace video, in the video's sheet)
+  function filmVideo(e, replace = false) {
     const name = (e.name || "").trim();
     // the camera, or the phone's or computer's own videos (each opened by its tap, as the browser requires)
     const pick = (camera) => {
       document.querySelectorAll("input.film-input").forEach((x) => x.remove()); // one left over from a cancelled camera
       const input = el("input", { type: "file", class: "film-input", accept: "video/*", capture: camera ? "environment" : null, hidden: true });
       document.body.append(input);
-      input.addEventListener("change", () => { const file = input.files && input.files[0]; input.remove(); if (file) addVideo(e, name, file); });
+      input.addEventListener("change", () => { const file = input.files && input.files[0]; input.remove(); if (file) addVideo(e, name, file, replace); });
       input.click();
     };
     overlay.replaceChildren(el("div", { class: "sheet" },
       el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
-      el("h2", null, `Video for ${name}`),
-      el("div", { class: "swap-note" }, "Film it now, or choose a video already on this phone or computer. It becomes this exercise's video everywhere it's programmed."),
+      el("h2", null, `${replace ? "New video" : "Video"} for ${name}`),
+      el("div", { class: "swap-note" }, replace
+        ? "Film a new one now, or choose a video already on this phone or computer. It replaces this exercise's video everywhere it's programmed, for every athlete."
+        : "Film it now, or choose a video already on this phone or computer. It becomes this exercise's video everywhere it's programmed."),
       el("div", { class: "swap-actions" },
         el("button", { class: "primary", onclick: () => pick(true) }, "Film it"),
         el("button", { onclick: () => pick(false) }, "Choose a video"))));
     overlay.className = "overlay show";
   }
-  async function addVideo(e, name, file) {
+  async function addVideo(e, name, file, replace = false) {
     const note = el("div", { class: "swap-note" }, "Uploading…");
     const actions = el("div", { class: "swap-actions" });
     overlay.replaceChildren(el("div", { class: "sheet" }, el("h2", null, `Video for ${name}`), note, actions));
@@ -540,16 +545,16 @@
     try {
       const url = await window.ExerciseVideo.upload(toSend, name);
       note.textContent = "Adding it to the exercise library…";
-      const entry = await window.ExerciseVideo.attach(name, url);
+      const entry = await window.ExerciseVideo.attach(name, url, replace);
       const info = exerciseInfo(name);
       if (info) { info.videoUrl = entry.videoUrl; info.cues = info.cues || entry.cues; }
       else data.exercises.push({ name: entry.name || name, videoUrl: entry.videoUrl, cues: entry.cues || "" });
       closeVideo();
       render();
-      showStatus(entry.videoUrl === url ? "Video added" : "This exercise already had a video");
+      showStatus(entry.videoUrl === url ? (replace ? "Video replaced" : "Video added") : "This exercise already had a video");
     } catch (err) {
       note.textContent = (err && err.message) || "Could not upload the video. Check your connection and try again.";
-      actions.replaceChildren(el("button", { class: "primary", onclick: () => filmVideo(e) }, "Try again"), el("button", { onclick: closeVideo }, "Close"));
+      actions.replaceChildren(el("button", { class: "primary", onclick: () => filmVideo(e, replace) }, "Try again"), el("button", { onclick: closeVideo }, "Close"));
     }
   }
 
