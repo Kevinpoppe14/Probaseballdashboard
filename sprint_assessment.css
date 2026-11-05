@@ -1,0 +1,87 @@
+/* Sprint Assessment (sprint_assessment.js): the dashboard's Movement › Sprint Assessment, Coach Mode's Motion Capture
+   and a coach's phone app. Its colors come from whichever page it's on. */
+.sa {
+  --sa-line: var(--border, var(--line, #3a3a3a));
+  --sa-dim: var(--text-dim, var(--dim, #9a9a9a));
+  --sa-text: var(--text, #eee);
+  --sa-accent: var(--dst-red, var(--accent, #b5283a));
+  --sa-panel: var(--panel-2, var(--surface-muted, rgba(127, 127, 127, 0.08)));
+  color: var(--sa-text);
+}
+.sa input:not([type="checkbox"]), .sa select, .sa textarea { font-size: 16px; color: var(--sa-text); background: var(--sa-panel); border: 1px solid var(--sa-line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; }
+.sa input:not([type="checkbox"]), .sa select { min-height: 40px; }
+.sa input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var(--sa-accent); }
+.sa-btn { min-height: 40px; padding: 0 16px; border: 1px solid var(--sa-line); border-radius: 8px; background: none; color: var(--sa-text); font-size: 14px; font-weight: 600; cursor: pointer; }
+.sa-btn.primary { background: var(--sa-accent); border-color: var(--sa-accent); color: #fff; }
+.sa-link { background: none; border: none; color: var(--sa-accent); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 4px; }
+.sa-empty { padding: 18px; border: 1px dashed var(--sa-line); border-radius: 10px; color: var(--sa-dim); font-size: 14px; line-height: 1.5; }
+
+.sa-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sa-head h2 { margin: 0; }
+.sa-head h2 small { color: var(--sa-dim); font-weight: 400; }
+.sa-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sa-msg { color: var(--sa-dim); font-size: 13px; }
+.sa-editor { margin: 12px 0 18px; padding: 12px; border: 1px dashed var(--sa-line); border-radius: 10px; }
+.sa-row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin: 8px 0; }
+.sa-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--sa-dim); }
+.sa-field input, .sa-field select { min-width: 110px; }
+.sa-block { margin: 16px 0; }
+.sa-block h3 { margin: 0 0 6px; font-size: 15px; }
+.sa-block h3 small, .sa-block h4 small { color: var(--sa-dim); font-weight: 400; }
+.sa-block h4 { margin: 12px 0 6px; font-size: 14px; }
+.sa-hint { font-size: 12px; color: var(--sa-dim); line-height: 1.5; max-width: 900px; margin: 4px 0 8px; }
+.sa-scroll { overflow-x: auto; }
+.sa-table { border-collapse: collapse; font-size: 13px; min-width: 360px; }
+.sa-table th, .sa-table td { padding: 5px 8px; border-bottom: 1px solid var(--sa-line); text-align: left; white-space: nowrap; }
+.sa-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sa-dim); }
+.sa-entry input { width: 72px; }
+.sa-sub { font-size: 11px; color: var(--sa-dim); }
+.sa-clips { white-space: normal !important; }
+.sa-clip { display: inline-flex; align-items: center; gap: 4px; margin: 2px 8px 2px 0; padding: 2px 8px; border: 1px solid var(--sa-line); border-radius: 999px; font-size: 12px; cursor: pointer; }
+.sa-clip.on { border-color: var(--sa-accent); }
+.sa-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.sa-stats > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--sa-line); border-radius: 8px; }
+.sa-stats span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sa-dim); }
+.sa-stats b { font-size: 18px; }
+.sa-stats small { font-size: 12px; color: var(--sa-dim); }
+.sa-best td { font-weight: 700; }
+.sa-better { color: #22c55e; }
+.sa-worse { color: #f87171; }
+.sa-diag { padding: 8px 12px; border-left: 3px solid var(--sa-accent); background: rgba(127, 127, 127, 0.06); border-radius: 4px; }
+.sa-diag p { margin: 4px 0; font-size: 13px; line-height: 1.5; }
+.sa-lv { display: grid; grid-template-columns: minmax(280px, 440px) 1fr; gap: 14px; align-items: start; }
+@media (max-width: 760px) { .sa-lv { grid-template-columns: 1fr; } }
+.sa-chart { width: 100%; height: auto; }
+.sa-chart .sa-grid { stroke: var(--sa-line); stroke-width: 1; }
+.sa-chart .sa-axis { fill: var(--sa-dim); font-size: 11px; }
+.sa-chart .sa-fit { stroke: var(--sa-accent); stroke-width: 2; stroke-dasharray: 6 4; }
+.sa-chart .sa-pt { fill: #3b82f6; stroke: #fff; stroke-width: 1; }
+.sa-chart .sa-pt.hollow { fill: transparent; stroke: #3b82f6; stroke-width: 2; }
+.sa-note { width: 100%; box-sizing: border-box; margin-top: 8px; }
+.sa-note-text { font-size: 13px; color: var(--sa-dim); white-space: pre-wrap; }
+.sa-areas { width: 100%; margin-top: 8px; }
+.sa-areas td { white-space: normal; vertical-align: top; }
+.sa-areas ul { margin: 2px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.45; }
+.sa-rating { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
+.sa-rating.strong { background: #16a34a; }
+.sa-rating.middle { background: #6b7280; }
+.sa-rating.work { background: #b5283a; }
+.sa-cmj { margin-top: 14px; }
+.sa-cmj td { white-space: normal; vertical-align: top; }
+/* a phone or tablet: bigger targets, the entry grid scrolls sideways, the profile stacks */
+@media (max-width: 760px) {
+  .sa-head h2 { font-size: 20px; }
+  .sa-field { flex: 1 1 140px; }
+  .sa-field input, .sa-field select { width: 100%; }
+  .sa-entry input { width: 76px; min-height: 44px; }
+  .sa-table th, .sa-table td { padding: 6px; }
+  .sa-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sa-clip { padding: 6px 10px; }
+}
+/* a phone: each area stacks, its rating above what to do */
+@media (max-width: 600px) {
+  .sa-areas thead { display: none; }
+  .sa-areas, .sa-areas tbody, .sa-areas tr, .sa-areas td { display: block; width: 100%; box-sizing: border-box; }
+  .sa-areas tr { padding: 8px 0; border-bottom: 1px solid var(--sa-line); }
+  .sa-areas td { border: none; padding: 3px 0; }
+}

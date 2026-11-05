@@ -568,16 +568,17 @@
   // ---- drawing ---------------------------------------------------------------------------------------------------
   const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 29], [29, 31], [27, 31], [28, 30], [30, 32], [28, 32]];
   // `hidden`: joints not to draw (an arm behind the body, where the model only guesses), and the lines to them
-  function drawSkeleton(ctx, q, sx, sy, throws, hidden) {
+  // `tint`: every bone and dot in that one color (a shadow runner), instead of the throwing arm red and the lead side blue
+  function drawSkeleton(ctx, q, sx, sy, throws, hidden, tint) {
     const S = sidesOf(throws), arm = new Set([S.arm.sh, S.arm.el, S.arm.wr]), lead = new Set(Object.values(S.lead));
     ctx.lineCap = "round";
     BONES.forEach(([a, b]) => {
       if (hidden && (hidden.has(a) || hidden.has(b))) return;
-      ctx.strokeStyle = arm.has(a) && arm.has(b) ? "#ff4d5e" : lead.has(a) && lead.has(b) ? "#3fa7ff" : "rgba(255,255,255,0.9)";
+      ctx.strokeStyle = tint || (arm.has(a) && arm.has(b) ? "#ff4d5e" : lead.has(a) && lead.has(b) ? "#3fa7ff" : "rgba(255,255,255,0.9)");
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(q[a][0] * sx, q[a][1] * sy); ctx.lineTo(q[b][0] * sx, q[b][1] * sy); ctx.stroke();
     });
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = tint || "#fff";
     [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach((i) => { if (hidden && hidden.has(i)) return; ctx.beginPath(); ctx.arc(q[i][0] * sx, q[i][1] * sy, 3.5, 0, 2 * Math.PI); ctx.fill(); });
   }
   // ---- the skeleton in 3D ------------------------------------------------------------------------------------------
@@ -703,6 +704,7 @@
       events: Object.fromEntries(Object.entries(R.events).map(([kk, i]) => [kk, Math.round((R.tReal[i] - z) * 1000)])),
       series: { t: thin(R.tReal.map((t) => (t - z) * 1000)), ...Object.fromEntries(Object.entries(S).map(([k, v]) => [k, thin(v)])) },
       sequence: R.seq ? R.seq.map(({ name, peak, fromFS, beforeBR }) => ({ name, peak, fromFS, beforeBR })) : null, inOrder: R.seq ? R.inOrder : null,
+      track: R.track || null, // a sprint's steps on the track (yards, once a cone is marked), for the sprint assessment
       analysisV: R.analysisV || ANALYSIS_V,
     };
   }
@@ -1493,9 +1495,35 @@
         return out.size ? out : null;
       };
       const pointsAt = (i) => { const q = R.pts[i].map((p) => p.slice()); if (drag) q[drag.j] = [drag.x, drag.y, 1]; return q; };
+      // A sprint's shadow runner: another saved sprint's skeleton (his own, or another athlete's) run beside him on the
+      // video, starting together. At each moment it's where that runner was the same time after his first move, at
+      // true size and true distance (both heights known), its feet on this ground, facing his way.
+      const shadow = kindName === "sprint" && state.shadow && loaded[state.shadow] && loaded[state.shadow].A && R.mPx ? loaded[state.shadow] : null;
+      const hipX = (q) => (q[P.lHip][0] + q[P.rHip][0]) / 2;
+      const shadowAt = (i) => {
+        const S = shadow.A, zC = R.events.ST != null ? R.events.ST : R.events.TD1, zS = S.events.ST != null ? S.events.ST : S.events.TD1;
+        const t = R.tReal[i] - R.tReal[zC], want = S.tReal[zS] + Math.max(0, t);
+        let j = zS; while (j < S.n - 1 && S.tReal[j + 1] <= want) j++;
+        const gone = (S.dir * (hipX(S.pts[j]) - hipX(S.pts[zS])) * S.mPx), mine = (R.dir * (hipX(R.pts[i]) - hipX(R.pts[zC])) * R.mPx) * (t >= 0 ? 1 : 0);
+        const s = S.mPx / R.mPx, flip = R.dir * S.dir, bx = hipX(R.pts[zC]) + (R.dir * gone) / R.mPx, hx = hipX(S.pts[j]);
+        return { q: S.pts[j].map((p) => [bx + flip * (p[0] - hx) * s, R.groundY + (p[1] - S.groundY) * s, p[2]]), gap: gone - mine, past: t > S.tReal[S.n - 1] - S.tReal[zS] };
+      };
+      const trackX = kindName === "sprint" && state.extras && state.extras.trackX != null ? Number(state.extras.trackX) : null;
       const draw = (i) => {
         if (state.hideVideo && !state.fixing) { ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height); } else ctx.drawImage(still, 0, 0);
         const q = pointsAt(i);
+        // the marked cone: a dashed line up from it, with its yard line
+        if (trackX != null) {
+          ctx.save(); ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd23f";
+          ctx.beginPath(); ctx.moveTo(trackX * k, 0); ctx.lineTo(trackX * k, canvas.height); ctx.stroke();
+          ctx.setLineDash([]); ctx.fillStyle = "#ffd23f"; ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center"; ctx.fillText(`${state.extras.trackYd} yd`, trackX * k, 16); ctx.restore();
+        }
+        if (shadow) {
+          const sh = shadowAt(i);
+          ctx.save(); ctx.globalAlpha = 0.6; drawSkeleton(ctx, sh.q, k, k, "R", null, "#7cf3ff"); ctx.restore();
+          ctx.save(); ctx.font = "bold 13px sans-serif"; ctx.fillStyle = "#7cf3ff"; ctx.textAlign = "left";
+          ctx.fillText(`${shadow.name}: ${sh.gap >= 0 ? "+" : "−"}${Math.abs(sh.gap).toFixed(2)} m ${sh.gap >= 0 ? "ahead" : "behind"}${sh.past ? " (his clip has ended)" : ""}`, 10, canvas.height - 12); ctx.restore();
+        }
         if (!state.hideSkel || state.fixing) drawSkeleton(ctx, q, k, k, state.throws, state.fixing ? null : hiddenAt(i)); // every dot shows while fixing
         // the bat (from the tape on its end): the barrel's trail over the last 40 frames, and the bat from the hands to it
         if (R.bat && !state.hideSkel) {
@@ -1580,6 +1608,8 @@
       // dragging a dot (Fix points on): grab the nearest joint, move it, and on letting go the numbers are worked out again
       const toVideo = (e) => { const b = canvas.getBoundingClientRect(), s = canvas.width / b.width; return [((e.clientX - b.left) * s) / k, ((e.clientY - b.top) * s) / k]; };
       canvas.addEventListener("pointerdown", (e) => {
+        // marking the cone: a click where it stands on the video
+        if (state.marking) { const [x] = toVideo(e); state.marking = false; state.extras = { ...(state.extras || {}), trackX: Math.round(x) }; compute(); render(); return; }
         if (!state.fixing) return;
         const [x, y] = toVideo(e), q = R.pts[state.frame || 0];
         let best = null;
@@ -1630,6 +1660,48 @@
         state.fixing ? el("span", { class: "mc-hint" }, "Drag a dot onto the joint it belongs to (S shoulder, E elbow, W wrist, H hip, K knee, A ankle, N nose; the throwing arm's in red). The frames around it follow and the numbers update. Fix the frames that matter most: foot strike, max layback and release.") : null,
         state.edits && state.edits[state.frame || 0] ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { const e2 = { ...state.edits }; delete e2[state.frame || 0]; state.edits = e2; compute(); render(); } }, "Undo fixes on this frame") : null,
         nEdits ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { state.edits = {}; compute(); render(); } }, `Clear all fixes (${nEdits} frame${nEdits === 1 ? "" : "s"})`) : null);
+      // A sprint on the track: a cone (a gate, or any cone) at a known yard line, marked with a click on the video, puts
+      // every step at its yard line, so the sprint assessment can count steps to each gate across camera spots
+      const trackEx = state.extras || {};
+      const trackRow = kindName === "sprint" ? el("div", { class: "mc-row mc-fix" },
+        el("b", null, "On the track"),
+        el("label", { class: "mc-inline" }, "A cone or line at ", el("input", { type: "number", step: "0.5", inputmode: "decimal", style: "width:72px", value: trackEx.trackYd ?? "", "aria-label": "Yard line of the cone",
+          onchange: (e) => { state.extras = { ...(state.extras || {}), trackYd: e.target.value === "" ? null : Number(e.target.value) }; if ((state.extras || {}).trackX != null) { compute(); render(); } } }), " yd"),
+        el("button", { type: "button", class: `mc-btn ${state.marking ? "" : "ghost"} small`, onclick: () => {
+          if (!Number.isFinite(Number((state.extras || {}).trackYd)) || (state.extras || {}).trackYd == null) { const h = root.querySelector(".mc-track-hint"); if (h) h.textContent = "Type the cone's yard line first."; return; }
+          state.marking = !state.marking; render();
+        } }, state.marking ? "Now click the cone on the video" : trackEx.trackX != null ? "Mark it again" : "Mark it on the video"),
+        trackEx.trackX != null ? el("button", { type: "button", class: "mc-btn ghost small", onclick: () => { const e2 = { ...(state.extras || {}) }; delete e2.trackX; state.extras = e2; compute(); render(); } }, "Clear") : null,
+        el("span", { class: "mc-hint mc-track-hint" }, !state.heightIn ? "Enter his height first: it sets the distances."
+          : R.track && R.track.length ? `${R.track.length} step${R.track.length === 1 ? "" : "s"} placed on the track, ${R.track[0].yd.toFixed(1)} to ${R.track[R.track.length - 1].yd.toFixed(1)} yd. Save the session, then link it in Sprint Assessment to count his steps to each gate.`
+            : "Type the yard line of a cone or gate in the picture, then click where it stands: every step gets its spot on the track, and clips from a few camera spots (0-10, 10-20…) add up to his steps at each gate in Sprint Assessment.")) : null;
+      // the shadow runner: any saved sprint of the same start with a height, his own or another athlete's
+      const loadShadow = (rec) => {
+        if (loaded[rec.id] && loaded[rec.id].A) { loaded[rec.id].name = `${rec._name} ${rec.date || ""}`.trim(); render(); return; }
+        loaded[rec.id] = { busy: true };
+        (async () => {
+          const dl = await sbc().storage.from(STORE).download(rec.store.path);
+          if (dl.error) throw dl.error;
+          const data = JSON.parse(await dl.data.text());
+          const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
+          return kindOf(rec).analyze({ variant: rec.variant, extras: rec.extras || {}, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+        })().then((A) => { loaded[rec.id] = { A, name: `${rec._name} ${rec.date || ""}`.trim() }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (state.shadow === rec.id) render(); });
+      };
+      const shadowRow = kindName === "sprint" ? el("div", { class: "mc-row mc-fix" },
+        el("b", null, "Shadow runner"),
+        !state.heightIn ? el("span", { class: "mc-hint" }, "Enter his height first: the shadow runs at true distance.")
+          : !state.dir ? el("button", { type: "button", class: "mc-btn ghost small", onclick: async () => { try { await directory(); } catch (e) { /* none to pick */ } render(); } }, "Pick a runner…")
+            : (() => {
+              const same = (r) => (r.variant || "linear") === (state.variant || "linear") && r.heightIn && !(state.saved && r.id === state.saved.id);
+              const recs = state.dir.recs.filter(same).sort((a, b) => a._name.localeCompare(b._name) || (b.date || "").localeCompare(a.date || ""));
+              if (!recs.length) return el("span", { class: "mc-hint" }, "No other saved sprints of this start with a height on them yet.");
+              const L = state.shadow && loaded[state.shadow];
+              return [el("select", { "aria-label": "Shadow runner", onchange: (e) => { state.shadow = e.target.value || null; const rec = recs.find((r) => r.id === state.shadow); if (rec) loadShadow(rec); else render(); } },
+                el("option", { value: "" }, "None"),
+                recs.map((r) => el("option", { value: r.id, selected: state.shadow === r.id }, `${r._name} · ${r.date || ""}${r.metrics && r.metrics.speed ? ` · ${r.metrics.speed} m/s` : ""}`))),
+              el("span", { class: "mc-hint" }, L && L.busy ? "Loading…" : L && L.error ? `Couldn't load it (${L.error}).` : state.shadow ? "In light blue, starting with him: at each moment where that runner was the same time after his first move, at true size and distance. The gap shows at the bottom." : "Run another sprint (his own or another athlete's) beside him on the video.")];
+            })()) : null;
+
       // the timing: what it was filmed at, changeable here; and a warning when foot strike to release is impossibly quick
       const fsbr = R.metrics.find((m) => m.key === "fsbr");
       const tooFast = fsbr && typeof fsbr.value === "number" && fsbr.value < 110 && state.cap >= 200;
@@ -1923,7 +1995,7 @@
           el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, saved ? "← Back" : "← Another video"),
           el("span", { class: "mc-hint" }, `${saved ? `Saved session, ${saved.date} · ` : ""}${setupName(state.setup)} · timing at ${state.cap} fps${kind.hand ? ` · ${state.throws === "L" ? "lefty" : "righty"}` : ""}${state.heightIn ? ` · ${state.heightIn}"` : " · no height, so no speed"}${f.video ? "" : " · no video kept, skeleton only"}`)),
         timing,
-        canvas, slider, caption, evBtns, layers, sk3d && sk3d.node, fixDots, fix,
+        canvas, slider, caption, evBtns, layers, trackRow, shadowRow, sk3d && sk3d.node, fixDots, fix,
         seqEl,
         R.elbowFirst ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: state.elbowDepth !== false, onchange: (e) => { state.elbowDepth = e.target.checked; compute(); render(); } }),
           ` Treat the elbow's first peak (${R.elbowFirst.peak.toLocaleString()}°/s, ${R.elbowFirst.ms} ms from foot strike) as depth, not extension: the forearm turning toward or away from the camera, not straightening. The elbow line then starts at the dip after it.`) : null,
@@ -2021,6 +2093,8 @@
     }
 
     render();
+    // opened at one of his saved sessions (a clip linked in Sprint Assessment)
+    if (opts.openId) { const rec = (history() || []).find((r) => r.id === opts.openId); if (rec) openSaved(rec); }
     return { refresh: render };
   }
 

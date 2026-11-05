@@ -726,6 +726,10 @@
   function getMocap(athleteId) {
     return assessmentsOf(athleteId, "mocap");
   }
+  // sprint assessments: timing gate reps, resisted sprints and linked sprint videos (sprint_assessment.js), kind "sprintassess"
+  function getSprintAssessments(athleteId) {
+    return assessmentsOf(athleteId, "sprintassess");
+  }
   // monthly re-assessments (reassessment.js), kind "reassess"
   function getReassessments(athleteId) {
     return assessmentsOf(athleteId, "reassess");
@@ -1303,6 +1307,7 @@
     getNutritionPlan,
     getNutritionPrefs,
     getReassessments,
+    getSprintAssessments,
     saveAssessment,
     deleteAssessment,
     allOffseasonFacilities,

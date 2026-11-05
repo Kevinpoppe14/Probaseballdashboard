@@ -2484,7 +2484,7 @@
 
   // Motion Capture (under Pitching, Hitting / Fielding, and Movement's Sprint and Jump): the tool from mocap.js (plain
   // JavaScript, shared with the phone app) for the movement given, mounted here and saving with his other records
-  function MoCapTab({ athlete, kind = "pitching" }) {
+  function MoCapTab({ athlete, kind = "pitching", openId = null }) { // openId: open at that saved session (from Sprint Assessment)
     const ref = useRef(null);
     useEffect(() => {
       const box = ref.current;
@@ -2510,7 +2510,7 @@
         return base === last ? `the ${last.date} assessment` : `a new assessment dated ${today}`;
       };
       window.MoCap.mount(box, {
-        kind, forceTests, fillAssessment, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb, weightFrom, heightIn: Number(athlete.heightIn) || null },
+        kind, openId, forceTests, fillAssessment, athlete: { id: athlete.id, name: athlete.name, throws: athlete.throws, bats: athlete.bats, email: athlete.email || "", weightLb, weightFrom, heightIn: Number(athlete.heightIn) || null },
         // a height entered here for someone whose profile has none is kept on the profile
         saveHeight: (h) => { const now = store.allAthletes().find((x) => x.id === athlete.id); if (now && !now.heightIn) store.updateAthlete(athlete.id, { heightIn: h }); },
         onSave: async (rec) => { store.saveAssessment({ ...rec, athleteId: athlete.id }); },
@@ -2519,7 +2519,7 @@
         history: () => (store.getMocap ? store.getMocap(athlete.id) : []),
       });
       return () => box.replaceChildren();
-    }, [athlete.id, kind]); // eslint-disable-line
+    }, [athlete.id, kind, openId]); // eslint-disable-line
     return (
       <div className="panel">
         {window.MoCap ? <div ref={ref} /> : <div className="empty-state">Motion capture didn't load. Reload the page.</div>}

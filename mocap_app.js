@@ -63,11 +63,13 @@
   }
 
   // which movement: pitching (pitchers and coaches), hitting, a sprint or a jump (anyone)
-  const KINDS = [["pitching", "Pitching", "a delivery"], ["hitting", "Hitting", "a swing"], ["sprint", "Sprint", "a start or a fly sprint"], ["jump", "Jump", "a jump"], ["screen", "Movement Screen", "a screen test (ROM, overhead squat)"]];
+  // (and a sprint assessment: timing gates, sled sprints and sprint videos, sprint_assessment.js)
+  const KINDS = [["pitching", "Pitching", "a delivery"], ["hitting", "Hitting", "a swing"], ["sprint", "Sprint", "a start or a fly sprint"], ["jump", "Jump", "a jump"], ["screen", "Movement Screen", "a screen test (ROM, overhead squat)"], ["sprintassess", "Sprint Assessment", "timing gate times, sled sprints and sprint videos"]];
   let kind = "pitching";
+  const offered = (k) => k === "pitching" || (k === "sprintassess" ? !!window.SprintAssessment : !!(window.MoCap && window.MoCap.kinds && window.MoCap.kinds[k]));
   function chooseKind() {
     sheet(el("h2", null, "Motion Capture"), note("What are you filming?"),
-      el("div", { class: "qa-list" }, KINDS.filter(([k]) => k === "pitching" || (window.MoCap && window.MoCap.kinds && window.MoCap.kinds[k])).map(([k, label, what]) =>
+      el("div", { class: "qa-list" }, KINDS.filter(([k]) => offered(k)).map(([k, label, what]) =>
         el("button", { class: "qa-row", onclick: () => { kind = k; pick(); } }, el("b", null, label), el("small", null, ` · ${what}`)))));
   }
   // who: type a few letters
@@ -84,7 +86,7 @@
         ...(q && !hits.length ? [el("div", { class: "qa-empty" }, `No active ${who} matches that.`)] : []));
     };
     search.addEventListener("input", show);
-    sheet(el("h2", null, `Motion Capture: ${label}`), note(`Film ${what} in slow motion (tips on the next screen) and get the mechanics in numbers. Who is it?`),
+    sheet(el("h2", null, `Motion Capture: ${label}`), note(kind === "sprintassess" ? "Type in the timing gate times, distances and sled sprints, and link the sprint videos. Who is it?" : `Film ${what} in slow motion (tips on the next screen) and get the mechanics in numbers. Who is it?`),
       el("button", { class: "qa-row", onclick: chooseKind }, "‹ Another movement"), search, results);
     show();
     setTimeout(() => search.focus(), 50);
@@ -100,7 +102,60 @@
       box);
     document.body.append(layer);
     document.body.classList.add("mc-app-open");
-    mountFor(box, p, kind);
+    if (kind === "sprintassess") mountAssessFor(box, p); else mountFor(box, p, kind);
+  }
+
+  // A sprint assessment for athlete p in `box` (sprint_assessment.js), on a phone or tablet: his assessments, his saved
+  // sprint clips, his force plate jumps, the other athletes' assessments and latest CMJs (to rank him), read first;
+  // saves go straight to his record. "Open" on a clip opens it in the sprint motion capture, Back returns here.
+  async function mountAssessFor(box, p) {
+    box.replaceChildren(note("Loading…"));
+    if (!window.SprintAssessment) { box.replaceChildren(note("Sprint assessment didn't load. Reload the page.")); return; }
+    const id = String(p.id), since = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    const safe = (q) => q.then((r) => (r.error ? [] : r.data || []), () => []);
+    // a force plate jump's numbers the assessment uses, not the whole Hawkin record (a phone reads every athlete's)
+    const RAW = ["Avg. Propulsive Force(N)", "Peak Propulsive Force(N)", "Time To Takeoff(s)", "Avg. Braking Force(N)", "Braking Phase(s)", "Stiffness(N/m)", "L|R Avg. Braking RFD(%)"];
+    const SLIM = ["athleteId:data->>athleteId", "date:data->>date", "testType:data->>testType", "systemWeight:data->systemWeight", "rsiModified:data->rsiModified", "relativePeakPower:data->relativePeakPower", "jumpHeight:data->jumpHeight", "brakingRfd:data->brakingRfd", ...RAW.map((k, i) => `r${i}:data->raw->"${k}"`)].join(",");
+    const unslim = (rows) => rows.map((t) => ({ ...t, raw: Object.fromEntries(RAW.map((k, i) => [k, t[`r${i}`]])) }));
+    const [mine, all, clips, tests, cmjs, body] = await Promise.all([
+      safe(sb.from("assessments").select("id,data").eq("athlete_id", id).eq("data->>kind", "sprintassess").limit(500)),
+      safe(sb.from("assessments").select("athlete_id,data").eq("data->>kind", "sprintassess").limit(2000)),
+      safe(sb.from("assessments").select("id,data").eq("athlete_id", id).eq("data->>kind", "mocap").eq("data->>motion", "sprint").limit(300)),
+      safe(sb.from("force_tests").select(SLIM).eq("data->>athleteId", id).ilike("data->>testType", "%counter%").limit(500)).then(unslim),
+      safe(sb.from("force_tests").select(SLIM).ilike("data->>testType", "%counter%").gte("data->>date", since).limit(5000)).then(unslim),
+      bodyNumbers(p.id),
+    ]);
+    let list = mine.map((r) => ({ ...r.data, id: r.data.id || r.id }));
+    const others = all.filter((r) => String(r.athlete_id) !== id).map((r) => ({ ...r.data, athleteId: r.data.athleteId != null ? r.data.athleteId : r.athlete_id }));
+    const clipRecs = clips.map((r) => ({ ...r.data, id: r.data.id || r.id }));
+    const latest = {};
+    cmjs.filter((t) => !/single|rebound/i.test(t.testType || "")).forEach((t) => { const k = String(t.athleteId); if (!latest[k] || (t.date || "") > (latest[k].date || "")) latest[k] = t; });
+    const athleteId = /^\d+$/.test(id) ? Number(id) : id;
+    box.replaceChildren();
+    window.SprintAssessment.mount(box, {
+      athlete: { id: athleteId, name: p.name },
+      weightLb: body.weightLb,
+      list: () => list,
+      all: () => [...list, ...others],
+      save: (rec) => {
+        const record = { ...rec, athleteId };
+        list = [...list.filter((r) => r.id !== record.id), record];
+        sb.from("assessments").upsert({ id: record.id, athlete_id: id, data: record }).then((r) => { if (r.error) window.alert("The sprint assessment didn't save: check your connection and try again."); });
+      },
+      remove: (rec) => {
+        list = list.filter((r) => r.id !== rec.id);
+        sb.from("assessments").delete().eq("id", rec.id).then((r) => { if (r.error) window.alert("Couldn't delete it: check your connection and try again."); });
+      },
+      clips: () => clipRecs,
+      openClip: (c) => {
+        // the clip in the sprint motion capture, with a way back to the assessment
+        const back = el("button", { class: "mc-app-back", onclick: () => mountAssessFor(box, p) }, "‹ Back to the sprint assessment");
+        box.replaceChildren(back, el("div"));
+        mountFor(box.lastChild, p, "sprint", c.id);
+      },
+      forceTests: () => tests,
+      latestCmjs: () => Object.values(latest),
+    });
   }
 
   // His height (from his profile) and his latest weight: the most recent of a force plate test (a CMJ's system
@@ -133,7 +188,7 @@
 
   // the tool in `box` for athlete p ({ id, name, throws, bats, email }) and movement `which`, his sessions read
   // first; saves go to his record. Coach Mode's Motion Capture screen (coach.js) uses this too.
-  async function mountFor(box, p, which) {
+  async function mountFor(box, p, which, openId = null) { // openId: open at that saved session
     box.replaceChildren(note("Loading…"));
     const [{ data, error }, body] = await Promise.all([
       sb.from("assessments").select("id,data").eq("athlete_id", String(p.id)).eq("data->>kind", "mocap").limit(200),
@@ -143,7 +198,7 @@
     box.replaceChildren();
     if (!window.MoCap) { box.append(note("Motion capture didn't load. Reload the page.")); return; }
     window.MoCap.mount(box, {
-      kind: which,
+      kind: which, openId,
       athlete: { id: String(p.id), name: p.name, throws: p.throws || "", bats: p.bats || "", email: p.email || "", heightIn: body.heightIn, weightLb: body.weightLb, weightFrom: body.weightFrom },
       saveHeight: (h) => saveHeight(p.id, h),
       history: () => history,
@@ -180,5 +235,5 @@
     });
   }
 
-  window.MoCapApp = { open, mountFor, bodyNumbers };
+  window.MoCapApp = { open, mountFor, mountAssessFor, bodyNumbers };
 })();

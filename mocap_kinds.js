@@ -236,7 +236,10 @@
     maxv: { contact: "90–120", flight: "110–140", trunk: "0–10", shin: "", step: "" },
   };
   const START_NAMES = { linear: "Linear start", steal: "Base-stealing start", forty: "40-yard start (three-point)", maxv: "Max velocity" };
-  function analyzeSprint({ side, heightIn, captureFps, sideScale, events: manual, edits, variant, weightKg }) {
+  // extras.trackYd / trackX: a cone or line at a known yard line, marked on the video (its x, in video pixels). With his
+  // height that puts every step on the track, so steps from clips filmed at different spots (0-10, 10-20...) can be
+  // counted against the timing gates (sprint_assessment.js).
+  function analyzeSprint({ side, heightIn, captureFps, sideScale, events: manual, edits, variant, weightKg, extras }) {
     const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, pts, wpts, fr, Hpx } = A;
     const start = variant === "maxv" ? null : variant === "steal" || variant === "forty" ? variant : "linear"; // (an older "accel" is a linear start)
     const m = manual || {}, phase = start ? "accel" : "maxv", R = SPRINT_RANGES[phase];
@@ -329,6 +332,31 @@
     const thighL = pts.map((q) => thigh(q, P.lHip, P.lKn)), thighR = pts.map((q) => thigh(q, P.rHip, P.rKn));
     const trunkLean = pts.map((q) => leanOf(hipOf(q), shOf(q), dir));
     const stepTime = median(steps.map((s) => s.stepT)), stepLen = median(steps.map((s) => s.len));
+    // Foot clearance: how high each foot travels off the ground as it swings through, from toe-off to its next touchdown
+    // (its lowest point, heel or toe, above the ground), in heights. Low recovery is a short, flat swing.
+    const clearances = steps.filter((s) => !s.partial || s.td > 0).map((s) => {
+      const back = contacts.find((c) => c.foot === s.foot && c.td > s.to);
+      if (!back) return null;
+      let top = 0;
+      for (let i = s.to; i <= back.td; i++) top = Math.max(top, groundY - footLow(pts[i], s.f));
+      return top / Hpx;
+    }).filter((v) => v != null && v > 0);
+    const clearance = median(clearances), clearanceMax = clearances.length ? Math.max(...clearances) : null;
+    // The first three steps from a start: from the front foot at the start to where the third step lands, and how long
+    let first3 = null, t3 = null;
+    if (start && first) {
+      const s2 = nextOf(first), s3 = nextOf(s2);
+      if (s3) {
+        const frontAt0 = Math.max(...FEET.map((f) => dir * footX(pts[0], f))) * dir;
+        first3 = (dir * (footX(pts[s3.td], s3.f) - frontAt0)) / Hpx;
+        t3 = Math.round((tReal[s3.td] - tReal[ST]) * 1000);
+      }
+    }
+    // Every touchdown on the track (yards), once a cone at a known yard line is marked on the video
+    const ex = extras || {}, trackYd = Number(ex.trackYd), trackX = Number(ex.trackX);
+    const onTrack = mPx && Number.isFinite(trackYd) && Number.isFinite(trackX) && ex.trackX != null
+      ? steps.filter((s) => s.td > 0 && (!start || s.td > ST)).map((s) => ({ foot: s.foot, yd: Math.round((trackYd + (dir * (footX(pts[s.td], s.f) - trackX) * mPx) / 0.9144) * 100) / 100, t: Math.round((tReal[s.td] - (start ? tReal[ST] : 0)) * 1000) / 1000 }))
+      : null;
     const side2 = (foot, key) => median(steps.filter((s) => s.foot === foot).map((s) => s[key]));
     const asym = (key) => { const l = side2("L", key), r = side2("R", key); return l == null || r == null || !(l + r) ? null : Math.round((Math.abs(l - r) / ((l + r) / 2)) * 100); };
     const lenText = (h) => (h == null ? null : mPx ? ftIn(h * Hpx * mPx) : `${Math.round(h * 100)}% ht`);
@@ -340,6 +368,9 @@
         metric("firstLen", "First step length", startStats.len == null ? null : mPx ? r1(inches(startStats.len * Hpx * mPx)) : r1(startStats.len * 100), mPx ? "in" : "% of height", "", "How far the first foot lands from where it stood."),
         metric("t1m", "Time to 1 m (3.3 ft)", startStats.t1, "ms", "", "From the first move to the hips 1 meter on (needs his height, and the camera wide enough)."),
         metric("t2m", "Time to 2 m (6.6 ft)", startStats.t2, "ms", "", "From the first move to the hips 2 meters on."),
+        metric("first3", "Distance in the first 3 steps", first3 == null ? null : mPx ? r1(inches(first3 * Hpx * mPx)) : r1(first3 * 100), mPx ? "in" : "% of height", "", "From his front foot at the start to where the third step lands."),
+        metric("first3Ft", "Distance in the first 3 steps", first3 == null || !mPx ? null : ftIn(first3 * Hpx * mPx), "", "", ""),
+        metric("t3", "First move to the third step", t3, "ms", "", "From the hips starting to move to the third foot landing."),
         metric("trunk1", "Trunk lean at first touchdown", first ? r1(first.trunk) : null, "° forward", R.trunk, "The trunk's lean forward from upright as the first foot lands."),
         metric("shin1", "Shin angle at first touchdown", first ? r1(first.shin) : null, "° forward", "", "The first step's shin from vertical: + the knee ahead of the ankle (pushing, not reaching)."),
       ].filter(Boolean) : []),
@@ -353,6 +384,8 @@
       metric("trunkTD", "Trunk lean at touchdown", r1(median(steps.map((s) => s.trunk))), "° forward", R.trunk, "The trunk's lean forward from upright as a foot lands."),
       metric("shinTD", "Shin angle at touchdown", r1(median(steps.map((s) => s.shin))), "° forward", R.shin, "The shin's lean from vertical as the foot lands: + the knee ahead of the ankle."),
       metric("ahead", "Foot lands ahead of the hips", mPx ? r1(inches(toMs(median(steps.map((s) => s.ahead))))) : r1((median(steps.map((s) => s.ahead)) || 0) * 100), mPx ? "in" : "% of height", "", "How far in front of the hips the foot touches down (overstriding when large)."),
+      metric("clearance", "Foot clearance in swing", clearance == null ? null : mPx ? r1(inches(clearance * Hpx * mPx)) : r1(clearance * 100), mPx ? "in" : "% of height", "", "How high the foot travels off the ground as it swings through (its lowest point, heel or toe, at its highest), the middle step."),
+      metric("clearanceMax", "Foot clearance, highest", clearanceMax == null ? null : mPx ? r1(inches(clearanceMax * Hpx * mPx)) : r1(clearanceMax * 100), mPx ? "in" : "% of height", "", ""),
       metric("kneeLift", "Knee lift", r1(Math.max(median(steps.filter((s) => s.foot === "L").map((s) => Math.max(...thighL.slice(s.to, Math.min(n, s.to + fr(0.35)))))) || -90, median(steps.filter((s) => s.foot === "R").map((s) => Math.max(...thighR.slice(s.to, Math.min(n, s.to + fr(0.35)))))) || -90)), "°", "", "The thigh at its highest in front after toe-off (90 = level)."),
       metric("asymContact", "Left / right contact time difference", asym("contactMs"), "%", "", "How much the two feet's contact times differ."),
       metric("asymLen", "Left / right step length difference", asym("len"), "%", "", "How much the steps off each foot differ."),
@@ -406,8 +439,8 @@
     }
     const fvNote = start ? (fv ? ` The force-velocity profile and projected times are fitted to the first ${fv.covered.toFixed(1)} s of the run in the clip: the more of his acceleration the clip covers, the surer they are.` : mPx ? " The clip is too short (or the speed too uneven) for a force-velocity profile: film at least the first 5 yards." : " Enter his height for a force-velocity profile and projected times.") : "";
     return {
-      n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs,
-      events: ev,
+      n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs, mPx, groundY,
+      events: ev, track: onTrack, analysisV: 3,
       ...(start
         ? { evLabels: { ST: "First move", TD1: "First step", TO1: "First toe-off", TD2: "Second step" }, phaseKeys: ["ST", "TD1", "TO1", "TD2"], zeroKey: "ST", groundKey: "ST" }
         : { evLabels: { TD1: "Touchdown", TO1: "Toe-off", TD2: "Next touchdown", TO2: "Next toe-off" }, phaseKeys: ["TD1", "TO1", "TD2", "TO2"], zeroKey: "TD1", groundKey: "TD1" }),
@@ -421,8 +454,8 @@
       tables: [
         steps.length ? {
           title: "Every step",
-          cols: ["#", "Foot", "Contact", "Flight", "Step length", "Speed", "Shin at touchdown", "Foot ahead of hips", "Trunk lean"],
-          rows: steps.map((s, k) => [k + 1, s.foot === "L" ? "Left" : "Right", s.contactMs == null ? null : `${s.contactMs} ms`, s.flightMs == null ? null : `${s.flightMs} ms`, lenText(s.len), s.speed == null ? null : `${s.speed.toFixed(1)} m/s (${mph(s.speed).toFixed(1)} mph)`, `${Math.round(s.shin)}°`, mPx ? `${Math.round(inches(s.ahead * Hpx * mPx))} in` : `${Math.round(s.ahead * 100)}% ht`, `${Math.round(s.trunk)}°`]),
+          cols: ["#", "Foot", ...(onTrack ? ["Lands at"] : []), "Contact", "Flight", "Step length", "Speed", "Shin at touchdown", "Foot ahead of hips", "Trunk lean"],
+          rows: steps.map((s, k) => [k + 1, s.foot === "L" ? "Left" : "Right", ...(onTrack ? [(() => { const yd = s.td > 0 && mPx ? trackYd + (dir * (footX(pts[s.td], s.f) - trackX) * mPx) / 0.9144 : null; return yd == null ? null : `${yd.toFixed(1)} yd`; })()] : []), s.contactMs == null ? null : `${s.contactMs} ms`, s.flightMs == null ? null : `${s.flightMs} ms`, lenText(s.len), s.speed == null ? null : `${s.speed.toFixed(1)} m/s (${mph(s.speed).toFixed(1)} mph)`, `${Math.round(s.shin)}°`, mPx ? `${Math.round(inches(s.ahead * Hpx * mPx))} in` : `${Math.round(s.ahead * 100)}% ht`, `${Math.round(s.trunk)}°`]),
         } : null,
         splits.length ? {
           title: "Distance splits",
@@ -666,6 +699,7 @@
       heightHint: "Height turns the picture into real speed (m/s, mph) and step length in feet. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the sprint",
       analyze: analyzeSprint,
+      analysisV: 3, // 3: first 3 steps, foot clearance, steps on the track (a marked cone)
       historyKeys: ["ttd1", "t2m", "t10yd", "t2b", "vmaxMph", "F0", "stepLen", "contact"],
     },
     jump: {

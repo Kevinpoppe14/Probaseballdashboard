@@ -408,7 +408,9 @@
   // location picked), with whether they have a capture of it, when the last was and its main numbers. Done / Not
   // yet narrows it. Tapping someone opens the same tool as the dashboard's (mocap.js, via mocap_app.js), saving to
   // their record; Back returns to the roster.
-  const MOCAP_KINDS = [["sprint", "Sprint"], ["jump", "Jump"], ["hitting", "Hitting"], ["pitching", "Pitching"], ["screen", "Movement Screen"]];
+  // (Sprint Assessment: timing gates, sled sprints and sprint videos, sprint_assessment.js; saved as kind "sprintassess")
+  const MOCAP_KINDS = [["sprint", "Sprint"], ["jump", "Jump"], ["hitting", "Hitting"], ["pitching", "Pitching"], ["screen", "Movement Screen"], ["sprintassess", "Sprint Assessment"]];
+  const mocapOffered = (k) => (k === "sprintassess" ? !!window.SprintAssessment : !!(window.MoCap && window.MoCap.kinds && window.MoCap.kinds[k]));
   let mocapOpen = false, mocapEl = null, mocapRecs = null, mocapErr = "", mocapWho = null;
   const mocapView = { kind: "sprint", variant: "", scope: "board", show: "all" };
   const mocapKind = () => window.MoCap && window.MoCap.kinds && window.MoCap.kinds[mocapView.kind];
@@ -420,7 +422,9 @@
       rows.push(...data);
       if (data.length < 1000) break;
     }
-    mocapRecs = rows.map((r) => ({ ...r, athlete_id: String(r.athlete_id), motion: r.motion || "pitching" }));
+    // and the sprint assessments, as their own "movement"
+    const { data: sa } = await sb.from("assessments").select("id,athlete_id,date:data->>date").eq("data->>kind", "sprintassess").limit(5000);
+    mocapRecs = [...rows.map((r) => ({ ...r, athlete_id: String(r.athlete_id), motion: r.motion || "pitching" })), ...(sa || []).map((r) => ({ ...r, athlete_id: String(r.athlete_id), motion: "sprintassess" }))];
   }
   function openMocap() {
     closeKpi(); closeSpeed(); closeLog(); closeTeam(); mocapOpen = true; mocapWho = null;
@@ -444,7 +448,8 @@
     mocapEl.replaceChildren(
       el("div", { class: "mocap-bar" }, el("button", { class: "kpi-ghost", onclick: () => { mocapWho = null; mocapRecs = null; openMocap(); } }, "‹ Back to the roster"), el("strong", null, a.name)),
       box);
-    if (window.MoCapApp) window.MoCapApp.mountFor(box, a, mocapView.kind);
+    if (window.MoCapApp && mocapView.kind === "sprintassess") window.MoCapApp.mountAssessFor(box, a);
+    else if (window.MoCapApp) window.MoCapApp.mountFor(box, a, mocapView.kind);
     else box.append(el("div", { class: "kpi-note" }, "Motion capture didn't load. Reload the page."));
   }
   function drawMocap() {
@@ -475,16 +480,16 @@
             const last = recs[0];
             return el("div", { class: "team-row mocap-row", style: `--mc-k:${Math.max(1, keys.length)}` },
               el("button", { class: "team-name", title: `Open ${a.name}'s motion capture`, onclick: () => mocapOne(a) }, a.name, el("small", null, a.sub)),
-              el("span", { class: `team-cell ${recs.length ? "ok" : "dim"}`, "data-h": label }, recs.length ? `✓ ${recs.length} capture${recs.length === 1 ? "" : "s"}` : "Not yet"),
+              el("span", { class: `team-cell ${recs.length ? "ok" : "dim"}`, "data-h": label }, recs.length ? `✓ ${recs.length} ${mocapView.kind === "sprintassess" ? "assessment" : "capture"}${recs.length === 1 ? "" : "s"}` : "Not yet"),
               el("span", { class: "team-cell", "data-h": "Last" }, last ? `${when(last.date)}${!mocapView.variant && vName(last.variant) ? ` · ${vName(last.variant)}` : ""}` : "—"),
               ...keys.map((k) => { const v = last && last.metrics ? last.metrics[k] : null; return el("span", { class: "team-cell", "data-h": labelOf(k)[0] }, v == null ? "—" : `${v}${labelOf(k)[1] ? ` ${labelOf(k)[1]}` : ""}`); }),
-              el("span", { class: "team-cell" }, el("button", { class: "kpi-btn mocap-go", onclick: () => mocapOne(a) }, recs.length ? "Open" : "Capture")));
+              el("span", { class: "team-cell" }, el("button", { class: "kpi-btn mocap-go", onclick: () => mocapOne(a) }, recs.length ? "Open" : mocapView.kind === "sprintassess" ? "Assess" : "Capture")));
           }))
         : el("div", { class: "kpi-note" }, pool.length ? (mocapView.show === "done" ? `Nobody here has a ${label.toLowerCase()} capture yet.` : `Everyone here has a ${label.toLowerCase()} capture.`) : mocapView.scope === "board" ? "Add athletes to the board first, or look at everyone." : "No active athletes here.");
     mocapEl.replaceChildren(...[
       el("h2", { class: "speed-h" }, "Motion Capture", el("small", null, mocapRecs ? `${done} of ${pool.length} ${mocapView.scope === "board" ? "on the board" : locFilter ? `at ${locFilter}` : "active athletes"} have a ${label.toLowerCase()}${mocapView.variant ? ` (${vName(mocapView.variant).toLowerCase()})` : ""} capture` : "")),
       el("div", { class: "mocap-controls" },
-        seg("kind", MOCAP_KINDS.filter(([k]) => window.MoCap && window.MoCap.kinds && window.MoCap.kinds[k])),
+        seg("kind", MOCAP_KINDS.filter(([k]) => mocapOffered(k))),
         variants ? el("select", { class: "mocap-variant", "aria-label": "Which kind", onchange: (e) => { mocapView.variant = e.target.value; drawMocap(); } },
           el("option", { value: "" }, `Any ${label.toLowerCase()}`), variants.map(([v, t]) => el("option", { value: v, selected: mocapView.variant === v }, t))) : null),
       el("div", { class: "mocap-controls" },
