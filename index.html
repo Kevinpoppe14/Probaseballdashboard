@@ -6797,6 +6797,90 @@ function BodyCompTrends({ athleteId }) {
   );
 }
 
+// Body weight on the Performance Metrics tab: the pre-lift weigh-ins the athlete (or a coach) logs on the phone's
+// Program page (store.bodyweightLog), in the tab's date range: each weigh-in and its 7-day average on a graph, the
+// latest and how it's moved, and every entry with its change from the one before. Re-read on opening, so weigh-ins
+// logged on the phone since the dashboard loaded show.
+function BodyweightPanel({ athleteId, range }) {
+  const S = window.AthleteStore;
+  const { grid, axis } = useChartColors();
+  const theme = useTheme();
+  const tooltipStyle = theme === "light" ? { background: "#ffffff", border: "1px solid #c7cbd1", color: "#1a1a1a" } : { background: "#141414", border: "1px solid #3a3a3a" };
+  const [, redraw] = useState(0);
+  const [all, setAll] = useState(false);
+  React.useEffect(() => {
+    let live = true;
+    if (S.refreshAthleteLogs) Promise.resolve(S.refreshAthleteLogs(athleteId)).catch(() => {}).then(() => { if (live) redraw((x) => x + 1); });
+    return () => { live = false; };
+  }, [athleteId]); // eslint-disable-line
+  const every = S.bodyweightLog ? S.bodyweightLog(athleteId) : [];
+  const from = rangeCutoffKey(range), to = rangeEndKey(range);
+  const weighs = every.filter((w) => (!from || w.date >= from) && (!to || w.date <= to));
+  const dayMs = 86400000, at = (d) => new Date(`${d}T12:00:00`).getTime();
+  const r1 = (v) => Math.round(v * 10) / 10;
+  if (!every.length) {
+    return (
+      <div className="panel">
+        <h2>Body Weight <small>pre-lift weigh-ins</small></h2>
+        <div className="empty-state">No weigh-ins yet. Athletes log their pre-lift weight on their phone's Program page (Pre Weight), and it shows here.</div>
+      </div>
+    );
+  }
+  // each weigh-in with the average of the 7 days up to it
+  const rows = weighs.map((w) => {
+    const wk = every.filter((x) => at(x.date) > at(w.date) - 7 * dayMs && at(x.date) <= at(w.date));
+    return { t: at(w.date), lb: r1(w.lb), avg: r1(wk.reduce((n, x) => n + x.lb, 0) / wk.length) };
+  });
+  const z = every[every.length - 1];
+  const avgOf = (list) => (list.length ? r1(list.reduce((n, w) => n + w.lb, 0) / list.length) : null);
+  const thisWk = every.filter((w) => at(w.date) > at(z.date) - 7 * dayMs), lastWk = every.filter((w) => at(w.date) <= at(z.date) - 7 * dayMs && at(w.date) > at(z.date) - 14 * dayMs);
+  const a7 = avgOf(thisWk), b7 = avgOf(lastWk), wkChange = b7 != null ? r1(a7 - b7) : null;
+  const first = weighs[0], last = weighs[weighs.length - 1], span = weighs.length > 1 ? r1(last.lb - first.lb) : null;
+  const lo = weighs.length ? r1(Math.min(...weighs.map((w) => w.lb))) : null, hi = weighs.length ? r1(Math.max(...weighs.map((w) => w.lb))) : null;
+  const signed = (v) => `${v > 0 ? "+" : ""}${v} lb`;
+  const day = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
+  const list = weighs.slice().reverse(), shown = all ? list : list.slice(0, 10);
+  return (
+    <div className="panel">
+      <h2>Body Weight <small>{weighs.length} pre-lift weigh-in{weighs.length === 1 ? "" : "s"} · {rangeLabel(range)}</small></h2>
+      <div className="bw-stats">
+        <div><span>Latest</span><b>{r1(z.lb)} lb</b><small>{shortDate(z.date)}</small></div>
+        <div><span>7-day average</span><b>{a7} lb</b><small>{thisWk.length} weigh-in{thisWk.length === 1 ? "" : "s"}</small></div>
+        <div><span>Week over week</span><b>{wkChange == null ? "–" : signed(wkChange)}</b><small>{wkChange == null ? "no weigh-ins the week before" : `from ${b7} lb`}</small></div>
+        <div><span>In this range</span><b>{span == null ? "–" : signed(span)}</b><small>{weighs.length ? `${lo}–${hi} lb` : "none in this range"}</small></div>
+      </div>
+      {rows.length ? (
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={rows}>
+            <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+            <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} stroke={axis} fontSize={12} minTickGap={36} />
+            <YAxis stroke={axis} fontSize={12} domain={paddedDomain(rows, ["lb", "avg"])} />
+            <Tooltip contentStyle={tooltipStyle} labelFormatter={day} formatter={(v, name) => [`${v} lb`, name]} />
+            <Legend />
+            <Line type="monotone" dataKey="lb" name="Weigh-in (lb)" stroke={BODYCOMP_WEIGH_COLOR} strokeWidth={1.5} dot={{ r: 3, fill: BODYCOMP_WEIGH_COLOR, stroke: BODYCOMP_WEIGH_COLOR }} connectNulls />
+            {rows.length > 2 && <Line type="monotone" dataKey="avg" name="7-day average" stroke="#6b7280" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={false} />}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : <div className="empty-state">No weigh-ins in {rangeLabel(range).toLowerCase()}. The latest was {r1(z.lb)} lb on {shortDate(z.date)}.</div>}
+      {list.length > 0 && (
+        <div className="bp-table-wrap">
+          <table className="assess-table bw-table">
+            <thead><tr><th>Date</th><th>Weight</th><th>Change</th><th>Logged by</th></tr></thead>
+            <tbody>
+              {shown.map((w) => {
+                const i = every.indexOf(w), prev = i > 0 ? every[i - 1] : null, d = prev ? r1(w.lb - prev.lb) : null;
+                return <tr key={w.date}><td>{shortDate(w.date)}</td><td><b>{r1(w.lb)} lb</b></td><td>{d == null ? "–" : signed(d)}</td><td>{/coach/i.test(w.source || "") ? "Coach" : "Athlete"}</td></tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {list.length > 10 && <button className="btn-link no-print" onClick={() => setAll(!all)}>{all ? "Show the latest 10" : `Show all ${list.length}`}</button>}
+      <p className="bc-note">Pre-lift weigh-ins from the athlete's phone (Pre Weight on the Program page), one a day. The nutrition plan follows them between body comp scans.</p>
+    </div>
+  );
+}
+
 // The Evolt scans on file, latest first. Clicking a scan opens it to correct its figures (or its date), or delete it;
 // the change saves to that scan's record and the trends graph follows.
 const BODYCOMP_EDIT_FIELDS = [
@@ -7204,6 +7288,8 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
         <PositionalProfilePanel athlete={athlete} />
         <RangeSelector range={perfRange} onChange={setPerfRange} />
         <ForcePlatePanel athleteId={athlete.id} range={perfRange} onChanged={onDataChange} />
+        {/* the pre-lift weigh-ins logged on the phone */}
+        <BodyweightPanel athleteId={athlete.id} range={perfRange} />
         {/* performance tests from the biomechanical assessments and re-assessments, once there are two results */}
         {window.AssessmentTrends && <window.AssessmentTrends athleteId={athlete.id} only="performance" title="Assessment performance tests" hint="from biomechanical assessments and re-assessments; blanks are left out" />}
       </div>

@@ -1781,7 +1781,7 @@
   function bodyCompSection() {
     const scans = (bodyComp && bodyComp.scans) || [], sheets = ((bodyComp && bodyComp.sheets) || []).filter((s) => s.date && s.summary);
     const weighs = weighIns();
-    if (!scans.length && !sheets.length && !weighs.length) return null;
+    if (!scans.length && !sheets.length) return null; // (weigh-ins alone have their own Body weight section)
     const has = { evolt: scans.length > 0, sheet: sheets.length > 0 };
     const source = has.evolt && has.sheet ? (BC_SOURCES[bcView.source] ? bcView.source : "evolt") : has.evolt ? "evolt" : "sheet";
     // weigh-ins alone (no scan or sheet yet): just Weight
@@ -1813,6 +1813,38 @@
       }),
       source === "both" ? el("div", { class: "card-sub" }, "One line through every measurement in date order, scans and sheets alike, with the dashed trend through all of them. A scan and a skinfold sheet measure a little differently, so the line can step where it changes from one to the other.") : null);
     return [el("h2", { class: "section" }, has.evolt || has.sheet ? "Body composition" : "Body weight", el("small", null, [has.evolt && `${scans.length} scan${scans.length === 1 ? "" : "s"}`, has.sheet && `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}`, weighs.length && `${weighs.length} weigh-in${weighs.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "))), card];
+  }
+
+  // ---- body weight on the Progress tab -----------------------------------------------------------------------
+  // Their pre-lift weigh-ins (Pre Weight on the Program page) on their own: a graph over a time window, the latest,
+  // the 7-day average and the change from the week before, and the last few entries with the change from the one
+  // before each.
+  function weightSection() {
+    const every = weighIns();
+    if (!every.length) return null;
+    const dayMs = 86400000, at = (d) => new Date(`${d}T12:00:00`).getTime(), r1 = (v) => Math.round(v * 10) / 10;
+    const range = BC_RANGES.find((x) => x.key === bcView.bwRange) || BC_RANGES[0];
+    const from = range.days ? Date.now() - range.days * dayMs : -Infinity;
+    const pts = every.map((w) => ({ t: at(w.date), v: r1(w.lb) })).filter((p) => p.t >= from);
+    const z = every[every.length - 1];
+    const avg = (list) => (list.length ? r1(list.reduce((n, w) => n + w.lb, 0) / list.length) : null);
+    const wk = every.filter((w) => at(w.date) > at(z.date) - 7 * dayMs), prev = every.filter((w) => at(w.date) <= at(z.date) - 7 * dayMs && at(w.date) > at(z.date) - 14 * dayMs);
+    const a7 = avg(wk), b7 = avg(prev), dWk = b7 != null ? r1(a7 - b7) : null;
+    const signed = (v) => `${v > 0 ? "+" : ""}${v} lb`;
+    const recent = every.slice(-7).reverse();
+    const card = el("div", { class: "card" },
+      el("div", { class: "sum-stats" },
+        el("div", null, el("b", null, `${nice(z.lb)} lb`), el("span", null, `latest · ${bcDay(at(z.date))}`)),
+        el("div", null, el("b", null, `${nice(a7)} lb`), el("span", null, "7-day average")),
+        el("div", null, el("b", null, dWk == null ? "–" : signed(dWk)), el("span", null, "vs the week before"))),
+      el("div", { class: "chips bc-chips" }, BC_RANGES.map((x) => el("button", { class: `chip${range.key === x.key ? " on" : ""}`, onclick: () => setBcView({ bwRange: x.key }) }, x.label))),
+      pts.length ? bcGraph([{ name: "Weigh-ins", color: BC_WEIGH_COLOR, points: pts }], "lb", false, "Body weight graph") : el("div", { class: "card-sub" }, `No weigh-ins in the last ${range.label.toLowerCase()}. All time shows everything.`),
+      el("div", { class: "bw-list" }, recent.map((w) => {
+        const i = every.indexOf(w), d = i > 0 ? r1(w.lb - every[i - 1].lb) : null;
+        return el("div", { class: "prog-row" }, el("span", { class: "prog-name" }, parseISO(w.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })), el("span"),
+          el("span", { class: "prog-val" }, el("b", null, `${nice(w.lb)} lb`), d != null ? el("small", null, signed(d)) : null));
+      })));
+    return [el("h2", { class: "section" }, "Body weight", el("small", null, `${every.length} weigh-in${every.length === 1 ? "" : "s"}`)), card];
   }
 
   // ---- countermovement jump on the Progress tab ----------------------------------------------------------
@@ -3456,11 +3488,15 @@
     const cmj = cmjSection();
     if (cmj) main.append(...cmj);
 
+    // the pre-lift weigh-ins from the Program page
+    const bw = weightSection();
+    if (bw) main.append(...bw);
+
     // Evolt scans and manual body comp sheets
     const bc = bodyCompSection();
     if (bc) main.append(...bc);
 
-    if (!byLift.size && !lifts.size && !byTest.size && !bc && !cmj) {
+    if (!byLift.size && !lifts.size && !byTest.size && !bc && !cmj && !bw) {
       main.append(el("div", { class: "empty" }, "Log your weights and your progress will show up here: your top weights each week, estimated maxes from sets to failure, and your testing results."));
     }
     return main;
