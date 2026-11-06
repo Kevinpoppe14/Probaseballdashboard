@@ -191,9 +191,10 @@
             : e.wantVideo ? el("span", { class: "bpa-hint" }, working === e ? "" : "Video: waiting its turn")
               : el("button", { type: "button", class: "bpa-btn", onclick: () => { e.wantVideo = true; pump(); render(); } }, "Make the video")) : null,
           e.made && VE && VE.isPhone() ? el("button", { type: "button", class: "bpa-btn", title: "The video in a tab of its own: Share there, then Save Video", onclick: () => VE.view(e.made.blob) }, "Open it") : null,
+          (() => { const m = ((e.session.video && e.session.video.made) || []).find((x) => x.layout === (e.made ? e.made.layout : exp.layout)); return m && m.link ? el("a", { class: "bpa-btn bpa-a", href: m.link, target: "_blank", rel: "noopener" }, "In Drive") : null; })(),
           e.made && !e.wantVideo ? el("button", { type: "button", class: `bpa-btn${e.made.layout !== exp.layout ? " primary" : ""}`, title: "Make it again with the shape and options set below", onclick: () => { e.made = null; e.wantVideo = true; pump(); render(); } }, e.made.layout !== exp.layout ? `Make it again: ${exp.layout}` : "Make it again") : null,
           window.BullpenPdf ? el("button", { type: "button", class: `bpa-btn${e.open === "mail" ? " on" : ""}`, onclick: () => { e.open = e.open === "mail" ? "" : "mail"; if (!e.mail) e.mail = { to: e.p.email || "", body: window.BullpenPdf.mailText({ athlete: e.p, session: e.session, link: e.link }), msg: "", busy: false, sent: false }; render(); } }, "Email the report") : null));
-        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video ready (${BC().mb(e.made.blob.size)}): tap Save video, then Save Video in the share sheet. No Save Video there? Tap Open it, then Share › Save Video.` : e.made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done: ${e.made.name} (${BC().mb(e.made.blob.size)}).`));
+        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video saved to ${e.savedTo || "Google Drive"} and his bullpen (${BC().mb(e.made.blob.size)}). For your Photos: tap Save video, then Save Video in the share sheet. No Save Video there? Tap Open it, then Share › Save Video.` : e.made.files ? `Saved to ${e.savedTo || "Google Drive"} and his bullpen. On this phone it went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done and saved to ${e.savedTo || "Google Drive"} (on his bullpen too): ${e.made.name}, ${BC().mb(e.made.blob.size)}.`));
         if (e.open === "match") {
           // mounted once and kept (its undo history and player with it) however often the page is drawn again
           if (!e.holder) {
@@ -291,6 +292,14 @@
         onProgress: (text, f) => { e.stage = text; e.f = f; paint(e); },
       });
       const name = VE.fileName(e.p.name, `bullpen-${exp.layout}`, e.session.date, blob);
+      // kept in his Drive folder (shared by link) and on his bullpen before anything else, so it's saved however the
+      // phone's own save goes
+      const where = (await BC().useDrive()) ? "Google Drive" : "the dashboard's storage";
+      const madeList = await BC().saveMade(blob, name, e.p, e.session, exp.layout, progress(e, `Saving the video to ${where}…`));
+      e.session = { ...e.session, video: { ...e.session.video, made: madeList } };
+      await data.save(e.session);
+      e.savedTo = where;
+      if (e.mail && !e.mail.sent) e.mail.body = window.BullpenPdf.mailText({ athlete: e.p, session: e.session, link: e.link });
       const how = await VE.download(blob, name, { share: VE.isPhone() });
       e.made = { blob, name, tap: how === "tap", files: how === "files", layout: exp.layout };
       e.wantVideo = false;

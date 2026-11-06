@@ -150,7 +150,8 @@
         {video && !plan && !busy && window.VideoExport && <button type="button" className="btn btn-primary" title="Make an MP4 of the pitches with their TrackMan numbers beside them, to download" onClick={() => setExporting(true)}>Export video</button>}
         {video && !plan && !busy && <button type="button" className="btn btn-small-grey" onClick={drop}>Remove video</button>}
         {video && video.files.length === 1 && nos.length > 1 && !plan && !busy && <button type="button" className="btn btn-secondary" title="The clips beside the pitches, to move, delete or put gaps in, with undo" onClick={() => setMatching(true)}>Match clips to pitches</button>}
-        {exporting && <ExportDialog session={session} athlete={athlete} onClose={() => setExporting(false)} />}
+        {video && !plan && !busy && (video.made || []).some((m) => m.link) && <span className="timestamp-note">Made: {(video.made || []).filter((m) => m.link).map((m, i) => <React.Fragment key={m.drive || i}>{i ? " · " : ""}<a href={m.link} target="_blank" rel="noopener">{m.layout === "vertical" ? "vertical" : "horizontal"} video</a></React.Fragment>)} (in Drive)</span>}
+        {exporting && <ExportDialog session={session} athlete={athlete} onMade={(made) => onSave({ ...video, made })} onClose={() => setExporting(false)} />}
         {matching && <ClipMatcher session={session} onSave={(clips) => { onSave({ ...video, clips }); setMsg(`Matching saved: ${Object.keys(clips).length} of ${nos.length} pitches have a clip.`); }} onClose={() => setMatching(false)} />}
         <input ref={fileRef} type="file" accept="video/*,.mov,.mp4,.m4v" multiple hidden onChange={pick} />
         {busy && <span className="assess-row-note" role="status">{busy}</span>}
@@ -183,7 +184,7 @@
               {window.VideoExport && <button type="button" className="btn btn-secondary" title="Make an MP4 with the TrackMan numbers straight from this file, without uploading it (any size; nothing is kept)" onClick={exportLocal}>Export without uploading</button>}
               <button type="button" className="btn btn-secondary" onClick={() => setPlan(null)}>Cancel</button>
             </div>
-            {local && <ExportDialog session={{ ...session, video: local }} athlete={athlete} onClose={closeLocal} />}
+            {local && <ExportDialog session={{ ...session, video: { ...local, made: (video && video.made) || [] } }} athlete={athlete} onMade={(made) => onSave({ ...(video || { files: [], clips: {} }), made })} onClose={closeLocal} />}
           </div>
         )}
       </div>
@@ -203,7 +204,7 @@
     s.split(/[,\s]+/).forEach((part) => { const m = part.match(/^(\d+)(?:-(\d+))?$/); if (!m) return; const a = Number(m[1]), b = Number(m[2] || m[1]); for (let k = Math.min(a, b); k <= Math.max(a, b); k++) out.add(k); });
     return out;
   };
-  function ExportDialog({ session, athlete, onClose }) {
+  function ExportDialog({ session, athlete, onMade, onClose }) {
     const B = window.BullpenBall, VE = window.VideoExport;
     const phone = (session.video && session.video.camera) === "phone";
     const live = (session.pitches || []).filter((p) => !p.removed && hasClip(session, p.no)).sort((a, b) => a.no - b.no);
@@ -252,10 +253,18 @@
           onProgress: (text, f) => setBusy({ text, f }),
         });
         const name = VE.fileName(athlete.name, `bullpen-${layout}`, session.date, blob);
+        // kept in his Drive folder (shared by link) and on his bullpen first, however the download or phone save goes
+        let savedTo = "";
+        if (onMade && window.BullpenCut) {
+          const where = (await useDrive()) ? "Google Drive" : "the dashboard's storage";
+          setBusy({ text: `Saving the video to ${where}…`, f: 0 });
+          onMade(await window.BullpenCut.saveMade(blob, name, athlete, session, layout, (f) => setBusy({ text: `Saving the video to ${where}…`, f })));
+          savedTo = where;
+        }
         setBusy(null);
         // (a phone that won't open its share sheet this long after the tap gets a Save video button instead)
         const how = await VE.download(blob, name, { share: VE.isPhone() });
-        setMade({ blob, name, tap: how === "tap", files: how === "files" });
+        setMade({ blob, name, tap: how === "tap", files: how === "files", savedTo });
       } catch (e) {
         setBusy(null);
         if ((e && e.message) !== "cancelled") setErr((e && e.message) || String(e));
@@ -292,7 +301,7 @@
                   <option value={1}>Speed as filmed</option><option value={0.5}>½ speed</option><option value={0.25}>¼ speed</option>
                 </select>
               </div>
-              <p className="timestamp-note">{chosen.length} pitch{chosen.length === 1 ? "" : "es"} with video. It's made on this {VE.isPhone() ? "phone" : "computer"} (about as long as the video runs, a little longer if this window is behind another; keep this tab open) and goes to your downloads. Nothing is saved to the dashboard.</p>
+              <p className="timestamp-note">{chosen.length} pitch{chosen.length === 1 ? "" : "es"} with video. It's made on this {VE.isPhone() ? "phone" : "computer"} (about as long as the video runs, a little longer if this window is behind another; keep this tab open) then saved to his Drive folder (shared by link) and his bullpen, and goes to your {VE.isPhone() ? "phone (Save video)" : "downloads"}.</p>
               {busy ? (
                 <div className="bp-export-busy">
                   <progress max={1} value={busy.f || 0} /> <span className="assess-row-note" role="status">{busy.text} {Math.round((busy.f || 0) * 100)}%</span>
@@ -303,7 +312,7 @@
                   <button type="button" className="btn btn-primary" disabled={!chosen.length} onClick={go}>Make the video</button>
                   {made && <button type="button" className={`btn ${made.tap ? "btn-primary" : "btn-secondary"}`} onClick={async () => { const how2 = await VE.download(made.blob, made.name, { share: VE.isPhone() }); if (how2 !== "tap") setMade({ ...made, tap: false, files: how2 === "files" }); }}>{VE.isPhone() ? "Save video" : "Download again"}</button>}
                   {made && VE.isPhone() && <button type="button" className="btn btn-secondary" title="The video in a tab of its own: Share there, then Save Video" onClick={() => VE.view(made.blob)}>Open it</button>}
-                  {made && <span className="assess-row-note" role="status">{made.tap ? `Ready (${Math.max(1, Math.round(made.blob.size / 1048576))} MB): tap Save video, then Save Video in the share sheet to put it in Photos. No Save Video there? Tap Open it, then Share › Save Video.` : made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Done: ${made.name} (${Math.max(1, Math.round(made.blob.size / 1048576))} MB)`}</span>}
+                  {made && <span className="assess-row-note" role="status">{made.savedTo ? `Saved to ${made.savedTo} and his bullpen. ` : ""}{made.tap ? `Ready (${Math.max(1, Math.round(made.blob.size / 1048576))} MB): tap Save video, then Save Video in the share sheet to put it in Photos. No Save Video there? Tap Open it, then Share › Save Video.` : made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Done: ${made.name} (${Math.max(1, Math.round(made.blob.size / 1048576))} MB)`}</span>}
                 </div>
               )}
               {err && <p className="assess-row-note" style={{ color: "var(--danger)" }}>{err}</p>}

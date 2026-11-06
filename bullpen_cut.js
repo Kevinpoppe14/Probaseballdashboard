@@ -2,7 +2,7 @@
 // app (bullpen_app.js): keeping the video (Google Drive, or storage here), finding the pitches in one long video,
 // starting each pitch's clip at the top of the leg lift and ending it just after the ball gets there, and the video
 // export's panel for a pitch.
-//   window.BullpenCut = { matchClips, upload, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips,
+//   window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips,
 //     pitchSegment, colorOf, fmtDay, flightOf }
 (function () {
   const BUCKET = "bullpen-videos";
@@ -87,6 +87,18 @@
     return (await driveApi({ action: "share", id: file.drive })).link;
   }
   // into Google Drive once it's set up, otherwise into storage here
+  // A video made from the bullpen (the MP4 with each pitch's numbers), kept in his Drive folder beside the bullpen's
+  // own video, shared by link: { drive, name, size, link, layout, madeAt }, for session.video.made (one per shape; the
+  // one it replaces goes to the Drive's trash)
+  async function saveMade(blob, name, athlete, session, layout, onProgress) {
+    const file = new File([blob], name, { type: /webm/.test(blob.type || "") ? "video/webm" : "video/mp4" });
+    const stored = await upload(file, athlete, session.id, onProgress);
+    const made = { ...stored, layout, madeAt: new Date().toISOString() };
+    const before = ((session.video && session.video.made) || []);
+    const old = before.filter((m) => m.layout === layout);
+    if (old.length) removeFiles({ files: old });
+    return [...before.filter((m) => m.layout !== layout), made];
+  }
   async function upload(file, athlete, sessionId, onProgress) {
     if (await useDrive()) {
       const stored = await driveUpload(file, athlete.id, athlete.name, sessionId, onProgress);
@@ -107,7 +119,7 @@
     return { path, name: file.name, size: file.size };
   }
   async function removeFiles(video) {
-    const files = (video && video.files) || [];
+    const files = [...((video && video.files) || []), ...((video && video.made) || [])]; // (the videos made from it go with it)
     const paths = files.map((f) => f.path).filter(Boolean), ids = files.map((f) => f.drive).filter(Boolean);
     if (paths.length) await sb().storage.from(BUCKET).remove(paths).catch(() => null);
     if (ids.length) await driveApi({ action: "delete", ids }).catch(() => null); // to the Drive's trash
@@ -519,5 +531,5 @@
     };
   }
 
-  window.BullpenCut = { matchClips, upload, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
+  window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
 })();

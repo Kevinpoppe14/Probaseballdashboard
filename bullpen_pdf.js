@@ -233,9 +233,16 @@
     return json;
   }
   // the message the email starts with (the coach can change it)
+  // (the video made from the bullpen, every pitch with its numbers, first; then the whole bullpen as filmed)
   const mailText = ({ athlete, session, link }) => {
     const first = String(athlete.name || "").trim().split(/\s+/)[0] || "there";
-    return `Hi ${first},\n\nAttached is your bullpen report from ${fmtDay(session.date)}${session.facility ? ` at ${session.facility}` : ""}: your pitch types' numbers, your movement and release, your locations and every pitch.${link ? `\n\nThe video of the bullpen:\n${link}` : ""}\n\nDynamic Sports Training`;
+    const made = ((session.video && session.video.made) || []).filter((m) => m.link).sort((a, b) => (b.madeAt || "").localeCompare(a.madeAt || ""))[0];
+    const raw = link || (session.video && session.video.files && session.video.files[0] && session.video.files[0].link) || "";
+    const lines = [`Hi ${first},`, `Attached is your bullpen report from ${fmtDay(session.date)}${session.facility ? ` at ${session.facility}` : ""}: your pitch types' numbers, your movement and release, your locations and every pitch.`];
+    if (made) lines.push(`Your bullpen video, every pitch with its numbers:\n${made.link}`);
+    if (raw) lines.push(`${made ? "The whole bullpen as filmed" : "The video of the bullpen"}:\n${raw}`);
+    lines.push("Dynamic Sports Training");
+    return lines.join("\n\n");
   };
 
   window.BullpenPdf = { build, save, email, mailText };
