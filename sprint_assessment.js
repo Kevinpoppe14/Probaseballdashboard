@@ -31,6 +31,51 @@
   const START_TYPES = [["3pt", "Three-point start"], ["2pt", "Two-point (standing) start"], ["steal", "Base-stealing start"], ["fly", "Flying start (fly-in)"]];
   const startName = (k) => (START_TYPES.find((s) => s[0] === k) || START_TYPES[0])[1];
 
+  // ---- what each number means: shown with the pointer on its (dotted) label, or a tap on a phone or tablet ---------
+  const TIPS = {
+    gate: "Time from the start to this gate. With a beam start the clock starts when he breaks the first beam, a moment after he first moves.",
+    "Fastest segment": "His highest average speed over any one stretch between gates: the top speed he actually showed in this rep.",
+    "Top speed (projected)": "The speed his force-velocity curve levels off at (V0): what he'd reach with room to keep accelerating. Usually a little above his fastest segment.",
+    "F0, max horizontal force": "The forward force he could put into the ground at zero speed, per kg of body weight: the start. Team-sport athletes are usually about 7-9 N/kg.",
+    "V0, max speed": "The top speed his curve says he'd reach: where his force runs out. Team-sport athletes are usually about 8.5-10 m/s.",
+    "Pmax, max power": "Max horizontal power (F0 × V0 ÷ 4), per kg: how much speed he can add in the middle of the acceleration. Usually about 15-22 W/kg.",
+    "τ (how fast he gets there)": "Tau, the time his speed curve takes to reach 63% of his top speed: smaller gets him up to speed sooner. The fit is how far, on average, the curve misses where he really was at each gate.",
+    Segment: "The stretch between two gates (the first from the start line).",
+    Phase: "Which part of the sprint the stretch is: Start (to the first gate), Acceleration (to about 22 yd), Transition, then Max velocity (from about 30 yd).",
+    Time: "The split: the time between the two gates.",
+    Speed: "His average speed over the stretch: its distance over its time.",
+    "Of his top": "The stretch's speed as a share of his fastest stretch. Near 100% means he's at top speed by here.",
+    Steps: "Steps in the stretch: typed in, or counted from his linked videos (marked video) when a cone is marked on them.",
+    "Step length": "Distance a step: the stretch's length over its steps (from the clips, one foot's touchdown to the other's). Speed = step length × step rate.",
+    "Step rate": "Steps a second (step frequency). Speed = step length × step rate.",
+    "On the track": "Whether a cone is marked on the clip. If so, the steps it shows and the yard lines they land on, which count his steps to the gates.",
+    "First step": "Time from his hips starting to move to his first foot landing.",
+    "First step length": "How far his first foot lands from where it stood.",
+    "First 3 steps": "Distance from his front foot at the start to where his third step lands.",
+    "Foot clearance": "How high the swing foot travels off the ground as it comes through (its lowest point, heel or toe, at its highest). High means a long recovery; scuffing low means little time in the air.",
+    "Top speed in clip": "The fastest his hips moved forward in the clip.",
+    Contact: "How long each foot is on the ground (the middle step). Shorter at top speed goes with stiffer, quicker contacts.",
+    "Unloaded (V0)": "Where his line meets zero load: his speed with no sled, from the resisted reps.",
+    "Load that stops him (L0)": "Where his line meets zero speed: the sled load, as a share of body weight, that would stop him. Higher means he holds his speed better under load.",
+    "Speed lost per 10% BW": "How much speed each 10% of his body weight on the sled costs him (the slope of his line). r² is how well the points sit on it: nearer 1 is surer.",
+    "Slows him by": "Training zones by how much the sled slows him from his unloaded speed. Each zone's load is that share of L0.",
+    "Where he stands": "Strong, Middle or Needs work, from his percentile (among our athletes tested the same way once there are five, else the usual team-sport range), and lower if that stretch is slower than his own profile says it should be.",
+    "Among our athletes": "His percentile among our other athletes' latest CMJs: higher is better for him, whichever way the number runs.",
+    "Since the jump before": "The change from his CMJ before this one: green is better, red worse.",
+  };
+  const tipped = (key, text = key) => (TIPS[key] ? el("span", { class: "sa-tip", tabindex: "0", "data-tip": key }, text) : text);
+  const head = (h) => el("th", null, tipped(h));
+  let tipBox = null, tipFor = null;
+  function showTip(t) {
+    if (!tipBox) { tipBox = el("div", { class: "sa-tipbox", role: "tooltip" }); document.body.append(tipBox); window.addEventListener("scroll", hideTip, true); }
+    tipBox.textContent = TIPS[t.dataset.tip];
+    tipBox.style.display = "block"; tipFor = t;
+    const r = t.getBoundingClientRect(), w = tipBox.offsetWidth, h = tipBox.offsetHeight;
+    tipBox.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+    tipBox.style.top = `${r.bottom + 6 + h > window.innerHeight && r.top - 6 - h > 0 ? r.top - 6 - h : r.bottom + 6}px`;
+  }
+  function hideTip() { if (tipBox) tipBox.style.display = "none"; tipFor = null; }
+
   // ---- the numbers ------------------------------------------------------------------------------------------------
   // a session's gates, in meters, and each rep's times at them (cumulative, seconds)
   const metersOf = (rec, d) => (rec.unit === "m" ? d : d * YD);
@@ -166,7 +211,16 @@
     const clipsAll = () => (opts.clips ? opts.clips() : []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     const clipById = (id) => clipsAll().find((c) => c.id === id);
 
+    // the explanations: a mouse shows them while it rests on a label, a tap shows one (tap again, or anywhere else, to close)
+    let touchy = false;
+    box.addEventListener("pointerover", (e) => { touchy = e.pointerType !== "mouse"; const t = e.target.closest(".sa-tip"); if (t && !touchy) showTip(t); });
+    box.addEventListener("pointerout", (e) => { const t = e.target.closest(".sa-tip"); if (t && e.pointerType === "mouse" && !t.contains(e.relatedTarget)) hideTip(); });
+    box.addEventListener("click", (e) => { const t = e.target.closest(".sa-tip"); if (!t) return; if (touchy && tipFor === t) hideTip(); else showTip(t); });
+    box.addEventListener("focusin", (e) => { const t = e.target.closest(".sa-tip"); if (t && !touchy) showTip(t); });
+    box.addEventListener("focusout", hideTip);
+
     function render() {
+      hideTip();
       const rec = current();
       const list = saved();
       box.replaceChildren(el("div", { class: "sa" },
@@ -267,11 +321,11 @@
         out.push(el("div", { class: "sa-block" },
           el("h3", null, `Best rep `, el("small", null, `rep ${(rec.reps || []).indexOf(best) + 1} of ${(rec.reps || []).length} · ${startName(rec.start)}${rec.surface ? ` · ${rec.surface}` : ""}`)),
           el("div", { class: "sa-stats" },
-            g.map((d, k) => { const t = repTimes(best, g)[k]; return t != null ? el("div", null, el("span", null, `${d} ${u}`), el("b", null, `${t.toFixed(2)} s`)) : null; }),
-            topSeg ? el("div", null, el("span", null, "Fastest segment"), el("b", null, `${mph(topSeg).toFixed(1)} mph`), el("small", null, `${topSeg.toFixed(2)} m/s`)) : null,
-            fv ? el("div", null, el("span", null, "Top speed (projected)"), el("b", null, `${mph(fv.vmax).toFixed(1)} mph`), el("small", null, `${fv.vmax.toFixed(2)} m/s`)) : null),
+            g.map((d, k) => { const t = repTimes(best, g)[k]; return t != null ? el("div", null, el("span", null, tipped("gate", `${d} ${u}`)), el("b", null, `${t.toFixed(2)} s`)) : null; }),
+            topSeg ? el("div", null, el("span", null, tipped("Fastest segment")), el("b", null, `${mph(topSeg).toFixed(1)} mph`), el("small", null, `${topSeg.toFixed(2)} m/s`)) : null,
+            fv ? el("div", null, el("span", null, tipped("Top speed (projected)")), el("b", null, `${mph(fv.vmax).toFixed(1)} mph`), el("small", null, `${fv.vmax.toFixed(2)} m/s`)) : null),
           el("div", { class: "sa-scroll" }, el("table", { class: "sa-table" },
-            el("thead", null, el("tr", null, ["Segment", "Phase", "Time", "Speed", "Of his top", "Steps", "Step length", "Step rate"].map((h) => el("th", null, h)))),
+            el("thead", null, el("tr", null, ["Segment", "Phase", "Time", "Speed", "Of his top", "Steps", "Step length", "Step rate"].map(head))),
             el("tbody", null, segs.map((s, k) => el("tr", null,
               el("td", null, `${s.from}-${s.to} ${u}`), el("td", null, phaseOf(s, k)),
               el("td", null, s.time != null ? `${s.time.toFixed(2)} s` : "–"),
@@ -283,13 +337,13 @@
           fv ? el("div", { class: "sa-fv" },
             el("h4", null, "Force-velocity profile (from the splits)"),
             el("div", { class: "sa-stats" },
-              el("div", null, el("span", null, "F0, max horizontal force"), el("b", null, `${fv.F0.toFixed(2)} N/kg`), kg ? el("small", null, `${Math.round(fv.F0 * kg)} N`) : null),
-              el("div", null, el("span", null, "V0, max speed"), el("b", null, `${fv.vmax.toFixed(2)} m/s`), el("small", null, `${mph(fv.vmax).toFixed(1)} mph`)),
-              el("div", null, el("span", null, "Pmax, max power"), el("b", null, `${fv.Pmax.toFixed(1)} W/kg`), kg ? el("small", null, `${Math.round(fv.Pmax * kg)} W`) : null),
-              el("div", null, el("span", null, "τ (how fast he gets there)"), el("b", null, `${fv.tau.toFixed(2)} s`), el("small", null, `fit ±${(fv.rmse * 100).toFixed(0)} cm`))),
+              el("div", null, el("span", null, tipped("F0, max horizontal force")), el("b", null, `${fv.F0.toFixed(2)} N/kg`), kg ? el("small", null, `${Math.round(fv.F0 * kg)} N`) : null),
+              el("div", null, el("span", null, tipped("V0, max speed")), el("b", null, `${fv.vmax.toFixed(2)} m/s`), el("small", null, `${mph(fv.vmax).toFixed(1)} mph`)),
+              el("div", null, el("span", null, tipped("Pmax, max power")), el("b", null, `${fv.Pmax.toFixed(1)} W/kg`), kg ? el("small", null, `${Math.round(fv.Pmax * kg)} W`) : null),
+              el("div", null, el("span", null, tipped("τ (how fast he gets there)")), el("b", null, `${fv.tau.toFixed(2)} s`), el("small", null, `fit ±${(fv.rmse * 100).toFixed(0)} cm`))),
             el("p", { class: "sa-hint" }, `Projected from his first move: 10 yd ${fv.timeTo(10 * YD).toFixed(2)} s · 20 yd ${fv.timeTo(20 * YD).toFixed(2)} s · 30 yd ${fv.timeTo(30 * YD).toFixed(2)} s · 40 yd ${fv.timeTo(40 * YD).toFixed(2)} s · 60 yd ${fv.timeTo(60 * YD).toFixed(2)} s.${fv.lag ? ` The gates' clock started about ${fv.lag.toFixed(2)} s after his first move (fitted), so gate times run that much quicker.` : ""}`),
             diagnosis(rec, fv, segs, topSeg)) : rec.start === "fly" ? null : el("p", { class: "sa-hint" }, "Two or more gates' times (three or more is surer) give a force-velocity profile."),
-          el("p", { class: "sa-hint" }, `Speeds are averages over each segment. The force-velocity profile is fitted to the gate times (Samozino's method)${rec.clock === "move" ? ", the clock started with his first move" : ", with the moment between his first move and the clock starting at the first beam fitted too (three or more gates needed)"}. Compare it with tests timed the same way.`)));
+          el("p", { class: "sa-hint" }, `Hover over (or tap) a dotted label for what it means. Speeds are averages over each segment. The force-velocity profile is fitted to the gate times (Samozino's method)${rec.clock === "move" ? ", the clock started with his first move" : ", with the moment between his first move and the clock starting at the first beam fitted too (three or more gates needed)"}. Compare it with tests timed the same way.`)));
         // every rep
         if ((rec.reps || []).length > 1) out.push(el("div", { class: "sa-block" }, el("h3", null, "Every rep"),
           el("div", { class: "sa-scroll" }, el("table", { class: "sa-table" },
@@ -305,7 +359,7 @@
         const show = (c, key) => (m(c, key) == null ? "–" : `${m(c, key)}${unit(c, key) && !/^[°%]/.test(unit(c, key)) ? ` ${unit(c, key)}` : unit(c, key) || ""}`);
         out.push(el("div", { class: "sa-block" }, el("h3", null, "From his videos"),
           el("div", { class: "sa-scroll" }, el("table", { class: "sa-table" },
-            el("thead", null, el("tr", null, ["Rep", "Clip", "On the track", "First step", "First step length", "First 3 steps", "Foot clearance", "Top speed in clip", "Contact", "Step length", "Step rate", ""].map((h) => el("th", null, h)))),
+            el("thead", null, el("tr", null, ["Rep", "Clip", "On the track", "First step", "First step length", "First 3 steps", "Foot clearance", "Top speed in clip", "Contact", "Step length", "Step rate", ""].map(head))),
             el("tbody", null, linked.map(({ c, rep }) => el("tr", null,
               el("td", null, rep), el("td", null, `${c.date} · ${c.variant === "maxv" ? "fly" : c.variant || "start"}`),
               el("td", null, c.track && c.track.length ? `${c.track.length} steps, ${c.track[0].yd.toFixed(1)}-${c.track[c.track.length - 1].yd.toFixed(1)} yd` : "no cone marked"),
@@ -329,11 +383,11 @@
             lineChart({ points: P.map((p) => ({ x: p.pct, y: p.v, hollow: p.fromGates, tip: `${p.load} lb (${p.pct.toFixed(0)}% BW): ${p.v.toFixed(2)} m/s${p.fromGates ? ", his best gate rep" : ""}` })), line: lv && !lv.bad ? [lv.V0, lv.slope] : null, xLabel: "Sled load (% body weight)", yLabel: "Velocity (m/s)", xMax: lv && !lv.bad ? Math.min(lv.L0 * 1.05, 200) : null }),
             lv && !lv.bad ? el("div", null,
               el("div", { class: "sa-stats" },
-                el("div", null, el("span", null, "Unloaded (V0)"), el("b", null, `${lv.V0.toFixed(2)} m/s`), el("small", null, `${mph(lv.V0).toFixed(1)} mph`)),
-                el("div", null, el("span", null, "Load that stops him (L0)"), el("b", null, `${Math.round(lv.L0)}% BW`), el("small", null, lb(lv.L0).trim())),
-                el("div", null, el("span", null, "Speed lost per 10% BW"), el("b", null, `${(-lv.slope * 10).toFixed(2)} m/s`), el("small", null, `r² ${lv.r2.toFixed(2)}`))),
+                el("div", null, el("span", null, tipped("Unloaded (V0)")), el("b", null, `${lv.V0.toFixed(2)} m/s`), el("small", null, `${mph(lv.V0).toFixed(1)} mph`)),
+                el("div", null, el("span", null, tipped("Load that stops him (L0)")), el("b", null, `${Math.round(lv.L0)}% BW`), el("small", null, lb(lv.L0).trim())),
+                el("div", null, el("span", null, tipped("Speed lost per 10% BW")), el("b", null, `${(-lv.slope * 10).toFixed(2)} m/s`), el("small", null, `r² ${lv.r2.toFixed(2)}`))),
               el("table", { class: "sa-table" },
-                el("thead", null, el("tr", null, el("th", null, "Slows him by"), el("th", null, "Load"), el("th", null, "For"))),
+                el("thead", null, el("tr", null, head("Slows him by"), el("th", null, "Load"), el("th", null, "For"))),
                 el("tbody", null, [[0.1, "10%", "Technique at speed, max velocity"], [0.25, "25%", "Speed-strength: acceleration"], [0.5, "50%", "Power: about where his sled power peaks"], [0.75, "75%", "Strength-speed: the first steps"]].map(([dec, label, use]) =>
                   el("tr", null, el("td", null, label), el("td", null, `${Math.round(zone(dec))}% BW${lb(zone(dec))}`), el("td", null, use))))))
               : el("p", { class: "sa-hint" }, lv && lv.bad ? "These points don't fall with the load (a heavier sled came out faster): check the entries." : "At least two different loads (three or more is better) for a profile.")),
@@ -465,7 +519,7 @@
       const zone = lv && !lv.bad && wLb ? (dec) => `${Math.round(((lv.L0 * dec) / 100) * wLb)} lb` : null;
       const RATING = { strong: "Strong", middle: "Middle", work: "Needs work" };
       const table = el("table", { class: "sa-table sa-areas" },
-        el("thead", null, el("tr", null, el("th", null, "Area"), el("th", null, "Where he stands"), el("th", null, "What to do"))),
+        el("thead", null, el("tr", null, el("th", null, "Area"), head("Where he stands"), el("th", null, "What to do"))),
         el("tbody", null, areas.map((a) => {
           const A = AREAS[a.key], list = (a.rating === "work" ? A.work(zone) : a.rating === "strong" ? A.keep(zone) : [A.keep(zone)[0], A.work(zone)[0]]).map((x) => x.replace(/(\d+) lb-(\d+) lb/g, "$1-$2 lb"));
           return el("tr", { class: `sa-area-${a.rating}` },
@@ -503,7 +557,7 @@
       return el("div", { class: "sa-cmj" },
         el("h4", null, "CMJ numbers to keep an eye on ", el("small", null, last ? `his latest force plate CMJ, ${last.date}${prev ? `, against ${prev.date}` : ""}` : "no force plate CMJ for him yet")),
         el("div", { class: "sa-scroll" }, el("table", { class: "sa-table" },
-          el("thead", null, el("tr", null, ["Metric", "His latest", "Among our athletes", "Since the jump before", "Goes with"].map((h) => el("th", null, h)))),
+          el("thead", null, el("tr", null, ["Metric", "His latest", "Among our athletes", "Since the jump before", "Goes with"].map(head))),
           el("tbody", null, rows))),
         el("p", { class: "sa-hint" }, "The ones that tend to go with the areas above, the areas that need work first. They're signs to watch, not causes: a CMJ is vertical and slower than a sprint step, so watch them move with the sprint numbers over time. Percentiles are among our other athletes' latest CMJs (higher is better for him, whichever way the number runs)."));
     }
