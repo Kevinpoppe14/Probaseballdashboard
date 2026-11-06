@@ -1732,6 +1732,14 @@
   }
 
   function BullpensTab({ athlete }) {
+    // the video queue (bullpen_app.js), full screen over the dashboard: several pitchers' reports and videos at once
+    const openVideoQueue = () => {
+      const box = document.createElement("div"), layer = document.createElement("div"), bar = document.createElement("div"), close = document.createElement("button");
+      layer.className = "bpa-layer"; bar.className = "bpa-layer-bar"; close.type = "button"; close.className = "bpa-btn"; close.textContent = "✕ Close";
+      bar.append(close); layer.append(bar, box); document.body.append(layer);
+      const q = window.BullpenApp.mountQueue(box);
+      close.onclick = () => { if (q.busy() && !window.confirm("The queue is still working. Stop it and close?")) return; q.stop(); layer.remove(); setList(getBullpens(athlete.id)); };
+    };
     const store = window.AthleteStore;
     const [list, setList] = useState(() => getBullpens(athlete.id));
     const [selectedId, setSelectedId] = useState(() => { const l = getBullpens(athlete.id); return l.length ? l[l.length - 1].id : null; });
@@ -1778,6 +1786,7 @@
             <button className="btn btn-primary" disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>{busy ? "Importing…" : "Import TrackMan PDF"}</button>
             <input ref={fileRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={pick} />
             {selected && <button className="btn btn-secondary" title="Every pitch of this session, a row each, for Google Sheets or Excel" onClick={() => downloadBullpenCsv(athlete, [selected], selected.date || "session")}>Export CSV</button>}
+            {window.BullpenApp && <button className="btn btn-secondary" title="Several pitchers' reports and bullpen videos at once: each video cut into its pitches, uploaded and made into an MP4, one after another" onClick={openVideoQueue}>Video queue</button>}
             {list.length > 1 && <button className="btn btn-secondary" title="Every pitch of every session, oldest first" onClick={() => downloadBullpenCsv(athlete, list, "all")}>Export all {list.length} sessions (CSV)</button>}
             {msg && <span className="assess-row-note" role="status">{msg}</span>}
           </div>
