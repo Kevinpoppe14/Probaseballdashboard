@@ -3,8 +3,10 @@
 // the movement chart (with his arm angle), the release point and the locations, then every pitch. Drawn straight into
 // the PDF (sharp at any size), in the same red and black as the program and nutrition PDFs. Numbers changed by hand
 // are marked *, a spin efficiency TrackMan left blank and estimated from the movement ~.
-//   BullpenPdf.save({ athlete: { name, throws }, session, stats (bullpens.js typeStats), pitches (live, in order),
-//     armDeg, notes, colorOf(type), effOf(pitch), heightNote })
+//   BullpenPdf.save(o) downloads it, BullpenPdf.email(o, { to, cc, subject, body }) sends it from the coach's address,
+//   BullpenPdf.build(o) -> { pdf, file }; o: { athlete: { name, throws, heightIn }, session, notes } and, optionally,
+//   the dashboard's own stats, pitches (live, in order), armDeg, heightNote, colorOf, effOf (else bullpen_stats.js')
+//   BullpenPdf.mailText({ athlete, session, link }): the email's opening message
 (function () {
   const loadScript = (src) => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error("Couldn't load the PDF maker. Check your connection and try again.")); document.head.appendChild(s); });
   async function ready() {
@@ -58,14 +60,23 @@
     (o.avgs || []).forEach((p) => { pdf.setFillColor(...hex(p.color)); pdf.setDrawColor(255); pdf.setLineWidth(1.2); pdf.circle(px(clampX(p.x)), py(clampY(p.y)), 4.6, "FD"); pdf.setDrawColor(...INK); pdf.setLineWidth(0.5); pdf.circle(px(clampX(p.x)), py(clampY(p.y)), 5.4, "S"); });
   }
 
-  async function save(o) {
+  async function build(o) {
     const JsPDF = await ready();
     const pdf = new JsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
     const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight(), M = 40;
-    const { session, stats, pitches, colorOf, effOf } = o;
+    const BS = window.BullpenStats, session = o.session;
+    const pitches = o.pitches || BS.livePitches(session).slice().sort((a, b) => a.no - b.no), stats = o.stats || BS.typeStats(session);
+    const colorOf = o.colorOf || BS.colorOf, effOf = o.effOf || BS.effOf;
+    if (o.armDeg === undefined) o = { ...o, armDeg: BS.armAngleOf(pitches, o.athlete.heightIn || 74), heightNote: o.athlete.heightIn ? "from his release and height" : "from his release, assuming 6'2\"" };
     const edited = (p, k) => !!(p.orig && Object.prototype.hasOwnProperty.call(p.orig, k));
     let logo = null, ratio = 1;
-    try { logo = await new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = "assets/dst-logo.png"; }); ratio = logo.naturalWidth / logo.naturalHeight; } catch (e) { logo = null; }
+    // the logo drawn down to the size it prints at (the file itself is large)
+    try {
+      const im = await new Promise((ok, bad) => { const x = new Image(); x.onload = () => ok(x); x.onerror = bad; x.src = "assets/dst-logo.png"; });
+      ratio = im.naturalWidth / im.naturalHeight;
+      const c = document.createElement("canvas"); c.height = 160; c.width = Math.round(160 * ratio);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); logo = c.toDataURL("image/png");
+    } catch (e) { logo = null; }
 
     // ---- the heading
     let y = M;
@@ -198,9 +209,34 @@
       pdf.text(`Page ${i} of ${pages}`, W - M, H - 18, { align: "right" });
     }
     const file = `${(o.athlete.name || "pitcher").replace(/[^a-z0-9]+/gi, "_")}-bullpen-report-${session.date || "session"}.pdf`;
-    pdf.save(file);
-    return file;
+    return { pdf, file };
   }
 
-  window.BullpenPdf = { save };
+  async function save(o) { const { pdf, file } = await build(o); pdf.save(file); return file; }
+
+  // The report emailed from the coach's own address (api/send-athlete-email.js, as the other athlete emails), the PDF
+  // attached, with the link to his bullpen video in Google Drive when it's kept there (shared to anyone with the link).
+  //   email(o, { to, cc, subject, body })   o as for save
+  async function email(o, { to, cc, subject, body }) {
+    const { pdf, file } = await build(o);
+    const pdfBase64 = pdf.output("datauristring").split(",")[1];
+    const { data } = await window.supabaseClient.auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    if (!token) throw new Error("You're not signed in: reload and sign in again.");
+    const res = await fetch("/api/send-athlete-email", {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ to, cc: cc || "", subject, body, filename: file, pdfBase64, kind: "bullpen-report", athleteName: o.athlete.name || "", tab: "Bullpens" }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 413) throw new Error("The report is too large to email.");
+    if (!res.ok) throw new Error(json.error || `The email didn't send (${res.status}).`);
+    return json;
+  }
+  // the message the email starts with (the coach can change it)
+  const mailText = ({ athlete, session, link }) => {
+    const first = String(athlete.name || "").trim().split(/\s+/)[0] || "there";
+    return `Hi ${first},\n\nAttached is your bullpen report from ${fmtDay(session.date)}${session.facility ? ` at ${session.facility}` : ""}: your pitch types' numbers, your movement and release, your locations and every pitch.${link ? `\n\nThe video of the bullpen:\n${link}` : ""}\n\nDynamic Sports Training`;
+  };
+
+  window.BullpenPdf = { build, save, email, mailText };
 })();

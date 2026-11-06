@@ -5,32 +5,21 @@
 // plot and every pitch. The Pitching Assessment's own import (pitching_assessment.js) saves here too.
 (function () {
   const { useState, useRef, useEffect } = React;
+  // the numbers by pitch type, shared with the PDF report and the phone app (bullpen_stats.js)
+  const { r1, TYPE_ORDER, TYPE_COLORS, colorOf, typeRank, byType, UNTAGGED, typeOfPitch, livePitches, tiltMinutes, tiltText, tiltAvg, effEstimate, effOf, EDITABLE, FEET, isEdited, typeStats, armAngleOf } = window.BullpenStats;
 
   const uid = () => `bp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const fmtDate = (key) => { if (!key) return "No date"; const d = new Date(`${key}T00:00:00`); return isNaN(d) ? key : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); };
   const shortDate = (key) => { const d = new Date(`${key}T00:00:00`); return isNaN(d) ? key : `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
   const nameKey = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
-  const r1 = (v) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10);
   const show = (v, unit) => (v == null ? "–" : `${v}${unit || ""}`);
   const deg = (v) => (v == null ? "–" : `${v.toFixed(1)}°`);
   const ftIn = (v) => { if (v == null) return "–"; const f = Math.floor(v), i = Math.round((v - f) * 12); return i === 12 ? `${f + 1}'` : `${f}'${i ? `${i}"` : ""}`; };
 
-  // the usual order and colors (close to TrackMan's own) for pitch types, anything else after them in gray
-  const TYPE_ORDER = ["Fastball", "Four-Seam", "Sinker", "Two-Seam", "Cutter", "Slider", "Sweeper", "Slurve", "Curveball", "Knuckle Curve", "ChangeUp", "Changeup", "Splitter", "Knuckleball"];
-  const TYPE_COLORS = { fastball: "#a3122a", "four-seam": "#a3122a", sinker: "#f6863b", "two-seam": "#f6863b", cutter: "#8d5524", slider: "#e6c229", sweeper: "#b38f00", slurve: "#c77dff", curveball: "#3a86ff", "knuckle curve": "#3a86ff", changeup: "#6aa84f", splitter: "#2a9d8f", knuckleball: "#999999" };
-  const colorOf = (t) => TYPE_COLORS[String(t || "").toLowerCase()] || "#8a8a8a";
-  const typeRank = (t) => { if (t === "Untagged") return 100; const i = TYPE_ORDER.findIndex((x) => x.toLowerCase() === String(t).toLowerCase()); return i === -1 ? 99 : i; };
   // what a pitch can be tagged as (plus whatever the session already uses, and Other… for anything else)
   const TAG_TYPES = ["Fastball", "Sinker", "Cutter", "Slider", "Sweeper", "Slurve", "Curveball", "ChangeUp", "Splitter", "Knuckleball"];
-  const byType = (a, b) => typeRank(a) - typeRank(b) || String(a).localeCompare(String(b));
   const FASTBALLS = /fastball|four|sinker|two|seam/i;
 
-  // one session's figures for each pitch type, from its pitches (TrackMan's summary only fills a gap)
-  // (pitch types come from the pitches as tagged now, so retagging one moves it; an untagged pitch counts as Untagged)
-  const UNTAGGED = "Untagged";
-  const typeOfPitch = (p) => p.type || UNTAGGED;
-  // a pitch taken out of the report (from a chart or the pitch table) is kept, marked removed, so it can be put back
-  const livePitches = (session) => (session.pitches || []).filter((p) => !p.removed);
   // TrackMan bullpens as a CSV (one row per pitch, the sessions oldest first) for a sheet: every pitch thrown, the
   // taken-out ones marked; any figure the report had beyond these follows them
   const CSV_COLS = [["speed", "Velo (mph)"], ["spin", "Spin (rpm)"], ["tilt", "Tilt"], ["spinEff", "Spin efficiency (%)"], ["ivb", "IVB (in)"], ["hb", "HB (in)"], ["vaa", "VAA (°)"], ["extension", "Extension (ft)"], ["relHeight", "Release height (ft)"], ["relSide", "Release side (ft)"], ["plateHeight", "Plate height (ft)"], ["plateSide", "Plate side (ft)"]];
@@ -48,50 +37,6 @@
     a.download = `${(athlete.name || "pitcher").replace(/[^a-z0-9]+/gi, "_")}-bullpens-${what}.csv`;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  }
-  // the average of clock-face tilts ("1:45"), around the clock (so 11:45 and 12:15 average to 12:00), to 15 minutes
-  const tiltMinutes = (t) => { const m = String(t || "").match(/^(\d{1,2}):(\d{2})$/); return m ? ((Number(m[1]) % 12) * 60 + Number(m[2])) : null; };
-  const tiltText = (mins) => { if (mins == null) return null; const q = Math.round(mins / 15) * 15 % 720, h = Math.floor(q / 60); return `${h === 0 ? 12 : h}:${String(q % 60).padStart(2, "0")}`; };
-  const tiltAvg = (list) => {
-    const ms = list.map(tiltMinutes).filter((m) => m != null);
-    if (!ms.length) return null;
-    const a = ms.map((m) => (m / 720) * 2 * Math.PI), sx = a.reduce((s, v) => s + Math.sin(v), 0), cx = a.reduce((s, v) => s + Math.cos(v), 0);
-    return ((Math.atan2(sx, cx) / (2 * Math.PI)) * 720 + 720) % 720;
-  };
-  // Spin efficiency where TrackMan left it blank (often on a gyro slider): the share of the spin that moved the ball,
-  // from how far it moved for its spin and speed. Spin-induced movement runs about as active spin over speed (the
-  // Magnus lift grows with spin and speed, its flight time falls with speed), and on our bullpens with a measured
-  // efficiency, movement (in) × speed (mph) ÷ active spin (rpm) comes out about 1.0. A rough figure, shown with ~.
-  const effEstimate = (spin, speed, ivb, hb) => {
-    if (![spin, speed, ivb, hb].every((v) => typeof v === "number") || spin < 300) return null;
-    return Math.max(0, Math.min(100, Math.round((Math.hypot(ivb, hb) * speed * 100) / spin)));
-  };
-  const effOf = (p) => (typeof p.spinEff === "number" ? p.spinEff : effEstimate(p.spin, p.speed, p.ivb, p.hb));
-  // a pitch's numbers changed by hand keep TrackMan's in p.orig ({ extension: 5.25 }); these can be changed
-  const EDITABLE = [["speed", "Velo"], ["spin", "Spin"], ["tilt", "Tilt"], ["ivb", "IVB"], ["hb", "HB"], ["extension", "Ext."], ["relHeight", "Rel. ht"], ["relSide", "Rel. side"], ["spinEff", "Spin eff."]];
-  const FEET = ["extension", "relHeight", "relSide"];
-  const isEdited = (p, k) => !!(p.orig && Object.prototype.hasOwnProperty.call(p.orig, k));
-  function typeStats(session) {
-    const pitches = livePitches(session);
-    const types = [...new Set(pitches.length ? pitches.map(typeOfPitch) : (session.summary || []).map((r) => r.type).filter(Boolean))].sort(byType);
-    return types.map((type) => {
-      const ps = pitches.filter((p) => typeOfPitch(p) === type), sum = (session.summary || []).find((r) => r.type === type) || {};
-      const vals = (k) => ps.map((p) => p[k]).filter((v) => typeof v === "number");
-      const avg = (k) => { const v = vals(k); return v.length ? r1(v.reduce((a, b) => a + b, 0) / v.length) : null; };
-      const max = (k) => { const v = vals(k); return v.length ? r1(Math.max(...v)) : null; };
-      const effAvg = avg("spinEff") != null ? Math.round(avg("spinEff")) : null;
-      const effEst = effAvg == null ? effEstimate(avg("spin") ?? sum.spinAvg ?? null, avg("speed") ?? sum.speedAvg ?? null, avg("ivb"), avg("hb") ?? sum.hbAvg ?? null) : null;
-      return {
-        edited: EDITABLE.map(([k]) => k).filter((k) => ps.some((p) => isEdited(p, k))), spinEffEst: effEst != null,
-        type, qty: ps.length || sum.qty || 0,
-        speedAvg: avg("speed") ?? sum.speedAvg ?? null, speedMax: max("speed") ?? sum.speedMax ?? null,
-        spinAvg: avg("spin") != null ? Math.round(avg("spin")) : sum.spinAvg != null ? Math.round(sum.spinAvg) : null,
-        ivb: avg("ivb"), hb: avg("hb") ?? sum.hbAvg ?? null,
-        relHeight: avg("relHeight") ?? sum.relHeight ?? null, relSide: avg("relSide") ?? sum.relSide ?? null,
-        extension: avg("extension") ?? sum.extension ?? null, spinEff: effAvg ?? effEst,
-        vaa: avg("vaa"), tilt: tiltAvg(ps.map((p) => p.tilt)),
-      };
-    });
   }
 
   // Saves parsed TrackMan reports as bullpen sessions for this athlete. A report already on file (same date, same
@@ -184,16 +129,6 @@
         ))}
       </svg>
     );
-  }
-  // Arm angle, as Baseball Savant gives it: the line from the throwing shoulder to the ball at release, in degrees above
-  // level (0 sidearm, about 45 three-quarters, 90 straight over the top). Savant sees the shoulder; a bullpen has only
-  // the release, so the shoulder is put at 70% of his height over the middle of the rubber, from the pitches' average
-  // release height and side (feet). Within a few degrees of Savant's for most pitchers.
-  function armAngleOf(pitches, heightIn) {
-    const ps = pitches.filter((p) => typeof p.relHeight === "number" && typeof p.relSide === "number");
-    if (!ps.length || !heightIn) return null;
-    const h = ps.reduce((s, p) => s + p.relHeight, 0) / ps.length, side = ps.reduce((s, p) => s + Math.abs(p.relSide), 0) / ps.length;
-    return Math.round((Math.atan2(h - (0.7 * heightIn) / 12, Math.max(0.1, side)) * 180) / Math.PI);
   }
   // How far a pitch's movement turns off the line of his arm angle (the dotted line on the movement chart, which runs
   // both ways through the middle), in degrees from whichever end it's nearer, −90 to 90: + more vertical than the slot
@@ -1187,7 +1122,25 @@
     // numbers changed by hand (an extension TrackMan got wrong, say): one pitch's, or every pitch's (the checked ones,
     // if any are) at once. TrackMan's own number is kept in p.orig so it can be put back, and VAA is worked out again.
     const [editing, setEditing] = useState(false);
-    const [pdf, setPdf] = useState(null); // the PDF report's box: { notes, busy, msg }
+    // The PDF report's box: { notes, busy, msg, to, cc, subject, body, link, linkErr, sent }. It opens with his email,
+    // and the link to the bullpen's video in Google Drive in the message (shared by link first, if it wasn't yet).
+    const [pdf, setPdf] = useState(null);
+    const vfile = session.video && session.video.files && session.video.files.length === 1 ? session.video.files[0] : null;
+    const pdfOpts = (notesText) => ({
+      athlete: { name: (athlete && athlete.name) || "", throws: athlete && athlete.throws, heightIn }, session, stats, pitches: live.slice().sort((a, b) => a.no - b.no),
+      armDeg: armAngleOf(live, heightIn || 74), notes: notesText, colorOf, effOf,
+      heightNote: heightIn ? "from his release and height" : "from his release, assuming 6'2\"",
+    });
+    const openPdf = () => {
+      const link = (vfile && vfile.link) || "", mail = (l) => window.BullpenPdf.mailText({ athlete: athlete || {}, session, link: l });
+      setPdf({ notes: notes || "", busy: false, msg: "", to: (athlete && athlete.email) || "", cc: "", subject: `Your bullpen report · ${fmtDate(session.date)}`, body: mail(link), link, linkErr: "", sent: false });
+      if (vfile && vfile.drive && !vfile.link && window.BullpenCut) {
+        window.BullpenCut.shareLink(vfile).then((l) => {
+          saveVideo(session.id, { ...session.video, files: [{ ...vfile, link: l }] });
+          setPdf((c) => c && { ...c, link: l, body: c.body === mail("") ? mail(l) : `${c.body}\n\nThe video of the bullpen:\n${l}` });
+        }, (e) => setPdf((c) => c && { ...c, linkErr: (e && e.message) || String(e) }));
+      }
+    };
     const parseVal = (k, raw) => {
       const s = String(raw).trim();
       if (!s) return undefined;
@@ -1531,7 +1484,7 @@
               </select>
             )}
             <button type="button" className="btn btn-small-grey" title="Put the modules back in their usual order, sizes and set" onClick={() => setLayout(DEFAULT_LAYOUT)}>Reset layout</button>
-            {window.BullpenPdf && <button type="button" className="btn btn-secondary" title="A DST-branded PDF of this bullpen: notes, pitch types, charts and every pitch" onClick={() => { setPdf({ notes: notes || "", busy: false, msg: "" }); }}>PDF report</button>}
+            {window.BullpenPdf && <button type="button" className="btn btn-secondary" title="A DST-branded PDF of this bullpen: notes, pitch types, charts and every pitch, to download or email him" onClick={openPdf}>PDF report</button>}
           </span>
         </div>
         {pdf && ReactDOM.createPortal(
@@ -1542,20 +1495,35 @@
                 <button type="button" className="bp-mod-btn bp-zoom-close" disabled={pdf.busy} onClick={() => setPdf(null)}>✕ Close</button>
               </div>
               <label className="bp-pdf-label" htmlFor="bp-pdf-notes">Coach's notes for the report <small>(left blank, the report has none)</small></label>
-              <textarea id="bp-pdf-notes" className="bp-pdf-notes" rows={6} value={pdf.notes} placeholder="What he worked on, what stood out, what's next…" onChange={(e) => setPdf({ ...pdf, notes: e.target.value })} />
+              <textarea id="bp-pdf-notes" className="bp-pdf-notes" rows={5} value={pdf.notes} placeholder="What he worked on, what stood out, what's next…" onChange={(e) => setPdf({ ...pdf, notes: e.target.value })} />
               <p className="timestamp-note">The DST logo, his name, the date and facility; your notes; the pitch types' numbers; the movement chart with his arm angle, the release point and the locations; then every pitch. {live.length} pitches (taken-out ones are left out). Numbers changed by hand are marked *, estimated spin efficiency ~.</p>
               <div className="bp-video-actions">
-                <button type="button" className="btn btn-primary" disabled={pdf.busy} onClick={async () => {
+                <button type="button" className="btn btn-secondary" disabled={pdf.busy} onClick={async () => {
                   setPdf({ ...pdf, busy: true, msg: "" });
-                  try {
-                    const file = await window.BullpenPdf.save({
-                      athlete: { name: (athlete && athlete.name) || "", throws: athlete && athlete.throws }, session, stats, pitches: live.slice().sort((a, b) => a.no - b.no),
-                      armDeg: armAngleOf(live, heightIn || 74), notes: pdf.notes, colorOf, effOf,
-                      heightNote: heightIn ? "from his release and height" : "from his release, assuming 6'2\"",
-                    });
-                    setPdf({ ...pdf, busy: false, msg: `Saved ${file}.` });
-                  } catch (err) { setPdf({ ...pdf, busy: false, msg: (err && err.message) || String(err) }); }
-                }}>{pdf.busy ? "Making it…" : "Make the PDF"}</button>
+                  try { const file = await window.BullpenPdf.save(pdfOpts(pdf.notes)); setPdf((c) => ({ ...c, busy: false, msg: `Saved ${file}.` })); }
+                  catch (err) { setPdf((c) => ({ ...c, busy: false, msg: (err && err.message) || String(err) })); }
+                }}>Download the PDF</button>
+              </div>
+              <h4 className="bp-pdf-h">Email it to {(athlete && athlete.name) || "him"}</h4>
+              <div className="bp-pdf-grid">
+                <label>To <input className="bp-pdf-in" type="email" value={pdf.to} placeholder="his email" onChange={(e) => setPdf({ ...pdf, to: e.target.value })} /></label>
+                <label>CC <input className="bp-pdf-in" value={pdf.cc} placeholder="optional, commas between" onChange={(e) => setPdf({ ...pdf, cc: e.target.value })} /></label>
+                <label>Subject <input className="bp-pdf-in" value={pdf.subject} onChange={(e) => setPdf({ ...pdf, subject: e.target.value })} /></label>
+              </div>
+              <textarea className="bp-pdf-notes" rows={7} value={pdf.body} aria-label="Message" onChange={(e) => setPdf({ ...pdf, body: e.target.value })} />
+              <p className="timestamp-note">
+                {pdf.link ? "The link to his bullpen video in Google Drive is in the message (anyone with it can watch). " : vfile && vfile.drive ? (pdf.linkErr ? `No video link: ${pdf.linkErr} ` : "Getting the video's link… ") : vfile ? "This video isn't kept in Google Drive, so there's no link to send. " : "This bullpen has no video. "}
+                Sent from your own address with the PDF attached.
+              </p>
+              <div className="bp-video-actions">
+                <button type="button" className="btn btn-primary" disabled={pdf.busy || pdf.sent} onClick={async () => {
+                  const re = /^[^@\s]+@[^@\s]+\.[^@\s]+$/, cc = pdf.cc.split(",").map((s) => s.trim()).filter(Boolean);
+                  if (!re.test(pdf.to.trim())) { setPdf({ ...pdf, msg: "Put in his email address." }); return; }
+                  if (cc.some((a) => !re.test(a))) { setPdf({ ...pdf, msg: "One of the CC addresses doesn't look right." }); return; }
+                  setPdf({ ...pdf, busy: true, msg: "Sending…" });
+                  try { await window.BullpenPdf.email(pdfOpts(pdf.notes), { to: pdf.to.trim(), cc: cc.join(", "), subject: pdf.subject.trim() || "Your bullpen report", body: pdf.body }); setPdf((c) => ({ ...c, busy: false, sent: true, msg: `Sent to ${pdf.to.trim()}${cc.length ? ` (cc ${cc.join(", ")})` : ""}.` })); }
+                  catch (err) { setPdf((c) => ({ ...c, busy: false, msg: (err && err.message) || String(err) })); }
+                }}>{pdf.sent ? "Sent" : pdf.busy ? "Working…" : "Send it"}</button>
                 {pdf.msg && <span className="assess-row-note" role="status">{pdf.msg}</span>}
               </div>
             </div>

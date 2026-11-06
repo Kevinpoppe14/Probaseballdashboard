@@ -484,8 +484,7 @@
   // ---- the video export's panel for one pitch (video_export.js) -------------------------------------------------------
   // its TrackMan numbers, and the ball spinning as Pitch Design draws it (the dashboard only) and where its movement
   // sits among the session's
-  const TYPE_COLORS = { fastball: "#a3122a", "four-seam": "#a3122a", sinker: "#f6863b", "two-seam": "#f6863b", cutter: "#8d5524", slider: "#e6c229", sweeper: "#b38f00", slurve: "#c77dff", curveball: "#3a86ff", "knuckle curve": "#3a86ff", changeup: "#6aa84f", splitter: "#2a9d8f", knuckleball: "#999999" };
-  const colorOf = (t) => (window.BullpenBall ? window.BullpenBall.colorOf(t) : TYPE_COLORS[String(t || "").toLowerCase()] || "#8a8a8a");
+  const colorOf = (t) => window.BullpenStats.colorOf(t);
   const fmtDay = (key) => { const d = new Date(`${key}T00:00:00`); return isNaN(d) ? key || "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); };
   const numOrNull = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
   const inches = (v, d = 1) => (numOrNull(v) == null ? null : `${Number(v).toFixed(d)}"`);

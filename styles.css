@@ -4243,6 +4243,10 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-pdf-card { max-width: 620px; }
 .bp-pdf-label { display: block; font-size: 13px; font-weight: 600; margin: 8px 0 6px; }
 .bp-pdf-label small { color: var(--text-dim); font-weight: 400; }
+.bp-pdf-h { margin: 14px 0 6px; font-size: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.bp-pdf-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 6px; }
+.bp-pdf-grid label { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+.bp-pdf-in { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2, transparent); color: var(--text); min-width: 0; }
 .bp-pdf-notes { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2, transparent); color: var(--text); resize: vertical; }
 .bp-tag { font-size: 13px; padding: 3px 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); border-radius: 6px; }
 .bp-type-cell { text-align: left !important; }
