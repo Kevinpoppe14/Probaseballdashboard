@@ -137,13 +137,15 @@
       if (entries.some((e) => e.uploaded) && VE && VE.supported()) {
         const toggle = (label, on, set) => el("label", { class: "bpa-check" }, el("input", { type: "checkbox", checked: on, onchange: (ev) => { set(ev.target.checked); render(); } }), ` ${label}`);
         const left = entries.filter((e) => e.uploaded && !e.made && !e.wantVideo);
+        const redo = entries.filter((e) => e.uploaded && e.made && !e.wantVideo && e.made.layout !== exp.layout);
         parts.push(el("section", { class: "bpa-step" }, el("h3", null, "The videos"),
           el("div", { class: "bpa-row" }, el("b", null, "Shape"),
             [["vertical", "Vertical (phone)"], ["horizontal", "Horizontal (TV)"]].map(([k, t]) => el("button", { type: "button", class: `bpa-btn${exp.layout === k ? " on" : ""}`, "aria-pressed": exp.layout === k ? "true" : "false", onclick: () => { exp.layout = k; render(); } }, t))),
           el("div", { class: "bpa-row" }, el("b", null, "Show"), toggle("Title card", exp.title, (on) => { exp.title = on; }), toggle("Movement plot", exp.plot, (on) => { exp.plot = on; }),
             el("select", { "aria-label": "Speed", onchange: (ev) => { exp.rate = Number(ev.target.value); } }, [[1, "Speed as filmed"], [0.5, "½ speed"], [0.25, "¼ speed"]].map(([v, t]) => el("option", { value: v, selected: exp.rate === v }, t)))),
           el("p", { class: "bpa-hint" }, `Each is every pitch with its TrackMan numbers, made on this ${VE.isPhone() ? "phone" : "computer"} from the video here, one at a time.${VE.isPhone() ? " Save video on each then puts it in Photos." : " Each goes to your downloads."}`),
-          left.length ? el("button", { type: "button", class: "bpa-btn primary", onclick: () => { left.forEach((e) => { e.wantVideo = true; }); pump(); } }, `Make every video (${left.length})`) : null));
+          left.length ? el("button", { type: "button", class: "bpa-btn primary", onclick: () => { left.forEach((e) => { e.wantVideo = true; }); pump(); } }, `Make every video (${left.length})`) : null,
+          redo.length ? el("button", { type: "button", class: "bpa-btn", onclick: () => { redo.forEach((e) => { e.made = null; e.wantVideo = true; }); pump(); render(); } }, `Make them again: ${exp.layout} (${redo.length})`) : null));
       }
       box.replaceChildren(el("div", { class: "bpa" }, ...parts));
     }
@@ -189,6 +191,7 @@
             : e.wantVideo ? el("span", { class: "bpa-hint" }, working === e ? "" : "Video: waiting its turn")
               : el("button", { type: "button", class: "bpa-btn", onclick: () => { e.wantVideo = true; pump(); render(); } }, "Make the video")) : null,
           e.made && VE && VE.isPhone() ? el("button", { type: "button", class: "bpa-btn", title: "The video in a tab of its own: Share there, then Save Video", onclick: () => VE.view(e.made.blob) }, "Open it") : null,
+          e.made && !e.wantVideo ? el("button", { type: "button", class: `bpa-btn${e.made.layout !== exp.layout ? " primary" : ""}`, title: "Make it again with the shape and options set below", onclick: () => { e.made = null; e.wantVideo = true; pump(); render(); } }, e.made.layout !== exp.layout ? `Make it again: ${exp.layout}` : "Make it again") : null,
           window.BullpenPdf ? el("button", { type: "button", class: `bpa-btn${e.open === "mail" ? " on" : ""}`, onclick: () => { e.open = e.open === "mail" ? "" : "mail"; if (!e.mail) e.mail = { to: e.p.email || "", body: window.BullpenPdf.mailText({ athlete: e.p, session: e.session, link: e.link }), msg: "", busy: false, sent: false }; render(); } }, "Email the report") : null));
         if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video ready (${BC().mb(e.made.blob.size)}): tap Save video, then Save Video in the share sheet. No Save Video there? Tap Open it, then Share › Save Video.` : e.made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done: ${e.made.name} (${BC().mb(e.made.blob.size)}).`));
         if (e.open === "match") {
@@ -289,7 +292,8 @@
       });
       const name = VE.fileName(e.p.name, `bullpen-${exp.layout}`, e.session.date, blob);
       const how = await VE.download(blob, name, { share: VE.isPhone() });
-      e.made = { blob, name, tap: how === "tap", files: how === "files" };
+      e.made = { blob, name, tap: how === "tap", files: how === "files", layout: exp.layout };
+      e.wantVideo = false;
     }
 
     // emailing his report (the PDF attached, the video's link in the message), from the coach's address
