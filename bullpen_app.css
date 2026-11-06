@@ -1,0 +1,31 @@
+/* Bullpen Video in a coach's phone app (bullpen_app.js): the TrackMan report, the video cut into pitches, saving and
+   the export. Its colors are the app's. */
+.bpa { --bpa-line: var(--border, #2c2c2c); --bpa-dim: var(--dim, #9a9a9a); --bpa-accent: var(--accent, #c8102e); color: var(--text, #f2f2f2); max-width: 760px; margin: 0 auto; }
+.bpa h2 { margin: 4px 0 10px; font-size: 20px; }
+.bpa h2 small { color: var(--bpa-dim); font-weight: 400; font-size: 15px; }
+.bpa-step { border: 1px solid var(--bpa-line); border-radius: 12px; padding: 12px; margin: 10px 0; background: var(--panel, transparent); }
+.bpa-step h3 { margin: 0 0 8px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.bpa-n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bpa-accent); color: #fff; font-size: 13px; }
+.bpa-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.bpa-row > b { font-size: 13px; color: var(--bpa-dim); min-width: 56px; }
+.bpa-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--bpa-line); border-radius: 10px; background: none; color: inherit; font-size: 15px; font-weight: 600; }
+.bpa-btn.primary, .bpa-btn.on { background: var(--bpa-accent); border-color: var(--bpa-accent); color: #fff; }
+.bpa-btn:disabled { opacity: 0.5; }
+.bpa select { min-height: 44px; font-size: 16px; border-radius: 10px; border: 1px solid var(--bpa-line); background: var(--panel-2, transparent); color: inherit; padding: 0 10px; max-width: 100%; }
+.bpa-check { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-size: 15px; }
+.bpa-check input { width: 20px; height: 20px; accent-color: var(--bpa-accent); }
+.bpa-hint { font-size: 13px; color: var(--bpa-dim); line-height: 1.45; margin: 4px 0; }
+.bpa-done { font-size: 14px; margin: 6px 0; }
+.bpa-warn { font-size: 14px; margin: 6px 0; color: var(--gold, #f0c040); }
+.bpa-err { font-size: 14px; margin: 8px 0; color: #f87171; }
+.bpa-busy { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; margin: 10px 0; border-radius: 12px; background: var(--panel-2, #1f1f1f); border: 1px solid var(--bpa-line); font-size: 14px; }
+.bpa-busy progress { flex: 1 1 160px; height: 10px; accent-color: var(--bpa-accent); }
+.bpa-player:empty { display: none; }
+.bpa-video { width: 100%; max-height: 60vh; background: #000; border-radius: 10px; }
+.bpa-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.bpa-pitch { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; text-align: left; min-height: 48px; padding: 6px 8px; border: 1px solid var(--bpa-line); border-radius: 10px; background: none; color: inherit; font-size: 14px; }
+.bpa-pitch small { flex-basis: 100%; color: var(--bpa-dim); font-size: 12px; }
+.bpa-pitch.on { border-color: var(--bpa-accent); box-shadow: 0 0 0 1px var(--bpa-accent) inset; }
+.bpa-pitch.out { opacity: 0.6; }
+.bpa-pitch:disabled { opacity: 0.4; }
+.bpa-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }

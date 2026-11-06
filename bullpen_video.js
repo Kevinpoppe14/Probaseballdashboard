@@ -10,161 +10,16 @@
 // Every pitch thrown is matched, taken-out ones too (they were still filmed). A clip that lands on the wrong pitch (a
 // missed trigger, an extra clip) is fixed from the player by moving it, and every clip after it, a pitch either way.
 //   window.BullpenVideo = { VideoBar, PitchVideo, CameraButton, removeFiles, hasClip }
+// (keeping the video, finding the pitches and the export's panel are in bullpen_cut.js, shared with the phone app)
 (function () {
   const { useState, useRef, useEffect } = React;
-  const BUCKET = "bullpen-videos";
-  const sb = () => window.supabaseClient;
-  const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const mb = (n) => `${Math.round(n / 1048576)} MB`;
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
   const pitchNos = (session) => (session.pitches || []).map((p) => p.no).sort((a, b) => a - b);
   const hasClip = (session, no) => !!(session && session.video && session.video.clips && session.video.clips[no]);
+  // the parts without React, shared with the phone app (bullpen_cut.js)
+  const { upload, removeFiles, linkOf, useDrive, scanVideo, splitByMotion, cueClips, shiftClips, fmtDay } = window.BullpenCut;
 
-  // ---- Google Drive (api/drive-video.js) -----------------------------------------------------------------------------
-  // Once it's set up, new video goes to the company's Google Drive (any size, a folder per athlete) instead of storage
-  // here; a file kept there is { drive: id, name, size }. Video already in storage stays there and plays as before.
-  async function driveApi(body) {
-    const { data } = await sb().auth.getSession();
-    const token = data && data.session && data.session.access_token;
-    if (!token) throw new Error("Sign in with your dashboard account to add video.");
-    const res = await fetch("/api/drive-video", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
-    const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(out.error || `Google Drive didn't answer (${res.status}).`);
-    return out;
-  }
-  let driveOn = null; // whether Drive is set up: asked once
-  const useDrive = () => driveOn || (driveOn = driveApi({ action: "status" }).then((r) => !!r.configured, () => false));
-  let readToken = null;
-  const driveToken = async () => {
-    if (readToken && readToken.expiresAt - Date.now() > 120000) return readToken.accessToken;
-    readToken = await driveApi({ action: "token" });
-    return readToken.accessToken;
-  };
-  // sent straight to Drive from here, 32 MB at a time (a dropped connection picks up where it got to)
-  async function driveUpload(file, athleteId, athleteName, sessionId, onProgress) {
-    const type = file.type || (/\.mov$/i.test(file.name) ? "video/quicktime" : "video/mp4");
-    const { uploadUrl } = await driveApi({ action: "start", name: file.name || "video.mp4", mimeType: type, size: file.size, athleteId, athleteName, sessionId });
-    const CHUNK = 32 * 1024 * 1024;
-    const put = (from, to, tries = 0) => new Promise((ok, bad) => {
-      const x = new XMLHttpRequest();
-      x.open("PUT", uploadUrl);
-      if (file.size) x.setRequestHeader("Content-Range", `bytes ${from}-${to - 1}/${file.size}`);
-      x.upload.onprogress = (e) => onProgress && onProgress((from + e.loaded) / file.size);
-      x.onload = () => ok(x);
-      x.onerror = () => (tries < 3 ? setTimeout(() => put(from, to, tries + 1).then(ok, bad), 2000 * (tries + 1)) : bad(new Error(`Couldn't upload ${file.name} to Google Drive. Check your connection and try again.`)));
-      x.send(file.slice(from, to));
-    });
-    let from = 0;
-    for (;;) {
-      const x = await put(from, Math.min(file.size, from + CHUNK));
-      if (x.status === 200 || x.status === 201) { const f = JSON.parse(x.responseText); return { drive: f.id, name: file.name, size: file.size }; }
-      if (x.status !== 308) throw new Error(`Google Drive stopped the upload of ${file.name} (${x.status}).`);
-      const got = x.getResponseHeader("Range"); // "bytes=0-N": what it has so far
-      from = got ? Number(got.split("-")[1]) + 1 : from;
-    }
-  }
-
-  // a watchable link for a stored clip: storage's lasts an hour (kept until shortly before it runs out); a Drive
-  // file is brought down once with a token (Drive won't take one in a link) and played from memory
-  const links = new Map();
-  async function linkOf(file) {
-    if (file.url) return file.url; // not uploaded yet (a preview), or a file on this device
-    if (file.drive) {
-      if (!links.has(file.drive)) {
-        const p = (async () => {
-          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.drive)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${await driveToken()}` } });
-          if (res.status === 404) throw new Error("The video isn't in Google Drive any more.");
-          if (!res.ok) throw new Error("Couldn't open the video from Google Drive. Check your connection.");
-          return URL.createObjectURL(await res.blob());
-        })();
-        links.set(file.drive, p);
-        p.catch(() => links.delete(file.drive));
-      }
-      return links.get(file.drive);
-    }
-    const hit = links.get(file.path);
-    if (hit && hit.until > Date.now()) return hit.url;
-    const { data, error } = await sb().storage.from(BUCKET).createSignedUrl(file.path, 3600);
-    if (error || !data) throw new Error(/not found/i.test((error && error.message) || "") ? "The video file isn't in storage any more." : "Couldn't open the video. Check your connection.");
-    links.set(file.path, { url: data.signedUrl, until: Date.now() + 50 * 60 * 1000 });
-    return data.signedUrl;
-  }
-  // into Google Drive once it's set up, otherwise into storage here
-  async function upload(file, athlete, sessionId, onProgress) {
-    if (await useDrive()) return driveUpload(file, athlete.id, athlete.name, sessionId, onProgress);
-    const athleteId = athlete.id;
-    const ext = ((file.name || "").match(/\.(\w{2,4})$/) || [])[1] || (/quicktime/i.test(file.type) ? "mov" : "mp4");
-    const path = `${athleteId}/${sessionId}/${uid()}.${ext.toLowerCase()}`;
-    const { error } = await sb().storage.from(BUCKET).upload(path, file, { contentType: file.type || (ext.toLowerCase() === "mov" ? "video/quicktime" : "video/mp4"), cacheControl: "31536000", upsert: false });
-    if (error) {
-      const m = error.message || "";
-      if (/bucket not found/i.test(m)) throw new Error("Video storage isn't set up yet: run supabase/migration_031_bullpen_videos.sql in the SQL Editor.");
-      if (/maximum allowed size|too large|413/i.test(m)) throw new Error(`${file.name} is ${mb(file.size)}, more than storage here takes for one file. Set up Google Drive video storage (api/drive-video.js) for any size, or export it smaller.`);
-      if (/row-level security|unauthorized|jwt/i.test(m)) throw new Error("Sign in with your dashboard account to add video.");
-      throw new Error(`Couldn't upload ${file.name}. Check your connection and try again.`);
-    }
-    return { path, name: file.name, size: file.size };
-  }
-  async function removeFiles(video) {
-    const files = (video && video.files) || [];
-    const paths = files.map((f) => f.path).filter(Boolean), ids = files.map((f) => f.drive).filter(Boolean);
-    if (paths.length) await sb().storage.from(BUCKET).remove(paths).catch(() => null);
-    if (ids.length) await driveApi({ action: "delete", ids }).catch(() => null); // to the Drive's trash
-  }
-
-  // ---- finding the cuts in one long video ----------------------------------------------------------------------
-  // The video plays, muted and fast, into a small canvas; each frame shown is compared with the one before it (mean
-  // brightness change per pixel). Within a clip that change is small (a pitcher moving); at a cut the whole picture
-  // jumps. Returns every frame it saw: { t, d }.
-  async function scanVideo(file, onProgress) {
-    const url = URL.createObjectURL(file);
-    const v = document.createElement("video");
-    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
-    try {
-      await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error("This browser can't play that video file. Export it as an MP4 (H.264).")); });
-      let dur = v.duration;
-      if (dur === Infinity) { // some files (browser recordings) don't say: running off the end makes it find out
-        dur = await new Promise((ok) => { v.ontimeupdate = () => { v.ontimeupdate = null; ok(v.duration); }; v.currentTime = 1e9; });
-        await new Promise((ok) => { v.onseeked = ok; v.currentTime = 0; });
-      }
-      if (!Number.isFinite(dur) || dur <= 0) throw new Error("Couldn't tell how long that video is.");
-      const W = 64, H = 36, cv = document.createElement("canvas");
-      cv.width = W; cv.height = H;
-      const ctx = cv.getContext("2d", { willReadFrequently: true });
-      const out = [];
-      let prev = null;
-      const grab = (t) => {
-        ctx.drawImage(v, 0, 0, W, H);
-        const px = ctx.getImageData(0, 0, W, H).data, g = new Float32Array(W * H);
-        let d = 0;
-        for (let i = 0; i < g.length; i++) { g[i] = px[i * 4] * 0.299 + px[i * 4 + 1] * 0.587 + px[i * 4 + 2] * 0.114; if (prev) d += Math.abs(g[i] - prev[i]); }
-        out.push({ t, d: prev ? d / g.length : 0 });
-        prev = g;
-      };
-      if (v.requestVideoFrameCallback && document.visibilityState === "visible") {
-        await new Promise((ok, bad) => {
-          const onFrame = (now, meta) => { grab(meta.mediaTime); onProgress(Math.min(1, meta.mediaTime / dur)); if (!v.ended) v.requestVideoFrameCallback(onFrame); };
-          v.requestVideoFrameCallback(onFrame);
-          v.onended = ok;
-          v.onerror = () => bad(new Error("The video stopped playing partway through."));
-          v.playbackRate = 4; // fast enough to scan a long video in a quarter of its length, slow enough to see most frames
-          v.play().catch(bad);
-        });
-      }
-      // a window that's hidden or behind another one hands over few frames as it plays: step through it instead
-      if (out.length < dur * 6) {
-        out.length = 0; prev = null;
-        for (let t = 0; t < dur; t += 0.1) {
-          await new Promise((ok) => { v.onseeked = ok; v.currentTime = t; });
-          grab(t); onProgress(t / dur);
-        }
-      }
-      return { dur, frames: out };
-    } finally {
-      v.removeAttribute("src"); v.load();
-      URL.revokeObjectURL(url);
-    }
-  }
   // the n - 1 biggest jumps, no two too close together, as n stretches of the video. Each stretch starts on the first
   // frame seen after its cut and ends on the last one seen before the next, so no pitch shows a flash of another.
   // `clear` is how much the weakest cut taken stands out from the strongest one left out (under ~2: check them).
@@ -200,24 +55,6 @@
     peaks.forEach((p) => { if (p.s > 5 && p.d > 2 && far(big, p)) big.push(p); });
     return { segs, clear: left && left.s > 0 ? weakest / left.s : 99, seems: big.length + 1 };
   }
-  // A phone left recording the whole bullpen has no cuts to find: each pitch is where the picture moves most (the
-  // delivery), the n busiest moments at least a few seconds apart, each taken from `before` seconds ahead of it to
-  // `after` seconds past it.
-  function splitByMotion(scan, n, before = 2.5, after = 1.5) {
-    const { frames, dur } = scan;
-    const sm = frames.map((f, i) => {
-      let s = 0, c = 0;
-      for (let j = i; j >= 0 && f.t - frames[j].t <= 0.25; j--) { s += frames[j].d; c++; }
-      for (let j = i + 1; j < frames.length && frames[j].t - f.t <= 0.25; j++) { s += frames[j].d; c++; }
-      return { t: f.t, m: s / c };
-    });
-    const minGap = Math.max(3, Math.min(8, (dur / Math.max(1, n)) * 0.5));
-    const peaks = sm.filter((p, i) => i > 0 && i < sm.length - 1 && p.m >= sm[i - 1].m && p.m >= sm[i + 1].m).sort((a, b) => b.m - a.m);
-    const picked = [];
-    for (const p of peaks) { if (picked.length >= n) break; if (picked.every((q) => Math.abs(q.t - p.t) >= minGap)) picked.push(p); }
-    picked.sort((a, b) => a.t - b.t);
-    return { segs: picked.map((p) => ({ start: Math.max(0, p.t - before), end: Math.min(dur, p.t + after) })), clear: 99, seems: picked.length };
-  }
   const CAMERAS = [["edgertronic", "Edgertronic"], ["phone", "Phone"]];
 
   // ---- adding video to a session ---------------------------------------------------------------------------------
@@ -241,11 +78,18 @@
       setBusy(`${finding}… 0%`);
       try {
         const scan = await scanVideo(files[0], (p) => setBusy(`${finding}… ${Math.round(p * 100)}%`));
-        setPlan({ kind: "one", file: files[0], scan, n: nos.length });
+        // a phone video: each pitch from the top of its leg lift to 0.6 s after the ball gets there (the pose model)
+        let cued = null;
+        if (camera === "phone") {
+          const thrown = (session.pitches || []).slice().sort((a, b) => a.no - b.no);
+          setBusy("Finding each leg lift and release… 0%");
+          cued = await cueClips(files[0], scan, thrown, { onProgress: (p) => setBusy(`Finding each leg lift and release… ${Math.round(p * 100)}%`) }).then((c) => ({ ...c, n: thrown.length, clear: 99 }), () => null);
+        }
+        setPlan({ kind: "one", file: files[0], scan, n: nos.length, cued });
       } catch (err) { setMsg(err.message || String(err)); }
       setBusy("");
     };
-    const split = plan && plan.kind === "one" ? (camera === "phone" ? splitByMotion(plan.scan, plan.n) : splitAt(plan.scan, plan.n)) : null;
+    const split = plan && plan.kind === "one" ? (camera === "phone" ? (plan.cued && plan.cued.n === plan.n ? plan.cued : splitByMotion(plan.scan, plan.n)) : splitAt(plan.scan, plan.n)) : null;
     // each pitch's clip: the files in order, or the stretches of the one video
     const clipsFor = (files) => {
       const clips = {};
@@ -322,7 +166,7 @@
                   {" "}<input type="number" className="bp-video-n" min={1} max={300} value={plan.n} aria-label="Clips in the video" onChange={(e) => setPlan({ ...plan, n: Math.max(1, Math.min(300, Number(e.target.value) || 1)) })} />{" "}
                   clips for {nos.length} pitches.
                   {camera === "phone"
-                    ? <span className="bp-video-warn"> Each pitch is found by the motion of the delivery (2.5 s before it to 1.5 s after){split.seems < plan.n ? `, and only ${split.seems} were found` : ""}: check a few after it's added, and move clips from the player if one is off.</span>
+                    ? <span className="bp-video-warn"> {split === plan.cued ? `Each pitch runs from the top of its leg lift to 0.6 s after the ball gets there (${split.segs.filter((s) => s.found).length} found that way${split.segs.some((s) => !s.found) ? ", the rest around the motion" : ""})` : "Each pitch is found by the motion of the delivery (2.5 s before it to 1.5 s after)"}{split.seems < plan.n ? `, and only ${split.seems} were found` : ""}: check a few after it's added, and move clips from the player if one is off.</span>
                     : <React.Fragment>
                       {split.seems !== plan.n && <span className="bp-video-warn"> The video looks like it has about {split.seems} clips. <button type="button" className="bp-link" onClick={() => setPlan({ ...plan, n: split.seems })}>Use {split.seems}</button></span>}
                       {split.seems === plan.n && split.clear < 2 && <span className="bp-video-warn"> Some cuts are faint, so check a few pitches after it's added.</span>}
@@ -348,10 +192,6 @@
   // for a phone), the DST logo, and for an Edgertronic video the pitch's ball spinning as Pitch Design draws it and
   // where its movement sits among the session's. Made in the browser when asked (video_export.js) and downloaded;
   // nothing is stored.
-  const fmtDay = (key) => { const d = new Date(`${key}T00:00:00`); return isNaN(d) ? key || "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); };
-  const numOrNull = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
-  const inches = (v, d = 1) => (numOrNull(v) == null ? null : `${Number(v).toFixed(d)}"`);
-  const ftIn = (v) => { const n = numOrNull(v); if (n == null) return null; const ft = Math.floor(Math.abs(n)), inch = Math.round((Math.abs(n) - ft) * 12); return `${n < 0 ? "-" : ""}${inch === 12 ? ft + 1 : ft}' ${inch === 12 ? 0 : inch}"`; };
   // the pitch numbers typed ("3, 7, 12-15"), or null for any
   const parseNos = (text) => {
     const s = String(text || "").trim();
@@ -393,41 +233,15 @@
     const stop = useRef(false);
     const nos = parseNos(only);
     const chosen = live.filter((p) => onTypes.has(p.type || "Untagged") && (!nos || nos.has(p.no)));
-    const color = (t) => (B ? B.colorOf(t) : "#c8102e");
-    // where this pitch's movement sits among the session's
-    const plotWidget = (p) => (g, x, y, s) => {
-      g.fillStyle = "rgba(255,255,255,0.04)"; g.fillRect(x, y, s, s);
-      g.strokeStyle = "rgba(255,255,255,0.14)"; g.lineWidth = 1.5;
-      const cx = x + s / 2, cy = y + s / 2, k = (s / 2 - 10) / 25; // ±25 inches across
-      g.beginPath(); g.moveTo(x + 6, cy); g.lineTo(x + s - 6, cy); g.moveTo(cx, y + 6); g.lineTo(cx, y + s - 6); g.stroke();
-      g.fillStyle = "rgba(255,255,255,0.55)"; g.font = `600 ${Math.round(s / 16)}px Arial, sans-serif`; g.textAlign = "left";
-      g.fillText("IVB", cx + 6, y + s / 14 + 6); g.textAlign = "right"; g.fillText("HB", x + s - 8, cy - 8); g.textAlign = "left";
-      const at = (q) => [cx + Math.max(-25, Math.min(25, numOrNull(q.hb) || 0)) * k, cy - Math.max(-25, Math.min(25, numOrNull(q.ivb) || 0)) * k];
-      (session.pitches || []).filter((q) => !q.removed).forEach((q) => { if (numOrNull(q.ivb) == null || numOrNull(q.hb) == null) return; const [px, py] = at(q); g.globalAlpha = 0.45; g.fillStyle = color(q.type); g.beginPath(); g.arc(px, py, s / 55, 0, 2 * Math.PI); g.fill(); });
-      g.globalAlpha = 1;
-      if (numOrNull(p.ivb) != null && numOrNull(p.hb) != null) { const [px, py] = at(p); g.fillStyle = color(p.type); g.beginPath(); g.arc(px, py, s / 26, 0, 2 * Math.PI); g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 3; g.stroke(); }
-    };
+    const color = window.BullpenCut.colorOf;
     const go = async () => {
       setErr(""); setMade(null); stop.current = false;
       setBusy({ text: "Getting the clips…", f: 0 });
       try {
         const segments = [];
         for (let i = 0; i < chosen.length; i++) {
-          const p = chosen[i], clip = session.video.clips[p.no], file = session.video.files[clip.f];
-          const url = await linkOf(file);
-          const revPerSec = numOrNull(p.spin) ? p.spin / 9600 : 0; // as Pitch Design spins it at 1x
-          segments.push({
-            url, start: clip.start || 0, end: clip.end != null ? clip.end : null, rate,
-            panel: (g, box, info) => VE.panel(g, box, {
-              name: athlete.name, sub: [fmtDay(session.date), session.facility].filter(Boolean).join(" · "),
-              tag: [p.type || "Pitch", color(p.type)], tagNote: `#${p.no} · ${i + 1} of ${chosen.length}`,
-              big: numOrNull(p.speed) != null ? [Number(p.speed).toFixed(1), "mph"] : null,
-              rows: [["Spin", numOrNull(p.spin) != null ? `${Math.round(p.spin)} rpm` : null], ["Tilt", p.tilt || null], ["IVB", inches(p.ivb)], ["HB", inches(p.hb)],
-                ["Spin eff.", numOrNull(p.spinEff) != null ? `${Math.round(p.spinEff)}%` : null], ["Extension", ftIn(p.extension)], ["Rel. height", ftIn(p.relHeight)], ["Rel. side", ftIn(p.relSide)],
-                ["VAA", numOrNull(p.vaa) != null ? `${Number(p.vaa).toFixed(1)}°` : null]],
-              widgets: [ball && B ? (gg, x, y, s) => B.paint(gg, x, y, s, p, info.elapsed * revPerSec * 2 * Math.PI) : null, plot ? plotWidget(p) : null],
-            }),
-          });
+          const p = chosen[i], file = session.video.files[session.video.clips[p.no].f];
+          segments.push(window.BullpenCut.pitchSegment({ session, athlete, p, i, count: chosen.length, url: await linkOf(file), rate, ball, plot }));
         }
         const blob = await VE.render({
           layout, fill, segments, cancelled: () => stop.current,
@@ -505,16 +319,6 @@
   }
 
   // ---- watching a pitch ------------------------------------------------------------------------------------------
-  // moves the clip on pitch `fromNo`, and every one after it, a pitch later (d = 1) or earlier (d = -1)
-  function shiftClips(session, fromNo, d) {
-    const nos = pitchNos(session), i0 = nos.indexOf(fromNo), video = session.video;
-    if (i0 < 0 || (d < 0 && i0 === 0)) return null;
-    const clips = { ...video.clips };
-    const tail = nos.slice(i0).map((n) => video.clips[n] || null);
-    nos.slice(i0).forEach((n) => { delete clips[n]; });
-    tail.forEach((c, k) => { const n = nos[i0 + k + d]; if (c && n != null) clips[n] = c; });
-    return { ...video, clips };
-  }
 
   function PitchVideo({ session, no, onNo, onClose, onChange, describe }) {
     const ref = useRef(null);
