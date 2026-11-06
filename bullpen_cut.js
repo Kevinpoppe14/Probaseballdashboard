@@ -108,20 +108,38 @@
   // The video plays, muted and fast, into a small canvas; each frame shown is compared with the one before it (mean
   // brightness change per pixel). Within a clip that change is small (a pitcher moving); at a cut the whole picture
   // jumps. Returns every frame it saw: { t, d }.
+  // (An iPhone or iPad doesn't load a video's picture until it's asked for one, so this waits only for its length,
+  // then asks for the first frame. If playing it fast hands over no frames, or stops handing them over, it steps
+  // through the video instead.)
+  const seekWait = (v, t) => new Promise((ok) => {
+    const done = () => { clearTimeout(timer); v.removeEventListener("seeked", done); ok(); };
+    const timer = setTimeout(done, 4000);
+    v.addEventListener("seeked", done);
+    v.currentTime = Math.max(0, Math.min(t, (v.duration || t) - 0.001));
+  });
+  async function openForReading(v) {
+    await new Promise((ok, bad) => {
+      const timer = setTimeout(() => bad(new Error("The video didn't open. On an iPhone, set Settings › Camera › Formats to Most Compatible for the next one, or try it on a computer.")), 30000);
+      v.addEventListener("loadedmetadata", () => { clearTimeout(timer); ok(); }, { once: true });
+      v.addEventListener("error", () => { clearTimeout(timer); bad(new Error("This browser can't play that video file. Export it as an MP4 (H.264).")); }, { once: true });
+      v.load();
+    });
+    await seekWait(v, 0.01);
+  }
   async function scanVideo(file, onProgress) {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
-    v.muted = true; v.playsInline = true; v.preload = "auto";
-    v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+    v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = "auto";
+    v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("webkit-playsinline", "");
     v.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none";
     document.body.append(v); // (Safari on an iPhone or iPad won't play a video that isn't on the page)
     v.src = url;
     try {
-      await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error("This browser can't play that video file. Export it as an MP4 (H.264).")); });
+      await openForReading(v);
       let dur = v.duration;
       if (dur === Infinity) { // some files (browser recordings) don't say: running off the end makes it find out
         dur = await new Promise((ok) => { v.ontimeupdate = () => { v.ontimeupdate = null; ok(v.duration); }; v.currentTime = 1e9; });
-        await new Promise((ok) => { v.onseeked = ok; v.currentTime = 0; });
+        await seekWait(v, 0);
       }
       if (!Number.isFinite(dur) || dur <= 0) throw new Error("Couldn't tell how long that video is.");
       const W = 64, H = 36, cv = document.createElement("canvas");
@@ -138,20 +156,24 @@
         prev = g;
       };
       if (v.requestVideoFrameCallback && document.visibilityState === "visible") {
-        await new Promise((ok, bad) => {
-          const onFrame = (now, meta) => { grab(meta.mediaTime); onProgress(Math.min(1, meta.mediaTime / dur)); if (!v.ended) v.requestVideoFrameCallback(onFrame); };
+        await new Promise((ok) => {
+          let last = Date.now(), over = false;
+          const finish = () => { if (over) return; over = true; clearInterval(watch); v.pause(); ok(); };
+          const onFrame = (now, meta) => { if (over) return; last = Date.now(); grab(meta.mediaTime); onProgress(Math.min(1, meta.mediaTime / dur)); if (!v.ended) v.requestVideoFrameCallback(onFrame); };
+          const watch = setInterval(() => { if (Date.now() - last > 5000) finish(); }, 1000); // no frames for 5 s: step through it instead
           v.requestVideoFrameCallback(onFrame);
-          v.onended = ok;
-          v.onerror = () => bad(new Error("The video stopped playing partway through."));
+          v.onended = finish;
+          v.onerror = finish;
           v.playbackRate = 4; // fast enough to scan a long video in a quarter of its length, slow enough to see most frames
-          v.play().catch(bad);
+          v.play().catch(finish);
         });
       }
-      // a window that's hidden or behind another one hands over few frames as it plays: step through it instead
-      if (out.length < dur * 6) {
+      // a window that's hidden or behind another one (or a phone) hands over few frames as it plays: step through it
+      if (out.length < dur * 6 || out[out.length - 1].t < dur - 2) {
         out.length = 0; prev = null;
-        for (let t = 0; t < dur; t += 0.1) {
-          await new Promise((ok) => { v.onseeked = ok; v.currentTime = t; });
+        const step = dur > 240 ? 0.15 : 0.1;
+        for (let t = 0; t < dur; t += step) {
+          await seekWait(v, t);
           grab(t); onProgress(t / dur);
         }
       }
@@ -293,7 +315,7 @@
     document.body.append(v);
     v.src = url;
     try {
-      await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error("This browser can't play that video file. Export it as an MP4 (H.264).")); });
+      await openForReading(v);
       const W = 640, H = Math.round((640 * v.videoHeight) / Math.max(1, v.videoWidth)), cv = document.createElement("canvas");
       cv.width = W; cv.height = H;
       const g = cv.getContext("2d");
