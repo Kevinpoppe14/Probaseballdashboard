@@ -192,9 +192,11 @@
       L = { W, H, video: { x: 0, y: 0, w: W, h: H }, panel: null, plain: true };
     }
     const want = 1 / Math.min((fill ? Math.max : Math.min)(L.video.w / srcW, L.video.h / srcH), 1);
-    const SCALES = L.plain ? [1] : [1, 4 / 3, 2];
+    // (on a phone, 1080p at a modest bitrate: a 4K bullpen ran to half a gigabyte, more than an iPhone will share to Photos)
+    const small = isPhone();
+    const SCALES = L.plain || small ? [1] : [1, 4 / 3, 2];
     let scale = SCALES.find((s) => s >= want - 0.01) || SCALES[SCALES.length - 1], cfg = null;
-    const bitrateAt = (s) => Math.round((L.plain ? 8_000_000 : 16_000_000) * ((L.W * s * L.H * s) / (1920 * 1080)));
+    const bitrateAt = (s) => Math.round((L.plain ? 8_000_000 : small ? 8_000_000 : 16_000_000) * ((L.W * s * L.H * s) / (1920 * 1080)));
     // A tall video is stored as a phone camera stores one: the picture on its side with a note to turn it upright when
     // played. iPhones (and plenty else) won't play an H.264 picture taller than about 2300, so a 4K vertical stored
     // standing up didn't play on the phone at all. (A plain video, an exercise clip, is never past 1920 tall: it's
@@ -383,12 +385,16 @@
   // A phone only opens its share sheet straight after a tap, and making a video takes longer than that: so on a phone
   // the share sheet is tried, and when the phone says no (NotAllowedError) it returns "tap" without downloading, for
   // the caller to show a Save button whose own tap opens the sheet. Otherwise it returns "done".
+  let shareError = ""; // why the phone's last share didn't go through, in its own words
   async function download(blob, name, { share = false } = {}) {
     // just the file, marked as video: given a title or text alongside it, an iPhone leaves Save Video out of the sheet
     const type = /webm/.test(blob.type || "") ? "video/webm" : "video/mp4";
     const file = typeof File === "function" ? new File([blob], name, { type }) : null;
+    if (share && file && !(navigator.canShare && navigator.canShare({ files: [file] }))) shareError = navigator.canShare ? `This phone won't share a video this size (${Math.round(blob.size / 1048576)} MB).` : "This browser can't share files.";
     if (share && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      shareError = "";
       try { await navigator.share({ files: [file] }); return "done"; } catch (e) {
+        shareError = `${(e && e.name) || "Error"}${e && e.message ? `: ${e.message}` : ""}`;
         // closed without saving (or a phone that says so when it fails): keep the Save button for another try
         if (e && (e.name === "NotAllowedError" || e.name === "AbortError")) return "tap";
       }
@@ -406,5 +412,5 @@
   // the video in a tab of its own, to watch and save from there (Share › Save Video on an iPhone): from a tap
   const view = (blob) => { const u = URL.createObjectURL(new Blob([blob], { type: /webm/.test(blob.type || "") ? "video/webm" : "video/mp4" })); if (!window.open(u, "_blank")) window.location.href = u; };
 
-  window.VideoExport = { render, download, view, panel, supported, fileName, isPhone, LAYOUTS };
+  window.VideoExport = { render, download, view, panel, supported, fileName, isPhone, shareError: () => shareError, LAYOUTS };
 })();
