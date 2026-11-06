@@ -2,7 +2,7 @@
 // app (bullpen_app.js): keeping the video (Google Drive, or storage here), finding the pitches in one long video,
 // starting each pitch's clip at the top of the leg lift and ending it just after the ball gets there, and the video
 // export's panel for a pitch.
-//   window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips,
+//   window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, fetchVideo, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips,
 //     pitchSegment, colorOf, fmtDay, flightOf }
 (function () {
   const BUCKET = "bullpen-videos";
@@ -85,6 +85,23 @@
     if (file.link) return file.link;
     if (!file.drive) throw new Error("Only a video kept in Google Drive has a link to send.");
     return (await driveApi({ action: "share", id: file.drive })).link;
+  }
+  // a stored video brought down to this device, with its progress (0..1), for the queue to make a video from the one
+  // a bullpen has on file: a link to it here
+  async function fetchVideo(file, onProgress = () => {}) {
+    if (!file.drive) return linkOf(file);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.drive)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${await driveToken()}` } });
+    if (res.status === 404) throw new Error("The video isn't in Google Drive any more.");
+    if (!res.ok || !res.body) throw new Error("Couldn't get the video from Google Drive. Check your connection.");
+    const total = Number(res.headers.get("content-length")) || file.size || 0, reader = res.body.getReader(), parts = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value); got += value.length;
+      if (total) onProgress(Math.min(1, got / total));
+    }
+    return URL.createObjectURL(new Blob(parts, { type: /\.mov$/i.test(file.name || "") ? "video/quicktime" : "video/mp4" }));
   }
   // into Google Drive once it's set up, otherwise into storage here
   // A video made from the bullpen (the MP4 with each pitch's numbers), kept in his Drive folder beside the bullpen's
@@ -531,5 +548,5 @@
     };
   }
 
-  window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
+  window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, fetchVideo, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
 })();

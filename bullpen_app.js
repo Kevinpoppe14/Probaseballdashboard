@@ -174,13 +174,23 @@
       kids.push(el("div", { class: "bpa-line" }, el("b", null, "Report"),
         e.session ? el("span", { class: "bpa-done" }, `${BC().fmtDay(e.session.date)}${e.session.facility ? ` · ${e.session.facility}` : ""} · ${thrown(e).length} pitches${e.fresh ? " (imported)" : ""}`) : null,
         !locked ? filePick("application/pdf,.pdf", e.session ? "Another PDF" : "Choose the TrackMan PDF", (f) => readReport(e, f), !e.session) : null,
-        !locked && e.sessions && e.sessions.length ? el("select", { "aria-label": "Or a bullpen on file", onchange: (ev) => { const s = e.sessions.find((x) => x.id === ev.target.value); if (s) { e.session = s; e.fresh = false; e.err = ""; render(); pump(); } } },
+        !locked && e.sessions && e.sessions.length ? el("select", { "aria-label": "Or a bullpen on file", onchange: (ev) => { const s = e.sessions.find((x) => x.id === ev.target.value); if (s) { e.session = s; e.fresh = false; e.replace = false; e.err = ""; render(); pump(); } } },
           el("option", { value: "" }, "Or one on file…"), e.sessions.slice(0, 30).map((s) => el("option", { value: s.id, selected: e.session && e.session.id === s.id && !e.fresh }, `${s.date} · ${(s.pitches || []).length} pitches${s.video && s.video.files && s.video.files.length ? " · has video" : ""}`))) : null));
-      if (e.session && !e.uploaded && e.session.video && e.session.video.files && e.session.video.files.length) kids.push(el("p", { class: "bpa-warn" }, "This bullpen has video already: the new one replaces it."));
-      // the video
-      if (e.session) kids.push(el("div", { class: "bpa-line" }, el("b", null, "Video"),
-        e.file ? el("span", { class: "bpa-done" }, `${e.file.name || "Video"} · ${BC().mb(e.file.size)}`) : null,
-        !locked ? filePick("video/*", e.file ? "Another video" : "Choose the video", (f) => { e.file = f; if (e.url) URL.revokeObjectURL(e.url); e.url = URL.createObjectURL(f); e.scan = null; e.cut = null; e.err = ""; render(); pump(); }, !e.file) : null));
+      // the video: a new one (found, cut, uploaded), or, for a bullpen with its video and clips already, that one again
+      const onFile = e.session && e.session.video && e.session.video.files && e.session.video.files.length === 1 && Object.keys(e.session.video.clips || {}).length ? e.session.video : null;
+      if (onFile && !e.uploaded && !e.replace && working !== e) {
+        const f0 = onFile.files[0];
+        kids.push(el("p", { class: "bpa-hint" }, `This bullpen has its video already (${f0.name || "video"}, ${BC().mb(f0.size || 0)}) and ${Object.keys(onFile.clips).length} pitches' clips. Use it again to check the clips, make the video and email the report: choose the same video from this device (quickest), or get it from Drive.`),
+          el("div", { class: "bpa-row" },
+            filePick("video/*", "Choose it from this device", (f) => reuse(e, f), true),
+            f0.drive || f0.path ? el("button", { type: "button", class: "bpa-btn", onclick: () => fromFile(e) }, `Get it from Drive (${BC().mb(f0.size || 0)})`) : null,
+            el("button", { type: "button", class: "bpa-btn", onclick: () => { e.replace = true; render(); } }, "Replace it with a new video")));
+      } else if (e.session) {
+        if (onFile && !e.uploaded) kids.push(el("p", { class: "bpa-warn" }, "The new video replaces the one on file (its clips and made videos with it)."));
+        kids.push(el("div", { class: "bpa-line" }, el("b", null, "Video"),
+          e.file ? el("span", { class: "bpa-done" }, `${e.file.name || "Video"} · ${BC().mb(e.file.size)}${e.reused ? " (the one on file)" : ""}`) : e.reused ? el("span", { class: "bpa-done" }, "The one on file, from Drive") : null,
+          !locked ? filePick("video/*", e.file ? "Another video" : "Choose the video", (f) => { e.file = f; if (e.url) URL.revokeObjectURL(e.url); e.url = URL.createObjectURL(f); e.scan = null; e.cut = null; e.err = ""; render(); pump(); }, !e.file) : null));
+      }
       kids.push(status(e));
       // once it's saved
       if (e.uploaded) {
@@ -208,6 +218,26 @@
       return el("section", { class: `bpa-step${working === e ? " working" : ""}` }, ...kids);
     }
 
+    // the video a bullpen has on file, used again: its clips kept, nothing found, cut or uploaded again. From the same
+    // file on this device (it should be the same size), or brought down from Drive.
+    function useOnFile(e) {
+      const v = e.session.video, f0 = v.files[0];
+      e.uploaded = true; e.reused = true; e.err = ""; e.clips = { ...v.clips }; e.where = f0.drive ? "Google Drive" : "the dashboard's storage"; e.link = f0.link || "";
+      if (!e.link && f0.drive) BC().shareLink(f0).then((l) => { e.link = l; e.session = { ...e.session, video: { ...e.session.video, files: [{ ...f0, link: l }] } }; data.save(e.session).catch(() => {}); render(); }, () => {});
+    }
+    function reuse(e, f) {
+      const f0 = e.session.video.files[0];
+      if (f0.size && Math.abs(f.size - f0.size) > 1024 && !window.confirm(`That video is ${BC().mb(f.size)}, the one on file ${BC().mb(f0.size)}: it may not be the same video, and the saved clips' times may not line up with it. Use it anyway?`)) return;
+      e.file = f; if (e.url) URL.revokeObjectURL(e.url); e.url = URL.createObjectURL(f);
+      useOnFile(e); render(); pump();
+    }
+    async function fromFile(e) {
+      if (working) { e.err = "Wait for the queue to finish what it's doing, then get it from Drive."; render(); return; }
+      working = e; e.err = ""; e.stage = "Getting the video from Drive…"; e.f = 0; render(); awake(true);
+      try { e.url = await BC().fetchVideo(e.session.video.files[0], progress(e, "Getting the video from Drive…")); useOnFile(e); }
+      catch (err) { e.err = (err && err.message) || String(err); }
+      working = null; e.stage = ""; render(); pump();
+    }
     async function pick(e, p) {
       e.p = p; e.err = ""; render();
       try { e.sessions = await data.bullpens(p.id); } catch (err) { e.sessions = []; e.err = "Couldn't read his bullpens. Check your connection."; }
