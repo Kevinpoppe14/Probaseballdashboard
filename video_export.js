@@ -37,6 +37,7 @@
   const canEncode = () => typeof window.VideoEncoder === "function" && typeof window.VideoFrame === "function";
   const canRecord = () => typeof window.MediaRecorder === "function" && !!HTMLCanvasElement.prototype.captureStream;
   const supported = () => canEncode() || canRecord();
+  const appleTouch = () => /iPhone|iPad|iPod/.test(navigator.userAgent || "") || (/Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
 
   // the video into its area, whole (bars where its shape differs), or filling it (`fill`: zoomed in, the edges trimmed),
   // and where it went (beyond the area when filling; what's drawn over it is trimmed to the area the same way)
@@ -194,6 +195,9 @@
     const want = 1 / Math.min((fill ? Math.max : Math.min)(L.video.w / srcW, L.video.h / srcH), 1);
     // (on a phone, 1080p at a modest bitrate: a 4K bullpen ran to half a gigabyte, more than an iPhone will share to Photos)
     const small = isPhone();
+    // An iPhone or iPad records it instead (as its camera would, in real time): what its own Safari encodes with
+    // WebCodecs came out as a file the phone then wouldn't play.
+    const encode = canEncode() && !(appleTouch() && canRecord());
     const SCALES = L.plain || small ? [1] : [1, 4 / 3, 2];
     let scale = SCALES.find((s) => s >= want - 0.01) || SCALES[SCALES.length - 1], cfg = null;
     const bitrateAt = (s) => Math.round((L.plain ? 8_000_000 : small ? 8_000_000 : 16_000_000) * ((L.W * s * L.H * s) / (1920 * 1080)));
@@ -202,11 +206,11 @@
     // standing up didn't play on the phone at all. (A plain video, an exercise clip, is never past 1920 tall: it's
     // stored upright, as the exercise library has always had them.)
     const turned = !L.plain && L.H > L.W;
-    if (canEncode()) {
+    if (encode) {
       for (const s of SCALES.filter((x) => x <= scale).reverse()) {
         for (const codec of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.420033", "avc1.420028"]) {
           const w = Math.round(L.W * s), h = Math.round(L.H * s);
-          const c = { codec, width: turned ? h : w, height: turned ? w : h, bitrate: bitrateAt(s), framerate: FPS };
+          const c = { codec, width: turned ? h : w, height: turned ? w : h, bitrate: bitrateAt(s), framerate: FPS, avc: { format: "avc" } }; // (avc: the form an MP4 file holds)
           try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch (e) { /* try the next */ }
         }
         if (cfg) { scale = s; break; }
@@ -224,7 +228,7 @@
 
     // the encoder (or, without one, a recording of the canvas as it's drawn)
     let emit, finish, abort;
-    if (canEncode()) {
+    if (encode) {
       await script(MUXER);
       const M = window.Mp4Muxer;
       // the sound, when asked for: the original's track read whole and made AAC (none, or one this browser can't
@@ -286,7 +290,7 @@
       finish = () => new Promise((ok) => { rec.onstop = () => ok(new Blob(parts, { type: (type || "video/webm").split(";")[0] })); rec.stop(); });
       abort = () => { try { rec.stop(); } catch (e) { /* stopped */ } };
     }
-    const realTime = !canEncode(); // recording: the title card has to be held on screen for as long as it shows
+    const realTime = !encode; // recording: the title card has to be held on screen for as long as it shows
     let tOut = 0, open = null; // open: { url, v }, the video the clips are coming from
     try {
       // a title card: who, what and when, for two seconds
