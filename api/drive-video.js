@@ -1,6 +1,7 @@
 // Bullpen video kept in the company's Google Drive instead of Supabase storage, so a clip of any size can be kept
 // (bullpen_video.js). The files live in one Drive folder (DRIVE_VIDEO_FOLDER_ID: best a folder in a Shared Drive),
-// a folder per athlete inside it, and stay private: only signed-in dashboard coaches get at them, through here.
+// a folder per athlete inside it. Each video is opened to anyone with its link once it's up (action share), so it can be
+// sent to the athlete; the folders and anything not shared stay private to signed-in dashboard coaches.
 //
 // It uses the service account the athlete emails already use (GMAIL_SERVICE_ACCOUNT_JSON), either
 //   as itself: add its client_email to the Shared Drive (or folder) as a Content manager, or
@@ -13,6 +14,7 @@
 //                                           -> { uploadUrl }: a resumable upload the browser sends the file to itself,
 //                                              in pieces (so nothing big passes through here)
 //   token                                   -> { accessToken, expiresAt }: read-only, about an hour, for watching
+//   share  { id }                           -> { link }: the video opened to anyone with its link (to send it)
 //   delete { ids }                          -> { deleted }
 // Google stopped taking an access token in a download link in 2020, so the browser fetches a clip with this token in
 // its Authorization header and plays it from memory.
@@ -102,6 +104,21 @@ module.exports = async (req, res) => {
     if (action === "token") {
       const { token, expiry } = await accessToken(DRIVE_READ);
       res.status(200).json({ accessToken: token, expiresAt: expiry });
+      return;
+    }
+
+    // a video opened to anyone with its link (to send to the athlete), and that link
+    if (action === "share") {
+      if (!/^[\w-]{10,}$/.test(String(p.id || ""))) { res.status(400).json({ error: "id is required" }); return; }
+      const { token } = await accessToken(DRIVE);
+      try {
+        await drive(token, `files/${p.id}/permissions`, { method: "POST", body: { role: "reader", type: "anyone", allowFileDiscovery: false } });
+      } catch (e) {
+        res.status(403).json({ error: `Google Drive wouldn't share the video by link (the Shared Drive may not allow sharing outside the company): ${e.message || e}` });
+        return;
+      }
+      const f = await drive(token, `files/${p.id}`, { query: { fields: "webViewLink" } });
+      res.status(200).json({ link: f.webViewLink || `https://drive.google.com/file/d/${p.id}/view` });
       return;
     }
 

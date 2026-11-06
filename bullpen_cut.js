@@ -2,7 +2,7 @@
 // app (bullpen_app.js): keeping the video (Google Drive, or storage here), finding the pitches in one long video,
 // starting each pitch's clip at the top of the leg lift and ending it just after the ball gets there, and the video
 // export's panel for a pitch.
-//   window.BullpenCut = { upload, removeFiles, linkOf, useDrive, scanVideo, splitByMotion, cueClips, shiftClips,
+//   window.BullpenCut = { matchClips, upload, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips,
 //     pitchSegment, colorOf, fmtDay, flightOf }
 (function () {
   const BUCKET = "bullpen-videos";
@@ -80,9 +80,19 @@
     links.set(file.path, { url: data.signedUrl, until: Date.now() + 50 * 60 * 1000 });
     return data.signedUrl;
   }
+  // a Drive video opened to anyone with its link, and the link (for sending it to the athlete)
+  async function shareLink(file) {
+    if (file.link) return file.link;
+    if (!file.drive) throw new Error("Only a video kept in Google Drive has a link to send.");
+    return (await driveApi({ action: "share", id: file.drive })).link;
+  }
   // into Google Drive once it's set up, otherwise into storage here
   async function upload(file, athlete, sessionId, onProgress) {
-    if (await useDrive()) return driveUpload(file, athlete.id, athlete.name, sessionId, onProgress);
+    if (await useDrive()) {
+      const stored = await driveUpload(file, athlete.id, athlete.name, sessionId, onProgress);
+      try { stored.link = await shareLink(stored); } catch (e) { /* kept private: shared when it's sent */ }
+      return stored;
+    }
     const athleteId = athlete.id;
     const ext = ((file.name || "").match(/\.(\w{2,4})$/) || [])[1] || (/quicktime/i.test(file.type) ? "mov" : "mp4");
     const path = `${athleteId}/${sessionId}/${uid()}.${ext.toLowerCase()}`;
@@ -353,6 +363,124 @@
     }
   }
 
+  // ---- matching the clips to the pitches ----------------------------------------------------------------------------
+  // The video's clips down the left in the order they were filmed, the report's pitches down the right in the order
+  // thrown, each row a pair. A clip can be moved up or down, deleted (the ones below move up), or a gap put above it
+  // (a pitch the video missed, so the clips below move down); Undo and Redo step back and forth through every change.
+  // Tap a clip to watch it, looping, in the player above.
+  //   matchClips(box, { session, src, onSave(clips), onCancel })  with Save and Cancel (the dashboard)
+  //   matchClips(box, { session, src, onChange(clips) })           every change passed on at once (the phone app)
+  // src: the video to play the clips from (all of a session's clips are in its one video)
+  function matchClips(box, { session, src, onSave, onCancel, onChange }) {
+    const el = (tag, attrs, ...kids) => {
+      const n = document.createElement(tag);
+      Object.entries(attrs || {}).forEach(([k, v]) => {
+        if (v == null || v === false) return;
+        if (k === "class") n.className = v;
+        else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+        else n.setAttribute(k, v === true ? "" : v);
+      });
+      kids.flat().forEach((c) => { if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c))); });
+      return n;
+    };
+    const clock = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+    const pitches = (session.pitches || []).slice().sort((a, b) => a.no - b.no);
+    const given = (session.video && session.video.clips) || {};
+    let list = pitches.map((p) => (given[p.no] ? { ...given[p.no] } : null));
+    while (list.length && !list[list.length - 1]) list.pop();
+    let past = [], future = [], playing = null;
+    const keyOf = (c) => `${c.f || 0}:${c.start}`;
+    const clipsOut = () => { const out = {}; pitches.forEach((p, i) => { if (list[i]) out[p.no] = list[i]; }); return out; };
+    const commit = (next) => {
+      past.push(list); future = []; list = next;
+      while (list.length && !list[list.length - 1]) list.pop();
+      render();
+      if (onChange) onChange(clipsOut());
+    };
+    const undo = () => { if (!past.length) return; future.push(list); list = past.pop(); render(); if (onChange) onChange(clipsOut()); };
+    const redo = () => { if (!future.length) return; past.push(list); list = future.pop(); render(); if (onChange) onChange(clipsOut()); };
+    const move = (i, d) => { const j = i + d; if (j < 0 || j >= list.length) return; const n = list.slice(); [n[i], n[j]] = [n[j], n[i]]; commit(n); };
+    const drop = (i) => { const n = list.slice(); n.splice(i, 1); commit(n); };
+    const gap = (i) => { const n = list.slice(); n.splice(i, 0, null); commit(n); };
+
+    // the player: the clip tapped, looping
+    const player = el("video", { class: "bpm-video", muted: true, playsinline: true, controls: true, preload: "auto", src });
+    player.muted = true;
+    player.addEventListener("timeupdate", () => { if (playing && player.currentTime >= playing.end - 0.02) player.currentTime = playing.start; });
+    const play = (c) => {
+      playing = c;
+      const go = () => { player.currentTime = c.start; player.play().catch(() => {}); };
+      if (player.readyState >= 1) go(); else player.addEventListener("loadedmetadata", go, { once: true });
+      render();
+    };
+    const caption = el("div", { class: "bpm-caption" });
+
+    // a still of each clip (about its release), made one at a time from a second copy of the video
+    const thumbs = new Map(), wanted = [];
+    let thumbing = false;
+    const still = el("video", { muted: true, playsinline: true, preload: "auto", src, style: "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none" });
+    still.muted = true;
+    document.body.append(still);
+    const thumbAt = (c) => c.start + Math.min(1.1, (c.end - c.start) * 0.45);
+    async function makeThumbs() {
+      if (thumbing) return;
+      thumbing = true;
+      try {
+        if (still.readyState < 1) await new Promise((ok) => { still.addEventListener("loadedmetadata", ok, { once: true }); setTimeout(ok, 15000); });
+        while (wanted.length && still.isConnected) {
+          const c = wanted.shift(), k = keyOf(c);
+          if (thumbs.has(k)) continue;
+          await seekTo(still, thumbAt(c));
+          const w = 112, h = Math.round((w * (still.videoHeight || 9)) / (still.videoWidth || 16));
+          const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+          try { cv.getContext("2d").drawImage(still, 0, 0, w, h); thumbs.set(k, cv.toDataURL("image/jpeg", 0.7)); } catch (e) { thumbs.set(k, ""); }
+          box.querySelectorAll(`img[data-k="${k}"]`).forEach((im) => { im.src = thumbs.get(k); });
+        }
+      } finally { thumbing = false; }
+    }
+
+    function render() {
+      const n = Math.max(list.length, pitches.length);
+      const have = pitches.filter((p, i) => list[i]).length, extra = list.slice(pitches.length).filter(Boolean).length;
+      const rows = [];
+      for (let i = 0; i < n; i++) {
+        const c = list[i], p = pitches[i];
+        if (c && !thumbs.has(keyOf(c)) && !wanted.some((w) => keyOf(w) === keyOf(c))) wanted.push(c);
+        const left = c
+          ? el("div", { class: `bpm-clip${playing && keyOf(playing) === keyOf(c) ? " on" : ""}` },
+            el("button", { type: "button", class: "bpm-thumb", "aria-label": `Watch clip ${i + 1}`, onclick: () => play(c) }, el("img", { "data-k": keyOf(c), alt: "", src: thumbs.get(keyOf(c)) || null }), el("span", null, `${clock(c.start)} · ${(c.end - c.start).toFixed(1)} s`)),
+            el("div", { class: "bpm-tools" },
+              el("button", { type: "button", class: "bpm-btn", title: "Move this clip up", "aria-label": `Move clip ${i + 1} up`, disabled: i === 0, onclick: () => move(i, -1) }, "↑"),
+              el("button", { type: "button", class: "bpm-btn", title: "Move this clip down", "aria-label": `Move clip ${i + 1} down`, disabled: i >= list.length - 1, onclick: () => move(i, 1) }, "↓"),
+              el("button", { type: "button", class: "bpm-btn", title: "Put a gap above this clip (a pitch the video missed): this one and the ones below move down", "aria-label": `Gap above clip ${i + 1}`, onclick: () => gap(i) }, "+ gap"),
+              el("button", { type: "button", class: "bpm-btn bpm-del", title: "Delete this clip (not a pitch in the report): the ones below move up", "aria-label": `Delete clip ${i + 1}`, onclick: () => drop(i) }, "✕")))
+          : el("div", { class: "bpm-clip bpm-none" }, el("span", null, i < list.length ? "No clip (a gap)" : "No clip"),
+            i < list.length ? el("div", { class: "bpm-tools" }, el("button", { type: "button", class: "bpm-btn bpm-del", title: "Take the gap out: the clips below move up", onclick: () => drop(i) }, "✕")) : null);
+        const right = p
+          ? el("div", { class: "bpm-pitch" }, el("b", null, `#${p.no}`), el("i", { style: `background:${colorOf(p.type)}` }), ` ${p.type || "Untagged"}`, p.speed != null ? el("small", null, ` ${Number(p.speed).toFixed(1)} mph`) : null, p.removed ? el("small", null, " (taken out)") : null)
+          : el("div", { class: "bpm-pitch bpm-extra" }, "No pitch here: an extra clip");
+        rows.push(el("div", { class: `bpm-row${c && !p ? " extra" : ""}` }, el("span", { class: "bpm-i" }, i + 1), left, right));
+      }
+      const playIdx = playing ? list.findIndex((c) => c && keyOf(c) === keyOf(playing)) : -1;
+      caption.textContent = playIdx >= 0 ? `Clip ${playIdx + 1}${pitches[playIdx] ? `: pitch #${pitches[playIdx].no} ${pitches[playIdx].type || ""}${pitches[playIdx].speed != null ? `, ${Number(pitches[playIdx].speed).toFixed(1)} mph` : ""}` : ": no pitch (an extra clip)"}` : "Tap a clip to watch it.";
+      box.replaceChildren(el("div", { class: "bpm" },
+        el("div", { class: "bpm-stage" }, player, caption),
+        el("div", { class: "bpm-bar" },
+          el("button", { type: "button", class: "bpm-btn", disabled: !past.length, onclick: undo }, "↶ Undo"),
+          el("button", { type: "button", class: "bpm-btn", disabled: !future.length, onclick: redo }, "↷ Redo"),
+          el("span", { class: "bpm-sum" }, `${have} of ${pitches.length} pitches have a clip${extra ? ` · ${extra} extra clip${extra === 1 ? "" : "s"} (no pitch: delete or move up)` : ""}`),
+          onSave ? el("span", { class: "bpm-end" },
+            onCancel ? el("button", { type: "button", class: "bpm-btn", onclick: () => { cleanup(); onCancel(); } }, "Cancel") : null,
+            el("button", { type: "button", class: "bpm-btn primary", disabled: !past.length, onclick: () => { cleanup(); onSave(clipsOut()); } }, "Save the matching")) : null),
+        el("div", { class: "bpm-head" }, el("span", null, ""), el("span", null, "Video (in the order filmed)"), el("span", null, "TrackMan (in the order thrown)")),
+        el("div", { class: "bpm-rows" }, rows)));
+      makeThumbs();
+    }
+    const cleanup = () => { still.removeAttribute("src"); still.load(); still.remove(); player.pause(); };
+    render();
+    return { destroy: cleanup, clips: clipsOut };
+  }
+
   // ---- the video export's panel for one pitch (video_export.js) -------------------------------------------------------
   // its TrackMan numbers, and the ball spinning as Pitch Design draws it (the dashboard only) and where its movement
   // sits among the session's
@@ -392,5 +520,5 @@
     };
   }
 
-  window.BullpenCut = { upload, removeFiles, linkOf, useDrive, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
+  window.BullpenCut = { matchClips, upload, removeFiles, linkOf, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
 })();

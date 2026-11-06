@@ -141,20 +141,40 @@
 
   // ---- making the video ------------------------------------------------------------------------------------------
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A video to read frames from. It goes on the page, out of sight (Safari on an iPhone or iPad won't load one that
+  // isn't), and waits for its length, then its first frame (an iPhone doesn't load the picture until it's asked for).
+  // Nothing here waits forever: a browser that doesn't answer gets an error, or the next step, instead of a hang.
   async function openVideo(url) {
     const v = document.createElement("video");
-    v.muted = true; v.playsInline = true; v.preload = "auto"; v.crossOrigin = "anonymous"; // stored clips come from another origin: without this the frames couldn't be read back
+    v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = "auto"; v.crossOrigin = "anonymous"; // stored clips come from another origin: without this the frames couldn't be read back
+    v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+    v.style.cssText = "position:fixed;left:-10000px;top:0;width:4px;height:4px;opacity:0;pointer-events:none";
+    document.body.append(v);
     v.src = url;
-    await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error("A video wouldn't open in this browser (it needs to be an MP4 or MOV it can play).")); });
-    // some files (browser and screen recordings) don't say how long they are: running off the end makes it find out
-    if (!Number.isFinite(v.duration)) {
-      await new Promise((ok) => { v.ontimeupdate = () => { if (Number.isFinite(v.duration)) { v.ontimeupdate = null; ok(); } }; v.currentTime = 1e9; setTimeout(ok, 8000); });
-      v.ontimeupdate = null;
-      await seek(v, 0);
-    }
-    return v;
+    try {
+      await new Promise((ok, bad) => {
+        const timer = setTimeout(() => bad(new Error("A video took too long to open. Check the connection and try again.")), 45000);
+        v.addEventListener("loadedmetadata", () => { clearTimeout(timer); ok(); }, { once: true });
+        v.addEventListener("error", () => { clearTimeout(timer); bad(new Error("A video wouldn't open in this browser (it needs to be an MP4 or MOV it can play).")); }, { once: true });
+      });
+      // some files (browser and screen recordings) don't say how long they are: running off the end makes it find out
+      if (!Number.isFinite(v.duration)) {
+        await new Promise((ok) => { v.ontimeupdate = () => { if (Number.isFinite(v.duration)) { v.ontimeupdate = null; ok(); } }; v.currentTime = 1e9; setTimeout(ok, 8000); });
+        v.ontimeupdate = null;
+      }
+      await seek(v, 0.01);
+      return v;
+    } catch (e) { closeVideo(v); throw e; }
   }
-  const seek = (v, t) => new Promise((ok) => { if (Math.abs(v.currentTime - t) < 1e-3) { ok(); return; } v.onseeked = () => { v.onseeked = null; ok(); }; v.currentTime = t; });
+  const closeVideo = (v) => { try { v.pause(); v.removeAttribute("src"); v.load(); v.remove(); } catch (e) { /* gone */ } };
+  // to time t, once the frame there is ready (or after a few seconds, whatever happens)
+  const seek = (v, t) => new Promise((ok) => {
+    if (Math.abs(v.currentTime - t) < 1e-3 && v.readyState >= 2) { ok(); return; }
+    const done = () => { clearTimeout(timer); v.removeEventListener("seeked", done); ok(); };
+    const timer = setTimeout(done, 5000);
+    v.addEventListener("seeked", done);
+    v.currentTime = t;
+  });
 
   // layout "plain": the video alone at its own size (up to 1920 on its long side) with the logo in its corner, no panel
   // (an exercise library video, athlete.js); `audioFrom` (the original file) carries its sound across, for a single
@@ -165,7 +185,7 @@
     // in the horizontal frame makes a 2560 x 1440 file, in the vertical one 4K), as far as this browser's encoder goes.
     // Everything is laid out in the layout's own units (1920 x 1080 or 1080 x 1920) and drawn scaled up.
     let srcW = 1920, srcH = 1080;
-    try { const pv = await openVideo(segments[0].url); srcW = pv.videoWidth || srcW; srcH = pv.videoHeight || srcH; pv.removeAttribute("src"); pv.load(); } catch (e) { /* the segment itself will say */ }
+    try { const pv = await openVideo(segments[0].url); srcW = pv.videoWidth || srcW; srcH = pv.videoHeight || srcH; closeVideo(pv); } catch (e) { /* the segment itself will say */ }
     let L = LAYOUTS[layout] || LAYOUTS.horizontal;
     if (layout === "plain") {
       const k = Math.min(1, 1920 / Math.max(srcW, srcH)), W = 2 * Math.round((srcW * k) / 2), H = 2 * Math.round((srcH * k) / 2);
@@ -265,7 +285,7 @@
       abort = () => { try { rec.stop(); } catch (e) { /* stopped */ } };
     }
     const realTime = !canEncode(); // recording: the title card has to be held on screen for as long as it shows
-    let tOut = 0;
+    let tOut = 0, open = null; // open: { url, v }, the video the clips are coming from
     try {
       // a title card: who, what and when, for two seconds
       if (title) {
@@ -285,7 +305,9 @@
         if (cancelled()) throw new Error("cancelled");
         const sg = segments[k], rate = sg.rate || 1;
         onProgress(segments.length > 1 ? `Making the video: ${k + 1} of ${segments.length}` : "Making the video", done / total);
-        const v = await openVideo(sg.url);
+        // one video kept open while the clips come from it (a bullpen's are all in one long video)
+        if (!open || open.url !== sg.url) { if (open) closeVideo(open.v); open = null; open = { url: sg.url, v: await openVideo(sg.url) }; }
+        const v = open.v;
         try {
           const start = sg.start || 0, end = Math.min(sg.end != null ? sg.end : v.duration, v.duration || Infinity);
           if (!Number.isFinite(end)) throw new Error("Couldn't tell how long that video is. Save it as an MP4 and try again.");
@@ -309,23 +331,31 @@
             // file's own clock, so the playback speed doesn't matter). A browser window that's hidden or behind another
             // one stops handing over frames: then the rest is stepped through instead.
             const left = await new Promise((ok, bad) => {
-              let over = false, prev = start;
-              const stop = (rest) => { if (over) return; over = true; v.pause(); ok(rest); };
+              let over = false, prev = start, heard = Date.now(), drawing = false;
+              // Cancel answered at once, and a video that stops handing over frames (4 s with none) stepped through instead
+              const watch = setInterval(() => {
+                if (over) { clearInterval(watch); return; }
+                if (cancelled()) { over = true; clearInterval(watch); v.pause(); bad(new Error("cancelled")); return; }
+                if (!drawing && Date.now() - heard > 4000) stop(prev);
+              }, 500);
+              const stop = (rest) => { if (over) return; over = true; clearInterval(watch); v.pause(); ok(rest); };
               const onFrame = async (now, meta) => {
                 if (over) return;
-                if (cancelled()) { over = true; v.pause(); bad(new Error("cancelled")); return; }
+                heard = Date.now();
+                if (cancelled()) { over = true; clearInterval(watch); v.pause(); bad(new Error("cancelled")); return; }
                 const t = meta.mediaTime;
                 if (t >= end - 1e-3) { stop(null); return; }
                 if (t - prev > 3 / FPS) { stop(prev); return; } // frames being skipped
                 v.pause();
-                try { await drawAt(t); } catch (e) { over = true; bad(e); return; }
+                drawing = true;
+                try { await drawAt(t); } catch (e) { over = true; clearInterval(watch); bad(e); return; } finally { drawing = false; heard = Date.now(); }
                 prev = t;
                 if (over) return;
                 v.requestVideoFrameCallback(onFrame);
                 v.play().catch(() => stop(prev));
               };
               v.requestVideoFrameCallback(onFrame);
-              v.onended = () => stop(null);
+              v.onended = () => stop(prev >= end - 2 / FPS ? null : prev); // ended without its frames reaching the clip's end: step through the rest
               v.play().catch(() => stop(prev));
             });
             if (left != null) await stepFrom(left);
@@ -339,12 +369,13 @@
           } else await stepFrom(start); // no frame callbacks, or a hidden page
           tOut = base + (end - start) / rate;
           done += (end - start) / rate;
-        } finally { v.removeAttribute("src"); v.load(); }
+        } finally { v.pause(); }
       }
+      if (open) { closeVideo(open.v); open = null; }
       await emit(tOut); // the last frame held to the end
       onProgress("Finishing…", 1);
       return await finish();
-    } catch (e) { abort(); throw e; }
+    } catch (e) { if (open) closeVideo(open.v); abort(); throw e; }
   }
 
   // to the phone's or computer's downloads (a phone that can share files offers its share sheet: Save Video there
