@@ -401,7 +401,8 @@
     return share ? "files" : "done";
   }
   const fileName = (who, what, date, blob) => `${String(who || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${what}${date ? `-${date}` : ""}.${/webm/.test((blob && blob.type) || "") ? "webm" : "mp4"}`;
-  const isPhone = () => /iPhone|iPad|Android/i.test(navigator.userAgent || "");
+  // (an iPad, or an iPhone asking for the desktop site, says it's a Mac: one with a touch screen is one of them)
+  const isPhone = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "") || (/Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
   // the video in a tab of its own, to watch and save from there (Share › Save Video on an iPhone): from a tap
   const view = (blob) => { const u = URL.createObjectURL(new Blob([blob], { type: /webm/.test(blob.type || "") ? "video/webm" : "video/mp4" })); if (!window.open(u, "_blank")) window.location.href = u; };
 

@@ -1938,7 +1938,7 @@
       let vidStop = false;
       const vidCancel = el("button", { type: "button", class: "mc-btn ghost small", hidden: true, onclick: () => { vidStop = true; } }, "Cancel");
       const vidFill = el("input", { type: "checkbox" });
-      const vidSave = el("button", { type: "button", class: "mc-btn small", hidden: true }, "Save video");
+      const vidSave = el("button", { type: "button", class: "mc-btn small", hidden: true }, "Save to camera roll");
       const exportVideo = async (layout) => {
         const VE = window.VideoExport;
         if (!VE || !VE.supported()) { vidMsg.textContent = "This browser can't make videos: use Chrome or Edge on a computer, Chrome on Android or a recent iPhone."; return; }
@@ -1971,7 +1971,7 @@
             // the phone wants a fresh tap to open its share sheet
             vidSave.onclick = async () => { const h = await VE.download(blob, name, { share: true }); if (h !== "tap") done(h); };
             vidSave.hidden = false;
-            vidMsg.textContent = "Ready: tap Save video, then Save Video in the share sheet to put it in Photos.";
+            vidMsg.textContent = "Ready: tap Save to camera roll, then Save Video in the share sheet to put it in Photos.";
           } else done(how);
         } catch (e) { vidMsg.textContent = (e && e.message) === "cancelled" ? "Cancelled." : `Couldn't make it (${(e && e.message) || e}).`; }
         vidCancel.hidden = true;

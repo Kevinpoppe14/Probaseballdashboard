@@ -197,14 +197,15 @@
         const VE = window.VideoExport;
         kids.push(el("div", { class: "bpa-row" },
           el("button", { type: "button", class: `bpa-btn${e.open === "match" ? " on" : ""}`, onclick: () => { e.open = e.open === "match" ? "" : "match"; render(); } }, "Check the clips"),
-          VE && VE.supported() ? (e.made ? el("button", { type: "button", class: `bpa-btn${e.made.tap ? " primary" : ""}`, onclick: async () => { const how = await VE.download(e.made.blob, e.made.name, { share: VE.isPhone() }); if (how !== "tap") { e.made.tap = false; e.made.files = how === "files"; render(); } } }, VE.isPhone() ? "Save video" : "Download again")
+          VE && VE.supported() ? (e.made ? el("button", { type: "button", class: `bpa-btn${e.made.tap ? " primary" : ""}`, onclick: async () => { const how = await VE.download(e.made.blob, e.made.name, { share: VE.isPhone() }); if (how !== "tap") { e.made.tap = false; e.made.files = how === "files"; render(); } } }, VE.isPhone() ? "Save to camera roll" : "Download again")
             : e.wantVideo ? el("span", { class: "bpa-hint" }, working === e ? "" : "Video: waiting its turn")
               : el("button", { type: "button", class: "bpa-btn", onclick: () => { e.wantVideo = true; pump(); render(); } }, "Make the video")) : null,
+          !e.made && !e.wantVideo && VE && VE.isPhone() && madeOnFile(e) ? el("button", { type: "button", class: "bpa-btn", title: "Bring the video already made (in Drive) to this phone, to save it to the camera roll", onclick: () => fetchMade(e) }, `Get the ${madeOnFile(e).layout} video to save`) : null,
           e.made && VE && VE.isPhone() ? el("button", { type: "button", class: "bpa-btn", title: "The video in a tab of its own: Share there, then Save Video", onclick: () => VE.view(e.made.blob) }, "Open it") : null,
           (() => { const m = ((e.session.video && e.session.video.made) || []).find((x) => x.layout === (e.made ? e.made.layout : exp.layout)); return m && m.link ? el("a", { class: "bpa-btn bpa-a", href: m.link, target: "_blank", rel: "noopener" }, "In Drive") : null; })(),
           e.made && !e.wantVideo ? el("button", { type: "button", class: `bpa-btn${e.made.layout !== exp.layout ? " primary" : ""}`, title: "Make it again with the shape and options set below", onclick: () => { e.made = null; e.wantVideo = true; pump(); render(); } }, e.made.layout !== exp.layout ? `Make it again: ${exp.layout}` : "Make it again") : null,
           window.BullpenPdf ? el("button", { type: "button", class: `bpa-btn${e.open === "mail" ? " on" : ""}`, onclick: () => { e.open = e.open === "mail" ? "" : "mail"; if (!e.mail) e.mail = { to: e.p.email || "", body: window.BullpenPdf.mailText({ athlete: e.p, session: e.session, link: e.link }), msg: "", busy: false, sent: false }; render(); } }, "Email the report") : null));
-        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video saved to ${e.savedTo || "Google Drive"} and his bullpen (${BC().mb(e.made.blob.size)}). For your Photos: tap Save video, then Save Video in the share sheet. No Save Video there? Tap Open it, then Share › Save Video.` : e.made.files ? `Saved to ${e.savedTo || "Google Drive"} and his bullpen. On this phone it went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done and saved to ${e.savedTo || "Google Drive"} (on his bullpen too): ${e.made.name}, ${BC().mb(e.made.blob.size)}.`));
+        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video saved to ${e.savedTo || "Google Drive"} and his bullpen (${BC().mb(e.made.blob.size)}). For your Photos: tap Save to camera roll, then Save Video in the share sheet. No Save Video there? Tap Open it, then Share › Save Video.` : e.made.files ? `Saved to ${e.savedTo || "Google Drive"} and his bullpen. On this phone it went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done and saved to ${e.savedTo || "Google Drive"} (on his bullpen too): ${e.made.name}, ${BC().mb(e.made.blob.size)}.`));
         if (e.open === "match") {
           // mounted once and kept (its undo history and player with it) however often the page is drawn again
           if (!e.holder) {
@@ -218,6 +219,21 @@
       return el("section", { class: `bpa-step${working === e ? " working" : ""}` }, ...kids);
     }
 
+    // the video already made for this bullpen (kept in Drive), the newest, to bring to the phone for its camera roll
+    const madeOnFile = (e) => ((e.session && e.session.video && e.session.video.made) || []).filter((m) => m.drive || m.path).sort((a, b) => (b.madeAt || "").localeCompare(a.madeAt || ""))[0] || null;
+    async function fetchMade(e) {
+      if (working) { e.err = "Wait for the queue to finish what it's doing, then get the video."; render(); return; }
+      const m = madeOnFile(e);
+      working = e; e.err = ""; e.stage = "Getting the video from Drive…"; e.f = 0; render(); awake(true);
+      try {
+        const url = await BC().fetchVideo(m, progress(e, "Getting the video from Drive…"));
+        const blob = await fetch(url).then((r) => r.blob());
+        URL.revokeObjectURL(url);
+        e.made = { blob: new Blob([blob], { type: "video/mp4" }), name: m.name, tap: true, layout: m.layout };
+        e.savedTo = "Google Drive";
+      } catch (err) { e.err = (err && err.message) || String(err); }
+      working = null; e.stage = ""; awake(false); render(); pump();
+    }
     // the video a bullpen has on file, used again: its clips kept, nothing found, cut or uploaded again. From the same
     // file on this device (it should be the same size), or brought down from Drive.
     function useOnFile(e) {
