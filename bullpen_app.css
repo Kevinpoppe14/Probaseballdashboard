@@ -29,3 +29,36 @@
 .bpa-pitch.out { opacity: 0.6; }
 .bpa-pitch:disabled { opacity: 0.4; }
 .bpa-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+/* Matching a long video's clips to the report's pitches (bullpen_cut.js matchClips): the dashboard's Match clips to
+   pitches and the phone's Check the clips. Colors from whichever page it's on. */
+.bpm { --bpm-line: var(--border, #2c2c2c); --bpm-dim: var(--text-dim, var(--dim, #9a9a9a)); --bpm-accent: var(--dst-red, var(--accent, #c8102e)); color: var(--text, #f2f2f2); }
+.bpm-stage { position: sticky; top: 0; z-index: 2; background: var(--panel, #161616); padding-bottom: 6px; }
+.bpm-video { display: block; width: 100%; max-height: 42vh; background: #000; border-radius: 10px; }
+.bpm-caption { font-size: 13px; color: var(--bpm-dim); margin: 4px 2px 0; }
+.bpm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.bpm-sum { font-size: 13px; color: var(--bpm-dim); }
+.bpm-end { margin-left: auto; display: inline-flex; gap: 8px; }
+.bpm-btn { min-height: 36px; padding: 0 10px; border: 1px solid var(--bpm-line); border-radius: 8px; background: none; color: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.bpm-btn:disabled { opacity: 0.4; cursor: default; }
+.bpm-btn.primary { background: var(--bpm-accent); border-color: var(--bpm-accent); color: #fff; }
+.bpm-del { color: #f87171; }
+.bpm-head, .bpm-row { display: grid; grid-template-columns: 28px minmax(0, 1.3fr) minmax(0, 1fr); gap: 8px; align-items: center; }
+.bpm-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bpm-dim); padding: 4px 0; border-bottom: 1px solid var(--bpm-line); }
+.bpm-row { padding: 6px 0; border-bottom: 1px solid var(--bpm-line); }
+.bpm-row.extra { background: rgba(240, 192, 64, 0.08); }
+.bpm-i { font-size: 12px; color: var(--bpm-dim); text-align: right; }
+.bpm-clip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px; border-radius: 8px; border: 1px solid transparent; }
+.bpm-clip.on { border-color: var(--bpm-accent); }
+.bpm-none { color: var(--bpm-dim); font-size: 13px; font-style: italic; min-height: 40px; }
+.bpm-thumb { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none; background: none; color: inherit; cursor: pointer; font-size: 12px; text-align: left; }
+.bpm-thumb img { width: 84px; height: 48px; object-fit: cover; border-radius: 6px; background: #222; }
+.bpm-thumb img:not([src]) { visibility: hidden; }
+.bpm-tools { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.bpm-tools .bpm-btn { min-height: 32px; padding: 0 8px; font-size: 13px; }
+.bpm-pitch { font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.bpm-pitch i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.bpm-pitch small { color: var(--bpm-dim); }
+.bpm-extra { color: var(--gold, #f0c040); font-size: 13px; }
+.bp-match-card { width: 760px; }
+@media (max-width: 600px) { .bpm-thumb span { display: none; } .bpm-thumb img { width: 64px; height: 36px; } }

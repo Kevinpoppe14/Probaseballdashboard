@@ -18,7 +18,7 @@
   const pitchNos = (session) => (session.pitches || []).map((p) => p.no).sort((a, b) => a - b);
   const hasClip = (session, no) => !!(session && session.video && session.video.clips && session.video.clips[no]);
   // the parts without React, shared with the phone app (bullpen_cut.js)
-  const { upload, removeFiles, linkOf, useDrive, scanVideo, splitByMotion, cueClips, shiftClips, fmtDay } = window.BullpenCut;
+  const { upload, removeFiles, linkOf, useDrive, scanVideo, splitByMotion, cueClips, fmtDay } = window.BullpenCut;
 
   // the n - 1 biggest jumps, no two too close together, as n stretches of the video. Each stretch starts on the first
   // frame seen after its cut and ends on the last one seen before the next, so no pitch shows a flash of another.
@@ -68,6 +68,7 @@
     const [msg, setMsg] = useState("");
     const [camera, setCamera] = useState((video && video.camera) || "edgertronic");
     const [exporting, setExporting] = useState(false);
+    const [matching, setMatching] = useState(false);
     const pick = async (e) => {
       const files = [...(e.target.files || [])].filter((f) => /^video\//i.test(f.type || "video/") || /\.(mov|mp4|m4v)$/i.test(f.name));
       e.target.value = "";
@@ -148,7 +149,9 @@
         {!plan && !busy && <button type="button" className="btn btn-secondary" onClick={() => fileRef.current && fileRef.current.click()}>{video ? "Replace video" : "Add video"}</button>}
         {video && !plan && !busy && window.VideoExport && <button type="button" className="btn btn-primary" title="Make an MP4 of the pitches with their TrackMan numbers beside them, to download" onClick={() => setExporting(true)}>Export video</button>}
         {video && !plan && !busy && <button type="button" className="btn btn-small-grey" onClick={drop}>Remove video</button>}
+        {video && video.files.length === 1 && nos.length > 1 && !plan && !busy && <button type="button" className="btn btn-secondary" title="The clips beside the pitches, to move, delete or put gaps in, with undo" onClick={() => setMatching(true)}>Match clips to pitches</button>}
         {exporting && <ExportDialog session={session} athlete={athlete} onClose={() => setExporting(false)} />}
+        {matching && <ClipMatcher session={session} onSave={(clips) => { onSave({ ...video, clips }); setMsg(`Matching saved: ${Object.keys(clips).length} of ${nos.length} pitches have a clip.`); }} onClose={() => setMatching(false)} />}
         <input ref={fileRef} type="file" accept="video/*,.mov,.mp4,.m4v" multiple hidden onChange={pick} />
         {busy && <span className="assess-row-note" role="status">{busy}</span>}
         {msg && !busy && <span className="assess-row-note" role="status">{msg}</span>}
@@ -318,6 +321,33 @@
     return <button type="button" className={`bp-cam${text ? " with-text" : ""}`} title={label} aria-label={label} onClick={onClick}><CamIcon />{text ? <span>{text}</span> : null}</button>;
   }
 
+  // ---- matching a long video's clips to the pitches (bullpen_cut.js matchClips), in a box over the page --------------
+  function ClipMatcher({ session, onSave, onClose }) {
+    const ref = useRef(null);
+    const [err, setErr] = useState("");
+    useEffect(() => {
+      let off = false, inst = null;
+      linkOf(session.video.files[0]).then((src) => {
+        if (off || !ref.current) return;
+        inst = window.BullpenCut.matchClips(ref.current, { session, src, onSave: (clips) => { onSave(clips); onClose(); }, onCancel: onClose });
+      }, (e) => { if (!off) setErr(e.message || String(e)); });
+      return () => { off = true; if (inst) inst.destroy(); };
+    }, []); // eslint-disable-line
+    return ReactDOM.createPortal(
+      <div className="bp-zoom">
+        <div className="bp-zoom-card bp-match-card" role="dialog" aria-label="Match the clips to the pitches">
+          <div className="bp-zoom-head">
+            <h3 className="bp-video-title">Match clips to pitches</h3>
+            <button type="button" className="bp-mod-btn bp-zoom-close" onClick={onClose}>✕ Close</button>
+          </div>
+          <p className="timestamp-note">The video's clips on the left in the order filmed, the report's pitches on the right in the order thrown. Move a clip up or down, delete one that isn't a pitch in the report, or put a gap above one where the video missed a pitch. Undo and Redo go back and forth; nothing changes until Save.</p>
+          {err ? <p className="assess-row-note">{err}</p> : <div ref={ref}><p className="assess-row-note">Loading the video…</p></div>}
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
   // ---- watching a pitch ------------------------------------------------------------------------------------------
 
   function PitchVideo({ session, no, onNo, onClose, onChange, describe }) {
@@ -326,6 +356,7 @@
     const [err, setErr] = useState("");
     const [rate, setRate] = useState(1);
     const [loop, setLoop] = useState(true);
+    const [matching, setMatching] = useState(false);
     const nos = pitchNos(session).filter((n) => hasClip(session, n));
     const clip = hasClip(session, no) ? session.video.clips[no] : null;
     const file = clip ? session.video.files[clip.f] : null;
@@ -353,7 +384,7 @@
     const go = (d) => { if (nos.length) onNo(nos[(i + d + nos.length) % nos.length]); };
     useEffect(() => {
       const key = (e) => {
-        if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
+        if (matching || (e.target && /input|select|textarea/i.test(e.target.tagName))) return;
         if (e.key === "Escape") onClose();
         else if (e.key === "ArrowRight") go(1);
         else if (e.key === "ArrowLeft") go(-1);
@@ -363,13 +394,6 @@
       document.addEventListener("keydown", key);
       return () => document.removeEventListener("keydown", key);
     });
-    const shift = (d) => {
-      const next = shiftClips(session, no, d);
-      if (!next) return;
-      onChange(next);
-      const all = pitchNos(session), n = all[all.indexOf(no) + d];
-      if (n != null) onNo(n); // follow the clip to the pitch it's on now
-    };
     return ReactDOM.createPortal(
       <div className="bp-zoom" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="bp-zoom-card bp-video-card" role="dialog" aria-label={`Pitch ${no} video`}>
@@ -392,13 +416,13 @@
               <option value={0.25}>Speed ¼×</option><option value={0.5}>Speed ½×</option><option value={1}>Speed 1×</option><option value={2}>Speed 2×</option>
             </select>
             <label className="bp-video-loop"><input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> Loop</label>
-            {onChange && clip && (
+            {onChange && session.video.files.length === 1 && (
               <span className="bp-video-shift">
-                <span className="timestamp-note">Wrong pitch? Move this clip and every one after it:</span>
-                <button type="button" className="bp-mod-btn" disabled={pitchNos(session).indexOf(no) === 0} onClick={() => shift(-1)}>← A pitch earlier</button>
-                <button type="button" className="bp-mod-btn" onClick={() => shift(1)}>A pitch later →</button>
+                <span className="timestamp-note">Wrong pitch?</span>
+                <button type="button" className="bp-mod-btn" onClick={() => setMatching(true)}>Match clips to pitches</button>
               </span>
             )}
+            {matching && <ClipMatcher session={session} onSave={(clips) => onChange({ ...session.video, clips })} onClose={() => setMatching(false)} />}
           </div>
           <p className="timestamp-note">← → step through the pitches with video, , and . step a frame, Esc closes.</p>
         </div>
