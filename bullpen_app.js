@@ -188,8 +188,9 @@
           VE && VE.supported() ? (e.made ? el("button", { type: "button", class: `bpa-btn${e.made.tap ? " primary" : ""}`, onclick: async () => { const how = await VE.download(e.made.blob, e.made.name, { share: VE.isPhone() }); if (how !== "tap") { e.made.tap = false; e.made.files = how === "files"; render(); } } }, VE.isPhone() ? "Save video" : "Download again")
             : e.wantVideo ? el("span", { class: "bpa-hint" }, working === e ? "" : "Video: waiting its turn")
               : el("button", { type: "button", class: "bpa-btn", onclick: () => { e.wantVideo = true; pump(); render(); } }, "Make the video")) : null,
+          e.made && VE && VE.isPhone() ? el("button", { type: "button", class: "bpa-btn", title: "The video in a tab of its own: Share there, then Save Video", onclick: () => VE.view(e.made.blob) }, "Open it") : null,
           window.BullpenPdf ? el("button", { type: "button", class: `bpa-btn${e.open === "mail" ? " on" : ""}`, onclick: () => { e.open = e.open === "mail" ? "" : "mail"; if (!e.mail) e.mail = { to: e.p.email || "", body: window.BullpenPdf.mailText({ athlete: e.p, session: e.session, link: e.link }), msg: "", busy: false, sent: false }; render(); } }, "Email the report") : null));
-        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video ready (${BC().mb(e.made.blob.size)}): tap Save video, then Save Video in the share sheet.` : e.made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done: ${e.made.name} (${BC().mb(e.made.blob.size)}).`));
+        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video ready (${BC().mb(e.made.blob.size)}): tap Save video, then Save Video in the share sheet. No Save Video there? Tap Open it, then Share › Save Video.` : e.made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done: ${e.made.name} (${BC().mb(e.made.blob.size)}).`));
         if (e.open === "match") {
           // mounted once and kept (its undo history and player with it) however often the page is drawn again
           if (!e.holder) {

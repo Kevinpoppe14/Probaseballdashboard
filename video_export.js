@@ -389,8 +389,8 @@
     const file = typeof File === "function" ? new File([blob], name, { type }) : null;
     if (share && file && navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file] }); return "done"; } catch (e) {
-        if (e && e.name === "AbortError") return "done";
-        if (e && e.name === "NotAllowedError") return "tap";
+        // closed without saving (or a phone that says so when it fails): keep the Save button for another try
+        if (e && (e.name === "NotAllowedError" || e.name === "AbortError")) return "tap";
       }
     }
     const a = document.createElement("a");
@@ -402,6 +402,8 @@
   }
   const fileName = (who, what, date, blob) => `${String(who || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${what}${date ? `-${date}` : ""}.${/webm/.test((blob && blob.type) || "") ? "webm" : "mp4"}`;
   const isPhone = () => /iPhone|iPad|Android/i.test(navigator.userAgent || "");
+  // the video in a tab of its own, to watch and save from there (Share › Save Video on an iPhone): from a tap
+  const view = (blob) => { const u = URL.createObjectURL(new Blob([blob], { type: /webm/.test(blob.type || "") ? "video/webm" : "video/mp4" })); if (!window.open(u, "_blank")) window.location.href = u; };
 
-  window.VideoExport = { render, download, panel, supported, fileName, isPhone, LAYOUTS };
+  window.VideoExport = { render, download, view, panel, supported, fileName, isPhone, LAYOUTS };
 })();
