@@ -4235,6 +4235,15 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-pitches { margin-top: 14px; }
 .bp-pitches summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
 .bp-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 8px; font-size: 13px; min-height: 32px; }
+.bp-bulk-edit { margin-left: auto; display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.bp-num-in { width: 58px; padding: 3px 5px; font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2, transparent); color: var(--text); }
+.bp-all-row td { background: rgba(200, 16, 46, 0.08); }
+.bp-edited { color: var(--gold, #d4a017); font-weight: 600; }
+.bp-est { color: var(--text-dim); font-style: italic; }
+.bp-pdf-card { max-width: 620px; }
+.bp-pdf-label { display: block; font-size: 13px; font-weight: 600; margin: 8px 0 6px; }
+.bp-pdf-label small { color: var(--text-dim); font-weight: 400; }
+.bp-pdf-notes { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2, transparent); color: var(--text); resize: vertical; }
 .bp-tag { font-size: 13px; padding: 3px 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); border-radius: 6px; }
 .bp-type-cell { text-align: left !important; }
 .bp-untagged { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--badge-warn-bg); color: var(--warn); font-size: 13px; font-weight: 600; }

@@ -58,6 +58,19 @@
     const a = ms.map((m) => (m / 720) * 2 * Math.PI), sx = a.reduce((s, v) => s + Math.sin(v), 0), cx = a.reduce((s, v) => s + Math.cos(v), 0);
     return ((Math.atan2(sx, cx) / (2 * Math.PI)) * 720 + 720) % 720;
   };
+  // Spin efficiency where TrackMan left it blank (often on a gyro slider): the share of the spin that moved the ball,
+  // from how far it moved for its spin and speed. Spin-induced movement runs about as active spin over speed (the
+  // Magnus lift grows with spin and speed, its flight time falls with speed), and on our bullpens with a measured
+  // efficiency, movement (in) × speed (mph) ÷ active spin (rpm) comes out about 1.0. A rough figure, shown with ~.
+  const effEstimate = (spin, speed, ivb, hb) => {
+    if (![spin, speed, ivb, hb].every((v) => typeof v === "number") || spin < 300) return null;
+    return Math.max(0, Math.min(100, Math.round((Math.hypot(ivb, hb) * speed * 100) / spin)));
+  };
+  const effOf = (p) => (typeof p.spinEff === "number" ? p.spinEff : effEstimate(p.spin, p.speed, p.ivb, p.hb));
+  // a pitch's numbers changed by hand keep TrackMan's in p.orig ({ extension: 5.25 }); these can be changed
+  const EDITABLE = [["speed", "Velo"], ["spin", "Spin"], ["tilt", "Tilt"], ["ivb", "IVB"], ["hb", "HB"], ["extension", "Ext."], ["relHeight", "Rel. ht"], ["relSide", "Rel. side"], ["spinEff", "Spin eff."]];
+  const FEET = ["extension", "relHeight", "relSide"];
+  const isEdited = (p, k) => !!(p.orig && Object.prototype.hasOwnProperty.call(p.orig, k));
   function typeStats(session) {
     const pitches = livePitches(session);
     const types = [...new Set(pitches.length ? pitches.map(typeOfPitch) : (session.summary || []).map((r) => r.type).filter(Boolean))].sort(byType);
@@ -66,13 +79,16 @@
       const vals = (k) => ps.map((p) => p[k]).filter((v) => typeof v === "number");
       const avg = (k) => { const v = vals(k); return v.length ? r1(v.reduce((a, b) => a + b, 0) / v.length) : null; };
       const max = (k) => { const v = vals(k); return v.length ? r1(Math.max(...v)) : null; };
+      const effAvg = avg("spinEff") != null ? Math.round(avg("spinEff")) : null;
+      const effEst = effAvg == null ? effEstimate(avg("spin") ?? sum.spinAvg ?? null, avg("speed") ?? sum.speedAvg ?? null, avg("ivb"), avg("hb") ?? sum.hbAvg ?? null) : null;
       return {
+        edited: EDITABLE.map(([k]) => k).filter((k) => ps.some((p) => isEdited(p, k))), spinEffEst: effEst != null,
         type, qty: ps.length || sum.qty || 0,
         speedAvg: avg("speed") ?? sum.speedAvg ?? null, speedMax: max("speed") ?? sum.speedMax ?? null,
         spinAvg: avg("spin") != null ? Math.round(avg("spin")) : sum.spinAvg != null ? Math.round(sum.spinAvg) : null,
         ivb: avg("ivb"), hb: avg("hb") ?? sum.hbAvg ?? null,
         relHeight: avg("relHeight") ?? sum.relHeight ?? null, relSide: avg("relSide") ?? sum.relSide ?? null,
-        extension: avg("extension") ?? sum.extension ?? null, spinEff: avg("spinEff") != null ? Math.round(avg("spinEff")) : null,
+        extension: avg("extension") ?? sum.extension ?? null, spinEff: effAvg ?? effEst,
         vaa: avg("vaa"), tilt: tiltAvg(ps.map((p) => p.tilt)),
       };
     });
@@ -551,7 +567,7 @@
           {s.speedAvg != null && <b className="bp-ball-velo">{s.speedAvg} mph <small>avg</small></b>}
           <b>{s.spinAvg != null ? `${s.spinAvg} rpm` : "– rpm"}</b>
           <span>Tilt {s.tilt != null ? tiltText(s.tilt) : "–"}</span>
-          <span>Spin eff. {s.spinEff != null ? `${s.spinEff}%` : "–"}{gyro != null ? ` · ${gyro}% gyro` : ""}</span>
+          <span title={s.spinEffEst ? "TrackMan left spin efficiency blank: estimated from the movement for its spin and speed" : undefined}>Spin eff. {s.spinEff != null ? `${s.spinEffEst ? "~" : ""}${s.spinEff}%` : "–"}{gyro != null ? ` · ${gyro}% gyro` : ""}</span>
           {active != null && <span>Active ≈ {active} rpm</span>}
           {active != null && <span>Gyro ≈ {s.spinAvg - active} rpm</span>}
         </div>
@@ -1168,6 +1184,52 @@
     const BV = window.BullpenVideo;
     const removePitches = (nos, sid) => { editPitches(nos, { removed: true }, sid); setChecked([]); setPicked(null); };
     const toggle = (no) => setChecked((c) => (c.includes(no) ? c.filter((x) => x !== no) : [...c, no]));
+    // numbers changed by hand (an extension TrackMan got wrong, say): one pitch's, or every pitch's (the checked ones,
+    // if any are) at once. TrackMan's own number is kept in p.orig so it can be put back, and VAA is worked out again.
+    const [editing, setEditing] = useState(false);
+    const [pdf, setPdf] = useState(null); // the PDF report's box: { notes, busy, msg }
+    const parseVal = (k, raw) => {
+      const s = String(raw).trim();
+      if (!s) return undefined;
+      if (k === "tilt") { const m = s.match(/^(\d{1,2}):(\d{2})$/); return m && Number(m[1]) >= 1 && Number(m[1]) <= 12 && Number(m[2]) < 60 ? `${Number(m[1])}:${m[2]}` : undefined; }
+      const v = FEET.includes(k) && window.TrackmanImport ? window.TrackmanImport.feet(s) : parseFloat(s.replace(/[%"]/g, ""));
+      return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+    };
+    const withVaa = (p) => { const a = window.TrackmanImport && window.TrackmanImport.vaaOf ? window.TrackmanImport.vaaOf(p) : null; return a != null ? { ...p, vaa: a } : p; };
+    const setMetric = (nos, k, raw) => {
+      const v = parseVal(k, raw);
+      if (v === undefined) return false;
+      const base = { ...latest.current, notes };
+      onSave({ ...base, pitches: (base.pitches || []).map((p) => {
+        if (!nos.includes(p.no)) return p;
+        const orig = { ...(p.orig || {}) };
+        if (!Object.prototype.hasOwnProperty.call(orig, k)) orig[k] = p[k] ?? null;
+        const next = { ...p, [k]: v };
+        if (orig[k] === v) delete orig[k];
+        if (Object.keys(orig).length) next.orig = orig; else delete next.orig;
+        return ["extension", "relHeight", "speed", "ivb"].includes(k) ? withVaa(next) : next;
+      }) });
+      return true;
+    };
+    const editedCount = (session.pitches || []).filter((p) => p.orig && Object.keys(p.orig).length).length;
+    const resetEdits = async () => {
+      const ok = await window.askConfirm({ title: "Put TrackMan's numbers back?", text: `Every number changed by hand on ${editedCount === 1 ? "1 pitch" : `${editedCount} pitches`} goes back to what the report had.`, ok: "Put them back" });
+      if (!ok) return;
+      const base = { ...latest.current, notes };
+      onSave({ ...base, pitches: (base.pitches || []).map((p) => { if (!p.orig) return p; const { orig, ...rest } = p; return withVaa({ ...rest, ...orig }); }) });
+    };
+    const editText = (p, k) => (p[k] == null ? "" : FEET.includes(k) ? ftIn(p[k]) : String(p[k]));
+    const numInput = (key, value, label, onSet, placeholder) => (
+      <input key={key} className="bp-num-in" defaultValue={value} placeholder={placeholder} aria-label={label}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = value; e.currentTarget.blur(); } }}
+        onBlur={(e) => { const t = e.currentTarget.value; if (t.trim() === String(value).trim()) return; if (!onSet(t)) e.currentTarget.value = value; else if (!value) e.currentTarget.value = ""; }} />
+    );
+    // a pitch's cell for figure k: its input while editing, else the number (marked if it was changed by hand)
+    const cellOf = (p, k, text) => {
+      if (editing) return <td>{numInput(`${p.no}-${k}-${p[k]}`, editText(p, k), `Pitch ${p.no} ${k}`, (t) => setMetric([p.no], k, t))}</td>;
+      if (isEdited(p, k)) { const o = p.orig[k]; return <td className="bp-edited" title={`Changed by hand: TrackMan had ${o == null ? "nothing" : FEET.includes(k) ? ftIn(o) : o}`}>{text}*</td>; }
+      return <td>{text}</td>;
+    };
     const tagSelect = (value, onPick, label) => (
       <select className="bp-tag" value={value} aria-label={label} onChange={(e) => onPick(e.target.value)}>
         <option value="">Untagged</option>
@@ -1260,17 +1322,21 @@
               <table className="assess-table bp-table">
                 <thead><tr><th>Pitch type</th><th>Qty</th><th>Velo avg</th><th>Velo max</th><th>Spin</th><th>IVB</th><th>HB</th><th title="Vertical approach angle at the plate, estimated">VAA</th><th>Rel. ht</th><th>Rel. side</th><th>Ext.</th><th>Spin eff.</th></tr></thead>
                 <tbody>
-                  {stats.map((s) => (
-                    <tr key={s.type}>
-                      <td><span className="bp-dot" style={{ background: colorOf(s.type) }} />{s.type}</td>
-                      <td>{s.qty}</td><td>{show(s.speedAvg)}</td><td>{show(s.speedMax)}</td><td>{show(s.spinAvg)}</td>
-                      <td>{show(s.ivb)}</td><td>{show(s.hb)}</td><td>{deg(s.vaa)}</td><td>{ftIn(s.relHeight)}</td><td>{ftIn(s.relSide)}</td><td>{ftIn(s.extension)}</td><td>{show(s.spinEff, s.spinEff != null ? "%" : "")}</td>
-                    </tr>
-                  ))}
+                  {stats.map((s) => {
+                    const ed = (k, text) => (s.edited.includes(k) ? <span className="bp-edited" title="Includes numbers changed by hand">{text}*</span> : text);
+                    return (
+                      <tr key={s.type}>
+                        <td><span className="bp-dot" style={{ background: colorOf(s.type) }} />{s.type}</td>
+                        <td>{s.qty}</td><td>{ed("speed", show(s.speedAvg))}</td><td>{ed("speed", show(s.speedMax))}</td><td>{ed("spin", show(s.spinAvg))}</td>
+                        <td>{ed("ivb", show(s.ivb))}</td><td>{ed("hb", show(s.hb))}</td><td>{deg(s.vaa)}</td><td>{ed("relHeight", ftIn(s.relHeight))}</td><td>{ed("relSide", ftIn(s.relSide))}</td><td>{ed("extension", ftIn(s.extension))}</td>
+                        <td>{s.spinEffEst ? <span className="bp-est" title="TrackMan left spin efficiency blank: estimated from the movement for its spin and speed">~{s.spinEff}%</span> : ed("spinEff", show(s.spinEff, s.spinEff != null ? "%" : ""))}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            <p className="timestamp-note">Velocity in mph, spin in rpm, break in inches. IVB, HB and spin efficiency are averaged from the pitches; a pitch TrackMan left blank is left out.{vaaNote ? " VAA (vertical approach angle) isn't in TrackMan's report: it's estimated from each pitch's release height, extension, velo, IVB and where it crossed the plate on the report's location chart, so read it as within about half a degree. Up in the zone it's flatter (closer to 0); low it's steeper." : ""}</p>
+            <p className="timestamp-note">Velocity in mph, spin in rpm, break in inches. IVB, HB and spin efficiency are averaged from the pitches; a pitch TrackMan left blank is left out.{stats.some((s) => s.spinEffEst) ? " ~ marks a spin efficiency TrackMan left blank, estimated from how far the pitch moved for its spin and speed (a rough figure)." : ""}{stats.some((s) => s.edited.length) ? " * includes numbers changed by hand (Every pitch › Edit numbers)." : ""}{vaaNote ? " VAA (vertical approach angle) isn't in TrackMan's report: it's estimated from each pitch's release height, extension, velo, IVB and where it crossed the plate on the report's location chart, so read it as within about half a degree. Up in the zone it's flatter (closer to 0); low it's steeper." : ""}</p>
           </React.Fragment>
         ),
       },
@@ -1316,19 +1382,34 @@
               {checked.length > 0
                 ? <React.Fragment><span>Tag the {checked.length} checked as</span>{tagSelect("", (v) => retag(checked, v), "Tag the checked pitches as")}<button type="button" className="btn btn-secondary" onClick={() => removePitches(checked)}>Remove them</button><button type="button" className="btn btn-secondary" onClick={() => setChecked([])}>Clear</button></React.Fragment>
                 : <span className="timestamp-note">Change a pitch's type from its row, or check several to tag or remove them together.</span>}
+              <span className="bp-bulk-edit">
+                <button type="button" className={`btn ${editing ? "btn-primary" : "btn-secondary"}`} aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? "Done editing" : "Edit numbers"}</button>
+                {editedCount > 0 && !editing && <button type="button" className="btn btn-secondary" onClick={resetEdits}>Put TrackMan's numbers back ({editedCount})</button>}
+              </span>
             </div>
+            {editing && <p className="timestamp-note">Type a new number in any pitch's cell (Enter to keep it, Esc to leave it), or in the top row to set it for {checked.length ? `the ${checked.length} checked pitches` : "every pitch"}: extension and release in feet (6'5" or 6.4), tilt as a clock (1:45). TrackMan's own numbers are kept, marked * once changed, and can be put back; VAA is worked out again from the new ones.</p>}
             <div className="bp-table-wrap">
               <table className="assess-table bp-table">
                 <thead><tr><th aria-label="Check"></th><th>#</th><th>Type</th><th>Velo</th><th>Spin</th><th>Tilt</th><th>IVB</th><th>HB</th><th title="Vertical approach angle, estimated">VAA</th><th>Plate ht</th><th>Ext.</th><th>Rel. ht</th><th>Rel. side</th><th>Spin eff.</th><th aria-label="Video"></th><th aria-label="Remove"></th></tr></thead>
                 <tbody>
+                  {editing && (
+                    <tr className="bp-all-row">
+                      <td></td><td colSpan={2}><b>{checked.length ? `The ${checked.length} checked` : "Every pitch"}</b></td>
+                      {["speed", "spin", "tilt", "ivb", "hb"].map((k) => <td key={k}>{numInput(`all-${k}`, "", `Set ${k} for ${checked.length ? "the checked pitches" : "every pitch"}`, (t) => setMetric(checked.length ? checked : live.map((p) => p.no), k, t), "all")}</td>)}
+                      <td></td><td></td>
+                      {["extension", "relHeight", "relSide", "spinEff"].map((k) => <td key={k}>{numInput(`all-${k}`, "", `Set ${k} for ${checked.length ? "the checked pitches" : "every pitch"}`, (t) => setMetric(checked.length ? checked : live.map((p) => p.no), k, t), "all")}</td>)}
+                      <td></td><td></td>
+                    </tr>
+                  )}
                   {live.map((p) => (
                     <tr key={p.no} className={`${p.type ? "" : "bp-untagged-row"}${picked === `${session.id}:${p.no}` ? " bp-picked-row" : ""}`}>
                       <td><input type="checkbox" checked={checked.includes(p.no)} onChange={() => toggle(p.no)} aria-label={`Check pitch ${p.no}`} /></td>
                       <td>{p.no}</td>
                       <td className="bp-type-cell"><span className="bp-dot" style={{ background: p.type ? colorOf(p.type) : "transparent" }} />{tagSelect(p.type || "", (v) => retag([p.no], v), `Pitch ${p.no} type`)}</td>
-                      <td>{show(p.speed)}</td><td>{show(p.spin)}</td><td>{show(p.tilt)}</td><td>{show(p.ivb)}</td><td>{show(p.hb)}</td>
+                      {cellOf(p, "speed", show(p.speed))}{cellOf(p, "spin", show(p.spin))}{cellOf(p, "tilt", show(p.tilt))}{cellOf(p, "ivb", show(p.ivb))}{cellOf(p, "hb", show(p.hb))}
                       <td>{deg(p.vaa)}</td><td>{ftIn(p.plateHeight)}</td>
-                      <td>{ftIn(p.extension)}</td><td>{ftIn(p.relHeight)}</td><td>{ftIn(p.relSide)}</td><td>{show(p.spinEff, p.spinEff != null ? "%" : "")}</td>
+                      {cellOf(p, "extension", ftIn(p.extension))}{cellOf(p, "relHeight", ftIn(p.relHeight))}{cellOf(p, "relSide", ftIn(p.relSide))}
+                      {p.spinEff == null && !editing && effOf(p) != null ? <td className="bp-est" title="TrackMan left it blank: estimated from the movement for its spin and speed">~{effOf(p)}%</td> : cellOf(p, "spinEff", show(p.spinEff, p.spinEff != null ? "%" : ""))}
                       <td>{BV && BV.hasClip(session, p.no) ? <BV.CameraButton label={`Watch pitch ${p.no}`} onClick={() => setVid({ sid: session.id, no: p.no })} /> : null}</td>
                       <td><button type="button" className="ft-x" title="Take this pitch out of the report" aria-label={`Remove pitch ${p.no}`} onClick={() => removePitches([p.no])}>✕</button></td>
                     </tr>
@@ -1450,8 +1531,37 @@
               </select>
             )}
             <button type="button" className="btn btn-small-grey" title="Put the modules back in their usual order, sizes and set" onClick={() => setLayout(DEFAULT_LAYOUT)}>Reset layout</button>
+            {window.BullpenPdf && <button type="button" className="btn btn-secondary" title="A DST-branded PDF of this bullpen: notes, pitch types, charts and every pitch" onClick={() => { setPdf({ notes: notes || "", busy: false, msg: "" }); }}>PDF report</button>}
           </span>
         </div>
+        {pdf && ReactDOM.createPortal(
+          <div className="bp-zoom" onMouseDown={(e) => { if (e.target === e.currentTarget && !pdf.busy) setPdf(null); }}>
+            <div className="bp-zoom-card bp-pdf-card" role="dialog" aria-label="PDF report of this bullpen">
+              <div className="bp-zoom-head">
+                <h3 className="bp-video-title">PDF report <small>{athlete && athlete.name} · {fmtDate(session.date)}</small></h3>
+                <button type="button" className="bp-mod-btn bp-zoom-close" disabled={pdf.busy} onClick={() => setPdf(null)}>✕ Close</button>
+              </div>
+              <label className="bp-pdf-label" htmlFor="bp-pdf-notes">Coach's notes for the report <small>(left blank, the report has none)</small></label>
+              <textarea id="bp-pdf-notes" className="bp-pdf-notes" rows={6} value={pdf.notes} placeholder="What he worked on, what stood out, what's next…" onChange={(e) => setPdf({ ...pdf, notes: e.target.value })} />
+              <p className="timestamp-note">The DST logo, his name, the date and facility; your notes; the pitch types' numbers; the movement chart with his arm angle, the release point and the locations; then every pitch. {live.length} pitches (taken-out ones are left out). Numbers changed by hand are marked *, estimated spin efficiency ~.</p>
+              <div className="bp-video-actions">
+                <button type="button" className="btn btn-primary" disabled={pdf.busy} onClick={async () => {
+                  setPdf({ ...pdf, busy: true, msg: "" });
+                  try {
+                    const file = await window.BullpenPdf.save({
+                      athlete: { name: (athlete && athlete.name) || "", throws: athlete && athlete.throws }, session, stats, pitches: live.slice().sort((a, b) => a.no - b.no),
+                      armDeg: armAngleOf(live, heightIn || 74), notes: pdf.notes, colorOf, effOf,
+                      heightNote: heightIn ? "from his release and height" : "from his release, assuming 6'2\"",
+                    });
+                    setPdf({ ...pdf, busy: false, msg: `Saved ${file}.` });
+                  } catch (err) { setPdf({ ...pdf, busy: false, msg: (err && err.message) || String(err) }); }
+                }}>{pdf.busy ? "Making it…" : "Make the PDF"}</button>
+                {pdf.msg && <span className="assess-row-note" role="status">{pdf.msg}</span>}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
         {BV && <BV.VideoBar session={session} athlete={athlete} onSave={(v) => saveVideo(session.id, v)} />}
         {untagged > 0 && <p className="bp-untagged">{untagged} pitch{untagged === 1 ? " isn't" : "es aren't"} tagged. Click one on a chart, pick a type for each under Every pitch, or check several and tag them at once.</p>}
         <div className="bp-mods">
@@ -2540,7 +2650,7 @@
     paint(g, x, y, size, p, turned) {
       loadDecals();
       const tilt = typeof p.tilt === "number" ? p.tilt : tiltMinutes(p.tilt);
-      const u = spinAxis(tilt, p.spinEff);
+      const u = spinAxis(tilt, effOf(p));
       const seamAxis = isTwoSeam(p.type) ? SEAM_AXIS.two : SEAM_AXIS.four;
       const start = mulM(alignM(seamAxis, u), rotM(seamAxis, 0.6));
       // drawn at the canvas's real resolution (the export draws scaled up for a 1440p or 4K file), so it stays sharp
