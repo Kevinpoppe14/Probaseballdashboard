@@ -4238,6 +4238,8 @@ button.pt-label.on { color: var(--dst-red); }
 .bp-bulk-edit { margin-left: auto; display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .bp-num-in { width: 58px; padding: 3px 5px; font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2, transparent); color: var(--text); }
 .bp-all-row td { background: rgba(200, 16, 46, 0.08); }
+.bp-all-cell { display: inline-flex; align-items: center; gap: 3px; }
+.bp-reset-col { min-width: 24px; height: 26px; padding: 0 4px; border: 1px solid var(--border); border-radius: 6px; background: none; color: var(--gold, #d4a017); cursor: pointer; font-size: 13px; }
 .bp-edited { color: var(--gold, #d4a017); font-weight: 600; }
 .bp-est { color: var(--text-dim); font-style: italic; }
 .bp-pdf-card { max-width: 620px; }

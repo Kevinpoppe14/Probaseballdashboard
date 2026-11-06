@@ -1149,11 +1149,23 @@
       return typeof v === "number" && Number.isFinite(v) ? v : undefined;
     };
     const withVaa = (p) => { const a = window.TrackmanImport && window.TrackmanImport.vaaOf ? window.TrackmanImport.vaaOf(p) : null; return a != null ? { ...p, vaa: a } : p; };
+    // Undo and Redo for the numbers changed by hand (while this bullpen is open), and TrackMan's numbers put back for
+    // one column, kept or not: a change's pitches go in as one step
+    const hist = useRef({ past: [], future: [] });
+    const [, setHistN] = useState(0);
+    const commitPitches = (pitches) => {
+      const h = hist.current;
+      h.past.push(latest.current.pitches || []); if (h.past.length > 60) h.past.shift();
+      h.future = [];
+      setHistN((n) => n + 1);
+      onSave({ ...latest.current, notes, pitches });
+    };
+    const undoEdit = () => { const h = hist.current; if (!h.past.length) return; h.future.push(latest.current.pitches || []); setHistN((n) => n + 1); onSave({ ...latest.current, notes, pitches: h.past.pop() }); };
+    const redoEdit = () => { const h = hist.current; if (!h.future.length) return; h.past.push(latest.current.pitches || []); setHistN((n) => n + 1); onSave({ ...latest.current, notes, pitches: h.future.pop() }); };
     const setMetric = (nos, k, raw) => {
       const v = parseVal(k, raw);
       if (v === undefined) return false;
-      const base = { ...latest.current, notes };
-      onSave({ ...base, pitches: (base.pitches || []).map((p) => {
+      commitPitches((latest.current.pitches || []).map((p) => {
         if (!nos.includes(p.no)) return p;
         const orig = { ...(p.orig || {}) };
         if (!Object.prototype.hasOwnProperty.call(orig, k)) orig[k] = p[k] ?? null;
@@ -1161,16 +1173,30 @@
         if (orig[k] === v) delete orig[k];
         if (Object.keys(orig).length) next.orig = orig; else delete next.orig;
         return ["extension", "relHeight", "speed", "ivb"].includes(k) ? withVaa(next) : next;
-      }) });
+      }));
       return true;
     };
+    // TrackMan's number back in column k, on every pitch where it was changed
+    const resetKey = (k) => commitPitches((latest.current.pitches || []).map((p) => {
+      if (!isEdited(p, k)) return p;
+      const { [k]: was, ...orig } = p.orig, next = { ...p, [k]: was };
+      if (Object.keys(orig).length) next.orig = orig; else delete next.orig;
+      return ["extension", "relHeight", "speed", "ivb"].includes(k) ? withVaa(next) : next;
+    }));
+    const editedIn = (k) => live.some((p) => isEdited(p, k));
     const editedCount = (session.pitches || []).filter((p) => p.orig && Object.keys(p.orig).length).length;
     const resetEdits = async () => {
-      const ok = await window.askConfirm({ title: "Put TrackMan's numbers back?", text: `Every number changed by hand on ${editedCount === 1 ? "1 pitch" : `${editedCount} pitches`} goes back to what the report had.`, ok: "Put them back" });
+      const ok = await window.askConfirm({ title: "Put TrackMan's numbers back?", text: `Every number changed by hand on ${editedCount === 1 ? "1 pitch" : `${editedCount} pitches`} goes back to what the report had. (Undo brings them back.)`, ok: "Put them back" });
       if (!ok) return;
-      const base = { ...latest.current, notes };
-      onSave({ ...base, pitches: (base.pitches || []).map((p) => { if (!p.orig) return p; const { orig, ...rest } = p; return withVaa({ ...rest, ...orig }); }) });
+      commitPitches((latest.current.pitches || []).map((p) => { if (!p.orig) return p; const { orig, ...rest } = p; return withVaa({ ...rest, ...orig }); }));
     };
+    // the top row's cell for column k: set it for every pitch (or the checked), and ↺ to put TrackMan's back in it
+    const allCell = (k) => (
+      <span className="bp-all-cell">
+        {numInput(`all-${k}`, "", `Set ${k} for ${checked.length ? "the checked pitches" : "every pitch"}`, (t) => setMetric(checked.length ? checked : live.map((p) => p.no), k, t), "all")}
+        {editedIn(k) && <button type="button" className="bp-reset-col" title="Put TrackMan's numbers back in this column" aria-label={`Put TrackMan's ${k} back`} onClick={() => resetKey(k)}>↺</button>}
+      </span>
+    );
     const editText = (p, k) => (p[k] == null ? "" : FEET.includes(k) ? ftIn(p[k]) : String(p[k]));
     const numInput = (key, value, label, onSet, placeholder) => (
       <input key={key} className="bp-num-in" defaultValue={value} placeholder={placeholder} aria-label={label}
@@ -1337,10 +1363,14 @@
                 : <span className="timestamp-note">Change a pitch's type from its row, or check several to tag or remove them together.</span>}
               <span className="bp-bulk-edit">
                 <button type="button" className={`btn ${editing ? "btn-primary" : "btn-secondary"}`} aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? "Done editing" : "Edit numbers"}</button>
+                {(hist.current.past.length > 0 || hist.current.future.length > 0) && <React.Fragment>
+                  <button type="button" className="btn btn-secondary" disabled={!hist.current.past.length} title="Take back the last change to the numbers" onClick={undoEdit}>↶ Undo</button>
+                  <button type="button" className="btn btn-secondary" disabled={!hist.current.future.length} title="Do it again" onClick={redoEdit}>↷ Redo</button>
+                </React.Fragment>}
                 {editedCount > 0 && !editing && <button type="button" className="btn btn-secondary" onClick={resetEdits}>Put TrackMan's numbers back ({editedCount})</button>}
               </span>
             </div>
-            {editing && <p className="timestamp-note">Type a new number in any pitch's cell (Enter to keep it, Esc to leave it), or in the top row to set it for {checked.length ? `the ${checked.length} checked pitches` : "every pitch"}: extension and release in feet (6'5" or 6.4), tilt as a clock (1:45). TrackMan's own numbers are kept, marked * once changed, and can be put back; VAA is worked out again from the new ones.</p>}
+            {editing && <p className="timestamp-note">Type a new number in any pitch's cell (Enter to keep it, Esc to leave it), or in the top row to set it for {checked.length ? `the ${checked.length} checked pitches` : "every pitch"}: extension and release in feet (6'5" or 6.4), tilt as a clock (1:45). TrackMan's own numbers are kept, marked * once changed; ↶ Undo takes back the last change, and ↺ in the top row puts TrackMan's back for that column. VAA is worked out again from the new ones.</p>}
             <div className="bp-table-wrap">
               <table className="assess-table bp-table">
                 <thead><tr><th aria-label="Check"></th><th>#</th><th>Type</th><th>Velo</th><th>Spin</th><th>Tilt</th><th>IVB</th><th>HB</th><th title="Vertical approach angle, estimated">VAA</th><th>Plate ht</th><th>Ext.</th><th>Rel. ht</th><th>Rel. side</th><th>Spin eff.</th><th aria-label="Video"></th><th aria-label="Remove"></th></tr></thead>
@@ -1348,9 +1378,9 @@
                   {editing && (
                     <tr className="bp-all-row">
                       <td></td><td colSpan={2}><b>{checked.length ? `The ${checked.length} checked` : "Every pitch"}</b></td>
-                      {["speed", "spin", "tilt", "ivb", "hb"].map((k) => <td key={k}>{numInput(`all-${k}`, "", `Set ${k} for ${checked.length ? "the checked pitches" : "every pitch"}`, (t) => setMetric(checked.length ? checked : live.map((p) => p.no), k, t), "all")}</td>)}
+                      {["speed", "spin", "tilt", "ivb", "hb"].map((k) => <td key={k}>{allCell(k)}</td>)}
                       <td></td><td></td>
-                      {["extension", "relHeight", "relSide", "spinEff"].map((k) => <td key={k}>{numInput(`all-${k}`, "", `Set ${k} for ${checked.length ? "the checked pitches" : "every pitch"}`, (t) => setMetric(checked.length ? checked : live.map((p) => p.no), k, t), "all")}</td>)}
+                      {["extension", "relHeight", "relSide", "spinEff"].map((k) => <td key={k}>{allCell(k)}</td>)}
                       <td></td><td></td>
                     </tr>
                   )}
