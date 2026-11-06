@@ -255,7 +255,7 @@
         setBusy(null);
         // (a phone that won't open its share sheet this long after the tap gets a Save video button instead)
         const how = await VE.download(blob, name, { share: VE.isPhone() });
-        setMade({ blob, name, tap: how === "tap" });
+        setMade({ blob, name, tap: how === "tap", files: how === "files" });
       } catch (e) {
         setBusy(null);
         if ((e && e.message) !== "cancelled") setErr((e && e.message) || String(e));
@@ -301,8 +301,8 @@
               ) : (
                 <div className="bp-video-actions">
                   <button type="button" className="btn btn-primary" disabled={!chosen.length} onClick={go}>Make the video</button>
-                  {made && <button type="button" className={`btn ${made.tap ? "btn-primary" : "btn-secondary"}`} onClick={async () => { if ((await VE.download(made.blob, made.name, { share: VE.isPhone() })) === "done") setMade({ ...made, tap: false }); }}>{VE.isPhone() ? "Save video" : "Download again"}</button>}
-                  {made && <span className="assess-row-note" role="status">{made.tap ? `Ready: tap Save video, then Save Video in the share sheet to put it in Photos (${Math.max(1, Math.round(made.blob.size / 1048576))} MB).` : `Done: ${made.name} (${Math.max(1, Math.round(made.blob.size / 1048576))} MB)`}</span>}
+                  {made && <button type="button" className={`btn ${made.tap ? "btn-primary" : "btn-secondary"}`} onClick={async () => { const how2 = await VE.download(made.blob, made.name, { share: VE.isPhone() }); if (how2 !== "tap") setMade({ ...made, tap: false, files: how2 === "files" }); }}>{VE.isPhone() ? "Save video" : "Download again"}</button>}
+                  {made && <span className="assess-row-note" role="status">{made.tap ? `Ready: tap Save video, then Save Video in the share sheet to put it in Photos (${Math.max(1, Math.round(made.blob.size / 1048576))} MB).` : made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Done: ${made.name} (${Math.max(1, Math.round(made.blob.size / 1048576))} MB)`}</span>}
                 </div>
               )}
               {err && <p className="assess-row-note" style={{ color: "var(--danger)" }}>{err}</p>}

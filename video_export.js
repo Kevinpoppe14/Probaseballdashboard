@@ -384,9 +384,11 @@
   // the share sheet is tried, and when the phone says no (NotAllowedError) it returns "tap" without downloading, for
   // the caller to show a Save button whose own tap opens the sheet. Otherwise it returns "done".
   async function download(blob, name, { share = false } = {}) {
-    const file = typeof File === "function" ? new File([blob], name, { type: blob.type }) : null;
+    // just the file, marked as video: given a title or text alongside it, an iPhone leaves Save Video out of the sheet
+    const type = /webm/.test(blob.type || "") ? "video/webm" : "video/mp4";
+    const file = typeof File === "function" ? new File([blob], name, { type }) : null;
     if (share && file && navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: name }); return "done"; } catch (e) {
+      try { await navigator.share({ files: [file] }); return "done"; } catch (e) {
         if (e && e.name === "AbortError") return "done";
         if (e && e.name === "NotAllowedError") return "tap";
       }
@@ -395,7 +397,8 @@
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    return "done";
+    // a phone that couldn't share it has it in its downloads (an iPhone: Files › Downloads), not its photos
+    return share ? "files" : "done";
   }
   const fileName = (who, what, date, blob) => `${String(who || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${what}${date ? `-${date}` : ""}.${/webm/.test((blob && blob.type) || "") ? "webm" : "mp4"}`;
   const isPhone = () => /iPhone|iPad|Android/i.test(navigator.userAgent || "");

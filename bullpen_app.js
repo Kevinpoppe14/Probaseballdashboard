@@ -185,11 +185,11 @@
         const VE = window.VideoExport;
         kids.push(el("div", { class: "bpa-row" },
           el("button", { type: "button", class: `bpa-btn${e.open === "match" ? " on" : ""}`, onclick: () => { e.open = e.open === "match" ? "" : "match"; render(); } }, "Check the clips"),
-          VE && VE.supported() ? (e.made ? el("button", { type: "button", class: `bpa-btn${e.made.tap ? " primary" : ""}`, onclick: async () => { if ((await VE.download(e.made.blob, e.made.name, { share: VE.isPhone() })) === "done") { e.made.tap = false; render(); } } }, VE.isPhone() ? "Save video" : "Download again")
+          VE && VE.supported() ? (e.made ? el("button", { type: "button", class: `bpa-btn${e.made.tap ? " primary" : ""}`, onclick: async () => { const how = await VE.download(e.made.blob, e.made.name, { share: VE.isPhone() }); if (how !== "tap") { e.made.tap = false; e.made.files = how === "files"; render(); } } }, VE.isPhone() ? "Save video" : "Download again")
             : e.wantVideo ? el("span", { class: "bpa-hint" }, working === e ? "" : "Video: waiting its turn")
               : el("button", { type: "button", class: "bpa-btn", onclick: () => { e.wantVideo = true; pump(); render(); } }, "Make the video")) : null,
           window.BullpenPdf ? el("button", { type: "button", class: `bpa-btn${e.open === "mail" ? " on" : ""}`, onclick: () => { e.open = e.open === "mail" ? "" : "mail"; if (!e.mail) e.mail = { to: e.p.email || "", body: window.BullpenPdf.mailText({ athlete: e.p, session: e.session, link: e.link }), msg: "", busy: false, sent: false }; render(); } }, "Email the report") : null));
-        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video ready (${BC().mb(e.made.blob.size)}): tap Save video, then Save Video in the share sheet.` : `Video done: ${e.made.name} (${BC().mb(e.made.blob.size)}).`));
+        if (e.made) kids.push(el("p", { class: "bpa-done" }, e.made.tap ? `Video ready (${BC().mb(e.made.blob.size)}): tap Save video, then Save Video in the share sheet.` : e.made.files ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.` : `Video done: ${e.made.name} (${BC().mb(e.made.blob.size)}).`));
         if (e.open === "match") {
           // mounted once and kept (its undo history and player with it) however often the page is drawn again
           if (!e.holder) {
@@ -288,7 +288,7 @@
       });
       const name = VE.fileName(e.p.name, `bullpen-${exp.layout}`, e.session.date, blob);
       const how = await VE.download(blob, name, { share: VE.isPhone() });
-      e.made = { blob, name, tap: how === "tap" };
+      e.made = { blob, name, tap: how === "tap", files: how === "files" };
     }
 
     // emailing his report (the PDF attached, the video's link in the message), from the coach's address

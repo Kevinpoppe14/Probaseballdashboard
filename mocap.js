@@ -1965,13 +1965,14 @@
             }],
           });
           const name = VE.fileName(who, `${kindName}-motion-capture-${layout}`, dateOf(), blob);
-          const done = () => { vidSave.hidden = true; vidMsg.textContent = VE.isPhone() ? "Done. Nothing was saved to the dashboard." : "Done: it's in your downloads. Nothing was saved to the dashboard."; };
-          if ((await VE.download(blob, name, { share: VE.isPhone() })) === "tap") {
+          const done = (how) => { vidSave.hidden = true; vidMsg.textContent = how === "files" ? "It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video. Nothing was saved to the dashboard." : VE.isPhone() ? "Done. Nothing was saved to the dashboard." : "Done: it's in your downloads. Nothing was saved to the dashboard."; };
+          const how = await VE.download(blob, name, { share: VE.isPhone() });
+          if (how === "tap") {
             // the phone wants a fresh tap to open its share sheet
-            vidSave.onclick = async () => { if ((await VE.download(blob, name, { share: true })) === "done") done(); };
+            vidSave.onclick = async () => { const h = await VE.download(blob, name, { share: true }); if (h !== "tap") done(h); };
             vidSave.hidden = false;
             vidMsg.textContent = "Ready: tap Save video, then Save Video in the share sheet to put it in Photos.";
-          } else done();
+          } else done(how);
         } catch (e) { vidMsg.textContent = (e && e.message) === "cancelled" ? "Cancelled." : `Couldn't make it (${(e && e.message) || e}).`; }
         vidCancel.hidden = true;
       };
