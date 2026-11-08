@@ -99,6 +99,7 @@
 <script type="text/babel" data-presets="react" src="ovr_import.js"></script>
 <script type="text/babel" data-presets="react" src="speed_builder.js"></script>
 <script type="text/babel" data-presets="react" src="program_table.js"></script>
+<script type="text/babel" data-presets="react" src="series.js"></script>
 <script type="text/babel" data-presets="react" src="program_progress.js"></script>
 <script type="text/babel" data-presets="react" src="reassessment.js"></script>
 <script type="text/babel" data-presets="react" src="vitruve.js"></script>
@@ -1594,6 +1595,19 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const tableView = view === "table" && !!window.ProgramTableWeek;
   // "Progress across the weeks" (program_progress.js): one day, or one series of it, every week side by side
   const [progress, setProgress] = useState(null); // { si, letter } while it's open
+  // "+ Series" on a week (series.js): a saved series copied onto the end of a day, in that week or more, or made a
+  // day of its own. A day that's still just a blank exercise has it replaced.
+  const [seriesAt, setSeriesAt] = useState(null); // the week it was opened from
+  const insertSeries = ({ series, day, weeks }) => {
+    setSeriesAt(null);
+    edit((d) => weeks.forEach((w) => {
+      const wk = d.weeks[w];
+      if (!wk) return;
+      if (day === "new") { if (wk.sessions.length < MAX_DAYS) wk.sessions.push({ name: series.name, exercises: window.SeriesKit.copyDrills(series) }); return; }
+      const s = wk.sessions[day];
+      if (s) s.exercises = [...s.exercises.filter((e) => !window.SeriesKit.isBlank(e)), ...window.SeriesKit.copyDrills(series)];
+    }));
+  };
   const progressBtn = (si) => window.ProgramProgressDialog && (
     <button className="btn-link program-progress-btn" title="Progress this day across the weeks: every week's sets, reps and intensity side by side" aria-label="Progress this day across the weeks" onClick={() => setProgress({ si, letter: null })}>↗</button>
   );
@@ -1915,7 +1929,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
             })}
             <select value="" onChange={(e) => e.target.value && edit((d) => { d.nextProgramIds = [...(d.nextProgramIds || []), e.target.value]; })}>
               <option value="">+ Add a suggested next program…</option>
-              {window.AthleteStore.allPrograms().filter((p) => p.id !== (initial && initial.id) && !(draft.nextProgramIds || []).includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {window.AthleteStore.allPrograms().filter((p) => p.id !== (initial && initial.id) && !window.isSeriesProgram(p) && !(draft.nextProgramIds || []).includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
         </div>
@@ -1956,6 +1970,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                 Copy previous week
               </button>
             )}
+            {window.SeriesInsertDialog && <button className="btn btn-small-grey program-insert-series" title="Put a saved series (Core Stability 1…) into a day of this week, or make it a day of its own" onClick={() => setSeriesAt(wi)}>+ Series</button>}
             <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>✕</button>
           </div>
 
@@ -2263,6 +2278,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
       ))}
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
+      {seriesAt != null && window.SeriesInsertDialog && <window.SeriesInsertDialog weeks={draft.weeks} wi={seriesAt} onInsert={insertSeries} onClose={() => setSeriesAt(null)} />}
       {progress && window.ProgramProgressDialog && (
         <window.ProgramProgressDialog
           weeks={draft.weeks}
@@ -2672,7 +2688,7 @@ function ProgramsPage({ nav, setNav }) {
   // The small one-week programs made when a session is sent to one athlete's app (group speed, or a quick
   // strength session; window.isSentProgram) are left out of this list unless asked for: one per athlete per week,
   // reached from the athlete's plan, so here they would only bury the real programs.
-  const everyProgram = S.allPrograms();
+  const everyProgram = S.allPrograms().filter((p) => !window.isSeriesProgram(p)); // (saved series have their own tab, series.js)
   const sentCount = everyProgram.filter((p) => window.isSentProgram(p.id)).length;
   const [showSent, setShowSent] = useState(false);
   const programs = showSent ? everyProgram : everyProgram.filter((p) => !window.isSentProgram(p.id));
@@ -2840,10 +2856,12 @@ function ProgramsPage({ nav, setNav }) {
   const sectionTabs = (
     <div className="pill-tabs program-sections">
       <button className={`pill-tab ${section === "programs" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "programs" }))}>Programs</button>
+      {window.SeriesLibrary && <button className={`pill-tab ${section === "series" ? "active" : ""}`} title="Blocks of drills saved on their own (Core Stability 1…) to put into any program" onClick={() => setNav((n) => ({ ...n, section: "series" }))}>Series</button>}
       <button className={`pill-tab ${section === "exercises" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "exercises" }))}>Exercise Library</button>
       <button className={`pill-tab ${section === "rmchart" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "rmchart" }))}>1RM Chart</button>
     </div>
   );
+  if (section === "series" && window.SeriesLibrary) return <window.SeriesLibrary sectionTabs={sectionTabs} />;
   if (section === "exercises") return <ExerciseLibrary sectionTabs={sectionTabs} />;
   if (section === "rmchart") return <RmChartPage sectionTabs={sectionTabs} />;
 

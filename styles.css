@@ -4581,3 +4581,24 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .bp-export-busy { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .bp-export-busy progress { width: 260px; height: 10px; }
 
+
+/* ---- Saved series (series.js): Programs › Series, and "+ Series" in the builders ---- */
+.zoom-modal.series-insert { width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; }
+.series-pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; margin: 8px 0; }
+.series-pick-list button { text-align: left; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2, transparent); color: var(--text); cursor: pointer; }
+.series-pick-list button.on { border-color: var(--dst-red); box-shadow: 0 0 0 1px var(--dst-red); }
+.series-pick-list b { display: block; font-size: 14px; }
+.series-pick-list small, .series-card small { display: block; color: var(--text-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.series-preview { margin: 6px 0 10px; padding-left: 22px; font-size: 13px; line-height: 1.5; }
+.series-preview small { color: var(--text-dim); }
+.series-field { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; color: var(--text-dim); }
+.series-field select { flex: 1; padding: 6px 8px; font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; }
+.app-ask p.series-note { font-size: 12px; margin: 8px 0 0; }
+.series-from-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.series-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 12px; }
+.series-card-main { width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2, transparent); color: var(--text); cursor: pointer; }
+.series-card-main:hover { border-color: var(--dst-red); }
+.series-card-main b { display: block; font-size: 15px; margin-bottom: 2px; }
+.series-card-main span { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text); }
+.program-insert-series { margin-left: 6px; }
+.series-editor .pt-warmup { display: none; } /* a series is drills only: no day warm-up */

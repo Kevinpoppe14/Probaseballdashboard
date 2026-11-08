@@ -1380,7 +1380,11 @@
   const quickTools = () => (window.QuickAssign ? [
     el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "build", onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Create Quick Session"),
     el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Assign Existing Program"),
+    el("button", { class: "primary", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "series", onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Drop In a Series"),
   ] : []);
+  // Coach Mode: a saved series (Programs › Series on the dashboard) onto this athlete's plan for a date, as a card of
+  // its own (quick_assign.js); the page reloads to show it
+  const seriesDrop = () => (coachId && window.QuickAssign ? el("button", { class: "program-change", title: "Put a saved series (Core Stability 1…) on this athlete's plan for a date", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "series", person: { id: String(coachId), name: (data && data.athlete && data.athlete.name) || "this athlete" }, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "+ Series") : null);
   function openCoachMenu() {
     const to = (href) => () => { window.location.href = href; };
     overlay.replaceChildren(el("div", { class: "sheet coach-menu" },
@@ -3598,7 +3602,7 @@
     // a message from their coach, at the top until they tap Got it
     messages.forEach((m) => main.append(messageCard(m)));
     if (!item) {
-      main.append(el("div", { class: "empty" }, "Nothing is scheduled for this week."));
+      main.append(el("div", { class: "empty" }, "Nothing is scheduled for this week.", seriesDrop() ? el("div", { class: "swap-actions" }, seriesDrop()) : null));
       shown = null;
       if (coachId && window.parent !== window) window.parent.postMessage({ type: "coach-preview", aid: String(coachId), title: "Nothing is scheduled for this week.", sub: "", warmup: "", rows: [], hasDay: false, done: false }, window.location.origin);
     }
@@ -3612,7 +3616,8 @@
         : `${item.program.name} · ${item.week.name || `Week ${item.weekNo}`} (${item.weekNo} of ${item.program.weeks.length})`,
         canChange ? el("button", { class: "program-change", title: "Start it another week, swap it, or take it off", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, manage: item.block.id, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "Change") : null,
         // the whole program as a PDF, to print or keep (the same one the dashboard prints)
-        el("button", { class: "program-change program-pdf", title: "The whole program as a PDF, to print or save", onclick: () => printProgram(item) }, "Print / PDF")));
+        el("button", { class: "program-change program-pdf", title: "The whole program as a PDF, to print or save", onclick: () => printProgram(item) }, "Print / PDF"),
+        seriesDrop()));
       const rows = s ? (s.exercises || []).filter((e) => (e.name || "").trim()) : [];
       // a throwing day: its intensity (Low, Medium, High) and what that means, in its color
       if (s && "level" in s) main.append(throwBanner(s));
@@ -3768,7 +3773,7 @@
     document.title = data.athlete.name ? `${data.athlete.name} · Program` : "My Program";
     // No program yet: the app still opens (Progress, Plan and, for a coach, their coach tools), with a note where the
     // program goes. Coach Mode keeps its one-line message for an athlete with nothing on their plan.
-    if (coachId && !(data.plan && (data.plan.blocks || []).some((b) => b.programId))) { message("No program is on this athlete's plan yet."); return; }
+    if (coachId && !(data.plan && (data.plan.blocks || []).some((b) => b.programId))) { app.replaceChildren(el("div", { class: "empty" }, "No program is on this athlete's plan yet.", seriesDrop() ? el("div", { class: "swap-actions" }, seriesDrop()) : null)); return; }
     const given = data.plan || {};
     plan = { ...given, blocks: given.blocks || [], lanes: given.lanes || [], startDate: given.startDate || localDay(), weeks: Number(given.weeks) || 1, programLog: {} };
     // what's been logged: the older entries kept on the plan, then the log table laid over them

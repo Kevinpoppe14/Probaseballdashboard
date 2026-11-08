@@ -336,6 +336,33 @@
     const days = Math.max(...draft.weeks.map((w) => w.sessions.length));
     // (a re-ed program's one "Daily" day becomes Day 1 once there's a second: it's no longer done every day)
     const addDay = () => edit((d) => d.weeks.forEach((w) => { if (w.sessions.length < 7) { if (REED && w.sessions.length === 1 && w.sessions[0].name === "Daily") w.sessions[0].name = "Day 1"; w.sessions.push(THROW ? newThrowingDay(w.sessions.length + 1) : REED ? newReedDay(w.sessions.length + 1) : newSpeedDay(w.sessions.length + 1)); } }));
+    // "+ Series" on a week (series.js): a saved series copied in as a series of that name in a section of a day, in that
+    // week or more. A new day for it is added to every week (a day is the same in every week), named for the series,
+    // with the series in the weeks picked.
+    const [seriesAt, setSeriesAt] = useState(null); // the week it was opened from
+    const insertSeries = ({ series, day, weeks, section }) => {
+      setSeriesAt(null);
+      edit((d) => {
+        if (day === "new") {
+          if (d.weeks.some((w) => w.sessions.length >= 7)) return;
+          d.weeks.forEach((w) => {
+            if (REED && w.sessions.length === 1 && w.sessions[0].name === "Daily") w.sessions[0].name = "Day 1";
+            const nd = THROW ? newThrowingDay(w.sessions.length + 1) : REED ? newReedDay(w.sessions.length + 1) : newSpeedDay(w.sessions.length + 1);
+            nd.name = series.name;
+            w.sessions.push(nd);
+          });
+        }
+        weeks.forEach((wi) => {
+          const w = d.weeks[wi];
+          const s = w && w.sessions[day === "new" ? w.sessions.length - 1 : day];
+          if (!s) return;
+          if (!Array.isArray(s.sections)) s.sections = [];
+          if (!s.sections.some((x) => x.name === section)) s.sections.push({ name: section, time: "" });
+          s.exercises = [...(s.exercises || []), ...window.SeriesKit.copyDrills(series, section)];
+        });
+      });
+    };
+    const newDaySections = THROW ? THROW_SECTIONS : REED ? REED_SECTIONS : DEFAULT_SECTIONS;
     const setLevel = (wi, si, level) => edit((d) => { sess(d, wi, si).level = level; });
     const removeDay = (si) => {
       if (days <= 1) return;
@@ -917,6 +944,7 @@
             <div className="program-week-head">
               <input className="program-week-name" value={w.name || ""} aria-label="Week name" onChange={(e) => edit((d) => { d.weeks[wi].name = e.target.value; })} />
               {wi > 0 && <button className="btn btn-small-grey program-copy-prev-week" title={`Replace ${w.name || `week ${wi + 1}`} with a copy of the week before`} onClick={() => copyPrevWeek(wi)}>Copy previous week</button>}
+              {window.SeriesInsertDialog && <button className="btn btn-small-grey program-insert-series" title="Put a saved series (Core Stability 1…) into a section of a day this week, or make it a day of its own" onClick={() => setSeriesAt(wi)}>+ Series</button>}
               <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => removeWeek(wi)}>✕</button>
             </div>
             <div className={`program-days${tableView ? " pt-days" : ""}`}>
@@ -931,6 +959,7 @@
             {days < 7 && <button className="btn btn-secondary" onClick={addDay} title="Add a day to every week">+ Add day</button>}
           </div>
         )}
+        {seriesAt != null && window.SeriesInsertDialog && <window.SeriesInsertDialog weeks={draft.weeks} wi={seriesAt} sectionsLayout newDaySections={newDaySections} allowNewDay={!fromProgression} onInsert={insertSeries} onClose={() => setSeriesAt(null)} />}
       </div>
     );
   }

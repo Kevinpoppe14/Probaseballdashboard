@@ -242,8 +242,10 @@
   const errorText = (e) => (e && e.message) || "Something went wrong. Check your connection and try again.";
 
   async function open(options) {
-    ctx = { ...(ctx || {}), ...options };
-    sheet(el("h2", null, ctx.mode === "build" ? "Create Quick Session" : "Assign Existing Program"), note("Loading…"));
+    // (mode and person are for this opening only: Coach Mode opens it for the athlete being looked at, person)
+    ctx = { ...(ctx || {}), mode: null, person: null, ...options };
+    seriesList = null; // saved series are read fresh each time, so one just made on the dashboard is there
+    sheet(el("h2", null, ctx.mode === "build" ? "Create Quick Session" : ctx.mode === "series" ? "Drop In a Series" : "Assign Existing Program"), note("Loading…"));
     const { data } = await sb.auth.getSession();
     if (!data || !data.session) { signIn(); return; }
     ctx.user = data.session.user;
@@ -254,12 +256,14 @@
           readAll("programs", "id, name:data->>name, folder:data->>folder, owner:data->>athleteId, tags:data->tags"),
         ]);
         ctx.people = people.filter((p) => (p.status || "active").toLowerCase() === "active" && (p.name || "").trim()).sort((a, b) => lastFirst(a.name).localeCompare(lastFirst(b.name)));
-        ctx.programs = programs.filter((p) => !p.owner && !window.isSentProgram(p.id) && (p.name || "").trim()).sort((a, b) => a.name.localeCompare(b.name));
+        ctx.programs = programs.filter((p) => !p.owner && !window.isSentProgram(p.id) && !window.isSeriesProgram(p.id) && (p.name || "").trim()).sort((a, b) => a.name.localeCompare(b.name));
       }
       ctx.me = ctx.people.find((p) => p.coachUser && p.coachUser === ctx.user.id) || null;
       // opened from the Change button on a program in the coach's own app: straight to changing it
       if (ctx.manage) { const id = ctx.manage; ctx.manage = null; if (ctx.me) { manage(ctx.me, id); return; } }
-      if (ctx.mode === "build") { ctx.mode = null; build(); } else home();
+      if (ctx.mode === "build") { ctx.mode = null; build(); }
+      else if (ctx.mode === "series") { ctx.mode = null; seriesPick(); }
+      else home();
     } catch (e) { sheet(el("h2", null, "Assign Existing Program"), note(errorText(e))); }
   }
 
@@ -272,7 +276,7 @@
       msg.textContent = "Signing in…";
       const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: password.value });
       if (error) { msg.textContent = error.message || "Sign-in failed."; return; }
-      open({});
+      open({ mode: ctx.mode, person: ctx.person }); // back to what was asked for
     };
     sheet(el("h2", null, "Sign in"), note("Sign in with your dashboard account."),
       el("form", { class: "qa-signin", onsubmit: go }, email, password, msg, el("div", { class: "swap-actions" }, el("button", { class: "primary", type: "submit" }, "Sign in"))));
@@ -293,6 +297,7 @@
     const mine = el("div", { class: "qa-list" }, el("div", { class: "qa-empty" }, "Loading…"));
     sheet(el("h2", null, "Assign Existing Program"),
       el("button", { class: "qa-row qa-build", onclick: () => build() }, "Create Quick Session", el("small", null, "Write a session from scratch, for you or an athlete")),
+      el("button", { class: "qa-row qa-build", onclick: () => seriesPick() }, "Drop In a Series", el("small", null, "A saved series (Core Stability 1…) for a date, for you or an athlete")),
       el("div", { class: "qa-label" }, "Or assign a saved program. Who is it for?"),
       ctx.me ? el("button", { class: "qa-row qa-me", onclick: () => pickProgram(ctx.me) }, "Me", el("small", null, ctx.me.name)) : null,
       search, results,
@@ -878,6 +883,113 @@
       }),
       msg,
       el("div", { class: "swap-actions" }, assignIt, el("button", { onclick: backToPick }, "Back")));
+  }
+
+  // ---- a saved series, dropped in for a date --------------------------------------------------------------
+  // A series saved on the dashboard (Programs › Series, series.js; window.isSeriesProgram) goes on someone's plan for
+  // one date as a card of its own beside that day's workout, the way a quick session does (sendOneOff): for the coach
+  // themself, athletes they pick, or, opened from Coach Mode, the athlete being looked at (ctx.person). It logs like
+  // any session, and the saved series isn't changed.
+  let seriesList = null;
+  async function seriesPick() {
+    const title = el("h2", null, "Drop In a Series");
+    const back = ctx.person ? null : el("button", { class: "qa-back", onclick: home }, "‹ Programs and sent sessions");
+    sheet(title, back, note("Loading…"));
+    try {
+      if (!seriesList) {
+        const { data, error } = await sb.from("programs").select("id, data").like("id", "series-%").limit(2000);
+        if (error) throw error;
+        seriesList = (data || []).map((r) => ({ ...r.data, id: r.id })).filter((s) => (s.name || "").trim() && named(s).length).sort((a, b) => a.name.localeCompare(b.name));
+      }
+    } catch (e) { sheet(title, back, note(errorText(e))); return; }
+    const search = el("input", { type: "search", placeholder: "Search series or drills", "aria-label": "Search series", autocomplete: "off" });
+    const results = el("div", { class: "qa-list" });
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      const hits = seriesList.filter((s) => !q || s.name.toLowerCase().includes(q) || named(s).some((e) => e.name.toLowerCase().includes(q)));
+      fill(results, ...hits.map((s) => el("button", { class: "qa-row", onclick: () => seriesSend(s) }, s.name, el("small", null, named(s).map((e) => e.name).join(", ")))),
+        !seriesList.length ? el("div", { class: "qa-empty" }, "No series saved yet. Make one on the dashboard under Programs › Series.") : !hits.length ? el("div", { class: "qa-empty" }, "No series matches that.") : null);
+    };
+    search.addEventListener("input", draw);
+    draw();
+    sheet(title, back, ctx.person ? el("div", { class: "qa-sub" }, `For ${ctx.person.name}`) : null, search, results);
+  }
+  const named = (s) => window.seriesDrills(s).filter((e) => (e.name || "").trim());
+
+  function seriesSend(series, at) {
+    const today = toISO(new Date());
+    const date = el("input", { type: "date", value: at || today, "aria-label": "Date" });
+    const msg = el("div", { class: "swap-note" });
+    // the drills as a day: the first starts a block, each keeps where it came from
+    const session = () => ({ name: series.name, exercises: JSON.parse(JSON.stringify(named(series))).map((e, i) => { delete e.section; delete e.series; return { ...e, linked: i ? !!e.linked : false, fromSeries: series.name }; }) });
+    const sendTo = async (people, button) => {
+      if (!date.value) { msg.textContent = "Pick a date."; return false; }
+      button.disabled = true;
+      msg.textContent = "Saving…";
+      try {
+        for (const person of people) {
+          const r = await sendOneOff(person, { id: series.id, name: series.name }, session(), date.value, ctx.user.email);
+          if (r === "out-of-range") throw new Error(`${day(date.value)} is past the end of ${person === ctx.me ? "your" : `${person.name}'s`} plan.`);
+        }
+        return true;
+      } catch (e) { msg.textContent = errorText(e); button.disabled = false; return false; }
+    };
+    const when = () => (date.value === today ? "today" : day(date.value));
+    const preview = el("ol", { class: "qa-series-drills" }, named(series).map((e) => el("li", null, e.name, Rx.text(e) ? el("small", null, ` ${Rx.text(e)}`) : null)));
+    const backTo = el("button", { class: "qa-back", onclick: seriesPick }, "‹ All series");
+    const sub = el("div", { class: "qa-sub" }, `It goes in the app under "${ONEOFF_LANE}" on that date, beside that day's workout, ready to log.`);
+
+    // from Coach Mode: for the athlete being looked at
+    if (ctx.person) {
+      const person = ctx.people.find((p) => String(p.id) === String(ctx.person.id)) || ctx.person;
+      const add = el("button", { class: "primary", onclick: async () => {
+        if (!(await sendTo([person], add))) return;
+        ctx.status(`${series.name} added for ${person.name}, ${when()}`);
+        if (ctx.onAssignedSelf) ctx.onAssignedSelf(); else ctx.close();
+      } }, `Add for ${firstName(person.name)}`);
+      sheet(el("h2", null, series.name), backTo, el("label", { class: "qa-date" }, "Date", date), preview, sub, msg,
+        el("div", { class: "swap-actions" }, add, el("button", { onclick: seriesPick }, "Back")));
+      return;
+    }
+    // the coach's own app: on their own plan (it opens on it), or sent to athletes
+    const addMine = ctx.me ? el("button", { class: "primary", onclick: async () => {
+      if (!(await sendTo([ctx.me], addMine))) return;
+      ctx.status(date.value === today ? `${series.name} added to today. Opening it…` : `${series.name} added for ${day(date.value)}`);
+      if (ctx.onAssignedSelf) ctx.onAssignedSelf(); else home();
+    } }, "Add to my plan") : null;
+    const send = el("button", { class: "primary", onclick: () => {
+      if (!date.value) { msg.textContent = "Pick a date."; return; }
+      const picked = new Set();
+      const search = el("input", { type: "search", placeholder: "Search for an athlete", "aria-label": "Search for an athlete", autocomplete: "off" });
+      const results = el("div", { class: "qa-list" });
+      const chosen = el("div", { class: "qa-chosen" });
+      const go = el("button", { class: "primary" });
+      const draw = () => {
+        const q = search.value.trim().toLowerCase();
+        const hits = q ? ctx.people.filter((p) => p !== ctx.me && p.name.toLowerCase().includes(q)).slice(0, 8) : [];
+        fill(results, ...hits.map((p) => el("button", { class: `qa-row${picked.has(p) ? " on" : ""}`, onclick: () => { if (picked.has(p)) picked.delete(p); else picked.add(p); search.value = ""; draw(); search.focus(); } }, `${picked.has(p) ? "✓ " : ""}${lastFirst(p.name)}`)),
+          q && !hits.length ? el("div", { class: "qa-empty" }, "No active athlete matches that.") : null);
+        fill(chosen, ...[...picked].map((p) => el("span", { class: "exercise-tag qa-chip" }, p.name, el("button", { type: "button", class: "exercise-alias-x", "aria-label": `Remove ${p.name}`, onclick: () => { picked.delete(p); draw(); } }, "×"))));
+        go.disabled = !picked.size;
+        go.textContent = picked.size ? `Send to ${picked.size === 1 ? firstName([...picked][0].name) : `${picked.size} athletes`}` : "Pick who to send it to";
+      };
+      search.addEventListener("input", draw);
+      go.addEventListener("click", async () => {
+        const people = [...picked];
+        if (!(await sendTo(people, go))) return;
+        ctx.status(`${series.name} sent to ${people.length === 1 ? people[0].name : `${people.length} athletes`} for ${day(date.value)}`);
+        home();
+      });
+      draw();
+      sheet(el("h2", null, `Send ${series.name}`),
+        el("button", { class: "qa-back", onclick: () => seriesSend(series, date.value) }, `‹ Back to ${series.name}`),
+        el("div", { class: "qa-sub" }, `For ${day(date.value)}. It goes in each athlete's app under "${ONEOFF_LANE}", ready to log.`),
+        search, results, el("div", { class: "qa-label" }, "Sending to"), chosen, msg,
+        el("div", { class: "swap-actions" }, go, el("button", { onclick: () => seriesSend(series, date.value) }, "Back")));
+      search.focus();
+    } }, "Send to athletes");
+    sheet(el("h2", null, series.name), backTo, el("label", { class: "qa-date" }, "Date", date), preview, sub, msg,
+      el("div", { class: "swap-actions" }, addMine, send, el("button", { onclick: seriesPick }, "Back")));
   }
 
   window.QuickAssign = { open, takeChange: () => { const c = selfChanged; selfChanged = false; return c; } };

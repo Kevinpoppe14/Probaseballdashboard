@@ -264,6 +264,11 @@
   // Mode ("gspeed-...") or a quick strength session from a coach's app ("gstrength-...", quick_assign.js). There
   // is one per athlete per week; they are reached from the athlete's plan and kept out of the program library.
   window.isSentProgram = (id) => /^g(speed|strength)-/.test(String(id || ""));
+  // A saved series (Core Stability 1…, series.js): a block of drills kept in the programs table as "series-<id>"
+  // (layout "series", one week of one day), copied into a day of any program or sent to an app as a day of its own.
+  // Never a program in its own right, so it is kept out of program lists. Takes a program or an id.
+  window.isSeriesProgram = (p) => !!p && (typeof p === "object" ? (p.layout === "series" || /^series-/.test(String(p.id || ""))) : /^series-/.test(String(p)));
+  window.seriesDrills = (p) => { const s = ((((p && p.weeks) || [])[0] || {}).sessions || [])[0]; return (s && s.exercises) || []; };
 
   // The plan row a program goes in when it's assigned, which is also the label the athlete's app shows for it:
   // a speed-layout program, or one in a Speed folder, goes in Speed; an arm care program (an Arm Care folder, or

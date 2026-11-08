@@ -525,7 +525,7 @@
   function ProgramSearch({ onPick, placeholder = "Insert existing program" }) {
     const [text, setText] = useState("");
     const listId = useMemo(() => `program-search-${Math.random().toString(36).slice(2, 8)}`, []);
-    const programs = allPrograms().filter((p) => !window.isSentProgram(p.id)); // not the sessions sent to single athletes
+    const programs = allPrograms().filter((p) => !window.isSentProgram(p.id) && !window.isSeriesProgram(p)); // not the sessions sent to single athletes, nor saved series
     const pick = (value) => {
       const p = programs.find((x) => (x.name || "").trim().toLowerCase() === value.trim().toLowerCase());
       if (!p) return false;
@@ -2281,7 +2281,7 @@
               <select value={single.programId || ""} onChange={(e) => updateBlock(single.id, { programId: e.target.value || null, assignedBy: window.AthleteStore.currentUserEmail() })}>
                 <option value="">— None —</option>
                 {single.programId && !programById(single.programId) && <option value={single.programId}>(deleted program)</option>}
-                {allPrograms().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {allPrograms().filter((p) => !window.isSeriesProgram(p) || p.id === single.programId).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {single.programId && programById(single.programId) && (
                 <button className="btn-link" style={{ marginTop: 6 }} onClick={() => setOpenProgramBlock(single.id)}>{mode === "programming" ? "Edit program in the builder below" : "Open its program on the Programming tab"}</button>
