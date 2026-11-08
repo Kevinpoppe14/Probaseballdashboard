@@ -267,7 +267,7 @@
     return OPTIONAL.reduce((o, [k]) => ({ ...o, [k]: on.includes(k) || session.exercises.some((e) => `${e[k] || ""}`.trim()) }), {});
   };
 
-  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress, reedPicker }) {
+  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress, reedPicker, onSeries }) {
     const rootRef = useRef(null);
     const pending = useRef(null); // the cell to move into once a new row is drawn
     const [note, setNote] = useState("");
@@ -652,6 +652,7 @@
               </table>
               </div>
               <button className="btn btn-small-grey pt-add" onClick={() => addRow(si, true)}>+ Add row</button>
+              {onSeries && <button className="btn btn-small-grey pt-add pt-add-series" title="Copy a saved series (Core Strength 1…) onto the end of this day" onClick={() => onSeries(si)}>+ Series</button>}
             </div>
           );
         })}

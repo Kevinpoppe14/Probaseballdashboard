@@ -4601,4 +4601,9 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .series-card-main b { display: block; font-size: 15px; margin-bottom: 2px; }
 .series-card-main span { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text); }
 .program-insert-series { margin-left: 6px; }
+/* the week bar: name, Copy previous week and + Series together on the left, the ✕ on the right */
+.program-week-head:has(.program-insert-series) { justify-content: flex-start; }
+.program-week-head:has(.program-insert-series) .program-remove-week { margin-left: auto; }
+/* + Series beside + Add row under a day (table view) */
+.pt-add.pt-add-series { margin-left: 0; }
 .series-editor .pt-warmup { display: none; } /* a series is drills only: no day warm-up */

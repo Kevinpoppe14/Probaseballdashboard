@@ -1597,7 +1597,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
   const [progress, setProgress] = useState(null); // { si, letter } while it's open
   // "+ Series" on a week (series.js): a saved series copied onto the end of a day, in that week or more, or made a
   // day of its own. A day that's still just a blank exercise has it replaced.
-  const [seriesAt, setSeriesAt] = useState(null); // the week it was opened from
+  const [seriesAt, setSeriesAt] = useState(null); // { wi, day } : the week it was opened from, and the day when opened from one
   const insertSeries = ({ series, day, weeks }) => {
     setSeriesAt(null);
     edit((d) => weeks.forEach((w) => {
@@ -1970,7 +1970,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                 Copy previous week
               </button>
             )}
-            {window.SeriesInsertDialog && <button className="btn btn-small-grey program-insert-series" title="Put a saved series (Core Stability 1…) into a day of this week, or make it a day of its own" onClick={() => setSeriesAt(wi)}>+ Series</button>}
+            {window.SeriesInsertDialog && <button className="btn btn-small-grey program-insert-series" title="Put a saved series (Core Stability 1…) into a day of this week, or make it a day of its own" onClick={() => setSeriesAt({ wi })}>+ Series</button>}
             <button className="btn-link program-remove-week" disabled={draft.weeks.length === 1} title="Remove this week" aria-label="Remove this week" onClick={() => edit((d) => { d.weeks.splice(wi, 1); })}>✕</button>
           </div>
 
@@ -1986,6 +1986,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
               onNameBlur={(w, s, e) => offerSwapForward(w, s, e)}
               onProgress={window.ProgramProgressDialog ? (s, letter) => setProgress({ si: s, letter: letter || null }) : null}
               reedPicker={reedDrills ? reedPicker : null}
+              onSeries={window.SeriesInsertDialog ? (si) => setSeriesAt({ wi, day: si }) : null}
             />
           ) : (
           /* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),
@@ -2266,6 +2267,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
                   ))}
                   <div className="program-day-actions">
                     <button className="program-add-block" title="Starts a new block of exercises" onClick={() => edit((d) => { d.weeks[wi].sessions[si].exercises.push(newExercise()); })}><span className="program-add-block-plus" aria-hidden="true">+</span>Add {blockLetters.next} Block</button>
+                    {window.SeriesInsertDialog && <button className="program-add-block program-add-series" title="Copy a saved series (Core Strength 1…) onto the end of this day" onClick={() => setSeriesAt({ wi, day: si })}><span className="program-add-block-plus" aria-hidden="true">+</span>Series</button>}
                   </div>
                 </div>
               );
@@ -2278,7 +2280,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
       ))}
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
-      {seriesAt != null && window.SeriesInsertDialog && <window.SeriesInsertDialog weeks={draft.weeks} wi={seriesAt} onInsert={insertSeries} onClose={() => setSeriesAt(null)} />}
+      {seriesAt != null && window.SeriesInsertDialog && <window.SeriesInsertDialog weeks={draft.weeks} wi={seriesAt.wi} day={seriesAt.day} onInsert={insertSeries} onClose={() => setSeriesAt(null)} />}
       {progress && window.ProgramProgressDialog && (
         <window.ProgramProgressDialog
           weeks={draft.weeks}

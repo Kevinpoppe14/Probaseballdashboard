@@ -36,12 +36,12 @@
   // ---- putting a series into a builder ------------------------------------------------------------------------------
   // Opened from a week's "+ Series". Pick a series, the day it goes into (or a new day that is just the series), which
   // weeks, and for a day in sections, the section. onInsert({ series, day: day index or "new", weeks: [week indexes], section })
-  function SeriesInsertDialog({ weeks, wi, sectionsLayout, newDaySections, allowNewDay = true, onInsert, onClose }) {
+  function SeriesInsertDialog({ weeks, wi, day: startDay, sectionsLayout, newDaySections, allowNewDay = true, onInsert, onClose }) {
     const list = useMemo(allSeries, []);
     const days = ((weeks[wi] || {}).sessions) || [];
     const [q, setQ] = useState("");
     const [pick, setPick] = useState(null);
-    const [day, setDay] = useState(days.length ? "0" : "new");
+    const [day, setDay] = useState(startDay != null && days[startDay] ? String(startDay) : days.length ? "0" : "new");
     const [which, setWhich] = useState("this");
     const sectionNames = !sectionsLayout ? [] : day === "new" ? (newDaySections || []) : window.speedSections(days[Number(day)]).map((x) => x.name);
     const [sectionPick, setSection] = useState("");
