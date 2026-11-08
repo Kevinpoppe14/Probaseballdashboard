@@ -369,6 +369,37 @@
       confirmThen({ title: `Remove ${(draft.weeks[0].sessions[si] || {}).name || "this day"} from every week?`, text: "Ctrl+Z undoes it.", ok: "Remove", danger: true }, () => edit((d) => d.weeks.forEach((w) => { w.sessions.splice(si, 1); })));
     };
     const renameDay = (si, name) => edit((d) => sameDayEveryWeek(d, si, (s) => { s.name = name; }));
+    // moving a day: drag its grip onto another day and it takes that day's place (or ‹ › one place at a time). A day
+    // here is the same day in every week, so it moves in every week. Days still called "Day 3" are renumbered.
+    const dayDrag = React.useRef(null); // the day being dragged
+    const [dayOver, setDayOver] = useState(null); // the day it's over
+    const moveDay = (from, to) => {
+      if (from === to || to < 0 || to >= days) return;
+      setFocus(null);
+      edit((d) => d.weeks.forEach((w) => {
+        if (from >= w.sessions.length) return;
+        const [s] = w.sessions.splice(from, 1);
+        w.sessions.splice(Math.min(to, w.sessions.length), 0, s);
+        w.sessions.forEach((x, i) => { if (/^Day \d+$/.test((x.name || "").trim())) x.name = `Day ${i + 1}`; });
+      }));
+    };
+    const dayDrop = (si) => ({
+      onDragOver: (e) => { if (dayDrag.current != null) { e.preventDefault(); if (dayOver !== si) setDayOver(si); } },
+      onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDayOver(null); },
+      onDrop: (e) => { if (dayDrag.current == null) return; e.preventDefault(); const from = dayDrag.current; dayDrag.current = null; setDayOver(null); moveDay(from, si); },
+    });
+    const dayGrip = (si, name) => (
+      <span className="program-day-grip" draggable title="Drag to move this day (in every week)" aria-hidden="true"
+        onMouseDown={(e) => e.stopPropagation()}
+        onDragStart={(e) => { dayDrag.current = si; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", name || ""); const card = e.currentTarget.closest(".program-day, .pt-day"); if (card && e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(card, 24, 18); }}
+        onDragEnd={() => { dayDrag.current = null; setDayOver(null); }}>⠿</span>
+    );
+    const dayMoveBtns = (si) => (
+      <React.Fragment>
+        <button className="btn-link" title="Move this day earlier (in every week)" aria-label="Move this day earlier" disabled={si === 0} onClick={() => moveDay(si, si - 1)}>‹</button>
+        <button className="btn-link" title="Move this day later (in every week)" aria-label="Move this day later" disabled={si >= days - 1} onClick={() => moveDay(si, si + 1)}>›</button>
+      </React.Fragment>
+    );
 
     // each section's reps, distance and time, and the day's
     const totals = (sections) => {
@@ -388,13 +419,15 @@
       const linked = THROW && s.tpDay != null; // named and colored by the athlete's throwing progression
       const lvl = THROW ? (THROW_LEVELS[s.level] ? s.level : "") : null;
       return (
-        <div className={`program-day spd-day ${dayCls} ${THROW ? `thr-day thr-${lvl ? THROW_LEVELS[lvl].cls : "off"}` : ""}`} key={si}
+        <div className={`program-day spd-day ${dayCls} ${dayOver === si ? "day-drop-over" : ""} ${THROW ? `thr-day thr-${lvl ? THROW_LEVELS[lvl].cls : "off"}` : ""}`} key={si} {...dayDrop(si)}
           onMouseDown={() => { if (!focus || focus.si !== si) at(si, null); }}>
           <div className="program-session-head">
+            {!linked && dayGrip(si, s.name)}
             {linked
               ? <span className="program-session-name thr-day-name" title="From the throwing progression: change it there">{s.name}</span>
               : <input className="program-session-name" value={s.name || ""} aria-label="Day name" title="The day's name is the same in every week" onChange={(e) => renameDay(si, e.target.value)} />}
             {copyMenu("Copy this whole day (every section and drill) to other days", (how) => copyDay(wi, si, how), "spd-copy-day")}
+            {!linked && dayMoveBtns(si)}
             {!linked && <button className="btn-link" title="Remove this day from every week" disabled={days <= 1} onClick={() => removeDay(si)}>✕</button>}
           </div>
           {/* a throwing day's intensity, this week: Low, Medium, High or off (from the progression on a day laid out from it) */}
@@ -806,8 +839,9 @@
         );
       };
       return (
-        <div className={`pt-day spt-day ${THROW ? `thr-day thr-${lvl ? THROW_LEVELS[lvl].cls : "off"}` : ""}`} key={si}>
+        <div className={`pt-day spt-day ${dayOver === si ? "day-drop-over " : ""}${THROW ? `thr-day thr-${lvl ? THROW_LEVELS[lvl].cls : "off"}` : ""}`} key={si} {...dayDrop(si)}>
           <div className="pt-day-head">
+            {!linked && dayGrip(si, s.name)}
             {linked
               ? <span className="program-session-name thr-day-name" title="From the throwing progression: change it there">{s.name}</span>
               : <input className="program-session-name" value={s.name || ""} aria-label="Day name" title="The day's name is the same in every week" onChange={(e) => renameDay(si, e.target.value)} />}
@@ -817,6 +851,7 @@
               <option value="custom">Name your own…</option>
             </select>
             {copyMenu("Copy this whole day (every section and drill) to other days", (how) => copyDay(wi, si, how), "spd-copy-day")}
+            {!linked && dayMoveBtns(si)}
             {!linked && <button className="btn-link" title="Remove this day from every week" disabled={days <= 1} onClick={() => removeDay(si)}>✕</button>}
           </div>
           {THROW && !linked && (

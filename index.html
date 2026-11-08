@@ -1987,6 +1987,7 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
               onProgress={window.ProgramProgressDialog ? (s, letter) => setProgress({ si: s, letter: letter || null }) : null}
               reedPicker={reedDrills ? reedPicker : null}
               onSeries={window.SeriesInsertDialog ? (si) => setSeriesAt({ wi, day: si }) : null}
+              dayMove={{ drag: dayDrag, over: dayOver, setOver: setDayOver, move: moveDay }}
             />
           ) : (
           /* The week is a grid: each row is one exercise slot shared by every day (Day 1's A1 level with Day 2's A1),

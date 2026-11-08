@@ -267,7 +267,7 @@
     return OPTIONAL.reduce((o, [k]) => ({ ...o, [k]: on.includes(k) || session.exercises.some((e) => `${e[k] || ""}`.trim()) }), {});
   };
 
-  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress, reedPicker, onSeries }) {
+  function ProgramTableWeek({ week, wi, edit, newExercise, newSession, maxDays, onNameFocus, onNameBlur, onProgress, reedPicker, onSeries, dayMove }) {
     const rootRef = useRef(null);
     const pending = useRef(null); // the cell to move into once a new row is drawn
     const [note, setNote] = useState("");
@@ -533,11 +533,30 @@
             <input {...props} className={`pt-cell ${(props && props.className) || ""}${sc(`${ei}.0`, k)}`} value={ex[k] || ""} data-pt={`${si}:${ei}.0:${k}`} onChange={(e) => setEx(ei, k, e.target.value)} />
           );
           return (
-            <div className="pt-day" key={si}>
+            <div
+              className={`pt-day${dayMove && dayMove.over === `${wi}|${si}` ? " day-drop-over" : ""}`}
+              key={si}
+              onDragOver={dayMove ? (e) => { if (dayMove.drag.current) { e.preventDefault(); if (dayMove.over !== `${wi}|${si}`) dayMove.setOver(`${wi}|${si}`); } } : undefined}
+              onDragLeave={dayMove ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) dayMove.setOver(null); } : undefined}
+              onDrop={dayMove ? (e) => { if (!dayMove.drag.current) return; e.preventDefault(); const from = dayMove.drag.current; dayMove.drag.current = null; dayMove.setOver(null); dayMove.move(from.wi, from.si, wi, si); } : undefined}
+            >
               <div className="pt-day-head">
+                {/* drag the grip onto another day (this week or another) and this day takes its place, as in the Boxes view */}
+                {dayMove && (
+                  <span
+                    className="program-day-grip"
+                    draggable
+                    title="Drag to move this day"
+                    aria-hidden="true"
+                    onDragStart={(e) => { dayMove.drag.current = { wi, si }; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", session.name || ""); const card = e.currentTarget.closest(".pt-day"); if (card && e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(card, 24, 18); }}
+                    onDragEnd={() => { dayMove.drag.current = null; dayMove.setOver(null); }}
+                  >⠿</span>
+                )}
                 <input className="program-session-name" value={session.name || ""} aria-label="Day name" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].name = v; }); }} />
                 {onProgress && <button className="btn-link pt-day-progress" title="Progress this day across the weeks: every week's sets, reps and intensity side by side" aria-label="Progress this day across the weeks" onClick={() => onProgress(si, null)}>↗</button>}
                 {colMenu(si)}
+                {dayMove && <button className="btn-link" title="Move this day earlier" aria-label="Move this day earlier" disabled={si === 0} onClick={() => dayMove.move(wi, si, wi, si - 1)}>‹</button>}
+                {dayMove && <button className="btn-link" title="Move this day later" aria-label="Move this day later" disabled={si === week.sessions.length - 1} onClick={() => dayMove.move(wi, si, wi, si + 1)}>›</button>}
                 <button className="btn-link" title="Remove this day" disabled={week.sessions.length === 1} onClick={() => edit((d) => { d.weeks[wi].sessions.splice(si, 1); })}>✕</button>
               </div>
               <textarea className="program-warmup pt-warmup" rows={1} value={session.warmup || ""} placeholder="Warm-up (optional), shown above A1" onChange={(e) => { const v = e.target.value; edit((d) => { d.weeks[wi].sessions[si].warmup = v; }); }} />
