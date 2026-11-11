@@ -108,7 +108,8 @@
 
   // Averages over a set of block results: { n, compliance, strength, jumpHeight, relativePeakPower, mRSI, bodyweight }
   // (each { value, n }, the value null when no athlete has it)
-  function summarize(results) {
+  function summarize(list) {
+    const results = (list || []).map((x) => (x && x.result) || x); // block results, or the rows that carry them
     const avg = (get) => { const v = results.map(get).filter((x) => x != null && isFinite(x)); return { value: v.length ? v.reduce((s, x) => s + x, 0) / v.length : null, n: v.length }; };
     return {
       n: results.length,
