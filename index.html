@@ -5512,7 +5512,7 @@ function attentionFor(a, food) {
   }
   return out;
 }
-function todayItems(food) {
+function todayItems(food, hs) { // hs: the High School & Youth roster's athletes, else the pro roster's
   const S = window.AthleteStore;
   const lib = window.PeriodizationLib;
   const now = new Date(new Date().toDateString());
@@ -5522,7 +5522,7 @@ function todayItems(food) {
   // the panel covers DST athletes only
   const forKevin = (S.currentUserEmail() || "").toLowerCase() === "kevin@dynamicsportstraining.com";
   const mine = coachScopeFor(S.currentUserEmail());
-  getRoster().filter((a) => (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP || a.dstLocation)
+  getRoster().filter((a) => isHsYouth(a) === !!hs && (a.status || "active").toLowerCase() === "active" && (forKevin || a.rosterGroup !== CUBS_ROSTER_GROUP || a.dstLocation)
     && ((forKevin && a.rosterGroup === CUBS_ROSTER_GROUP) || inCoachScope(a, mine))).forEach((a) => {
     const plan = S.getPeriodization(a.id);
     if (plan && lib) {
@@ -5595,7 +5595,7 @@ function saveTodayDismissed(ids) {
   const sb = window.supabaseClient;
   if (sb) sb.auth.updateUser({ data: { todayDismissed: saved } }).catch(() => {});
 }
-function TodayPanel({ onOpenTab, dataVersion }) {
+function TodayPanel({ onOpenTab, dataVersion, hs }) {
   const [open, setOpen] = useState({}); // which lists are showing every name
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("todayPanelHidden") === "1"; } catch (e) { return false; } });
   const [dismissed, setDismissed] = useState(readTodayDismissed); // "card:<key>" or "<key>:<athlete id>", this week only
@@ -5630,7 +5630,7 @@ function TodayPanel({ onOpenTab, dataVersion }) {
       setFood(m);
     });
   }, [dataVersion]);
-  const items = useMemo(() => todayItems(food), [dataVersion, food]) // eslint-disable-line
+  const items = useMemo(() => todayItems(food, hs), [dataVersion, food, hs]) // eslint-disable-line
     .map((it) => (dismissed.includes(`card:${it.key}`) ? { ...it, list: [] } : { ...it, list: it.list.filter(({ a }) => !dismissed.includes(`${it.key}:${a.id}`)) }));
   // form checks remote athletes sent to this coach and nobody has reviewed yet (form_checks.js); each opens the clip
   const checks = window.useOpenFormChecks ? window.useOpenFormChecks() : [];
@@ -5832,7 +5832,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
         <button className={`roster-switch-btn ${!hsView ? "on" : ""}`} onClick={() => setRosterView("pro")}>Pro Baseball</button>
         <button className={`roster-switch-btn ${hsView ? "on" : ""}`} onClick={() => setRosterView("hs")}>{HS_ROSTER_LABEL}</button>
       </div>
-      <TodayPanel onOpenTab={onOpenTab} dataVersion={dataVersion} />
+      <TodayPanel onOpenTab={onOpenTab} dataVersion={dataVersion} hs={hsView} />
       <div className="kpi-row">
         <KpiCard
           label={locationFilter === "All" ? "Roster (filtered)" : `Roster (${locationFilter}) — click to show all`}

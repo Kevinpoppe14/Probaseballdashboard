@@ -47,7 +47,7 @@
         const vision = await import(`${TASKS}/vision_bundle.mjs`);
         const files = await vision.FilesetResolver.forVisionTasks(`${TASKS}/wasm`);
         const make = (delegate, path) => vision.PoseLandmarker.createFromOptions(files, {
-          baseOptions: { modelAssetPath: path, delegate }, runningMode: "IMAGE", numPoses: 1,
+          baseOptions: { modelAssetPath: path, delegate }, runningMode: "IMAGE", numPoses: 3, // (up to three: him and anyone beside him, so the tracking can tell them apart)
           minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
         });
         for (const path of MODELS) for (const delegate of ["GPU", "CPU"]) { try { return await make(delegate, path); } catch (e) { /* the next way */ } }
@@ -171,6 +171,9 @@
   // so its moments set by hand and its fixed points still line up)
   // (`tape`, given, is the color of tape on the end of the bat: each frame it's looked for near the hands too, b: [x, y,
   // how many pixels matched], for the barrel's path, speed and angle in a swing)
+  // A clip with him small in a wide shot, or with others in it (a coach kneeling beside him at the start of a sprint, a
+  // catcher, a teammate standing by), is scanned first to pick him out and keep the tracking on him: see "which one is
+  // him" below. One clear person filling the picture is tracked as it always was.
   async function track(v, t0, t1, fps, onProgress, times, tape) {
     const lm = await model();
     const tapeTest = tape && TAPES[tape], scratch = tapeTest ? document.createElement("canvas") : null;
@@ -178,24 +181,157 @@
     const step = times ? (times.length > 1 ? times[1] - times[0] : 1 / fps) : Math.max(1 / fps, (t1 - t0) / MAX_FRAMES);
     if (!times) { times = []; for (let t = t0; t <= t1 + 1e-6; t += step) times.push(t); }
     t0 = times[0]; t1 = times[times.length - 1];
-    const W = v.videoWidth, H = v.videoHeight, out = [];
+    const W = v.videoWidth, H = v.videoHeight;
     const crop = document.createElement("canvas"), cctx = crop.getContext("2d");
-    let box = null;
-    for (let i = 0; i < times.length; i++) {
-      const t = times[i];
-      await seek(v, t);
-      let res = null, bx = 0, by = 0, bw = W, bh = H;
-      if (box) {
-        ({ x: bx, y: by, w: bw, h: bh } = box);
+
+    // ---- people in a picture ----
+    const sizeOf = (pts) => { let lo = Infinity, hi = -Infinity; for (const q of pts) { if (q[1] < lo) lo = q[1]; if (q[1] > hi) hi = q[1]; } return Math.max(1, hi - lo); };
+    const hipOf = (pts) => [(pts[23][0] + pts[24][0]) / 2, (pts[23][1] + pts[24][1]) / 2];
+    // how far apart two bodies are, point by point, in body heights (0: the same pose in the same place). The model
+    // often swaps his left and right side from one frame to the next when he's side on, so both ways are tried.
+    const MIRROR = [0, 4, 5, 6, 1, 2, 3, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15, 18, 17, 20, 19, 22, 21, 24, 23, 26, 25, 28, 27, 30, 29, 32, 31];
+    const apart = (a, b) => {
+      let s = 0, m = 0;
+      for (let j = 0; j < 33; j++) { s += Math.hypot(a[j][0] - b[j][0], a[j][1] - b[j][1]); m += Math.hypot(a[j][0] - b[MIRROR[j]][0], a[j][1] - b[MIRROR[j]][1]); }
+      return Math.min(s, m) / 33 / Math.max(sizeOf(a), sizeOf(b));
+    };
+    // everyone the model sees (up to three) in a square of the frame, or the whole frame (no square)
+    const look = (sq) => {
+      let res, bx = 0, by = 0, bw = W, bh = H;
+      if (sq) {
+        ({ x: bx, y: by, w: bw, h: bh } = sq);
         const sc = Math.min(1, 1024 / Math.max(bw, bh));
         crop.width = Math.max(16, Math.round(bw * sc)); crop.height = Math.max(16, Math.round(bh * sc));
         cctx.drawImage(v, bx, by, bw, bh, 0, 0, crop.width, crop.height);
         res = lm.detect(crop);
-        if (!(res.landmarks && res.landmarks[0])) res = null;
+      } else res = lm.detect(v);
+      return (res.landmarks || []).map((p, k) => ({
+        pts: p.map((q) => [bx + q.x * bw, by + q.y * bh, q.visibility == null ? 1 : q.visibility]),
+        w: res.worldLandmarks && res.worldLandmarks[k] ? res.worldLandmarks[k].map((q) => [q.x, q.y, q.z]) : null,
+      }));
+    };
+    const square = (cx, cy, side) => { side = Math.min(side, W, H); const x = Math.max(0, Math.min(W - side, cx - side / 2)), y = Math.max(0, Math.min(H - side, cy - side / 2)); return { x, y, w: side, h: side }; };
+    // the same person found twice (overlapping squares) counts once: the surer of the two
+    const sure = (c) => c.pts.reduce((s, q) => s + q[2], 0) / 33;
+    const dedupe = (cs) => { const keep = []; cs.sort((a, b) => sure(b) - sure(a)).forEach((c) => { if (!keep.some((k) => apart(k.pts, c.pts) < 0.25)) keep.push(c); }); return keep; };
+    // a body cut off by a square's edge (where the frame goes on past it) is only part of him: the overlapping square
+    // beside it has all of him
+    const whole = (c, x, y, S) => {
+      const seen = c.pts.filter((q) => q[2] > 0.3), m = S * 0.03;
+      if (!seen.length) return false;
+      const x0 = Math.min(...seen.map((q) => q[0])), x1 = Math.max(...seen.map((q) => q[0])), y0 = Math.min(...seen.map((q) => q[1])), y1 = Math.max(...seen.map((q) => q[1]));
+      return !((x > 0 && x0 < x + m) || (x + S < W && x1 > x + S - m) || (y > 0 && y0 < y + m) || (y + S < H && y1 > y + S - m));
+    };
+    // Everyone in the frame. In a wide shot, with him small in it, the model shown the whole frame often sees no one,
+    // so the frame is also looked at in overlapping squares half its height, where a far-off body is big enough to find;
+    // then closer around each one found, for someone crouched or half hidden beside them.
+    const everyone = () => {
+      let cs = look(null);
+      if (!cs.length || cs.every((c) => sizeOf(c.pts) < H * 0.3)) {
+        const S = Math.round(Math.min(W, H) / 2), st = S / 2;
+        for (let y = 0; ; y += st) {
+          const yy = Math.min(y, H - S);
+          for (let x = 0; ; x += st) { const xx = Math.min(x, W - S); cs = cs.concat(look({ x: xx, y: yy, w: S, h: S }).filter((c) => whole(c, xx, yy, S))); if (xx >= W - S) break; }
+          if (yy >= H - S) break;
+        }
+        const found = dedupe(cs), more = [];
+        found.forEach((c) => { const h = hipOf(c.pts), sz = sizeOf(c.pts); [-0.9, 0, 0.9].forEach((dx) => { const sq = square(h[0] + dx * sz, h[1], sz * 2.4); more.push(...look(sq).filter((p) => whole(p, sq.x, sq.y, sq.w))); }); });
+        cs = found.concat(more);
       }
-      if (!res) { bx = 0; by = 0; bw = W; bh = H; res = lm.detect(v); }
-      const p = res.landmarks && res.landmarks[0], w = res.worldLandmarks && res.worldLandmarks[0];
-      const pts = p ? p.map((q) => [bx + q.x * bw, by + q.y * bh, q.visibility == null ? 1 : q.visibility]) : null;
+      return dedupe(cs);
+    };
+    // The one of these that is him, given where he was: a close match only, a little looser the longer he's been lost,
+    // and never someone the scan has as someone else (a body more like one of the others, where the scan nearest this
+    // frame saw them, is theirs). Better a frame without him, filled in later from the frames around it, than a frame
+    // of the coach beside him.
+    let others = []; // each other person's places from the scan: Map(frame index -> points)
+    const othersAt = (i) => others.map((m) => { let best = null, bd = Infinity; m.forEach((pts, j) => { const dd = Math.abs(j - i); if (dd < bd) { bd = dd; best = pts; } }); return bd <= 12 ? best : null; }).filter(Boolean);
+    const nearest = (cs, prev, gap, i) => {
+      const them = othersAt(i);
+      let best = null, d = Infinity;
+      cs.forEach((c) => { const x = apart(c.pts, prev); if (x < d && !them.some((o) => apart(c.pts, o) < x)) { d = x; best = c; } });
+      return best && d < Math.min(0.6, 0.35 + 0.05 * gap) ? best : null;
+    };
+
+    // ---- which one is him ----
+    // One clear person filling the picture (a pitcher or a hitter filmed close): him, as it always was. Otherwise (no
+    // one found, someone small, or more than one) the clip is scanned first: every few frames, everyone in it, followed
+    // from scan to scan. He's the one who moves the most; a coach kneeling by, a catcher or a teammate standing still
+    // hardly moves (a panning camera moves everyone alike), and something only shaped like a person (a cone, a bag) is
+    // much smaller than the people, or the model is unsure of it. His place at each scan keeps the tracking on him.
+    const anchors = new Map(); // frame index -> him there, from the scan
+    await seek(v, times[0]);
+    const first = look(null);
+    if (!(first.length === 1 && sizeOf(first[0].pts) >= H * 0.3)) {
+      const every = Math.max(1, Math.round(times.length / 40));
+      const tracks = []; // { at: [[frame index, person]], last, lastI }
+      for (let i = 0; i < times.length; i += every) {
+        await seek(v, times[i]);
+        const all = everyone(), big = Math.max(0, ...all.map((p) => sizeOf(p.pts)));
+        const ps = all.filter((p) => sizeOf(p.pts) >= big * 0.5 && sure(p) >= 0.45);
+        // each person onto a track still going (seen in the last few scans), the closest pairs first; anyone left starts one
+        const pairs = [];
+        ps.forEach((p, a) => tracks.forEach((tr, n) => { if (i - tr.lastI > every * 4) return; const d = apart(p.pts, tr.last.pts) / Math.max(1, (i - tr.lastI) / every); if (d < 1.2) pairs.push([d, a, n]); }));
+        const usedP = new Set(), usedT = new Set();
+        pairs.sort((x, y) => x[0] - y[0]).forEach(([, a, n]) => { if (usedP.has(a) || usedT.has(n)) return; usedP.add(a); usedT.add(n); const tr = tracks[n]; tr.at.push([i, ps[a]]); tr.last = ps[a]; tr.lastI = i; });
+        ps.forEach((p, a) => { if (!usedP.has(a)) tracks.push({ at: [[i, p]], last: p, lastI: i }); });
+        onProgress(0.3 * (i / times.length));
+      }
+      const med = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+      const real = tracks.filter((tr) => tr.at.length >= 2).map((tr) => {
+        let moved = 0; for (let k = 1; k < tr.at.length; k++) moved += apart(tr.at[k - 1][1].pts, tr.at[k][1].pts);
+        return { tr, moved, size: med(tr.at.map(([, p]) => sizeOf(p.pts))), sure: med(tr.at.map(([, p]) => sure(p))) };
+      });
+      const biggest = Math.max(0, ...real.map((r) => r.size));
+      const people = real.filter((r) => r.size >= biggest * 0.5 && r.sure >= 0.5);
+      const him = people.slice().sort((a, b) => b.moved - a.moved)[0] || real.slice().sort((a, b) => b.tr.at.length - a.tr.at.length)[0];
+      if (him) {
+        him.tr.at.forEach(([i, p]) => anchors.set(i, p));
+        others = people.filter((r) => r !== him).map((r) => new Map(r.tr.at.map(([i, p]) => [i, p.pts])));
+      }
+    }
+
+    // ---- every frame ----
+    // where to look in the next frame: a square around his body, 1.8 times its size, so a fast arm or a long stride stays in
+    const boxAround = (pts) => {
+      const seen = pts.filter((q) => q[2] > 0.3);
+      if (seen.length <= 8) return null;
+      const xs = seen.map((q) => q[0]), ys = seen.map((q) => q[1]);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const side = Math.min(Math.max(W, H), Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.8);
+      const x = Math.max(0, Math.min(W - side, cx - side / 2)), y = Math.max(0, Math.min(H - side, cy - side / 2));
+      return { x, y, w: Math.min(side, W - x), h: Math.min(side, H - y) };
+    };
+    // With him picked out by a scan, the frames run from the first scan he's in to the end, then back from there to the
+    // start, following him frame to frame both ways: crouched in his set position beside someone he's easy to lose
+    // looking at a frame cold, and easy to keep from a frame where he's clear. Without one, the frames run in order.
+    const multi = anchors.size > 0;
+    const firstA = multi ? Math.min(...anchors.keys()) : 0;
+    const order = [];
+    for (let i = firstA; i < times.length; i++) order.push(i);
+    for (let i = firstA - 1; i >= 0; i--) order.push(i);
+    const out = new Array(times.length);
+    let box = null, prev = null, gap = 0;
+    for (let k = 0; k < order.length; k++) {
+      const i = order[k], t = times[i];
+      if (multi && i === firstA - 1) { const a = anchors.get(firstA); prev = a.pts; gap = 0; box = boxAround(a.pts); lastB = null; } // turning back
+      await seek(v, t);
+      let him = null;
+      if (multi && anchors.has(i)) {
+        // a frame the scan found him in: looked at again close up (the scan's squares are coarser), else as the scan saw him
+        const a = anchors.get(i), ab = boxAround(a.pts);
+        him = (ab && nearest(look(ab), a.pts, 0, i)) || a;
+      } else if (multi) {
+        // where he was a frame ago, zoomed in; then the whole frame; then a wider square around where he was last seen
+        if (box) him = nearest(look(box), prev, gap, i);
+        if (!him) him = nearest(look(null), prev, gap, i);
+        if (!him) { const h = hipOf(prev); him = nearest(look(square(h[0], h[1], sizeOf(prev) * 3.2)), prev, gap, i); }
+      } else if (!him) {
+        // zoomed in on where he was a frame ago, else the whole frame
+        if (box) him = look(box)[0] || null;
+        if (!him) him = look(null)[0] || null;
+      }
+      const pts = him ? him.pts : null;
       let b = null;
       if (tapeTest && pts) {
         // within reach of a bat from the hands: about 62% of his height (the bat's 45% and some room)
@@ -203,19 +339,9 @@
         b = findTape(v, tapeTest, [(pts[15][0] + pts[16][0]) / 2, (pts[15][1] + pts[16][1]) / 2], tall * 0.62, lastB, scratch);
         if (b) lastB = b;
       }
-      out.push({ t, p: pts, w: w ? w.map((q) => [q.x, q.y, q.z]) : null, b });
-      // where to look next frame: a square around his body, 1.8 times its size, so a fast arm or a long stride stays in
-      if (pts) {
-        const seen = pts.filter((q) => q[2] > 0.3);
-        const xs = seen.map((q) => q[0]), ys = seen.map((q) => q[1]);
-        if (xs.length > 8) {
-          const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-          const side = Math.min(Math.max(W, H), Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.8);
-          const x = Math.max(0, Math.min(W - side, cx - side / 2)), y = Math.max(0, Math.min(H - side, cy - side / 2));
-          box = { x, y, w: Math.min(side, W - x), h: Math.min(side, H - y) };
-        } else box = null;
-      } else box = null;
-      if (i % 5 === 0) onProgress((t - t0) / Math.max(1e-6, t1 - t0));
+      out[i] = { t, p: pts, w: him ? him.w : null, b };
+      if (pts) { prev = pts; gap = 0; box = boxAround(pts); } else { gap++; if (!multi) box = null; } // (lost among others: still where he was last seen)
+      if (k % 5 === 0) onProgress((multi ? 0.3 : 0) + (multi ? 0.7 : 1) * (k / order.length));
     }
     return { frames: out, W, H, step };
   }
