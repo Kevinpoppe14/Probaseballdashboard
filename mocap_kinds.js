@@ -240,7 +240,13 @@
   // height that puts every step on the track, so steps from clips filmed at different spots (0-10, 10-20...) can be
   // counted against the timing gates (sprint_assessment.js).
   function analyzeSprint({ side, heightIn, captureFps, sideScale, events: manual, edits, variant, weightKg, extras }) {
-    const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, pts, wpts, fr, Hpx } = A;
+    const A = prepare(side, sideScale, captureFps, edits), { n, tReal, dt, sig, wpts, fr, Hpx } = A;
+    // The camera often pans to follow him. track() measured how far the background moved in each frame (c, in pixels):
+    // his points put back where they were on the field (`pts`) for every distance, speed and contact; `img`, where they
+    // are in the picture, for drawing. (A session tracked before this has no c: the camera is taken as still.)
+    const img = A.pts, camX = (side.frames || []).map((f) => (f && typeof f.c === "number" ? f.c : 0));
+    const pts = img.map((q, i) => q.map((p) => [p[0] - (camX[i] || 0), p[1], p[2]]));
+    const panned = camX.some((c) => Math.abs(c) > Hpx * 0.25);
     const start = variant === "maxv" ? null : variant === "steal" || variant === "forty" ? variant : "linear"; // (an older "accel" is a linear start)
     const m = manual || {}, phase = start ? "accel" : "maxv", R = SPRINT_RANGES[phase];
     const hips = pts.map(hipOf), dir = hips[n - 1][0] - hips[0][0] >= 0 ? 1 : -1;
@@ -249,40 +255,65 @@
     const mPx = heightIn ? (heightIn * 0.0254) / Hpx : null;
     const FEET = [["L", P.lHeel, P.lToe, P.lAn, P.lKn, P.lHip], ["R", P.rHeel, P.rToe, P.rAn, P.rKn, P.rHip]];
     const footX = (q, f) => (q[f[1]][0] + q[f[2]][0] + q[f[3]][0]) / 3, footLow = (q, f) => Math.max(q[f[1]][1], q[f[2]][1]);
-    const lows = FEET.flatMap((f) => pts.map((q) => footLow(q, f))).sort((a, b) => a - b);
-    const groundY = lows[Math.floor(lows.length * 0.95)];
-    // each foot's contacts: low and still, for at least 30 ms (gaps of a frame or two closed)
-    const contacts = [];
-    FEET.forEach((f) => {
-      const vx = smoothSeries(deriv(pts.map((q) => footX(q, f)), dt), sig);
-      const down = pts.map((q, i) => footLow(q, f) >= groundY - 0.04 * Hpx && Math.abs(vx[i] || 0) < 1.2 * Hpx);
-      for (let i = 1; i < n - 1; i++) if (!down[i] && down[i - 1] && down[i + 1]) down[i] = true;
-      for (let i = 0; i < n;) {
-        if (!down[i]) { i++; continue; }
-        let j = i; while (j + 1 < n && down[j + 1]) j++;
-        if (tReal[j] - tReal[i] >= 0.03) contacts.push({ foot: f[0], f, td: i, to: j, partial: i === 0 || j === n - 1 });
-        i = j + 1;
-      }
+    // Each ground contact: a foot planted, wherever it is, found from both feet's points together rather than by which
+    // foot the model calls left or right (side on, it often swaps the two from frame to frame): a foot point down on the
+    // ground (the ground measured locally, its line drifting across the picture as he runs) that stays in one place for
+    // at least 40 ms. Its side is the one its point was called most often; steps are the contacts in order.
+    const win = Math.max(3, fr(0.5));
+    const footPts = pts.map((q) => FEET.map((f) => ({ x: footX(q, f), y: footLow(q, f), foot: f[0] })));
+    const lowAll = footPts.map((fp) => Math.max(fp[0].y, fp[1].y));
+    const groundAt = lowAll.map((_, i) => { const w = lowAll.slice(Math.max(0, i - win), Math.min(n, i + win + 1)).filter((y) => Number.isFinite(y)).sort((a, b) => a - b); return w.length ? w[Math.floor(w.length * 0.9)] : NaN; });
+    const groundY = median(groundAt.filter((y) => Number.isFinite(y)));
+    const tolY = 0.05 * Hpx, tolX = 0.07 * Hpx, gapF = Math.max(1, fr(0.012));
+    const open = [], found = [];
+    for (let i = 0; i < n; i++) {
+      footPts[i].forEach((p) => {
+        if (!Number.isFinite(p.x) || !(p.y >= groundAt[i] - tolY)) return;
+        const c = open.find((o) => Math.abs(o.x - p.x) < tolX);
+        if (c) { c.last = i; c.sum += p.x; c.cnt += 1; c.x = c.sum / c.cnt; c.votes[p.foot] = (c.votes[p.foot] || 0) + 1; }
+        else open.push({ x: p.x, sum: p.x, cnt: 1, td: i, last: i, votes: { [p.foot]: 1 } });
+      });
+      for (let k = open.length - 1; k >= 0; k--) if (i - open[k].last > gapF) { found.push(open[k]); open.splice(k, 1); }
+    }
+    found.push(...open);
+    // one plant found twice (the point jumping between heel and toe, or lost for a few frames) is one contact
+    found.sort((a, b) => a.td - b.td);
+    const merged = [];
+    found.forEach((c) => {
+      const p = merged.find((o) => Math.abs(o.x - c.x) < 0.15 * Hpx && c.td - o.last <= fr(0.06) && c.last >= o.td);
+      if (p) { p.x = (p.x * p.cnt + c.x * c.cnt) / (p.cnt + c.cnt); p.cnt += c.cnt; p.td = Math.min(p.td, c.td); p.last = Math.max(p.last, c.last); Object.keys(c.votes).forEach((k) => { p.votes[k] = (p.votes[k] || 0) + c.votes[k]; }); }
+      else merged.push({ ...c, votes: { ...c.votes } });
     });
-    contacts.sort((a, b) => a.td - b.td);
+    // each contact trimmed to the frames where a foot point is really planted on it (close to its spot and down)
+    merged.forEach((c) => {
+      const on = (i) => footPts[i].some((p) => Math.abs(p.x - c.x) < 0.04 * Hpx && p.y >= groundAt[i] - tolY);
+      let a = c.td, b = c.last;
+      while (a < b && !on(a)) a++;
+      while (b > a && !on(b)) b--;
+      c.td = a; c.last = b;
+    });
+    const contacts = merged
+      .map((c) => { const foot = (c.votes.L || 0) >= (c.votes.R || 0) ? "L" : "R"; return { foot, f: FEET.find((f) => f[0] === foot), td: c.td, to: c.last, x: c.x, partial: c.td === 0 || c.last === n - 1 }; })
+      .filter((c) => c.partial || tReal[c.to] - tReal[c.td] >= 0.04)
+      .sort((a, b) => a.td - b.td || a.x - b.x);
     const atTD = (c) => {
       const q = pts[c.td], f = c.f, hip = hipOf(q);
       return {
         shin: leanOf(q[f[3]], q[f[4]], dir), // + the knee ahead of the ankle
-        ahead: (dir * (footX(q, f) - hip[0])) / Hpx, // the foot landing ahead of the hips, in heights
+        ahead: (dir * (c.x - hip[0])) / Hpx, // the foot landing ahead of the hips, in heights
         trunk: leanOf(hip, shOf(q), dir),
       };
     };
-    // a step: one contact to the next by the other foot (not the two feet standing at the start); flight only when both
-    // feet are off the ground, which a start's first steps may never be
+    // a step: one contact to the next (not the two feet standing at the start); flight only when both feet are off the
+    // ground, which a start's first steps may never be
     const steps = contacts.map((c, k) => {
-      const next = contacts.slice(k + 1).find((x) => x.foot !== c.foot && x.td > c.td);
+      const next = contacts.slice(k + 1).find((x) => x.td > c.td);
       const real = next && c.td > 0;
-      const len = real ? (dir * (footX(pts[next.td], next.f) - footX(pts[c.td], c.f))) / Hpx : null;
+      const len = real ? (dir * (next.x - c.x)) / Hpx : null;
       const flightMs = real && !c.partial ? Math.round((tReal[next.td] - tReal[c.to]) * 1000) : null;
       return { ...c, ...atTD(c), contactMs: c.partial ? null : Math.round((tReal[c.to] - tReal[c.td]) * 1000), flightMs: flightMs != null && flightMs > 0 ? flightMs : null, stepT: real ? tReal[next.td] - tReal[c.td] : null, len: len != null && len > 0.2 ? len : null };
     });
-    const nextOf = (s) => (s ? steps.find((x) => x.td > s.td && x.foot !== s.foot) : null);
+    const nextOf = (s) => (s ? steps.find((x) => x.td > s.td) : null);
     let ev, first = null, ST = null, firstFoot = null, crossover = null, startStats = {};
     if (start) {
       // the first move: the hips leaving where they stood (by 2% of his height)
@@ -290,20 +321,25 @@
       ST = m.ST != null ? m.ST : Math.max(0, hips.findIndex((h) => Math.hypot(h[0] - h0[0], h[1] - h0[1]) > 0.02 * Hpx));
       // (2% of his height is sure to be moving, but late: back up to where the hips were still)
       if (m.ST == null) while (ST > 0 && hipV[ST - 1] != null && hipV[ST - 1] > 0.02) ST--;
-      // the first step: the first foot down after the first move; the first foot to move: the one whose stance ends first
-      first = steps.find((s) => s.td > ST && !(s.td === 0)) || null;
-      const stance = steps.filter((s) => s.td === 0);
+      // the stance: the feet planted as he starts to move (the one lifted first, its contact ending soonest, is the first
+      // foot to move); the first step, the first foot down after it. (A contact found a few frames late still counts as
+      // the stance; with no stance found, the start line is his front foot as he moves.)
+      const stance = steps.filter((s) => s.td <= ST + fr(0.12) && s.to >= ST - fr(0.25));
+      const feetAtST = FEET.map((f) => footX(pts[ST], f)).filter((x) => Number.isFinite(x));
+      const frontX = stance.length ? (dir > 0 ? Math.max(...stance.map((s) => s.x)) : Math.min(...stance.map((s) => s.x)))
+        : feetAtST.length ? (dir > 0 ? Math.max(...feetAtST) : Math.min(...feetAtST)) : null;
+      first = steps.find((s) => s.td > ST && !stance.includes(s)) || null;
       const lifted = stance.length ? stance.reduce((b, s) => (s.to < b.to ? s : b), stance[0]) : null;
       firstFoot = lifted ? lifted.foot : first ? first.foot : null;
-      if (start === "steal" && firstFoot) {
+      if (start === "steal" && lifted && stance.length > 1) {
         // from a lead the feet sit along the line to the next base: the back foot moving first crosses over, the front jabs
-        const f = FEET.find((x) => x[0] === firstFoot), o = FEET.find((x) => x[0] !== firstFoot);
-        crossover = dir * (footX(pts[0], f) - footX(pts[0], o)) < 0;
+        const other = stance.find((s) => s !== lifted);
+        crossover = dir * (lifted.x - other.x) < 0;
       }
       // how soon the hips cover the first 1 and 2 meters, and how far the first step reaches from where that foot stood
       const travel = (i) => dir * (hips[i][0] - h0[0]);
       const tTo = (meters) => { if (!mPx) return null; const i = hips.findIndex((_, k) => k >= ST && travel(k) * mPx >= meters); return i < 0 ? null : Math.round((tReal[i] - tReal[ST]) * 1000); };
-      startStats = { t1: tTo(1), t2: tTo(2), len: first ? (dir * (footX(pts[first.td], first.f) - footX(pts[0], first.f))) / Hpx : null };
+      startStats = { t1: tTo(1), t2: tTo(2), len: first && lifted ? (dir * (first.x - lifted.x)) / Hpx : null, liftedX: lifted ? lifted.x : null, frontX };
       const s2 = nextOf(first);
       ev = {
         ST,
@@ -335,7 +371,7 @@
     // Foot clearance: how high each foot travels off the ground as it swings through, from toe-off to its next touchdown
     // (its lowest point, heel or toe, above the ground), in heights. Low recovery is a short, flat swing.
     const clearances = steps.filter((s) => !s.partial || s.td > 0).map((s) => {
-      const back = contacts.find((c) => c.foot === s.foot && c.td > s.to);
+      const back = contacts.filter((c) => c.td > s.td)[1]; // the same foot's next touchdown: two contacts on
       if (!back) return null;
       let top = 0;
       for (let i = s.to; i <= back.td; i++) top = Math.max(top, groundY - footLow(pts[i], s.f));
@@ -348,14 +384,14 @@
       const s2 = nextOf(first), s3 = nextOf(s2);
       if (s3) {
         const frontAt0 = Math.max(...FEET.map((f) => dir * footX(pts[0], f))) * dir;
-        first3 = (dir * (footX(pts[s3.td], s3.f) - frontAt0)) / Hpx;
+        first3 = (dir * (s3.x - frontAt0)) / Hpx;
         t3 = Math.round((tReal[s3.td] - tReal[ST]) * 1000);
       }
     }
     // Every touchdown on the track (yards), once a cone at a known yard line is marked on the video
     const ex = extras || {}, trackYd = Number(ex.trackYd), trackX = Number(ex.trackX);
     const onTrack = mPx && Number.isFinite(trackYd) && Number.isFinite(trackX) && ex.trackX != null
-      ? steps.filter((s) => s.td > 0 && (!start || s.td > ST)).map((s) => ({ foot: s.foot, yd: Math.round((trackYd + (dir * (footX(pts[s.td], s.f) - trackX) * mPx) / 0.9144) * 100) / 100, t: Math.round((tReal[s.td] - (start ? tReal[ST] : 0)) * 1000) / 1000 }))
+      ? steps.filter((s) => s.td > 0 && (!start || s.td > ST)).map((s) => ({ foot: s.foot, yd: Math.round((trackYd + (dir * (s.x - trackX) * mPx) / 0.9144) * 100) / 100, t: Math.round((tReal[s.td] - (start ? tReal[ST] : 0)) * 1000) / 1000 }))
       : null;
     const side2 = (foot, key) => median(steps.filter((s) => s.foot === foot).map((s) => s[key]));
     const asym = (key) => { const l = side2("L", key), r = side2("R", key); return l == null || r == null || !(l + r) ? null : Math.round((Math.abs(l - r) / ((l + r) / 2)) * 100); };
@@ -437,10 +473,49 @@
           : [10, 30, 40, 60].map((y) => metric(`t${y}yd`, `${y}-yard time, projected (estimate)`, fv ? sec(fv.timeTo(yd(y))) : null, "s", "", y === 10 ? "From the first move (no reaction time), projected from the force-velocity fit." : ""))),
       );
     }
+    // ---- a start's steps, the way they're counted on the track: from the start line (his front foot as he moves),
+    // each step's touchdown in yards and its length (step 1 from where that foot stood), the steps it took to reach 5,
+    // 10 and 20 yards against the standard (4, 7 and 12), the time to 10 yards, and the first two steps' horizontal
+    // power (his mass × the hips' forward acceleration × their speed, averaged over the foot's time on the ground)
+    let sprintVideo = null;
+    if (start && mPx) {
+      // (the start line: the stance's front foot, else the front foot as he moves)
+      const xs = FEET.map((f) => footX(pts[ST], f));
+      const startX = startStats.frontX != null ? startStats.frontX : dir > 0 ? Math.max(...xs) : Math.min(...xs);
+      const ydAt = (x) => (dir * (x - startX) * mPx) / 0.9144;
+      // the steps, each landing well ahead of the one before (at least 18 inches): a contact that doesn't (the coach's foot
+      // beside him for a frame, a point landing twice) isn't a step
+      const run = [];
+      if (first) steps.filter((s) => s.td >= first.td).forEach((s) => { const p = run[run.length - 1]; if (!p || (s.td > p.td && dir * (s.x - p.x) * mPx >= 0.457)) run.push(s); });
+      // (step 1 from where that foot stood; each later one from the step before)
+      const lenIn = (k) => {
+        const s = run[k];
+        const from = k === 0 ? startStats.liftedX : run[k - 1].x;
+        return from == null ? null : inches(dir * (s.x - from) * mPx);
+      };
+      const marks = run.map((s, k) => ({ n: k + 1, i: s.td, to: s.to, foot: s.foot, yd: Math.round(ydAt(s.x) * 10) / 10, lenIn: lenIn(k) == null ? null : Math.round(lenIn(k)), contactMs: s.contactMs }));
+      const lastYd = Math.max(...hips.map((h) => ydAt(h[0])));
+      const STD = { 5: 4, 10: 7, 20: 12 };
+      const reach = [5, 10, 20].map((d) => { const m2 = marks.find((x) => x.yd >= d); return { yd: d, steps: m2 ? m2.n : null, std: STD[d], i: m2 ? m2.i : null, covered: lastYd >= d }; });
+      const i10 = hips.findIndex((h, k) => k >= ST && ydAt(h[0]) >= 10);
+      const vMs = hipV.map((v2) => (v2 == null ? null : v2 * Hpx * mPx)), aMs = smoothSeries(deriv(vMs.map((x) => (x == null ? 0 : x)), dt), sig * 2);
+      const power = run.slice(0, 2).map((s, k) => {
+        let sum = 0, cnt = 0;
+        for (let i = s.td; i <= s.to; i++) if (vMs[i] != null && aMs[i] != null) { sum += Math.max(0, aMs[i]) * vMs[i]; cnt++; }
+        const wkg = cnt ? sum / cnt : null;
+        return { n: k + 1, wkg: wkg == null ? null : Math.round(wkg * 10) / 10, w: wkg != null && kg ? Math.round(wkg * kg) : null };
+      });
+      sprintVideo = { ST, marks, reach, t10: i10 > 0 ? Math.round((tReal[i10] - tReal[ST]) * 100) / 100 : null, i10: i10 > 0 ? i10 : null, power, panned };
+      metrics.push(
+        ...reach.map((r) => metric(`stepsTo${r.yd}`, `Steps to ${r.yd} yards`, r.steps, "", `${r.std} (standard)`, r.covered ? `Steps from the first move until a foot lands at or past ${r.yd} yards from the start line (his front foot). The standard is ${r.std}.` : `The clip doesn't reach ${r.yd} yards.`)),
+        metric("t10ydClip", "Time to 10 yards (from first move)", sprintVideo.t10, "s", "", "From the hips first moving to the hips crossing 10 yards from the start line, in the clip (a timing gate starts later, when he breaks the beam)."),
+        ...power.map((p) => metric(`power${p.n}`, `Step ${p.n} power (estimate)`, kg ? p.w : p.wkg, kg ? "W" : "W/kg", "", `Horizontal power over step ${p.n}'s ground contact: his mass × the hips' forward acceleration × their speed.`)),
+      );
+    }
     const fvNote = start ? (fv ? ` The force-velocity profile and projected times are fitted to the first ${fv.covered.toFixed(1)} s of the run in the clip: the more of his acceleration the clip covers, the surer they are.` : mPx ? " The clip is too short (or the speed too uneven) for a force-velocity profile: film at least the first 5 yards." : " Enter his height for a force-velocity profile and projected times.") : "";
     return {
-      n, tReal, dir, Hpx, pts, wpts, wLegs: A.wLegs, mPx, groundY,
-      events: ev, track: onTrack, analysisV: 3,
+      n, tReal, dir, Hpx, pts: img, wpts, wLegs: A.wLegs, mPx, groundY, panned, sprintVideo,
+      events: ev, track: onTrack, analysisV: 4, // (4: contacts from planted feet, not left/right labels; the camera's pan; steps to 5, 10, 20 yd)
       ...(start
         ? { evLabels: { ST: "First move", TD1: "First step", TO1: "First toe-off", TD2: "Second step" }, phaseKeys: ["ST", "TD1", "TO1", "TD2"], zeroKey: "ST", groundKey: "ST" }
         : { evLabels: { TD1: "Touchdown", TO1: "Toe-off", TD2: "Next touchdown", TO2: "Next toe-off" }, phaseKeys: ["TD1", "TO1", "TD2", "TO2"], zeroKey: "TD1", groundKey: "TD1" }),
@@ -455,7 +530,7 @@
         steps.length ? {
           title: "Every step",
           cols: ["#", "Foot", ...(onTrack ? ["Lands at"] : []), "Contact", "Flight", "Step length", "Speed", "Shin at touchdown", "Foot ahead of hips", "Trunk lean"],
-          rows: steps.map((s, k) => [k + 1, s.foot === "L" ? "Left" : "Right", ...(onTrack ? [(() => { const yd = s.td > 0 && mPx ? trackYd + (dir * (footX(pts[s.td], s.f) - trackX) * mPx) / 0.9144 : null; return yd == null ? null : `${yd.toFixed(1)} yd`; })()] : []), s.contactMs == null ? null : `${s.contactMs} ms`, s.flightMs == null ? null : `${s.flightMs} ms`, lenText(s.len), s.speed == null ? null : `${s.speed.toFixed(1)} m/s (${mph(s.speed).toFixed(1)} mph)`, `${Math.round(s.shin)}°`, mPx ? `${Math.round(inches(s.ahead * Hpx * mPx))} in` : `${Math.round(s.ahead * 100)}% ht`, `${Math.round(s.trunk)}°`]),
+          rows: steps.map((s, k) => [k + 1, s.foot === "L" ? "Left" : "Right", ...(onTrack ? [(() => { const yd = s.td > 0 && mPx ? trackYd + (dir * (s.x - trackX) * mPx) / 0.9144 : null; return yd == null ? null : `${yd.toFixed(1)} yd`; })()] : []), s.contactMs == null ? null : `${s.contactMs} ms`, s.flightMs == null ? null : `${s.flightMs} ms`, lenText(s.len), s.speed == null ? null : `${s.speed.toFixed(1)} m/s (${mph(s.speed).toFixed(1)} mph)`, `${Math.round(s.shin)}°`, mPx ? `${Math.round(inches(s.ahead * Hpx * mPx))} in` : `${Math.round(s.ahead * 100)}% ht`, `${Math.round(s.trunk)}°`]),
         } : null,
         splits.length ? {
           title: "Distance splits",
@@ -683,7 +758,7 @@
       historyKeys: ["stride", "fpc", "sepMax", "trunkV", "batV", "ttc", "swingLen", "attack"],
     },
     sprint: {
-      label: "Sprint", hand: null, setups: SETUPS_SIDE,
+      label: "Sprint", hand: null, setups: SETUPS_SIDE, slowMo: true, // (filmed in slow motion, 240 or 120 fps: mocap.js works out which from his steps unless told)
       variants: { label: "Start", options: [["linear", "Linear start"], ["steal", "Base-stealing start"], ["forty", "40-yard start (three-point)"], ["maxv", "Max velocity (fly)"]] },
       howTo: [
         ["Slow motion, 240 fps", "Slo-Mo at 240 fps: a foot is on the ground for only a tenth of a second at top speed, so each frame (4 ms) counts."],
@@ -699,7 +774,7 @@
       heightHint: "Height turns the picture into real speed (m/s, mph) and step length in feet. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the sprint",
       analyze: analyzeSprint,
-      analysisV: 3, // 3: first 3 steps, foot clearance, steps on the track (a marked cone)
+      analysisV: 4, // 3: first 3 steps, foot clearance, steps on the track (a marked cone); 4: contacts from planted feet (not left/right labels), the camera's pan, steps to 5, 10 and 20 yards
       historyKeys: ["ttd1", "t2m", "t10yd", "t2b", "vmaxMph", "F0", "stepLen", "contact"],
     },
     jump: {

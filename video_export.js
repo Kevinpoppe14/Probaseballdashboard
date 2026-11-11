@@ -41,9 +41,19 @@
 
   // the video into its area, whole (bars where its shape differs), or filling it (`fill`: zoomed in, the edges trimmed),
   // and where it went (beyond the area when filling; what's drawn over it is trimmed to the area the same way)
-  function fit(g, v, area, fill) {
-    const vw = v.videoWidth || 16, vh = v.videoHeight || 9, s = (fill ? Math.max : Math.min)(area.w / vw, area.h / vh);
-    const w = vw * s, h = vh * s, x = area.x + (area.w - w) / 2, y = area.y + (area.h - h) / 2;
+  // `view` ({ cx, cy, h } in the video's pixels): zoomed in on that spot instead, its height filling the area (an
+  // athlete followed as he runs), kept inside the picture where the picture allows
+  function fit(g, v, area, fill, view) {
+    const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+    let s = (fill ? Math.max : Math.min)(area.w / vw, area.h / vh), x = null, y = null;
+    if (view && view.h > 0) {
+      s = Math.max(s, area.h / view.h);
+      x = area.x + area.w / 2 - view.cx * s; y = area.y + area.h / 2 - view.cy * s;
+      x = vw * s >= area.w ? Math.min(area.x, Math.max(area.x + area.w - vw * s, x)) : area.x + (area.w - vw * s) / 2;
+      y = vh * s >= area.h ? Math.min(area.y, Math.max(area.y + area.h - vh * s, y)) : area.y + (area.h - vh * s) / 2;
+    }
+    const w = vw * s, h = vh * s;
+    if (x == null) { x = area.x + (area.w - w) / 2; y = area.y + (area.h - h) / 2; }
     g.save(); g.beginPath(); g.rect(area.x, area.y, area.w, area.h); g.clip();
     g.drawImage(v, x, y, w, h);
     g.restore();
@@ -320,8 +330,8 @@
           const base = tOut;
           const drawAt = async (t) => {
             g.fillStyle = "#000"; g.fillRect(0, 0, L.W, L.H);
-            const rect = fit(g, v, L.video, fill);
-            const info = { k, t, elapsed: (t - start) / rate };
+            const info = { k, t, elapsed: (t - start) / rate, area: L.video };
+            const rect = fit(g, v, L.video, fill, sg.view ? sg.view(info) : null);
             if (sg.overlay) { g.save(); g.beginPath(); g.rect(L.video.x, L.video.y, L.video.w, L.video.h); g.clip(); sg.overlay(g, rect, info); g.restore(); }
             if (sg.panel) sg.panel(g, L.panel, info);
             drawLogo(g, L, im);

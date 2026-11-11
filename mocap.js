@@ -337,6 +337,57 @@
     for (let i = firstA; i < times.length; i++) order.push(i);
     for (let i = firstA - 1; i >= 0; i--) order.push(i);
     const out = new Array(times.length);
+    // ---- the camera's own movement: a sprint is often filmed panning to follow him. Each frame, a small picture of its
+    // edges (trees, fences, poles, lines on the grass), with him left out; how far those edges move from one frame to
+    // the next is how far the camera turned (c on each frame, in pixels, the background's shift since the first frame).
+    // A still camera gives c ≈ 0.
+    const PW = 320, PH = Math.max(40, Math.round((320 * H) / W));
+    const pcan = document.createElement("canvas");
+    pcan.width = PW; pcan.height = PH;
+    const pctx = pcan.getContext("2d", { willReadFrequently: true });
+    const profiles = new Array(times.length);
+    const profileOf = (pts) => {
+      pctx.drawImage(v, 0, 0, PW, PH);
+      const d = pctx.getImageData(0, 0, PW, PH).data, gray = new Float32Array(PW * PH), edge = new Uint8Array(PW * PH);
+      for (let p = 0, o = 0; p < PW * PH; p++, o += 4) gray[p] = d[o] * 0.3 + d[o + 1] * 0.59 + d[o + 2] * 0.11;
+      for (let y = 1; y < PH - 1; y++) for (let x = 1; x < PW - 1; x++) {
+        const p = y * PW + x, gx = gray[p + 1] - gray[p - 1], gy = gray[p + PW] - gray[p - PW];
+        edge[p] = Math.min(255, Math.abs(gx) + Math.abs(gy));
+      }
+      // him (and room around him), left out
+      let box = null;
+      if (pts) {
+        const seen = pts.filter((q) => q[2] > 0.2);
+        if (seen.length) {
+          const xs = seen.map((q) => (q[0] * PW) / W), ys = seen.map((q) => (q[1] * PH) / H), mx = (Math.max(...xs) - Math.min(...xs)) * 0.25 + 4, my = (Math.max(...ys) - Math.min(...ys)) * 0.15 + 4;
+          box = [Math.min(...xs) - mx, Math.max(...xs) + mx, Math.min(...ys) - my, Math.max(...ys) + my];
+        }
+      }
+      return { edge, box };
+    };
+    // how far b's background sits to the right of a's, in frame pixels (to a fraction of a pixel): the shift that
+    // lines their edges up best, outside him in either frame
+    const shiftBetween = (a, b) => {
+      const M = 32, errs = new Map();
+      const out2 = (bx, x, y) => !bx || x < bx[0] || x > bx[1] || y < bx[2] || y > bx[3];
+      let best = 0, bestE = Infinity;
+      for (let s = -M; s <= M; s++) {
+        let e = 0, n = 0;
+        for (let y = 2; y < PH - 2; y += 2) for (let x = M + 1; x < PW - M - 1; x += 2) {
+          if (!out2(a.box, x, y) || !out2(b.box, x + s, y)) continue;
+          const ea = a.edge[y * PW + x], eb = b.edge[y * PW + x + s];
+          if (ea < 6 && eb < 6) continue; // flat sky and grass say nothing
+          e += Math.abs(ea - eb); n++;
+        }
+        const v2 = n > 50 ? e / n : Infinity;
+        errs.set(s, v2);
+        if (v2 < bestE) { bestE = v2; best = s; }
+      }
+      if (!isFinite(bestE)) return 0;
+      const l = errs.get(best - 1), r = errs.get(best + 1);
+      const sub = isFinite(l) && isFinite(r) && l + r - 2 * bestE > 1e-6 ? (0.5 * (l - r)) / (l + r - 2 * bestE) : 0;
+      return ((best + sub) * W) / PW;
+    };
     let box = null, prev = null, gap = 0;
     for (let k = 0; k < order.length; k++) {
       const i = order[k], t = times[i];
@@ -366,8 +417,15 @@
         if (b) lastB = b;
       }
       out[i] = { t, p: pts, w: him ? him.w : null, b };
+      profiles[i] = profileOf(pts);
       if (pts) { prev = pts; gap = 0; box = boxAround(pts); } else { gap++; if (!multi) box = null; } // (lost among others: still where he was last seen)
       if (k % 5 === 0) onProgress((multi ? 0.3 : 0) + (multi ? 0.7 : 1) * (k / order.length));
+    }
+    // the background's shift from frame to frame, added up from the first frame
+    let c = 0;
+    for (let i = 0; i < out.length; i++) {
+      if (i > 0 && profiles[i - 1] && profiles[i]) c += shiftBetween(profiles[i - 1], profiles[i]);
+      out[i].c = Math.round(c * 10) / 10;
     }
     return { frames: out, W, H, step };
   }
@@ -991,7 +1049,7 @@
     const athlete = opts.athlete || {};
     const kindName = KINDS[opts.kind] ? opts.kind : "pitching", kind = KINDS[kindName];
     const hKey = `mocapHeight:${athlete.id}`;
-    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, extras: Object.fromEntries((kind.extras || []).map((x) => [x.key, x.default])), heightIn: Number(athlete.heightIn) || Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
+    const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, extras: Object.fromEntries((kind.extras || []).map((x) => [x.key, x.default])), heightIn: Number(athlete.heightIn) || Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: kind.slowMo ? "guess" : "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
     // his saved sessions of this movement
     const history = () => (opts.history ? opts.history() || [] : []).filter((r) => (r.motion || "pitching") === kindName);
     const variantName = (v) => (kind.variants && v ? (kind.variants.options.find((o) => o[0] === v) || [v, v])[1] : "");
@@ -1058,7 +1116,7 @@
           state.setup === "edger"
             ? el("label", null, "Edgertronic frame rate (fps)", el("input", { type: "number", inputmode: "numeric", min: 120, max: 20000, step: 10, value: state.edgerFps, oninput: (e) => { state.edgerFps = Number(e.target.value) || 1000; state.captureFps = String(state.edgerFps); } }))
             : el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; } },
-              [["auto", "The file's own speed"], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t))))),
+              captureChoices(state.side && state.side.fps).map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t))))),
         el("p", { class: "mc-hint" }, kind.heightHint || "Height is needed for center-of-mass speed. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at if the file plays it slowed down."),
         athlete.heightIn || athlete.weightFrom ? el("p", { class: "mc-hint" }, [
           athlete.heightIn ? `Height from his profile${Number(state.heightIn) !== Number(athlete.heightIn) ? ` (${athlete.heightIn}")` : ""}.` : "",
@@ -1080,7 +1138,7 @@
       const v = f.video;
       v.className = "mc-preview"; v.controls = true; v.style.cssText = ""; // out of hiding, into the page where it's shown
       const label = el("span", { class: "mc-hint" });
-      const show = () => { label.textContent = `Analyzing ${f.start.toFixed(2)}s to ${f.end.toFixed(2)}s of ${(v.duration || 0).toFixed(2)}s · the file plays at`; };
+      const show = () => { label.textContent = `Analyzing ${f.start.toFixed(2)}s to ${f.end.toFixed(2)}s of ${(v.duration || 0).toFixed(2)}s · this file plays back at`; };
       // the file's own frame rate, as measured, and changeable if the measure is off
       const fileRate = el("select", { class: "mc-filefps", "aria-label": "The file's frame rate", onchange: (e) => { f.fps = Number(e.target.value); } },
         [...new Set([24, 25, 30, 50, 60, 120, 240, f.fps])].sort((a, b) => a - b).map((r) => el("option", { value: r, selected: r === f.fps }, `${r} fps`)));
@@ -1094,9 +1152,21 @@
         el("p", { class: "mc-hint" }, kind.trimHint));
     }
 
+    // How it was filmed, for the timing. A sprint is filmed in slow motion, 240 or 120 fps, and the file usually plays it
+    // back at 30: "guess" works out which from his steps (a sprinter takes about 4 a second), see compute().
+    function captureChoices(fileFps) {
+      return [
+      ...(kind.slowMo ? [["guess", "Slow motion, 240 or 120: worked out from his steps"]] : []),
+      ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"],
+      ["auto", kind.slowMo ? `Not slow motion (the file's own speed${fileFps ? `, ${fileFps} fps` : ""})` : `The file's own speed${fileFps ? ` (${fileFps} fps)` : ""}`],
+      ];
+    }
+    function capOf(f) { return (state.captureFps === "auto" ? f.fps : state.captureFps === "guess" ? state.guessCap || slowMoCaps(f)[0] : Number(state.captureFps)); }
+    // the slow-motion speeds a file could be: a 30 fps file of a 240 or 120 fps clip (a file already that fast plays real time)
+    function slowMoCaps(f) { return (f.fps >= 100 ? [f.fps] : [f.fps * 8, f.fps * 4]); }
     // back to a phone setup: the Edgertronic's frame rate doesn't carry over
     const toPhone = (setup) => { state.setup = setup; if (Number(state.captureFps) >= 500) state.captureFps = "auto"; render(); };
-    const scaleOf = (f) => { const cap = state.captureFps === "auto" ? f.fps : Number(state.captureFps); return f.fps / cap; };
+    const scaleOf = (f) => f.fps / capOf(f);
     async function run() {
       state.error = "";
       // a height typed in for someone whose profile has none goes onto the profile, so it's only ever entered once
@@ -1122,7 +1192,19 @@
       render();
     }
     function compute(manual) {
-      const cap = state.captureFps === "auto" ? state.side.fps : Number(state.captureFps);
+      if (state.captureFps === "guess") {
+        // each speed it could have been filmed at, and the one that puts his step rate nearest a sprinter's (about 4.2 a second)
+        const tries = slowMoCaps(state.side).map((c) => {
+          state.guessCap = c;
+          const r = kind.analyze({ variant: state.variant, extras: state.extras || {}, side: state.side.tracked, edits: state.edits, weightKg: null, heightIn: Number(state.heightIn) || null, captureFps: c, sideScale: state.side.fps / c, events: manual || state.manual });
+          const sr = (r.metrics.find((m) => m.key === "stepRate") || {}).value;
+          return { c, sr: typeof sr === "number" && sr > 0 ? sr : null };
+        });
+        const scored = tries.filter((x) => x.sr != null);
+        const best = scored.length ? scored.reduce((b, x) => (Math.abs(Math.log(x.sr / 4.2)) < Math.abs(Math.log(b.sr / 4.2)) ? x : b)) : tries[0];
+        state.guessCap = best.c; state.guessWhy = tries;
+      }
+      const cap = capOf(state.side);
       state.result = kind.analyze({ variant: state.variant, extras: state.extras || {},
         side: state.side.tracked, edits: state.edits, weightKg: state.weightLb ? state.weightLb * 0.4536 : null, elbowDepth: state.elbowDepth !== false, behind: state.setup === "two" ? state.behind.tracked : null, throws: state.throws, heightIn: Number(state.heightIn) || null,
         captureFps: cap, sideScale: scaleOf(state.side), behindScale: state.setup === "two" ? scaleOf(state.behind) : 1, events: manual || state.manual,
@@ -1859,7 +1941,8 @@
       const tooFast = fsbr && typeof fsbr.value === "number" && fsbr.value < 110 && state.cap >= 200;
       const timing = el("div", { class: "mc-row" },
         el("label", null, "Recorded at", el("select", { onchange: (e) => { state.captureFps = e.target.value; compute(); render(); } },
-          [["auto", `The file's own speed (${state.side.fps} fps)`], ["240", "240 fps slow motion"], ["120", "120 fps slow motion"], ["60", "60 fps"]].map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t)))),
+          captureChoices(state.side.fps).map(([v, t]) => el("option", { value: v, selected: String(state.captureFps) === v }, t)))),
+        state.captureFps === "guess" && state.guessWhy ? el("p", { class: "mc-hint" }, `Timed as ${state.guessCap} fps slow motion: ${state.guessWhy.filter((x) => x.sr != null).map((x) => `at ${x.c} his steps come to ${x.sr} a second`).join(", ") || "his steps couldn't be counted"} (a sprinter takes about 4). Choose the speed above if you know it.`) : null,
         tooFast ? el("p", { class: "mc-warn" }, `Foot strike to release is only ${fsbr.value} ms, quicker than any pitcher: this was most likely filmed at 120 fps slow motion (the iPhone's usual setting), not 240. `,
           el("button", { type: "button", class: "mc-btn small", onclick: () => { state.captureFps = "120"; compute(); render(); } }, "Use 120 fps")) : null);
       const table = metricsTable(R.metrics);
@@ -2090,7 +2173,21 @@
       let vidStop = false;
       const vidCancel = el("button", { type: "button", class: "mc-btn ghost small", hidden: true, onclick: () => { vidStop = true; } }, "Cancel");
       const vidFill = el("input", { type: "checkbox" });
+      const vidSkel = el("input", { type: "checkbox", checked: !state.hideSkel }); // the skeleton on the video, or not
+      // a start: the video follows him, zoomed in (his height three quarters of the frame), with his steps counted as they land
+      const SV = R.sprintVideo || null;
+      const vidFollow = el("input", { type: "checkbox", checked: !!SV });
       const vidSave = el("button", { type: "button", class: "mc-btn small", hidden: true }, "Save to camera roll");
+      // feet and inches from inches: 3' 4"
+      const ftInText = (inch) => { if (inch == null || !isFinite(inch)) return "–"; const r = Math.round(inch); return `${Math.floor(r / 12)}' ${r % 12}"`; };
+      // where to look in each frame when following him: his hips, smoothed over a quarter second so the picture glides
+      const followView = () => {
+        // (smoothed over 0.4 s of the video as it plays, whatever it was filmed at)
+        const n = R.pts.length, H = (R.Hpx || tr.H * 0.4) / 0.75, stepT = tr.step || (tr.frames[n - 1].t - tr.frames[0].t) / Math.max(1, n - 1), half = Math.max(2, Math.round(0.4 / Math.max(1e-3, stepT)));
+        const hip = R.pts.map((q) => (q ? [(q[23][0] + q[24][0]) / 2, (q[23][1] + q[24][1]) / 2] : null));
+        const sm = hip.map((_, i) => { let sx = 0, sy = 0, c = 0; for (let k = Math.max(0, i - half); k <= Math.min(n - 1, i + half); k++) if (hip[k] && isFinite(hip[k][0])) { sx += hip[k][0]; sy += hip[k][1]; c++; } return c ? [sx / c, sy / c] : null; });
+        return (i) => (sm[i] ? { cx: sm[i][0], cy: sm[i][1] - (R.Hpx || 0) * 0.05, h: H } : null);
+      };
       const exportVideo = async (layout) => {
         const VE = window.VideoExport;
         if (!VE || !VE.supported()) { vidMsg.textContent = "This browser can't make videos: use Chrome or Edge on a computer, Chrome on Android or a recent iPhone."; return; }
@@ -2098,9 +2195,51 @@
         stopPlay();
         vidStop = false; vidCancel.hidden = false; vidSave.hidden = true;
         const who = athlete.name || "", what = kind.label || "Pitching";
-        const rows = (R.metrics || []).filter((m) => m.value != null && m.value !== "").slice(0, 9)
+        let rows = (R.metrics || []).filter((m) => m.value != null && m.value !== "").slice(0, 9)
           .map((m) => { const u = String(m.unit || "").replace(/^° .*/, "°"); return [m.label.replace(/ \(estimate\)$/, ""), `${m.value}${!u ? "" : /^[°%]/.test(u) ? u : ` ${u}`}`]; });
+        if (SV) {
+          // a start: yards and feet only. The steps it took to 5, 10 and 20 yards (against the standard), his timed 10-yard
+          // start (Group Testing: the session's day, else his latest before it; the clip's own time isn't a timing gate's)
+          // and the first two steps' power
+          let timed = null;
+          try {
+            const S = window.AthleteStore, day = dateOf();
+            const list = S && S.loadKpiEntries ? (await S.loadKpiEntries(athlete.id)) || [] : [];
+            const tens = list.filter((e) => e.kpiId === "10-yard-start" && e.date && e.date <= day).sort((a, b) => b.date.localeCompare(a.date));
+            const e = tens[0];
+            if (e) { const v = parseFloat(e.best != null ? e.best : e.value); if (v > 0) timed = { v, date: e.date, same: e.date === day }; }
+          } catch (err) { timed = null; }
+          const mdText = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+          rows = [
+            ...SV.reach.filter((r) => r.covered).map((r) => [`Steps to ${r.yd} yd`, r.steps == null ? "–" : `${r.steps}  (standard ${r.std})`]),
+            ...(timed ? [[timed.same ? "10 yd start (timed)" : `10 yd start (timed ${mdText(timed.date)})`, `${timed.v.toFixed(2)} s`]] : []),
+            ...SV.power.map((p) => [`Step ${p.n} power (est.)`, p.w != null ? `${p.w.toLocaleString()} W` : p.wkg != null ? `${p.wkg} W/kg` : "–"]),
+            ["Steps counted", `${SV.marks.length}`],
+          ];
+        }
+        const view = SV && vidFollow.checked ? followView() : null;
         const t0 = tr.frames[0].t, t1 = tr.frames[tr.frames.length - 1].t;
+        // the step counter on the video: the steps landed by now, the last one's length, and each 5, 10 and 20 yards as he
+        // gets there, in the video's top left corner
+        const counter = (g, area, i) => {
+          if (!SV) return;
+          const landed = SV.marks.filter((m) => m.i <= i), last = landed[landed.length - 1];
+          const big = Math.round(area.h * 0.075), small = Math.round(area.h * 0.032), x = area.x + area.w * 0.03;
+          let y = area.y + area.h * 0.05;
+          const boxW = area.w * 0.3;
+          const lines = SV.reach.filter((r) => r.i != null && r.i <= i).map((r) => `${r.yd} yd: ${r.steps} steps (standard ${r.std})`);
+          const recent = landed.slice(-4).map((m) => `Step ${m.n}: ${ftInText(m.lenIn)}`);
+          const boxH = big * 1.3 + (recent.length + lines.length) * small * 1.35 + small;
+          g.save();
+          g.fillStyle = "rgba(0,0,0,0.55)"; g.fillRect(x - 14, y - 10, boxW, boxH);
+          g.fillStyle = "#fff"; g.font = `800 ${big}px "Helvetica Neue", Arial, sans-serif`; g.textBaseline = "top";
+          g.fillText(`STEP ${landed.length}`, x, y); y += big * 1.3;
+          g.font = `600 ${small}px "Helvetica Neue", Arial, sans-serif`;
+          recent.forEach((t, k) => { g.fillStyle = k === recent.length - 1 ? "#fff" : "rgba(255,255,255,0.65)"; g.fillText(t, x, y); y += small * 1.35; });
+          g.fillStyle = "#ffd166"; lines.forEach((t) => { g.fillText(t, x, y); y += small * 1.35; });
+          g.restore();
+          void last;
+        };
         try {
           const blob = await VE.render({
             layout, fill: vidFill.checked, cancelled: () => vidStop,
@@ -2108,7 +2247,12 @@
             onProgress: (text, fr) => { vidMsg.textContent = `${text}… ${Math.round(fr * 100)}% (keep this tab open)`; },
             segments: [{
               url: f.video.currentSrc || f.video.src, start: t0, end: t1, rate: 1,
-              overlay: (g, rect, info) => { if (state.hideSkel) return; const i = nearest(info.t), s = rect.w / tr.W; g.translate(rect.x, rect.y); drawSkeleton(g, R.pts[i], s, s, state.throws, hiddenAt(i)); },
+              view: view ? (info) => view(nearest(info.t)) : undefined,
+              overlay: (g, rect, info) => {
+                const i = nearest(info.t), s = rect.w / tr.W;
+                if (vidSkel.checked) { g.save(); g.translate(rect.x, rect.y); drawSkeleton(g, R.pts[i], s, s, state.throws, hiddenAt(i)); g.restore(); }
+                if (info.area) counter(g, info.area, i);
+              },
               panel: (g, box, info) => {
                 const i = nearest(info.t), ev = Object.entries(R.events).find(([, j]) => Math.abs(j - i) <= 1), ms = msOf(i);
                 VE.panel(g, box, { name: who, sub: [dateOf(), what, variantName(state.variant)].filter(Boolean).join(" · "),
@@ -2133,8 +2277,12 @@
           el("button", { type: "button", class: "mc-btn ghost small", title: "16:9, his numbers on the right: a computer or TV", onclick: () => exportVideo("horizontal") }, "Export horizontal"),
           el("button", { type: "button", class: "mc-btn ghost small", title: "9:16, his numbers along the bottom: a phone", onclick: () => exportVideo("vertical") }, "Export vertical"),
           el("label", { class: "mc-keep", title: "Zoom the video in to fill its area, trimming the edges, instead of showing all of it with bars beside it" }, vidFill, " Fill the frame"),
+          el("label", { class: "mc-keep", title: "Draw the skeleton over him in the video" }, vidSkel, " Skeleton"),
+          SV ? el("label", { class: "mc-keep", title: "Zoom in on him (his height three quarters of the frame) and follow him as he runs" }, vidFollow, " Follow him") : null,
           vidCancel, vidSave, vidMsg),
-        el("p", { class: "mc-hint" }, "An MP4 of this clip with the skeleton (if it's showing), the moment, his numbers, his name and the DST logo, made on this device and downloaded. Nothing is stored.")) : null;
+        el("p", { class: "mc-hint" }, SV
+          ? "An MP4 of the run, following him, with his steps counted as they land (each one's length), the steps to 5, 10 and 20 yards against the standard (4, 7, 12), his timed 10-yard start from Group Testing (that day's, else his latest), the first two steps' power, his name and the DST logo. Made on this device and downloaded; nothing is stored."
+          : "An MP4 of this clip with the skeleton (if it's ticked), the moment, his numbers, his name and the DST logo, made on this device and downloaded. Nothing is stored.")) : null;
       const reportRow = el("div", { class: "mc-report" },
         el("div", { class: "mc-row" }, el("b", null, "Report"),
           el("button", { type: "button", class: "mc-btn ghost small", onclick: printIt }, "Print"),
