@@ -4616,3 +4616,7 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .roster-switch-btn + .roster-switch-btn { border-left: 1px solid var(--border); }
 .roster-switch-btn:hover { color: var(--text); }
 .roster-switch-btn.on { background: var(--dst-red); color: #fff; }
+
+/* ---- Performance Metrics: Group Testing ---- */
+.gt-test + .gt-test { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.gt-test h3 { margin: 0 0 8px; font-size: 14px; }

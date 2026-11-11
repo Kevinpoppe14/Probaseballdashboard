@@ -227,7 +227,7 @@
                 <tr key={r.id}>
                   <td className="tl-ex">{r.kpiName}</td>
                   <td className="tl-done">{r.value}{u}</td>
-                  <td>{r.avg != null ? r.avg : r.value}{u}</td>
+                  <td>{r.noAvg ? "–" : <React.Fragment>{r.avg != null ? r.avg : r.value}{u}</React.Fragment>}</td>
                   <td className="tl-when">{(Array.isArray(r.trials) && r.trials.length ? r.trials : [r.value]).join(", ")}</td>
                 </tr>
               );
@@ -326,6 +326,13 @@
     vitDays.forEach((v) => put(v.date, { kind: "vitruve", v, short: "Vitruve", label: `Vitruve · ${v.rows.length} row${v.rows.length === 1 ? "" : "s"}` }));
     const kpiDays = {};
     kpis.forEach((r) => { if (r.date) (kpiDays[r.date] = kpiDays[r.date] || []).push(r); });
+    // force plate jumps (Hawkin, OVR Force) with that day's testing: the jump height, and its mRSI and power beside it
+    (store.getForceTests ? store.getForceTests(athlete.id) : []).forEach((t) => {
+      if (!t.date || typeof t.jumpHeight !== "number") return;
+      const bits = [typeof t.rsiModified === "number" ? `mRSI ${t.rsiModified.toFixed(2)}` : "", typeof t.relativePeakPower === "number" ? `${t.relativePeakPower.toFixed(1)} W/kg` : "",
+        t.source === "ovr-force" ? "OVR Force" : t.source === "hawkin-sync" ? "Hawkin" : ""].filter(Boolean);
+      (kpiDays[t.date] = kpiDays[t.date] || []).push({ id: `cmj-${t.date}`, kpiName: "CMJ jump height", value: Math.round(t.jumpHeight * 10) / 10, unit: "in", noAvg: true, trials: [bits.join(" · ") || "force plate"] });
+    });
     Object.entries(kpiDays).forEach(([d, rows]) => put(d, { kind: "test", rows, short: rows.length === 1 ? rows[0].kpiName.replace(/ \(OVR\)$/, "") : `${rows.length} tests`, label: rows.map((r) => r.kpiName).join(", ") }));
     const days = Object.keys(byDay).sort();
     const newest = days[days.length - 1];
