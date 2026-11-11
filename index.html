@@ -4363,7 +4363,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4398,6 +4398,11 @@ function TopBar({ view, onHome, onGoTeamReport, onGoPlayers, onGoNews, onGoFacil
         <button className={`nav-tab ${view === "teamreport" ? "active" : ""}`} onClick={onGoTeamReport}>
           Team Reports
         </button>
+        {onGoLeaderboard && (
+          <button className={`nav-tab ${view === "leaderboard" ? "active" : ""}`} onClick={onGoLeaderboard}>
+            Leaderboard
+          </button>
+        )}
         <button className={`nav-tab ${view === "programs" ? "active" : ""}`} onClick={onGoPrograms}>
           Programs
         </button>
@@ -8733,6 +8738,156 @@ function TeamContactsPanel({ team }) {
   );
 }
 
+// ---- Leaderboard: the pro roster ranked on every measured metric ----------------------------------------------
+// Every force plate metric (Hawkin and OVR Force jumps) and every Group Testing test (10-yard starts, squat jumps,
+// IMTP…), the pro roster only (not High School & Youth, not coaches), filtered by location, position and how far
+// back. Each athlete's number is his best in that window (his latest, on "Latest"); for a metric where neither way
+// is better (body weight, countermovement depth) it's his latest in the window, sorted high to low. The overview shows
+// each metric's top five; a metric opens to everyone ranked.
+const LB_LOWER = new Set(["timeToTakeoff"]); // force plate metrics where lower is better
+const LB_NEUTRAL = new Set(["bodyWeightLbs", "countermovementDepth"]); // ...and where neither way is
+const LB_PERIODS = [["latest", "Latest test"], ["30", "Best, last 30 days"], ["90", "Best, last 90 days"], ["365", "Best, last year"], ["all", "Best, all time"]];
+const LB_POSITIONS = ["Pitcher", "Catcher", "Infield", "Outfield"];
+
+function LeaderboardPage({ onSelect, dataVersion }) {
+  const S = window.AthleteStore;
+  const [kpis, setKpis] = useState(null); // every Group Testing result, as { athleteId, ...data }
+  const [loc, setLoc] = useState("All");
+  const [pos, setPos] = useState("All");
+  const [period, setPeriod] = useState("90");
+  const [metric, setMetric] = useState(null); // null: the overview
+  React.useEffect(() => {
+    let live = true;
+    (async () => {
+      const sb = window.supabaseClient, out = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("kpi_entries").select("athlete_id,data").range(from, from + 999);
+        if (error || !data) break;
+        data.forEach((r) => out.push({ ...r.data, athleteId: String(r.athlete_id) }));
+        if (data.length < 1000) break;
+      }
+      if (live) setKpis(out);
+    })().catch(() => { if (live) setKpis([]); });
+    return () => { live = false; };
+  }, [dataVersion]);
+
+  // the pro roster, filtered
+  const athletes = getRoster().filter((a) => !isHsYouth(a) && (a.status || "active").toLowerCase() === "active"
+    && (loc === "All" || (loc === CUBS_LOCATION_LABEL ? a.rosterGroup === CUBS_ROSTER_GROUP : a.dstLocation === loc))
+    && (pos === "All" || a.position === pos));
+  const today = new Date(new Date().toDateString()).getTime();
+  const inWindow = (date) => period === "latest" || period === "all" || (today - new Date(`${date}T12:00:00`).getTime()) / 864e5 <= Number(period);
+  const fmtV = (v, unit) => (v == null ? "–" : `${Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : Math.round(v * 100) / 100}${unit ? ` ${unit}` : ""}`);
+
+  // every metric: { key, label, unit, better: "higher" | "lower" | null, rows: [{ a, v, date, n }] }
+  const metrics = [];
+  FORCE_KPI_METRICS.forEach((m) => {
+    const better = LB_NEUTRAL.has(m.key) ? null : LB_LOWER.has(m.key) ? "lower" : "higher";
+    const rows = [];
+    athletes.forEach((a) => {
+      const pts = S.getForceTests(a.id).map((t) => ({ date: t.date, v: m.getValue(t) })).filter((p) => p.date && typeof p.v === "number" && inWindow(p.date)).sort((x, y) => x.date.localeCompare(y.date));
+      if (!pts.length) return;
+      const pick = period === "latest" || !better ? pts[pts.length - 1] : pts.reduce((b, p) => ((better === "lower" ? p.v < b.v : p.v > b.v) ? p : b));
+      rows.push({ a, v: pick.v, date: pick.date, n: pts.length });
+    });
+    metrics.push({ key: `force:${m.key}`, group: "Force plate (CMJ)", label: m.label, unit: m.unit, better, rows });
+  });
+  const ids = new Set(athletes.map((a) => String(a.id)));
+  const byTest = new Map();
+  (kpis || []).forEach((e) => { if (!e.kpiId || !e.date || !ids.has(e.athleteId)) return; if (!byTest.has(e.kpiId)) byTest.set(e.kpiId, []); byTest.get(e.kpiId).push(e); });
+  [...byTest.values()].sort((x, y) => x[0].kpiName.localeCompare(y[0].kpiName)).forEach((list) => {
+    const d = list[list.length - 1], better = d.better === "lower" ? "lower" : "higher";
+    const valOf = (e) => { const b = parseFloat(e.best != null ? e.best : e.value); return Number.isFinite(b) ? b : null; };
+    const rows = [];
+    athletes.forEach((a) => {
+      const pts = list.filter((e) => e.athleteId === String(a.id) && inWindow(e.date)).map((e) => ({ date: e.date, v: valOf(e) })).filter((p) => p.v != null).sort((x, y) => x.date.localeCompare(y.date));
+      if (!pts.length) return;
+      const pick = period === "latest" ? pts[pts.length - 1] : pts.reduce((b, p) => ((better === "lower" ? p.v < b.v : p.v > b.v) ? p : b));
+      rows.push({ a, v: pick.v, date: pick.date, n: pts.length });
+    });
+    metrics.push({ key: `kpi:${d.kpiId}`, group: "Group Testing", label: d.kpiName, unit: d.unit || "", better, rows });
+  });
+  metrics.forEach((m) => m.rows.sort((x, y) => (m.better === "lower" ? x.v - y.v : y.v - x.v) || lastNameOnly(x.a.name).localeCompare(lastNameOnly(y.a.name))));
+  const shown = metrics.filter((m) => m.rows.length);
+  const open = metric && shown.find((m) => m.key === metric);
+  const sortWord = (m) => (m.better === "lower" ? "lower is better" : m.better === "higher" ? "higher is better" : "high to low");
+
+  return (
+    <div>
+      <div className="panel">
+        <h2>Leaderboard <small>the pro roster on every measured metric · {athletes.length} athlete{athletes.length === 1 ? "" : "s"}</small></h2>
+        <div className="lb-filters">
+          <label>Location
+            <select value={loc} onChange={(e) => setLoc(e.target.value)}>
+              <option value="All">All locations</option>
+              {DST_LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+              <option value={CUBS_LOCATION_LABEL}>{CUBS_LOCATION_LABEL}</option>
+            </select>
+          </label>
+          <label>Position
+            <select value={pos} onChange={(e) => setPos(e.target.value)}>
+              <option value="All">All positions</option>
+              {LB_POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+          <label>Results
+            <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+              {LB_PERIODS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+            </select>
+          </label>
+          <label>Metric
+            <select value={metric || ""} onChange={(e) => setMetric(e.target.value || null)}>
+              <option value="">Every metric (top five)</option>
+              {["Force plate (CMJ)", "Group Testing"].map((g) => (
+                <optgroup key={g} label={g}>{shown.filter((m) => m.group === g).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</optgroup>
+              ))}
+            </select>
+          </label>
+          {kpis == null && <span className="lb-note">Loading Group Testing…</span>}
+        </div>
+      </div>
+
+      {open ? (
+        <div className="panel">
+          <h2>{open.label} <small>{open.group} · {sortWord(open)} · {open.rows.length} athlete{open.rows.length === 1 ? "" : "s"}</small> <button className="btn-link" onClick={() => setMetric(null)}>‹ Every metric</button></h2>
+          <div className="bp-table-wrap">
+            <table className="assess-table lb-table">
+              <thead><tr><th>#</th><th>Athlete</th><th>Location</th><th>Position</th><th>{period === "latest" ? "Latest" : "Best"}</th><th>Date</th><th>Tests</th></tr></thead>
+              <tbody>
+                {open.rows.map((r, i) => (
+                  <tr key={r.a.id} className="lb-row" onClick={() => onSelect(r.a.id)}>
+                    <td className="lb-rank">{i + 1}</td>
+                    <td><b>{r.a.name}</b></td>
+                    <td>{r.a.rosterGroup === CUBS_ROSTER_GROUP && !r.a.dstLocation ? CUBS_LOCATION_LABEL : r.a.dstLocation || "–"}</td>
+                    <td>{r.a.position || "–"}</td>
+                    <td><b>{fmtV(r.v, open.unit)}</b></td>
+                    <td>{shortDate(r.date)}</td>
+                    <td>{r.n}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="lb-grid">
+          {!shown.length && <div className="panel"><div className="empty-state">No results for these filters. Try a longer time window or All locations.</div></div>}
+          {shown.map((m) => (
+            <div key={m.key} className="panel lb-card" onClick={() => setMetric(m.key)} title="Open the full ranking">
+              <h3>{m.label} <small>{m.unit}</small></h3>
+              <div className="lb-card-sub">{m.group} · {sortWord(m)} · {m.rows.length} ranked</div>
+              <ol>
+                {m.rows.slice(0, 5).map((r) => <li key={r.a.id}><span>{r.a.name}</span><b>{fmtV(r.v, "")}</b></li>)}
+              </ol>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="bc-note">Force plate numbers come from Hawkin and OVR Force jumps; OVR Force works jump height out its own way, so its heights read a little higher than Hawkin&apos;s. Group Testing results are entered in Coach Mode. Click a name to open the athlete.</p>
+    </div>
+  );
+}
+
 function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
   const roster = getRoster().filter((a) => (a.status || "active").toLowerCase() === "active");
   // Every known league is always selectable; any custom league already on the roster is added after them.
@@ -10041,6 +10196,7 @@ function App({ userEmail, onLogout }) {
 
   const goImport = () => setView("import");
   const goTeamReport = () => setView("teamreport");
+  const goLeaderboard = () => setView("leaderboard");
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goFacilities = () => setView("facilities");
@@ -10171,6 +10327,7 @@ function App({ userEmail, onLogout }) {
         onGoTeamReport={goTeamReport}
         onGoPlayers={goPlayers}
         onGoNews={goNews}
+        onGoLeaderboard={goLeaderboard}
         onGoFacilities={goFacilities}
         showFacilities={locationFilter === CUBS_LOCATION_LABEL}
         onGoPrograms={goPrograms}
@@ -10234,6 +10391,7 @@ function App({ userEmail, onLogout }) {
           />
         )}
         {view === "teamreport" && <TeamReportPage onSelect={selectAthlete} dataVersion={dataVersion} onEditPeriodization={editPeriodization} />}
+        {view === "leaderboard" && <LeaderboardPage onSelect={selectAthlete} dataVersion={dataVersion} />}
         {view === "players" && <PlayerProfilesPage onSelect={selectAthlete} dataVersion={dataVersion} onDataChange={bumpVersion} />}
         {view === "news" && (window.NewsPage
           ? <window.NewsPage dataVersion={dataVersion} />

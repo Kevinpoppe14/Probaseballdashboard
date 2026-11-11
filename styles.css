@@ -4620,3 +4620,23 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 /* ---- Performance Metrics: Group Testing ---- */
 .gt-test + .gt-test { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 .gt-test h3 { margin: 0 0 8px; font-size: 14px; }
+
+/* ---- Leaderboard ---- */
+.lb-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.lb-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.lb-filters select { min-width: 170px; }
+.lb-note { font-size: 12px; color: var(--text-dim); }
+.lb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.lb-grid .panel { margin: 0; }
+.lb-card { cursor: pointer; }
+.lb-card:hover { border-color: var(--dst-red); }
+.lb-card h3 { margin: 0; font-size: 14px; }
+.lb-card h3 small { color: var(--text-dim); font-weight: 400; }
+.lb-card-sub { font-size: 11px; color: var(--text-dim); margin: 2px 0 8px; }
+.lb-card ol { margin: 0; padding-left: 20px; font-size: 13px; }
+.lb-card li { padding: 2px 0; }
+.lb-card li span { display: inline-block; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.lb-card li b { float: right; }
+.lb-row { cursor: pointer; }
+.lb-row:hover td { background: var(--btn-bg); }
+.lb-rank { font-weight: 700; color: var(--text-dim); width: 32px; }
