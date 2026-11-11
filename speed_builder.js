@@ -994,6 +994,8 @@
             {days < 7 && <button className="btn btn-secondary" onClick={addDay} title="Add a day to every week">+ Add day</button>}
           </div>
         )}
+        {/* what it has done for the athletes who ran it (a library program, not an athlete's own copy) */}
+        {initial && initial.id && !initial.athleteId && window.ProgramResultsPanel && <window.ProgramResultsPanel templateId={initial.id} />}
         {seriesAt != null && window.SeriesInsertDialog && <window.SeriesInsertDialog weeks={draft.weeks} wi={seriesAt} sectionsLayout newDaySections={newDaySections} allowNewDay={!fromProgression} onInsert={insertSeries} onClose={() => setSeriesAt(null)} />}
       </div>
     );

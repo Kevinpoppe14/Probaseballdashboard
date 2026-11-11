@@ -4640,3 +4640,4 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .lb-row { cursor: pointer; }
 .lb-row:hover td { background: var(--btn-bg); }
 .lb-rank { font-weight: 700; color: var(--text-dim); width: 32px; }
+.lb-plate { color: var(--text-dim); font-weight: 400; }

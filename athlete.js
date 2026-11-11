@@ -342,6 +342,8 @@
   let view = "program"; // "program" (this week's training), "plan" (the player plan), "progress" or "equipment" (remote athletes)
   let tests = null; // the athlete's Group Testing results, loaded after the program is on screen
   let cmjTests = []; // their force plate (CMJ) tests, for the Progress tab's jump graphs, loaded the same way
+  // countermovement jumps only (the force plate's other tests, a squat jump or a plyo push-up, don't compare; see store.js)
+  const isCmjTest = (t) => { const ty = String((t && t.testType) || "").trim().toLowerCase(); return !ty || ty === "countermovement jump" || ty === "cmj"; };
   let logTimes = {}; // "<program id>|<key>" -> when it was entered, for the Plan tab's Training Log calendar
   let bodyComp = null; // { scans, sheets }: their Evolt scans and manual body comp sheets, loaded the same way
   let nutrition = null; // the nutrition plan as the dashboard wrote it out for the phone (nutrition.js), loaded the same way
@@ -3812,7 +3814,7 @@
     // testing results are only needed for the Progress tab and the end-of-session summary, so they don't hold up the program
     api.tests().catch(() => []).then((t) => { tests = Array.isArray(t) ? t : []; if (view === "progress") render(); });
     api.bodyComp().catch(() => null).then((b) => { bodyComp = b; if (view === "progress" && b) render(); });
-    api.cmj().catch(() => []).then((c) => { cmjTests = Array.isArray(c) ? c : []; if (view === "progress" && cmjTests.length) render(); });
+    api.cmj().catch(() => []).then((c) => { cmjTests = (Array.isArray(c) ? c : []).filter(isCmjTest); if (view === "progress" && cmjTests.length) render(); });
     // the last two weeks of the food log (none until migration_023 has been run)
     api.foodLog(shiftDay(todayKey(), -14)).catch(() => null).then((rows) => {
       if (!Array.isArray(rows)) return;

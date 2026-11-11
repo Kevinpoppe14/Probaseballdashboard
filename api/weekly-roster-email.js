@@ -351,7 +351,10 @@ module.exports = async (req, res) => {
       .filter((a) => a && a.rosterGroup !== "coaches" && a.rosterGroup !== "hs-youth" && (a.status || "active").toLowerCase() === "active"); // (the High School & Youth roster isn't pro baseball)
 
     const testsByAthlete = new Map();
-    forceTestRows.forEach((r) => {
+    // countermovement jumps only: the Hawkin sync also brings in squat and drop jumps, multi rebounds, plyo push-ups,
+    // isometric pulls, weigh-ins and arm-swing or weighted CMJs, which aren't comparable (see isCmjTest in store.js)
+    const isCmj = (d) => { const ty = String((d && d.testType) || "").trim().toLowerCase(); return !ty || ty === "countermovement jump" || ty === "cmj"; };
+    forceTestRows.filter((r) => isCmj(r.data)).forEach((r) => {
       const list = testsByAthlete.get(r.athlete_id) || [];
       list.push(r.data);
       testsByAthlete.set(r.athlete_id, list);

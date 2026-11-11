@@ -70,6 +70,7 @@
 <script src="holiday.js"></script>
 <script src="tour.js"></script>
 <script src="program_rx.js"></script>
+<script src="program_results.js"></script>
 <script src="whats_new.js"></script>
 <script src="program_pdf.js"></script>
 <script type="text/babel" data-presets="react" src="app_ask.js"></script>
@@ -2288,6 +2289,8 @@ function StandardProgramEditor({ initial, onSave, onCancel, onDelete, onDirty, c
       ))}
       <button className="program-add-week" title="Adds a week that copies the one before it" onClick={() => edit((d) => { const n = d.weeks.length; d.weeks.push(n ? copyWeek(d.weeks[n - 1], n + 1) : newWeek(1)); })}>+ Add week (copies the last week)</button>
 
+      {/* what it has done for the athletes who ran it (a library program, not an athlete's own copy) */}
+      {initial && initial.id && !initial.athleteId && window.ProgramResults && <ProgramResultsPanel templateId={initial.id} />}
       {seriesAt != null && window.SeriesInsertDialog && <window.SeriesInsertDialog weeks={draft.weeks} wi={seriesAt.wi} day={seriesAt.day} onInsert={insertSeries} onClose={() => setSeriesAt(null)} />}
       {progress && window.ProgramProgressDialog && (
         <window.ProgramProgressDialog
@@ -4363,7 +4366,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoProgramResults, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4401,6 +4404,11 @@ function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, on
         {onGoLeaderboard && (
           <button className={`nav-tab ${view === "leaderboard" ? "active" : ""}`} onClick={onGoLeaderboard}>
             Leaderboard
+          </button>
+        )}
+        {onGoProgramResults && (
+          <button className={`nav-tab ${view === "programresults" ? "active" : ""}`} onClick={onGoProgramResults} title="Only you see this">
+            Program Results
           </button>
         )}
         <button className={`nav-tab ${view === "programs" ? "active" : ""}`} onClick={onGoPrograms}>
@@ -7615,7 +7623,8 @@ function resolveValdAthlete(rawName) {
 // (cmj_norms.js) only scores tests that carry a `.raw` object shaped like Hawkin's API response,
 // so this is what lets a VALD-sourced test show up there at all.
 function valdTransformEntry(entry) {
-  const bwKg = typeof entry.bodyWeightKg === "number" ? entry.bodyWeightKg : null;
+  // (VALD exports -1 for a test with no body weight: missing, not a mass, or weight, power and momentum go negative)
+  const bwKg = typeof entry.bodyWeightKg === "number" && entry.bodyWeightKg > 0 ? entry.bodyWeightKg : null;
   const jumpHeightM = typeof entry.jumpHeightCm === "number" ? entry.jumpHeightCm / 100 : null;
   const depthIn = typeof entry.countermovementDepthCm === "number" ? round2(entry.countermovementDepthCm * 0.393701) : null;
   const peakPowerW = typeof entry.peakPowerW === "number" ? entry.peakPowerW : null;
@@ -8748,6 +8757,8 @@ const LB_LOWER = new Set(["timeToTakeoff"]); // force plate metrics where lower 
 const LB_NEUTRAL = new Set(["bodyWeightLbs", "countermovementDepth"]); // ...and where neither way is
 const LB_PERIODS = [["latest", "Latest test"], ["30", "Best, last 30 days"], ["90", "Best, last 90 days"], ["365", "Best, last year"], ["all", "Best, all time"]];
 const LB_POSITIONS = ["Pitcher", "Catcher", "Infield", "Outfield"];
+// which force plate a number came from, shown by the name: the two plates read a jump a little differently
+const lbPlate = (src) => ({ "hawkin-sync": "Hawkin", "vald-import": "VALD", "ovr-force": "OVR" }[src] || "");
 
 function LeaderboardPage({ onSelect, dataVersion }) {
   const S = window.AthleteStore;
@@ -8785,10 +8796,10 @@ function LeaderboardPage({ onSelect, dataVersion }) {
     const better = LB_NEUTRAL.has(m.key) ? null : LB_LOWER.has(m.key) ? "lower" : "higher";
     const rows = [];
     athletes.forEach((a) => {
-      const pts = S.getForceTests(a.id).map((t) => ({ date: t.date, v: m.getValue(t) })).filter((p) => p.date && typeof p.v === "number" && inWindow(p.date)).sort((x, y) => x.date.localeCompare(y.date));
+      const pts = S.getForceTests(a.id).map((t) => ({ date: t.date, v: m.getValue(t), src: t.source })) .filter((p) => p.date && typeof p.v === "number" && inWindow(p.date)).sort((x, y) => x.date.localeCompare(y.date));
       if (!pts.length) return;
       const pick = period === "latest" || !better ? pts[pts.length - 1] : pts.reduce((b, p) => ((better === "lower" ? p.v < b.v : p.v > b.v) ? p : b));
-      rows.push({ a, v: pick.v, date: pick.date, n: pts.length });
+      rows.push({ a, v: pick.v, date: pick.date, n: pts.length, src: pick.src });
     });
     metrics.push({ key: `force:${m.key}`, group: "Force plate (CMJ)", label: m.label, unit: m.unit, better, rows });
   });
@@ -8800,10 +8811,10 @@ function LeaderboardPage({ onSelect, dataVersion }) {
     const valOf = (e) => { const b = parseFloat(e.best != null ? e.best : e.value); return Number.isFinite(b) ? b : null; };
     const rows = [];
     athletes.forEach((a) => {
-      const pts = list.filter((e) => e.athleteId === String(a.id) && inWindow(e.date)).map((e) => ({ date: e.date, v: valOf(e) })).filter((p) => p.v != null).sort((x, y) => x.date.localeCompare(y.date));
+      const pts = list.filter((e) => e.athleteId === String(a.id) && inWindow(e.date)).map((e) => ({ date: e.date, v: valOf(e), src: e.source })).filter((p) => p.v != null).sort((x, y) => x.date.localeCompare(y.date));
       if (!pts.length) return;
       const pick = period === "latest" ? pts[pts.length - 1] : pts.reduce((b, p) => ((better === "lower" ? p.v < b.v : p.v > b.v) ? p : b));
-      rows.push({ a, v: pick.v, date: pick.date, n: pts.length });
+      rows.push({ a, v: pick.v, date: pick.date, n: pts.length, src: pick.src });
     });
     metrics.push({ key: `kpi:${d.kpiId}`, group: "Group Testing", label: d.kpiName, unit: d.unit || "", better, rows });
   });
@@ -8857,7 +8868,7 @@ function LeaderboardPage({ onSelect, dataVersion }) {
                 {open.rows.map((r, i) => (
                   <tr key={r.a.id} className="lb-row" onClick={() => onSelect(r.a.id)}>
                     <td className="lb-rank">{i + 1}</td>
-                    <td><b>{r.a.name}</b></td>
+                    <td><b>{r.a.name}</b>{lbPlate(r.src) && <small className="lb-plate"> ({lbPlate(r.src)})</small>}</td>
                     <td>{r.a.rosterGroup === CUBS_ROSTER_GROUP && !r.a.dstLocation ? CUBS_LOCATION_LABEL : r.a.dstLocation || "–"}</td>
                     <td>{r.a.position || "–"}</td>
                     <td><b>{fmtV(r.v, open.unit)}</b></td>
@@ -8877,13 +8888,224 @@ function LeaderboardPage({ onSelect, dataVersion }) {
               <h3>{m.label} <small>{m.unit}</small></h3>
               <div className="lb-card-sub">{m.group} · {sortWord(m)} · {m.rows.length} ranked</div>
               <ol>
-                {m.rows.slice(0, 5).map((r) => <li key={r.a.id}><span>{r.a.name}</span><b>{fmtV(r.v, "")}</b></li>)}
+                {m.rows.slice(0, 5).map((r) => <li key={r.a.id}><span>{r.a.name}{lbPlate(r.src) && <small className="lb-plate"> ({lbPlate(r.src)})</small>}</span><b>{fmtV(r.v, "")}</b></li>)}
               </ol>
             </div>
           ))}
         </div>
       )}
       <p className="bc-note">Force plate numbers come from Hawkin and OVR Force jumps; OVR Force works jump height out its own way, so its heights read a little higher than Hawkin&apos;s. Group Testing results are entered in Coach Mode. Click a name to open the athlete.</p>
+    </div>
+  );
+}
+
+// ---- Program results (program_results.js): what programs did for the athletes who ran them -----------------------
+// Every block on every plan that runs a program (an athlete's own copy counts toward the library program it came
+// from) and has started: its compliance, strength, force plate and body weight changes, worked out from what was
+// logged against it, his force plate tests and his weigh-ins. Loaded on demand (the logs aren't kept in memory).
+const KEVIN_EMAIL = "kevin@dynamicsportstraining.com";
+async function loadProgramResults(keep) {
+  const S = window.AthleteStore, PR = window.ProgramResults, sb = window.supabaseClient;
+  const programs = S.allPrograms(), people = getPeople();
+  const today = new Date().toISOString().slice(0, 10);
+  const items = [];
+  people.forEach((a) => {
+    const plan = S.getPeriodization(a.id);
+    if (!plan || !plan.startDate) return;
+    (plan.blocks || []).forEach((b) => {
+      if (!b.programId) return;
+      const program = programs.find((p) => p.id === b.programId);
+      if (!PR.reportable(program)) return;
+      const template = PR.templateOf(program, programs);
+      const { from } = PR.blockDates(plan, b);
+      if (from > today || (keep && !keep({ athlete: a, block: b, program, template }))) return;
+      items.push({ athlete: a, plan, block: b, program, template });
+    });
+  });
+  if (!items.length) return [];
+  // what was logged against those programs, and every weigh-in, for those athletes
+  const aids = [...new Set(items.map((i) => String(i.athlete.id)))], pids = [...new Set(items.map((i) => i.program.id))];
+  const rows = [];
+  const fetchAll = async (q) => { for (let from = 0; ; from += 1000) { const { data, error } = await q().range(from, from + 999); if (error || !data) break; rows.push(...data); if (data.length < 1000) break; } };
+  for (let i = 0; i < pids.length; i += 60) {
+    const chunk = pids.slice(i, i + 60);
+    await fetchAll(() => sb.from("athlete_logs").select("athlete_id,program_id,key,value").in("program_id", chunk).in("athlete_id", aids));
+  }
+  for (let i = 0; i < aids.length; i += 60) {
+    const chunk = aids.slice(i, i + 60);
+    await fetchAll(() => sb.from("athlete_logs").select("athlete_id,program_id,key,value").like("key", "bw-%").in("athlete_id", chunk));
+  }
+  const logOf = {}, weighRows = {};
+  rows.forEach((r) => {
+    if (/^bw-/.test(r.key || "")) (weighRows[r.athlete_id] = weighRows[r.athlete_id] || []).push(r);
+    const k = `${r.athlete_id}|${r.program_id}`;
+    (logOf[k] = logOf[k] || {})[r.key] = r.value;
+  });
+  return items.map((it) => {
+    const aid = String(it.athlete.id);
+    const planLog = ((it.plan.programLog || {})[it.program.id]) || {};
+    const result = window.ProgramResults.blockResult({
+      plan: it.plan, block: it.block, program: it.program, today,
+      log: { ...planLog, ...(logOf[`${aid}|${it.program.id}`] || {}) },
+      forceTests: S.getForceTests(it.athlete.id), weighins: window.ProgramResults.weighinsFrom(weighRows[aid]),
+    });
+    return { ...it, result, author: (it.template && it.template.createdBy) || it.program.createdBy || "", assignedBy: it.block.assignedBy || "" };
+  });
+}
+
+// the averages as a row of tiles
+function ProgramResultsTiles({ s }) {
+  const PR = window.ProgramResults;
+  const tile = (label, a, text) => <div><span>{label}</span><b>{a.value == null ? "–" : text(a.value)}</b><small>{a.n ? `${a.n} athlete${a.n === 1 ? "" : "s"}` : "no data yet"}</small></div>;
+  return (
+    <div className="bw-stats pr-tiles">
+      {tile("Compliance", s.compliance, (v) => `${Math.round(v * 100)}%`)}
+      {tile("Strength (est. 1RM)", s.strength, PR.pctText)}
+      {tile("Jump height", s.jumpHeight, (v) => PR.signed(v, "in"))}
+      {tile("Relative peak power", s.relativePeakPower, (v) => PR.signed(v, "W/kg"))}
+      {tile("mRSI", s.mRSI, (v) => PR.signed(v, "", 2))}
+      {tile("Body weight", s.bodyweight, (v) => PR.signed(v, "lb"))}
+    </div>
+  );
+}
+// one row per athlete's block
+function ProgramResultsTable({ list, onSelect, showProgram }) {
+  const PR = window.ProgramResults;
+  const name = (email) => (email ? coachNameFromEmail(email) : "–");
+  return (
+    <div className="bp-table-wrap">
+      <table className="assess-table pr-table">
+        <thead><tr><th>Athlete</th>{showProgram && <th>Program</th>}<th>Dates</th><th>Compliance</th><th>Strength</th><th>Jump height</th><th>Rel. power</th><th>mRSI</th><th>Body weight</th><th>Assigned by</th></tr></thead>
+        <tbody>
+          {list.map((x) => {
+            const r = x.result, c = r.cmj || {};
+            return (
+              <tr key={`${x.athlete.id}|${x.block.id}`} className={onSelect ? "lb-row" : ""} onClick={onSelect ? () => onSelect(x.athlete.id) : undefined} title={r.lifts.length ? r.lifts.map((l) => `${l.name}: ${l.early} → ${l.late} lb (${PR.pctText(l.pct)})`).join("\n") : ""}>
+                <td><b>{x.athlete.name}</b>{!r.complete && <small className="pr-live"> in progress</small>}</td>
+                {showProgram && <td>{x.program.name}</td>}
+                <td>{shortDate(r.from)} – {shortDate(r.to)}</td>
+                <td>{r.compliance == null ? "–" : `${Math.round(r.compliance * 100)}% (${r.done}/${r.scheduled})`}</td>
+                <td>{PR.pctText(r.strength)}{r.lifts.length ? <small> · {r.lifts.length} lift{r.lifts.length === 1 ? "" : "s"}</small> : null}</td>
+                <td>{c.jumpHeight ? PR.signed(c.jumpHeight.change, "in") : "–"}</td>
+                <td>{c.relativePeakPower ? PR.signed(c.relativePeakPower.change, "") : "–"}</td>
+                <td>{c.mRSI ? PR.signed(c.mRSI.change, "", 2) : "–"}</td>
+                <td>{r.bodyweight ? PR.signed(r.bodyweight.change, "lb") : "–"}</td>
+                <td>{name(x.assignedBy)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// In the program builder: what this program has done for the athletes who've run it (their own copies included)
+function ProgramResultsPanel({ templateId }) {
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState(false);
+  React.useEffect(() => {
+    let live = true;
+    if (!window.ProgramResults) return undefined;
+    loadProgramResults(({ template }) => template && template.id === templateId).then((r) => { if (live) setList(r); }).catch(() => { if (live) setList([]); });
+    return () => { live = false; };
+  }, [templateId]);
+  if (!list || !list.length) return null;
+  const done = list.filter((x) => x.result.complete);
+  const s = window.ProgramResults.summarize(done);
+  return (
+    <div className="panel pr-panel no-print">
+      <h2>Results <small>{done.length} athlete{done.length === 1 ? "" : "s"} finished it{list.length > done.length ? ` · ${list.length - done.length} on it now` : ""} · averages from the start of the block to its end</small></h2>
+      {done.length ? <ProgramResultsTiles s={s} /> : <div className="empty-state">No one has finished it yet. The averages show here once someone does.</div>}
+      <button className="btn-link" onClick={() => setOpen(!open)}>{open ? "Hide athletes" : `Show each athlete (${list.length})`}</button>
+      {open && <ProgramResultsTable list={list} />}
+      <p className="bc-note">Strength: each lift's best estimated 1RM in the first two weeks against the last two (hover a row for the lifts). Jump and body weight: the test or weigh-in nearest the start against the last one at the end. Compliance: sessions with anything logged out of those scheduled.</p>
+    </div>
+  );
+}
+
+window.ProgramResultsPanel = ProgramResultsPanel; // (the re-ed, speed and throwing builder shows it too)
+
+// Kevin's page: every program's results by the coach who wrote it, then by program, then by athlete
+function ProgramResultsPage({ onSelect }) {
+  const [list, setList] = useState(null);
+  const [coach, setCoach] = useState(null);
+  const [programId, setProgramId] = useState(null);
+  const [onlyDone, setOnlyDone] = useState(true);
+  React.useEffect(() => {
+    let live = true;
+    loadProgramResults(null).then((r) => { if (live) setList(r); }).catch(() => { if (live) setList([]); });
+    return () => { live = false; };
+  }, []);
+  const PR = window.ProgramResults;
+  if (!list) return <div className="panel"><div className="empty-state">Working out every program's results…</div></div>;
+  const rows = list.filter((x) => !onlyDone || x.result.complete);
+  const by = (key) => { const m = new Map(); rows.forEach((x) => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return m; };
+  const who = (email) => (email ? coachNameFromEmail(email) : "Not recorded");
+  const head = (
+    <div className="panel">
+      <h2>Program Results <small>what each coach's programs did for the athletes who ran them · only you see this page</small></h2>
+      <div className="lb-filters">
+        <label className="pr-check"><input type="checkbox" checked={onlyDone} onChange={(e) => setOnlyDone(e.target.checked)} /> Finished blocks only</label>
+        {(coach != null || programId) && <button className="btn-link" onClick={() => { if (programId) setProgramId(null); else setCoach(null); }}>‹ Back</button>}
+      </div>
+    </div>
+  );
+  const summaryRow = (key, label, sub, items, onClick) => {
+    const s = PR.summarize(items);
+    const cell = (a, text) => (a.value == null ? "–" : <React.Fragment>{text(a.value)}<small> ({a.n})</small></React.Fragment>);
+    return (
+      <tr key={key} className="lb-row" onClick={onClick}>
+        <td><b>{label}</b>{sub ? <small> · {sub}</small> : null}</td>
+        <td>{items.length}</td>
+        <td>{cell(s.compliance, (v) => `${Math.round(v * 100)}%`)}</td>
+        <td>{cell(s.strength, PR.pctText)}</td>
+        <td>{cell(s.jumpHeight, (v) => PR.signed(v, "in"))}</td>
+        <td>{cell(s.relativePeakPower, (v) => PR.signed(v, ""))}</td>
+        <td>{cell(s.mRSI, (v) => PR.signed(v, "", 2))}</td>
+        <td>{cell(s.bodyweight, (v) => PR.signed(v, "lb"))}</td>
+      </tr>
+    );
+  };
+  const summaryHead = (first) => <thead><tr><th>{first}</th><th>Blocks</th><th>Compliance</th><th>Strength</th><th>Jump height</th><th>Rel. power</th><th>mRSI</th><th>Body weight</th></tr></thead>;
+  if (programId) {
+    const items = rows.filter((x) => x.template.id === programId), t = (items[0] || list.find((x) => x.template.id === programId) || {}).template;
+    return (
+      <div>{head}
+        <div className="panel">
+          <h2>{t ? t.name : "Program"} <small>written by {who(t && t.createdBy)}</small></h2>
+          {items.length ? <React.Fragment><ProgramResultsTiles s={PR.summarize(items)} /><ProgramResultsTable list={items} onSelect={onSelect} showProgram /></React.Fragment> : <div className="empty-state">No blocks to show.</div>}
+        </div>
+      </div>
+    );
+  }
+  if (coach != null) {
+    const mine = rows.filter((x) => (x.author || "") === coach);
+    const progs = [...by((x) => x.template.id).entries()].filter(([, items]) => (items[0].author || "") === coach).sort((a, b) => b[1].length - a[1].length);
+    return (
+      <div>{head}
+        <div className="panel">
+          <h2>{who(coach)} <small>{progs.length} program{progs.length === 1 ? "" : "s"} · {mine.length} block{mine.length === 1 ? "" : "s"}</small></h2>
+          <ProgramResultsTiles s={PR.summarize(mine)} />
+          <div className="bp-table-wrap"><table className="assess-table pr-table">{summaryHead("Program")}<tbody>
+            {progs.map(([id, items]) => summaryRow(id, items[0].template.name, null, items, () => setProgramId(id)))}
+          </tbody></table></div>
+        </div>
+      </div>
+    );
+  }
+  const coaches = [...by((x) => x.author || "").entries()].sort((a, b) => b[1].length - a[1].length);
+  return (
+    <div>{head}
+      <div className="panel">
+        <h2>By coach <small>{rows.length} block{rows.length === 1 ? "" : "s"} · click a coach for their programs, a program for its athletes · (n) is how many athletes each average is over</small></h2>
+        {rows.length ? (
+          <div className="bp-table-wrap"><table className="assess-table pr-table">{summaryHead("Coach")}<tbody>
+            {coaches.map(([email, items]) => summaryRow(email || "none", who(email), `${new Set(items.map((x) => x.template.id)).size} programs`, items, () => setCoach(email)))}
+          </tbody></table></div>
+        ) : <div className="empty-state">No {onlyDone ? "finished " : ""}program blocks yet.</div>}
+      </div>
+      <p className="bc-note">A program's author is the coach who first saved it in the builder; an athlete's own copy counts toward the program it was made from. Strength is each lift's best estimated 1RM (Epley) in the first two weeks against the last two; jump and body weight compare the nearest test or weigh-in to the start of the block with the last at its end; compliance is sessions with anything logged out of those scheduled.</p>
     </div>
   );
 }
@@ -10197,6 +10419,7 @@ function App({ userEmail, onLogout }) {
   const goImport = () => setView("import");
   const goTeamReport = () => setView("teamreport");
   const goLeaderboard = () => setView("leaderboard");
+  const goProgramResults = () => setView("programresults");
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goFacilities = () => setView("facilities");
@@ -10328,6 +10551,7 @@ function App({ userEmail, onLogout }) {
         onGoPlayers={goPlayers}
         onGoNews={goNews}
         onGoLeaderboard={goLeaderboard}
+        onGoProgramResults={(userEmail || "").toLowerCase() === KEVIN_EMAIL ? goProgramResults : null}
         onGoFacilities={goFacilities}
         showFacilities={locationFilter === CUBS_LOCATION_LABEL}
         onGoPrograms={goPrograms}
@@ -10392,6 +10616,7 @@ function App({ userEmail, onLogout }) {
         )}
         {view === "teamreport" && <TeamReportPage onSelect={selectAthlete} dataVersion={dataVersion} onEditPeriodization={editPeriodization} />}
         {view === "leaderboard" && <LeaderboardPage onSelect={selectAthlete} dataVersion={dataVersion} />}
+        {view === "programresults" && (userEmail || "").toLowerCase() === KEVIN_EMAIL && <ProgramResultsPage onSelect={selectAthlete} />}
         {view === "players" && <PlayerProfilesPage onSelect={selectAthlete} dataVersion={dataVersion} onDataChange={bumpVersion} />}
         {view === "news" && (window.NewsPage
           ? <window.NewsPage dataVersion={dataVersion} />

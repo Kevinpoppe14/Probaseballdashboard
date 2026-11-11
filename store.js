@@ -824,12 +824,23 @@
       if (n.peakPower === null || n.peakPower === undefined) n.peakPower = rpp;
       if (n.relativePeakPower === rpp) n.relativePeakPower = null;
     }
+    // a weight, power or momentum at or below zero can't be (a VALD export with no body weight gives -1 kg, which made
+    // them negative): treated as missing
+    ["systemWeight", "relativePeakPower", "peakPower", "jumpMomentum"].forEach((k) => { if (typeof n[k] === "number" && n[k] <= 0) n[k] = null; });
     return n;
   }
 
-  function getForceTests(athleteId) {
+  // A countermovement jump: the test every CMJ metric, chart, ticker and ranking is about. The Hawkin sync brings in
+  // its other tests too (squat and drop jumps, multi rebounds, plyo push-ups on the plate, isometric pulls, weigh-ins,
+  // and arm-swing or weighted CMJs, which read differently); those are left out. A test with no type counts.
+  function isCmjTest(t) {
+    const ty = String((t && t.testType) || "").trim().toLowerCase();
+    return !ty || ty === "countermovement jump" || ty === "cmj";
+  }
+  // an athlete's countermovement jumps (`all`: every force plate test, whatever it was)
+  function getForceTests(athleteId, all) {
     return state.forceTests
-      .filter((e) => e.athleteId === athleteId)
+      .filter((e) => e.athleteId === athleteId && (all === true || isCmjTest(e)))
       .map((e) => Object.defineProperty(normalizeForceTest(e), "__record", { value: e })) // hidden: which saved test it is, for removeForceTest
       .sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -1283,6 +1294,7 @@
     deleteBodyComp,
     getManualWellness,
     getForceTests,
+    isCmjTest,
     getRemovedForceTests,
     removeForceTest,
     restoreForceTest,

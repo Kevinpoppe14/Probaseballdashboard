@@ -293,9 +293,12 @@ module.exports = async (req, res) => {
     // established rule (same as the manual CSV import) is one test per athlete per day, keeping
     // whichever trial had the highest jump height. Collapsing this run's own batch first means a
     // session's several trials count as a single candidate below, not several separate look-ups.
+    // One per day per KIND of test, though: a squat jump, a drop jump or a plyo push-up the same day as his CMJ is a
+    // different test, and keeping only the day's highest jump of any kind could throw the CMJ away.
+    const kindOf = (d) => String((d && d.testType) || "").trim().toLowerCase();
     const bestPerDay = new Map();
     for (const row of rowsToInsert) {
-      const key = `${row.athlete_id}|${row.data.date}`;
+      const key = `${row.athlete_id}|${row.data.date}|${kindOf(row.data)}`;
       const prev = bestPerDay.get(key);
       const jh = typeof row.data.jumpHeight === "number" ? row.data.jumpHeight : -Infinity;
       const prevJh = prev && typeof prev.data.jumpHeight === "number" ? prev.data.jumpHeight : -Infinity;
@@ -310,12 +313,12 @@ module.exports = async (req, res) => {
     const touchedAthleteIds = [...new Set(candidateRows.map((r) => r.athlete_id))];
     if (touchedAthleteIds.length) {
       const existingRows = await sbSelect(serviceKey, "force_tests", `select=athlete_id,data&athlete_id=in.(${touchedAthleteIds.join(",")})`);
-      const existingKeys = new Set(existingRows.map((r) => `${r.athlete_id}|${r.data.date}`));
+      const existingKeys = new Set(existingRows.map((r) => `${r.athlete_id}|${r.data.date}|${kindOf(r.data)}`));
       // a test a coach removed as bad data (Performance Metrics, app_meta "removedForceTests") stays out
       const removedRows = await sbSelect(serviceKey, "app_meta", "select=value&key=eq.removedForceTests");
       const removed = removedRows[0] && Array.isArray(removedRows[0].value) ? removedRows[0].value : [];
-      removed.forEach((r) => existingKeys.add(`${String(r.athleteId)}|${r.date}`));
-      candidateRows = candidateRows.filter((r) => !existingKeys.has(`${r.athlete_id}|${r.data.date}`));
+      removed.forEach((r) => existingKeys.add(`${String(r.athleteId)}|${r.date}|${kindOf(r.record)}`));
+      candidateRows = candidateRows.filter((r) => !existingKeys.has(`${r.athlete_id}|${r.data.date}|${kindOf(r.data)}`));
     }
 
     // Batched rather than one giant request — a full-year backfill can mean thousands of rows,

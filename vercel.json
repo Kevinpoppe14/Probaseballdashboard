@@ -9,7 +9,8 @@
     { "path": "/api/daily-activity-email", "schedule": "0 1 * * *" },
     { "path": "/api/form-check", "schedule": "0 10 * * *" },
     { "path": "/api/weekly-features-email", "schedule": "0 14 * * 1" },
-    { "path": "/api/weekly-features-email", "schedule": "0 15 * * 1" }
+    { "path": "/api/weekly-features-email", "schedule": "0 15 * * 1" },
+    { "path": "/api/program-complete-email", "schedule": "0 14 * * *" }
   ],
   "functions": {
     "api/sync-hawkin.js": { "maxDuration": 60 },
@@ -19,6 +20,7 @@
     "api/weekly-roster-email.js": { "maxDuration": 60 },
     "api/daily-activity-email.js": { "maxDuration": 60 },
     "api/form-check.js": { "maxDuration": 30 },
-    "api/weekly-features-email.js": { "maxDuration": 30 }
+    "api/weekly-features-email.js": { "maxDuration": 30 },
+    "api/program-complete-email.js": { "maxDuration": 60 }
   }
 }
