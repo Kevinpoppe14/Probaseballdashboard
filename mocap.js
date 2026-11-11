@@ -80,6 +80,14 @@
       });
       if (!v.videoWidth || !v.videoHeight) throw new Error(CANT_PLAY); // sound but no picture
       await seek(v, 0.01); // the first frame, decoded and ready to draw
+      // (a kept video comes over the connection: its first frame can take a while longer than a file on this device)
+      if (v.readyState < 2) {
+        await new Promise((ok) => {
+          const go = () => { clearTimeout(t); ok(); };
+          const t = setTimeout(go, typeof file === "string" ? 30000 : 4000);
+          v.addEventListener("loadeddata", go, { once: true }); v.addEventListener("canplay", go, { once: true });
+        });
+      }
       if (v.readyState < 2) throw new Error(CANT_PLAY);
       return v;
     } catch (e) {
@@ -1288,6 +1296,24 @@
       };
       await opts.onSave(rec);
       state.saved = rec;
+      // the clip itself into his Google Drive folder for this movement too (Sprints, Jumps…), beside the videos made from
+      // it, and noted on the session once it's up (the report opens it from Drive if storage here couldn't keep it).
+      // It goes on while he carries on; the video queue waits for it (state.driveUp).
+      const BCut = window.BullpenCut, f0 = state.side.file;
+      state.driveUp = null;
+      if (keepVideo && !was && f0 && f0.size && BCut && BCut.driveUpload) {
+        state.driveUp = (async () => {
+          if (!(await BCut.useDrive())) return;
+          const ext = (((f0.name || "").match(/\.(\w{2,4})$/) || [])[1] || "mp4").toLowerCase();
+          const name = `${String(athlete.name || "athlete").replace(/[^a-z0-9]+/gi, "_")}-${kindName}-${rec.date}-original.${ext}`;
+          const file = new File([f0], name, { type: f0.type || (ext === "mov" ? "video/quicktime" : "video/mp4") });
+          const up = await BCut.driveUpload(file, athlete.id, athlete.name, id, (x) => { if (state.onDriveProgress) state.onDriveProgress(x); }, driveFolder);
+          const now = state.saved && state.saved.id === id ? state.saved : rec;
+          const next = { ...now, store: now.store ? { ...now.store, sideDrive: up.drive } : now.store, original: { drive: up.drive, name, size: f0.size } };
+          await opts.onSave(next);
+          if (state.saved && state.saved.id === id) state.saved = next;
+        })().catch(() => { /* the session is saved either way */ });
+      }
       return warn;
     }
     // a saved session, opened again: the full report when its tracking was kept, otherwise what was saved of it
@@ -1299,14 +1325,23 @@
         const dl = await sbc().storage.from(STORE).download(rec.store.path);
         if (dl.error) throw dl.error;
         const data = JSON.parse(await dl.data.text());
-        const vid = async (p) => {
-          if (!p) return null;
-          const s = await sbc().storage.from(STORE).createSignedUrl(p, 3600);
-          if (s.error || !s.data) return null;
-          try { return await openVideo(s.data.signedUrl); } catch (e) { return null; }
+        // its kept video: from storage here, else its copy in Google Drive (brought down whole, then played from memory)
+        const vid = async (p, drive) => {
+          if (p) {
+            const s = await sbc().storage.from(STORE).createSignedUrl(p, 3600);
+            if (!s.error && s.data) { try { return await openVideo(s.data.signedUrl); } catch (e) { /* try Drive */ } }
+          }
+          const BCut = window.BullpenCut;
+          if (drive && BCut && BCut.fetchVideo) {
+            try {
+              const url = await BCut.fetchVideo({ drive, name: (rec.original && rec.original.name) || (rec.files || [])[0] || "" }, (x) => { state.busy = `Getting the video from Google Drive… ${Math.round(x * 100)}%`; const m = root.querySelector(".mc-status"); if (m) m.textContent = state.busy; });
+              return await openVideo(url);
+            } catch (e) { /* the skeleton alone */ }
+          }
+          return null;
         };
         state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.extras = rec.extras || state.extras; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.weightLb = rec.weightLb || state.weightLb; state.captureFps = oldSlowMo(rec) ? "guess" : !rec.captureFps || Number(rec.captureFps) === (rec.store.sideFps || 30) ? "auto" : String(rec.captureFps);
-        state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
+        state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo, rec.store.sideDrive), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
         state.edits = rec.store.edits || {};
@@ -1782,7 +1817,7 @@
           const sh = shadowAt(i);
           ctx.save(); ctx.globalAlpha = 0.6; drawSkeleton(ctx, sh.q, k, k, "R", null, "#7cf3ff"); ctx.restore();
           ctx.save(); ctx.font = "bold 13px sans-serif"; ctx.fillStyle = "#7cf3ff"; ctx.textAlign = "left";
-          ctx.fillText(`${shadow.name}: ${sh.gap >= 0 ? "+" : "−"}${Math.abs(sh.gap).toFixed(2)} m ${sh.gap >= 0 ? "ahead" : "behind"}${sh.past ? " (his clip has ended)" : ""}`, 10, canvas.height - 12); ctx.restore();
+          ctx.fillText(`${shadow.name}: ${sh.gap >= 0 ? "+" : "−"}${(Math.abs(sh.gap) / 0.9144).toFixed(1)} yd ${sh.gap >= 0 ? "ahead" : "behind"}${sh.past ? " (his clip has ended)" : ""}`, 10, canvas.height - 12); ctx.restore();
         }
         if (!state.hideSkel || state.fixing) drawSkeleton(ctx, q, k, k, state.throws, state.fixing ? null : hiddenAt(i)); // every dot shows while fixing
         // the bat (from the tape on its end): the barrel's trail over the last 40 frames, and the bat from the hands to it
@@ -1903,6 +1938,9 @@
       // what the picture shows: the video, the skeleton, or both; and the skeleton alone in 3D
       const layers = el("div", { class: "mc-row" },
         f.video ? el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !state.hideVideo, onchange: (e) => { state.hideVideo = !e.target.checked; draw(state.frame || 0); } }), " Video") : null,
+        // a session with its video kept that didn't come through this time (a slow connection): say so, and try again
+        !f.video && state.saved && state.saved.store && (state.saved.store.sideVideo || state.saved.store.sideDrive)
+          ? el("span", { class: "mc-warn" }, "The video didn't load, so only the skeleton shows. ", el("button", { type: "button", class: "mc-btn small", onclick: () => openSaved(state.saved) }, "Load the video again")) : null,
         el("label", { class: "mc-keep" }, el("input", { type: "checkbox", checked: !state.hideSkel, onchange: (e) => { state.hideSkel = !e.target.checked; draw(state.frame || 0); } }), " Skeleton"),
         el("button", { type: "button", class: `mc-btn ${state.show3d ? "" : "ghost"} small`, "aria-pressed": state.show3d ? "true" : "false", onclick: () => { state.show3d = !state.show3d; render(); } }, state.show3d ? "Hide the comparisons" : "Compare: skeletons, curves, numbers"));
       // a moment found in the wrong place can be set by hand, to the frame showing (the moments after it follow)
@@ -1957,7 +1995,7 @@
               const L = state.shadow && loaded[state.shadow];
               return [el("select", { "aria-label": "Shadow runner", onchange: (e) => { state.shadow = e.target.value || null; const rec = recs.find((r) => r.id === state.shadow); if (rec) loadShadow(rec); else render(); } },
                 el("option", { value: "" }, "None"),
-                recs.map((r) => el("option", { value: r.id, selected: state.shadow === r.id }, `${r._name} · ${r.date || ""}${r.metrics && r.metrics.speed ? ` · ${r.metrics.speed} m/s` : ""}`))),
+                recs.map((r) => el("option", { value: r.id, selected: state.shadow === r.id }, `${r._name} · ${r.date || ""}${r.metrics && r.metrics.speedMph ? ` · ${r.metrics.speedMph} mph` : ""}`))),
               el("span", { class: "mc-hint" }, L && L.busy ? "Loading…" : L && L.error ? `Couldn't load it (${L.error}).` : state.shadow ? "In light blue, starting with him: at each moment where that runner was the same time after his first move, at true size and distance. The gap shows at the bottom." : "Run another sprint (his own or another athlete's) beside him on the video.")];
             })()) : null;
 
@@ -2373,14 +2411,17 @@
           : "Two cameras: the hips' and shoulders' turn comes from both views together, lined up at release. Joint angles from phone video are good to about 5 to 10 degrees: compare sessions filmed the same way."),
         assessRow, reportRow, videoRow,
         opts.onSave ? el("div", { class: "mc-save" }, note,
-          saved ? null : el("label", { class: "mc-keep" }, keep, " Also keep the video, to replay it with the skeleton later (needs room in storage)"),
+          saved ? null : el("label", { class: "mc-keep" }, keep, ` Also keep the video, to replay it with the skeleton later (a copy goes in his Google Drive folder, ${driveFolder})`),
           el("div", { class: "mc-row" },
             el("button", { type: "button", class: "mc-btn", onclick: async () => {
               saveMsg.textContent = "Saving…";
               try {
+                state.onDriveProgress = (x) => { saveMsg.textContent = `Saved. Copying the clip to his Google Drive folder (${driveFolder})… ${Math.round(x * 100)}%`; };
                 const warn = await saveSession(note.value.trim(), keep.checked);
                 saveMsg.textContent = `${saved ? "Changes saved." : "Saved."}${warn}`;
                 const h = root.querySelector(".mc-history"); if (h) h.replaceWith(historyBlock());
+                const up = state.driveUp;
+                if (up) up.then(() => { if (state.saved && state.saved.original) saveMsg.textContent = `Saved, and the clip is in his Google Drive folder (${driveFolder}).${warn}`; });
               } catch (err) { saveMsg.textContent = `Couldn't save: ${(err && err.message) || err}`; }
             } }, saved ? "Save changes" : "Save this session"), saveMsg)) : null,
       );
@@ -2489,7 +2530,9 @@
       compute();
       state.frame = zeroOf(state.result);
       say("Saving the session", 0);
+      state.onDriveProgress = (x) => say("Copying the clip to his Google Drive folder", x);
       const warn = await saveSession(a.note || "", a.keepVideo !== false);
+      if (state.driveUp) await state.driveUp; // (one upload at a time)
       stop();
       render(); // the report, out of sight: its video export
       if (!state.exportVideo) throw new Error("The video export didn't load.");
