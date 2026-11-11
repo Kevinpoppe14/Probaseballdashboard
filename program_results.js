@@ -132,8 +132,36 @@
     return Object.keys(byDay).sort().map((date) => ({ date, lb: byDay[date] }));
   }
 
-  // The program a block runs from: an athlete's own copy goes back to the library program it came from
-  const templateOf = (program, programs) => (program && program.basedOn && programs.find((p) => p.id === program.basedOn)) || program || null;
+  // The program a block runs from: an athlete's own copy counts toward the library program it came from, however it
+  // got there. Up its chain of copies first (a copy of another athlete's copy goes back to that one's program); where
+  // the chain breaks (a copy in between deleted, or a copy with no link back), by its name less the athlete's ("Happ -
+  // Re-Eds Movement EDT / Core Stability" is "Re-Eds Movement EDT / Core Stability"). A copy with no library program of
+  // that name is grouped with the other copies of the same name.
+  const normName = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  function baseName(name, athleteName) {
+    let n = String(name || "").trim();
+    const parts = String(athleteName || "").trim().split(/\s+/).filter(Boolean);
+    const last = parts.length ? parts[parts.length - 1] : "";
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // "<Last> - ", "<First Last> - ", "<Last> " in front
+    if (parts.length) n = n.replace(new RegExp(`^(${esc(parts.join(" "))}|${esc(last)})\\s*[-–:]?\\s+`, "i"), "");
+    // any other short name in front of " - " (one or two words, no numbers): "Bullard - Re-Education"
+    const m = /^([A-Za-z'’.]+(?: [A-Za-z'’.]+)?)\s+[-–]\s+(.+)$/.exec(n);
+    if (m) n = m[2];
+    return n.trim();
+  }
+  function templateOf(program, programs, athleteName) {
+    if (!program) return null;
+    const byId = new Map((programs || []).map((p) => [p.id, p]));
+    let p = program;
+    const seen = new Set();
+    while (p && p.athleteId && p.basedOn && !seen.has(p.id)) { seen.add(p.id); const up = byId.get(p.basedOn); if (!up) break; p = up; }
+    if (p && !p.athleteId) return p; // a library program
+    const base = baseName(program.name, athleteName);
+    const lib = (programs || []).find((q) => !q.athleteId && normName(q.name) === normName(base));
+    if (lib) return lib;
+    return { id: `name:${normName(base)}`, name: base, createdBy: (p && p.createdBy) || program.createdBy || "", byName: true };
+  }
   // Blocks worth reporting on: a program with weeks in it, not a one-off session sent to the app or a saved series
   const reportable = (program) => !!program && (program.weeks || []).length > 0 && !/^(gspeed-|gstrength-|series-)/.test(String(program.id || ""));
 

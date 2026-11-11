@@ -8916,7 +8916,7 @@ async function loadProgramResults(keep) {
       if (!b.programId) return;
       const program = programs.find((p) => p.id === b.programId);
       if (!PR.reportable(program)) return;
-      const template = PR.templateOf(program, programs);
+      const template = PR.templateOf(program, programs, a.name);
       const { from } = PR.blockDates(plan, b);
       if (from > today || (keep && !keep({ athlete: a, block: b, program, template }))) return;
       items.push({ athlete: a, plan, block: b, program, template });
