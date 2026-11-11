@@ -263,7 +263,8 @@
     await seek(v, times[0]);
     const first = look(null);
     if (!(first.length === 1 && sizeOf(first[0].pts) >= H * 0.3)) {
-      const every = Math.max(1, Math.round(times.length / 40));
+      // (every 0.35 s at most, however long the clip: further apart, someone sprinting past another can swap tracks with them)
+      const every = Math.max(1, Math.min(Math.round(times.length / 40), Math.round(0.35 / step)));
       const tracks = []; // { at: [[frame index, person]], last, lastI }
       for (let i = 0; i < times.length; i += every) {
         await seek(v, times[i]);
@@ -286,8 +287,33 @@
       const people = real.filter((r) => r.size >= biggest * 0.5 && r.sure >= 0.5);
       const him = people.slice().sort((a, b) => b.moved - a.moved)[0] || real.slice().sort((a, b) => b.tr.at.length - a.tr.at.length)[0];
       if (him) {
-        him.tr.at.forEach(([i, p]) => anchors.set(i, p));
-        others = people.filter((r) => r !== him).map((r) => new Map(r.tr.at.map(([i, p]) => [i, p.pts])));
+        // A handoff at the start: someone kneeling or standing where he set up (a coach at the start line) and him
+        // crossing over them as he goes can join up into one track, its first part really theirs. If someone is still
+        // in the spot the track began in after it has left, that first part was them: it's counted as theirs, and his
+        // own track from before he crossed (one that ends about when this one left, near where it left from), if the
+        // scan has one, goes in its place.
+        let at = him.tr.at.slice(), mine = null;
+        const h0 = hipOf(at[0][1].pts), sz = him.size, dist = (p, h) => Math.hypot(hipOf(p.pts)[0] - h[0], hipOf(p.pts)[1] - h[1]);
+        const leftAt = at.findIndex(([, p]) => dist(p, h0) > sz * 0.5);
+        if (leftAt > 0) {
+          const T = at[leftAt][0];
+          const stayer = people.find((r) => r !== him && r.tr.at.some(([i, p]) => i > T && dist(p, h0) < sz * 0.4));
+          if (stayer) {
+            // The two can swap where they cross, too: the stayer's track may have been him until it reached that spot
+            // (he set up beside the coach, then crossed over him). Each then gets back their own: before the stayer
+            // reached the spot, its track was him and this one's was theirs; after, the other way round.
+            const Ta = (stayer.tr.at.find(([, p]) => dist(p, h0) < sz * 0.4) || [T])[0];
+            const hisEarly = stayer.tr.at.filter(([i]) => i < Ta), theirsEarly = at.filter(([i]) => i < Ta);
+            stayer.tr.at = theirsEarly.concat(stayer.tr.at.filter(([i]) => i >= Ta)).sort((a, b) => a[0] - b[0]);
+            at = hisEarly.concat(at.filter(([i]) => i >= Ta));
+            const hT = hipOf(at[0][1].pts);
+            mine = real.filter((r) => r !== him && r !== stayer && r.size >= biggest * 0.5 && r.tr.at[0][0] < T && r.tr.lastI >= T - every * 4 && r.tr.lastI <= T + every && dist(r.tr.last, hT) < sz * 1.5)
+              .sort((a, b) => b.tr.at.length - a.tr.at.length)[0] || null;
+            if (mine && !hisEarly.length) at = mine.tr.at.filter(([i]) => i < at[0][0]).concat(at); else mine = null;
+          }
+        }
+        at.forEach(([i, p]) => anchors.set(i, p));
+        others = people.filter((r) => r !== him && r !== mine).map((r) => new Map(r.tr.at.map(([i, p]) => [i, p.pts])));
       }
     }
 
