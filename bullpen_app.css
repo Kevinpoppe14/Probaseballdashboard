@@ -79,3 +79,19 @@
 .bpa-layer { position: fixed; inset: 0; z-index: 1000; overflow-y: auto; background: var(--bg, #0a0a0a); padding: 12px 16px 40px; }
 .bpa-layer-bar { display: flex; justify-content: flex-end; max-width: 760px; margin: 0 auto; }
 .bpa-a { display: inline-flex; align-items: center; text-decoration: none; }
+
+/* the motion capture video queue (mocap_queue.js): several athletes' videos tracked, saved and made in the background */
+.mcq-layer { padding-top: calc(12px + env(safe-area-inset-top)); }
+.mcq-layer .bpa-layer-bar { gap: 8px; }
+.mcq .bpa-row .mcq-date { width: auto; flex: 0 1 200px; }
+.mcq-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.mcq-chip { min-height: 38px; font-size: 14px; }
+.mcq-drop { display: block; border: 2px dashed var(--bpa-line); border-radius: 12px; padding: 16px; text-align: center; cursor: pointer; margin-top: 8px; font-size: 15px; }
+.mcq-drop span { color: var(--bpa-dim); }
+.mcq-drop.over, .mcq-drop:hover, .mcq-drop:focus-visible { border-color: var(--bpa-accent); }
+.mcq-item { border-top: 1px solid var(--bpa-line); padding: 8px 0; }
+.mcq-file { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.mcq-item.done .mcq-file::before { content: "✓ "; color: #4ade80; }
+.mcq-item.failed .mcq-file::before { content: "! "; color: #f87171; }
+.mcq-hidden { position: fixed; left: -20000px; top: 0; width: 1200px; height: 900px; overflow: hidden; pointer-events: none; }
+.mcq-pill { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 999; max-width: calc(100vw - 32px); min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid var(--accent, #c8102e); background: var(--panel, #161616); color: var(--text, #f2f2f2); font-size: 14px; font-weight: 600; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

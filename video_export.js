@@ -258,12 +258,14 @@
       if (side) { side.width = cv.height; side.height = cv.width; }
       const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(), video: { codec: "avc", width: cfg.width, height: cfg.height, rotation: turned ? 90 : 0 }, ...(audio ? { audio: { codec: "aac", sampleRate: audio.acfg.sampleRate, numberOfChannels: audio.ch } } : {}), fastStart: "in-memory", firstTimestampBehavior: "offset" });
       let failed = null;
-      const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
+      // (a problem putting a piece into the file is kept and thrown, not lost inside the encoder's callback: Chrome 157's
+      // encoder stopped giving its pieces a duration, the muxer refused every one, and each video came out empty)
+      const enc = new VideoEncoder({ output: (chunk, meta) => { try { muxer.addVideoChunk(chunk, meta); } catch (e) { failed = failed || e; } }, error: (e) => { failed = e; } });
       enc.configure(cfg);
       const addAudio = async () => {
         if (!audio) return;
         const { ab, ch, acfg } = audio, rate = acfg.sampleRate, N = 8192;
-        const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => { failed = e; } });
+        const aenc = new AudioEncoder({ output: (chunk, meta) => { try { muxer.addAudioChunk(chunk, meta); } catch (e) { failed = failed || e; } }, error: (e) => { failed = e; } });
         aenc.configure(acfg);
         for (let off = 0; off < ab.length; off += N) {
           const n = Math.min(N, ab.length - off), data = new Float32Array(n * ch);
@@ -281,7 +283,7 @@
         if (ts <= last) return; // the same moment twice (a repeated frame): once is enough
         last = ts;
         if (side) { sg2.setTransform(1, 0, 0, 1, 0, 0); sg2.translate(0, cv.width); sg2.rotate(-Math.PI / 2); sg2.drawImage(cv, 0, 0); }
-        const frame = new VideoFrame(side || cv, { timestamp: ts });
+        const frame = new VideoFrame(side || cv, { timestamp: ts, duration: Math.round(1e6 / FPS) }); // (its duration: the muxer needs one on every piece)
         const key = sec - lastKey >= 2;
         if (key) lastKey = sec;
         enc.encode(frame, { keyFrame: key });

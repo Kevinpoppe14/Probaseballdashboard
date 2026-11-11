@@ -1043,11 +1043,14 @@
     },
   };
   const kindOf = (rec) => KINDS[(rec && rec.motion) || "pitching"] || KINDS.pitching;
+  // each movement's folder in an athlete's Google Drive folder, for its videos (api/drive-video.js; bullpens go in Bullpens)
+  const DRIVE_FOLDERS = { pitching: "Pitching", hitting: "Hitting", sprint: "Sprints", jump: "Jumps", screen: "Movement Screens" };
 
   // ---- the tool ------------------------------------------------------------------------------------------------------
   function mount(root, opts) {
     const athlete = opts.athlete || {};
     const kindName = KINDS[opts.kind] ? opts.kind : "pitching", kind = KINDS[kindName];
+    const driveFolder = DRIVE_FOLDERS[kindName] || kind.label || "Motion Capture";
     const hKey = `mocapHeight:${athlete.id}`;
     const state = { setup: "one", throws: kind.hand ? athlete[kind.hand.key] || athlete.throws || "R" : "R", variant: kind.variants ? kind.variants.options[0][0] : null, extras: Object.fromEntries((kind.extras || []).map((x) => [x.key, x.default])), heightIn: Number(athlete.heightIn) || Number(localStorage.getItem(hKey)) || opts.heightIn || "", weightLb: athlete.weightLb ? Math.round(athlete.weightLb) : "", captureFps: kind.slowMo ? "guess" : "auto", edgerFps: 1000, playSpeed: 1, side: null, behind: null, result: null, busy: "" };
     // his saved sessions of this movement
@@ -1060,7 +1063,9 @@
       if (state.stopPlay) { const sp = state.stopPlay; state.stopPlay = null; try { sp(); } catch (e) { /* the old view is gone anyway */ } }
       root.replaceChildren(...[
         el("div", { class: "mc-head" }, el("h2", null, `Motion Capture${kindName === "pitching" ? "" : `: ${kind.label}`} `, el("small", null, athlete.name || "")),
-          el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.showHow = !state.showHow; render(); } }, state.showHow ? "Hide filming tips" : "How to film it")),
+          el("button", { type: "button", class: "mc-btn ghost", onclick: () => { state.showHow = !state.showHow; render(); } }, state.showHow ? "Hide filming tips" : "How to film it"),
+          // several athletes' videos at once, in the background (mocap_queue.js)
+          window.MoCapQueue && !opts.auto ? el("button", { type: "button", class: "mc-btn ghost", title: "Drop several athletes' videos for one day: each is tracked, saved and made into its video (kept in Google Drive) in the background", onclick: () => window.MoCapQueue.open({ kind: kindName }) }, "Video queue") : null),
         state.showHow ? el("ol", { class: "mc-how" }, kind.howTo.map(([t, d]) => el("li", null, el("b", null, t), " ", d))) : null,
         state.result ? results() : state.summary ? summaryView(state.summary) : setupForm(),
         historyBlock(),
@@ -1164,6 +1169,28 @@
     function capOf(f) { return (state.captureFps === "auto" ? f.fps : state.captureFps === "guess" ? state.guessCap || slowMoCaps(f)[0] : Number(state.captureFps)); }
     // the slow-motion speeds a file could be: a 30 fps file of a 240 or 120 fps clip (a file already that fast plays real time)
     function slowMoCaps(f) { return (f.fps >= 100 ? [f.fps] : [f.fps * 8, f.fps * 4]); }
+    // a sprint saved before "worked out from his steps" was timed at the file's own 30 fps, though it was filmed in slow motion
+    function oldSlowMo(rec) { return !!kindOf(rec).slowMo && (rec.analysisV || 1) < 4 && (Number(rec.captureFps) || 0) < 100 && ((rec.store && rec.store.sideFps) || 30) < 100; }
+    // the speed to time a saved session at: as saved, or for one of those, 240 or 120, whichever puts his step rate nearest 4.2 a second
+    function savedCap(rec, base) {
+      const fileFps = (rec.store && rec.store.sideFps) || 30;
+      if (!oldSlowMo(rec)) return Number(rec.captureFps) || fileFps;
+      const tries = slowMoCaps({ fps: fileFps }).map((c) => {
+        try {
+          const r = kindOf(rec).analyze({ ...base, captureFps: c, sideScale: fileFps / c });
+          const sr = (r.metrics.find((m) => m.key === "stepRate") || {}).value;
+          return { c, sr: typeof sr === "number" && sr > 0 ? sr : null };
+        } catch (e) { return { c, sr: null }; }
+      });
+      const scored = tries.filter((x) => x.sr != null);
+      return (scored.length ? scored.reduce((b, x) => (Math.abs(Math.log(x.sr / 4.2)) < Math.abs(Math.log(b.sr / 4.2)) ? x : b)) : tries[0]).c;
+    }
+    // a saved session worked out again from its kept points (the comparisons and the side-by-side runner)
+    function analyzeSaved(rec, data) {
+      const base = { variant: rec.variant, extras: rec.extras || {}, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false };
+      const cap = savedCap(rec, base);
+      return kindOf(rec).analyze({ ...base, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap });
+    }
     // back to a phone setup: the Edgertronic's frame rate doesn't carry over
     const toPhone = (setup) => { state.setup = setup; if (Number(state.captureFps) >= 500) state.captureFps = "auto"; render(); };
     const scaleOf = (f) => f.fps / capOf(f);
@@ -1254,7 +1281,7 @@
       }
       if (store) { store.manual = state.manual || null; store.edits = state.edits && Object.keys(state.edits).length ? state.edits : null; store.elbowDepth = state.elbowDepth !== false; }
       const rec = {
-        id, kind: "mocap", motion: kindName, variant: state.variant, extras: state.extras || {}, athleteId: athlete.id, date: was ? was.date : new Date().toISOString().slice(0, 10),
+        id, kind: "mocap", motion: kindName, variant: state.variant, extras: state.extras || {}, athleteId: athlete.id, date: was ? was.date : opts.date || new Date().toISOString().slice(0, 10), // (the queue's day it was filmed)
         setup: state.setup, throws: state.throws, heightIn: Number(state.heightIn) || null, weightLb: Number(state.weightLb) || null, captureFps: state.cap,
         ...summaryOf(R), trackV: was ? was.trackV || 1 : TRACK_V,
         note, files: [state.side.file && state.side.file.name, state.behind && state.behind.file && state.behind.file.name].filter(Boolean), store,
@@ -1278,7 +1305,7 @@
           if (s.error || !s.data) return null;
           try { return await openVideo(s.data.signedUrl); } catch (e) { return null; }
         };
-        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.extras = rec.extras || state.extras; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.weightLb = rec.weightLb || state.weightLb; state.captureFps = String(rec.captureFps || "auto");
+        state.setup = rec.setup || "one"; state.variant = rec.variant || state.variant; state.extras = rec.extras || state.extras; state.throws = rec.throws || state.throws; state.heightIn = rec.heightIn || ""; state.weightLb = rec.weightLb || state.weightLb; state.captureFps = oldSlowMo(rec) ? "guess" : !rec.captureFps || Number(rec.captureFps) === (rec.store.sideFps || 30) ? "auto" : String(rec.captureFps);
         state.side = { file: { name: (rec.files || [])[0] || "saved video" }, video: await vid(rec.store.sideVideo), fps: rec.store.sideFps || 30, tracked: unpack(data.side), start: 0, end: 0 };
         state.behind = data.behind ? { file: { name: (rec.files || [])[1] || "saved video" }, video: await vid(rec.store.behindVideo), fps: rec.store.behindFps || 30, tracked: unpack(data.behind), start: 0, end: 0 } : null;
         state.manual = rec.store.manual || null;
@@ -1355,8 +1382,7 @@
           const dl = await sbc().storage.from(STORE).download(rec.store.path);
           if (dl.error) throw dl.error;
           const data = JSON.parse(await dl.data.text());
-          const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-          return kindOf(rec).analyze({ variant: rec.variant, extras: rec.extras || {}, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+          return analyzeSaved(rec, data);
         })().then((A) => { loaded[rec.id] = { A }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (alive()) build(); });
       };
       let me = null, others = [];
@@ -1653,14 +1679,14 @@
         if (up.error) throw up.error;
         trackV = TRACK_V;
       }
-      const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
+      const cap = savedCap(rec, { variant: rec.variant, extras: rec.extras || {}, side, behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: null, events: rec.store.manual, edits: rec.store.edits });
       const R = kindOf(rec).analyze({ variant: rec.variant, extras: rec.extras || {},
         side, behind: rec.setup === "two" ? behind : null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap,
         sideScale: (rec.store.sideFps || 30) / cap, behindScale: (rec.store.behindFps || 30) / cap, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false,
       });
       const { _athlete, _name, _mine, ...kept } = rec; // eslint-disable-line no-unused-vars
       const athleteId = kept.athleteId != null ? kept.athleteId : _athlete ? (/^\d+$/.test(_athlete) ? Number(_athlete) : _athlete) : athlete.id;
-      return { ...kept, athleteId, ...summaryOf(R), trackV, rerunAt: new Date().toISOString() };
+      return { ...kept, athleteId, ...summaryOf(R), captureFps: cap, trackV, rerunAt: new Date().toISOString() };
     }
     // one after another, saying how far along it is; another pitcher's session is saved to him (opts.saveAny)
     async function rerunMany(list, retrack, label) {
@@ -1917,8 +1943,7 @@
           const dl = await sbc().storage.from(STORE).download(rec.store.path);
           if (dl.error) throw dl.error;
           const data = JSON.parse(await dl.data.text());
-          const cap = Number(rec.captureFps) || rec.store.sideFps || 30;
-          return kindOf(rec).analyze({ variant: rec.variant, extras: rec.extras || {}, side: unpack(data.side), behind: null, throws: rec.throws || "R", heightIn: rec.heightIn || null, weightKg: rec.weightLb ? rec.weightLb * 0.4536 : null, captureFps: cap, sideScale: (rec.store.sideFps || 30) / cap, behindScale: 1, events: rec.store.manual, edits: rec.store.edits, elbowDepth: rec.store.elbowDepth !== false });
+          return analyzeSaved(rec, data);
         })().then((A) => { loaded[rec.id] = { A, name: `${rec._name} ${rec.date || ""}`.trim() }; }, (e) => { loaded[rec.id] = { error: (e && e.message) || String(e) }; }).then(() => { if (state.shadow === rec.id) render(); });
       };
       const shadowRow = kindName === "sprint" ? el("div", { class: "mc-row mc-fix" },
@@ -2178,6 +2203,11 @@
       const SV = R.sprintVideo || null;
       const vidFollow = el("input", { type: "checkbox", checked: !!SV });
       const vidSave = el("button", { type: "button", class: "mc-btn small", hidden: true }, "Save to camera roll");
+      // kept in his Google Drive folder too, in its folder for this movement (Sprints, Jumps…), once Drive is set up
+      const vidDrive = el("input", { type: "checkbox", checked: true });
+      const vidDriveBox = el("label", { class: "mc-keep", hidden: true, title: `Save the video into his Google Drive folder (${driveFolder})` }, vidDrive, " Save to Google Drive");
+      const BCut = window.BullpenCut;
+      if (BCut && BCut.useDrive) BCut.useDrive().then((on) => { vidDriveBox.hidden = !on; }, () => {});
       // feet and inches from inches: 3' 4"
       const ftInText = (inch) => { if (inch == null || !isFinite(inch)) return "–"; const r = Math.round(inch); return `${Math.floor(r / 12)}' ${r % 12}"`; };
       // where to look in each frame when following him: his hips, smoothed over a quarter second so the picture glides
@@ -2188,12 +2218,19 @@
         const sm = hip.map((_, i) => { let sx = 0, sy = 0, c = 0; for (let k = Math.max(0, i - half); k <= Math.min(n - 1, i + half); k++) if (hip[k] && isFinite(hip[k][0])) { sx += hip[k][0]; sy += hip[k][1]; c++; } return c ? [sx / c, sy / c] : null; });
         return (i) => (sm[i] ? { cx: sm[i][0], cy: sm[i][1] - (R.Hpx || 0) * 0.05, h: H } : null);
       };
-      const exportVideo = async (layout) => {
+      // o (the video queue, mocap_queue.js): { auto, skeleton, follow, drive, download, onProgress(text, fraction), cancelled() }:
+      // then nothing is shown here, a problem is thrown, and what was made comes back ({ blob, name, drive })
+      const exportVideo = async (layout, o = {}) => {
         const VE = window.VideoExport;
-        if (!VE || !VE.supported()) { vidMsg.textContent = "This browser can't make videos: use Chrome or Edge on a computer, Chrome on Android or a recent iPhone."; return; }
-        if (!f.video || !(f.video.currentSrc || f.video.src)) { vidMsg.textContent = "No video was kept with this session, so there's nothing to export."; return; }
+        const fail = (text) => { if (o.auto) throw new Error(text); vidMsg.textContent = text; };
+        if (!VE || !VE.supported()) return fail("This browser can't make videos: use Chrome or Edge on a computer, Chrome on Android or a recent iPhone.");
+        if (!f.video || !(f.video.currentSrc || f.video.src)) return fail("No video was kept with this session, so there's nothing to export.");
+        if (o.skeleton != null) vidSkel.checked = !!o.skeleton;
+        if (o.follow != null) vidFollow.checked = !!o.follow;
+        if (o.drive != null) vidDrive.checked = !!o.drive;
+        const say = (text, fr) => { if (o.onProgress) o.onProgress(text, fr); else vidMsg.textContent = `${text}… ${Math.round(fr * 100)}% (keep this tab open)`; };
         stopPlay();
-        vidStop = false; vidCancel.hidden = false; vidSave.hidden = true;
+        vidStop = false; vidCancel.hidden = !!o.auto; vidSave.hidden = true;
         const who = athlete.name || "", what = kind.label || "Pitching";
         let rows = (R.metrics || []).filter((m) => m.value != null && m.value !== "").slice(0, 9)
           .map((m) => { const u = String(m.unit || "").replace(/^° .*/, "°"); return [m.label.replace(/ \(estimate\)$/, ""), `${m.value}${!u ? "" : /^[°%]/.test(u) ? u : ` ${u}`}`]; });
@@ -2204,7 +2241,9 @@
           let timed = null;
           try {
             const S = window.AthleteStore, day = dateOf();
-            const list = S && S.loadKpiEntries ? (await S.loadKpiEntries(athlete.id)) || [] : [];
+            // (the phone app has no store: straight from the database)
+            const list = S && S.loadKpiEntries ? (await S.loadKpiEntries(athlete.id)) || []
+              : ((await sbc().from("kpi_entries").select("id,data").eq("athlete_id", String(athlete.id)).eq("data->>kpiId", "10-yard-start").limit(500)).data || []).map((r) => r.data || {});
             const tens = list.filter((e) => e.kpiId === "10-yard-start" && e.date && e.date <= day).sort((a, b) => b.date.localeCompare(a.date));
             const e = tens[0];
             if (e) { const v = parseFloat(e.best != null ? e.best : e.value); if (v > 0) timed = { v, date: e.date, same: e.date === day }; }
@@ -2242,9 +2281,9 @@
         };
         try {
           const blob = await VE.render({
-            layout, fill: vidFill.checked, cancelled: () => vidStop,
+            layout, fill: vidFill.checked, cancelled: () => vidStop || !!(o.cancelled && o.cancelled()),
             title: { lines: [who, `${what} · motion capture`, dateOf()] },
-            onProgress: (text, fr) => { vidMsg.textContent = `${text}… ${Math.round(fr * 100)}% (keep this tab open)`; },
+            onProgress: (text, fr) => say(text, fr),
             segments: [{
               url: f.video.currentSrc || f.video.src, start: t0, end: t1, rate: 1,
               view: view ? (info) => view(nearest(info.t)) : undefined,
@@ -2261,7 +2300,27 @@
             }],
           });
           const name = VE.fileName(who, `${kindName}-motion-capture-${layout}`, dateOf(), blob);
-          const done = (how) => { vidSave.hidden = true; vidMsg.textContent = how === "files" ? "It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video. Nothing was saved to the dashboard." : VE.isPhone() ? "Done. Nothing was saved to the dashboard." : "Done: it's in your downloads. Nothing was saved to the dashboard."; };
+          // into his Drive folder for this movement first, so it's kept however the download goes
+          let drive = null;
+          if (vidDrive.checked && BCut && BCut.driveUpload && (await BCut.useDrive())) {
+            say(`Saving it to his Google Drive folder (${driveFolder})`, 0);
+            const file = new File([blob], name, { type: /webm/.test(blob.type || "") ? "video/webm" : "video/mp4" });
+            const up = await BCut.driveUpload(file, athlete.id, athlete.name, state.saved ? state.saved.id : "", (x) => say(`Saving it to his Google Drive folder (${driveFolder})`, x), driveFolder);
+            drive = { id: up.drive, link: `https://drive.google.com/file/d/${up.drive}/view`, folder: driveFolder };
+            // and listed on the session, when it's a saved one
+            if (state.saved && opts.onSave) {
+              const made = [...(state.saved.made || []), { drive: up.drive, name, layout, size: blob.size, madeAt: new Date().toISOString() }];
+              state.saved = { ...state.saved, made };
+              try { await opts.onSave(state.saved); } catch (e) { /* the video is in Drive either way */ }
+            }
+          }
+          if (o.auto) {
+            if (o.download) await VE.download(blob, name, { share: false });
+            vidCancel.hidden = true;
+            return { blob, name, drive };
+          }
+          const kept = drive ? ` Saved in his Google Drive folder (${driveFolder}).` : " Nothing was saved to the dashboard.";
+          const done = (how) => { vidSave.hidden = true; vidMsg.textContent = how === "files" ? `It went to Files › Downloads instead of Photos: open it in Files, tap Share, then Save Video.${kept}` : VE.isPhone() ? `Done.${kept}` : `Done: it's in your downloads.${kept}`; };
           const how = await VE.download(blob, name, { share: VE.isPhone() });
           if (how === "tap") {
             // the phone wants a fresh tap to open its share sheet
@@ -2269,20 +2328,26 @@
             vidSave.hidden = false;
             vidMsg.textContent = "Ready: tap Save to camera roll, then Save Video in the share sheet to put it in Photos.";
           } else done(how);
-        } catch (e) { vidMsg.textContent = (e && e.message) === "cancelled" ? "Cancelled." : `Couldn't make it (${(e && e.message) || e}).`; }
+        } catch (e) {
+          vidCancel.hidden = true;
+          if (o.auto) throw e;
+          vidMsg.textContent = (e && e.message) === "cancelled" ? "Cancelled." : `Couldn't make it (${(e && e.message) || e}).`;
+        }
         vidCancel.hidden = true;
       };
+      state.exportVideo = exportVideo; // for the video queue (autoRun)
       const videoRow = f.video && window.VideoExport ? el("div", { class: "mc-report" },
         el("div", { class: "mc-row" }, el("b", null, "Video"),
           el("button", { type: "button", class: "mc-btn ghost small", title: "16:9, his numbers on the right: a computer or TV", onclick: () => exportVideo("horizontal") }, "Export horizontal"),
-          el("button", { type: "button", class: "mc-btn ghost small", title: "9:16, his numbers along the bottom: a phone", onclick: () => exportVideo("vertical") }, "Export vertical"),
+          // (a sprint: horizontal only, the run needs the width)
+          kindName === "sprint" ? null : el("button", { type: "button", class: "mc-btn ghost small", title: "9:16, his numbers along the bottom: a phone", onclick: () => exportVideo("vertical") }, "Export vertical"),
           el("label", { class: "mc-keep", title: "Zoom the video in to fill its area, trimming the edges, instead of showing all of it with bars beside it" }, vidFill, " Fill the frame"),
           el("label", { class: "mc-keep", title: "Draw the skeleton over him in the video" }, vidSkel, " Skeleton"),
           SV ? el("label", { class: "mc-keep", title: "Zoom in on him (his height three quarters of the frame) and follow him as he runs" }, vidFollow, " Follow him") : null,
-          vidCancel, vidSave, vidMsg),
+          vidDriveBox, vidCancel, vidSave, vidMsg),
         el("p", { class: "mc-hint" }, SV
-          ? "An MP4 of the run, following him, with his steps counted as they land (each one's length), the steps to 5, 10 and 20 yards against the standard (4, 7, 12), his timed 10-yard start from Group Testing (that day's, else his latest), the first two steps' power, his name and the DST logo. Made on this device and downloaded; nothing is stored."
-          : "An MP4 of this clip with the skeleton (if it's ticked), the moment, his numbers, his name and the DST logo, made on this device and downloaded. Nothing is stored.")) : null;
+          ? `An MP4 of the run, following him, with his steps counted as they land (each one's length), the steps to 5, 10 and 20 yards against the standard (4, 7, 12), his timed 10-yard start from Group Testing (that day's, else his latest), the first two steps' power, his name and the DST logo. Made on this device and downloaded, and saved to his Google Drive folder (${driveFolder}) if that's ticked.`
+          : `An MP4 of this clip with the skeleton (if it's ticked), the moment, his numbers, his name and the DST logo, made on this device and downloaded, and saved to his Google Drive folder (${driveFolder}) if that's ticked.`)) : null;
       const reportRow = el("div", { class: "mc-report" },
         el("div", { class: "mc-row" }, el("b", null, "Report"),
           el("button", { type: "button", class: "mc-btn ghost small", onclick: printIt }, "Print"),
@@ -2346,7 +2411,7 @@
       }
       return el("div", { class: "mc-results" },
         el("div", { class: "mc-row" }, el("button", { type: "button", class: "mc-btn ghost", onclick: backToStart }, "← Back"),
-          el("span", { class: "mc-hint" }, `Saved session, ${rec.date} · ${setupName(rec.setup)} · timing at ${rec.captureFps} fps`)),
+          el("span", { class: "mc-hint" }, `Saved session, ${rec.date} · ${setupName(rec.setup)} · timing at ${state.cap || rec.captureFps} fps`)),
         el("p", { class: "mc-hint" }, "This session was saved before the full tracking was kept, so here's what was saved of it, worked out with the analysis as it was then. Analyze the video again for the full report with the skeleton (and the newer, better-placed moments)."),
         seq, metricsTable(metrics), rec.note ? el("p", null, el("b", null, "Notes: "), rec.note) : null);
     }
@@ -2396,7 +2461,45 @@
     render();
     // opened at one of his saved sessions (a clip linked in Sprint Assessment)
     if (opts.openId) { const rec = (history() || []).find((r) => r.id === opts.openId); if (rec) openSaved(rec); }
-    return { refresh: render };
+
+    // ---- the video queue (mocap_queue.js): one clip from start to end with no one at the screen ------------------------
+    // opts.auto = { file, variant, skeleton, follow, drive, download, layout, note, onStatus(text, fraction), cancelled() }:
+    // the whole clip tracked, worked out (a sprint's slow motion from his steps; his height and weight from the profile),
+    // saved as one of his sessions on opts.date with its video, then its video made and kept in his Drive folder.
+    // Resolves to { rec, warn, name, drive, blob }.
+    async function autoRun(a) {
+      const say = (text, fr) => { if (a.onStatus) a.onStatus(text, fr || 0); };
+      const stop = () => { if (a.cancelled && a.cancelled()) throw new Error("cancelled"); };
+      say("Opening the video", 0);
+      const fs = fileState("side");
+      fs.file = a.file; fs.video = await openVideo(a.file); fs.fps = await fileFps(fs.video);
+      fs.start = 0; fs.end = fs.video.duration || 0;
+      state.side = fs; state.setup = "one";
+      if (a.variant && kind.variants && kind.variants.options.some((o) => o[0] === a.variant)) state.variant = a.variant;
+      stop();
+      say("Loading the pose model", 0);
+      await model();
+      stop();
+      state.edits = {};
+      const res = await track(fs.video, fs.start, fs.end, fs.fps, (p) => say("Finding him in the video", p), null, (state.extras || {}).tape || null);
+      if (res.frames.filter((x) => x.p).length < res.frames.length * 0.5) throw new Error("Couldn't find him in most of the video. Check that his whole body is in the picture and the light is good.");
+      fs.tracked = res;
+      stop();
+      say("Working out the numbers", 1);
+      compute();
+      state.frame = zeroOf(state.result);
+      say("Saving the session", 0);
+      const warn = await saveSession(a.note || "", a.keepVideo !== false);
+      stop();
+      render(); // the report, out of sight: its video export
+      if (!state.exportVideo) throw new Error("The video export didn't load.");
+      const made = await state.exportVideo(kindName === "sprint" ? "horizontal" : a.layout || "horizontal", {
+        auto: true, skeleton: a.skeleton, follow: a.follow, drive: a.drive !== false, download: !!a.download, onProgress: say, cancelled: a.cancelled,
+      });
+      return { rec: state.saved, warn, ...(made || {}) };
+    }
+    const done = opts.auto ? autoRun(opts.auto) : null;
+    return { refresh: render, done, close: () => { if (state.side && state.side.video) state.side.video.remove(); root.replaceChildren(); } };
   }
 
   // The start of any movement's analysis (mocap_kinds.js): the side view's real times, how much to smooth, its points

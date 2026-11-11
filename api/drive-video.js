@@ -1,6 +1,6 @@
 // Bullpen video kept in the company's Google Drive instead of Supabase storage, so a clip of any size can be kept
 // (bullpen_video.js). The files live in one Drive folder (DRIVE_VIDEO_FOLDER_ID: best a folder in a Shared Drive),
-// a folder per athlete inside it. Each video is opened to anyone with its link once it's up (action share), so it can be
+// a folder per athlete inside it, and in each a folder per type of video (Bullpens, Sprints, Jumps, Pitching…). Each video is opened to anyone with its link once it's up (action share), so it can be
 // sent to the athlete; the folders and anything not shared stay private to signed-in dashboard coaches.
 //
 // It uses the service account the athlete emails already use (GMAIL_SERVICE_ACCOUNT_JSON), either
@@ -10,7 +10,8 @@
 //
 // POST, with the coach's Supabase session as the bearer token, { action, ... }:
 //   status                                  -> { configured }
-//   start  { name, mimeType, size, athleteId, athleteName, sessionId }
+//   start  { name, mimeType, size, athleteId, athleteName, sessionId, folder }   (folder: the type of video, e.g. "Sprints":
+//                                              a folder of its own inside the athlete's)
 //                                           -> { uploadUrl }: a resumable upload the browser sends the file to itself,
 //                                              in pieces (so nothing big passes through here)
 //   token                                   -> { accessToken, expiresAt }: read-only, about an hour, for watching
@@ -68,6 +69,17 @@ async function athleteFolder(token, athleteId, athleteName) {
   return made.id;
 }
 
+// a folder of one type of video (Bullpens, Sprints, Jumps…) inside the athlete's folder, found by the type it's tagged with, or made
+async function typeFolder(token, parent, type) {
+  const name = String(type).replace(/[^\w &()-]/g, "").trim().slice(0, 40);
+  if (!name) return parent;
+  const q = `'${parent}' in parents and mimeType = '${FOLDER_TYPE}' and appProperties has { key='videoType' and value='${name.replace(/'/g, "")}' } and trashed = false`;
+  const found = await drive(token, "files", { query: { q, fields: "files(id)", includeItemsFromAllDrives: "true", corpora: "allDrives", pageSize: "1" } });
+  if (found.files && found.files.length) return found.files[0].id;
+  const made = await drive(token, "files", { method: "POST", query: { fields: "id" }, body: { name, mimeType: FOLDER_TYPE, parents: [parent], appProperties: { videoType: name } } });
+  return made.id;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") { res.status(405).json({ error: "method not allowed" }); return; }
   const coach = await signedIn((req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
@@ -80,7 +92,8 @@ module.exports = async (req, res) => {
     if (action === "start") {
       if (!p.name || !p.size || !p.athleteId) { res.status(400).json({ error: "name, size and athleteId are required" }); return; }
       const { token } = await accessToken(DRIVE);
-      const parent = await athleteFolder(token, p.athleteId, p.athleteName);
+      const own = await athleteFolder(token, p.athleteId, p.athleteName);
+      const parent = p.folder ? await typeFolder(token, own, p.folder) : own;
       // the upload is started here and finished by the browser: Google lets the page that started it (its Origin)
       // send the file to the address it gives back
       const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,size", {

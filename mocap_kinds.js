@@ -498,11 +498,17 @@
       const STD = { 5: 4, 10: 7, 20: 12 };
       const reach = [5, 10, 20].map((d) => { const m2 = marks.find((x) => x.yd >= d); return { yd: d, steps: m2 ? m2.n : null, std: STD[d], i: m2 ? m2.i : null, covered: lastYd >= d }; });
       const i10 = hips.findIndex((h, k) => k >= ST && ydAt(h[0]) >= 10);
-      const vMs = hipV.map((v2) => (v2 == null ? null : v2 * Hpx * mPx)), aMs = smoothSeries(deriv(vMs.map((x) => (x == null ? 0 : x)), dt), sig * 2);
+      // (the speed his hips gained over the contact, over its time: his average forward acceleration then, times their
+      // average speed. A frame-by-frame acceleration magnified the tracking's jitter several times over: 100+ W/kg.)
+      const vMs = hipV.map((v2) => (v2 == null ? null : v2 * Hpx * mPx));
+      const vNear = (i) => { const w = fr(0.02); let sm = 0, c = 0; for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) if (vMs[j] != null) { sm += vMs[j]; c++; } return c ? sm / c : null; };
       const power = run.slice(0, 2).map((s, k) => {
         let sum = 0, cnt = 0;
-        for (let i = s.td; i <= s.to; i++) if (vMs[i] != null && aMs[i] != null) { sum += Math.max(0, aMs[i]) * vMs[i]; cnt++; }
-        const wkg = cnt ? sum / cnt : null;
+        for (let i = s.td; i <= s.to; i++) if (vMs[i] != null) { sum += vMs[i]; cnt++; }
+        const v0 = vNear(s.td), v1 = vNear(s.to), T = tReal[s.to] - tReal[s.td];
+        const raw = cnt && v0 != null && v1 != null && T > 0.02 ? (Math.max(0, v1 - v0) / T) * (sum / cnt) : null;
+        // (past 35 W/kg is beyond the best sprinters' starts: the steps or the tracking are off, so none is given)
+        const wkg = raw != null && raw <= 35 ? raw : null;
         return { n: k + 1, wkg: wkg == null ? null : Math.round(wkg * 10) / 10, w: wkg != null && kg ? Math.round(wkg * kg) : null };
       });
       sprintVideo = { ST, marks, reach, t10: i10 > 0 ? Math.round((tReal[i10] - tReal[ST]) * 100) / 100 : null, i10: i10 > 0 ? i10 : null, power, panned };
@@ -515,7 +521,7 @@
     const fvNote = start ? (fv ? ` The force-velocity profile and projected times are fitted to the first ${fv.covered.toFixed(1)} s of the run in the clip: the more of his acceleration the clip covers, the surer they are.` : mPx ? " The clip is too short (or the speed too uneven) for a force-velocity profile: film at least the first 5 yards." : " Enter his height for a force-velocity profile and projected times.") : "";
     return {
       n, tReal, dir, Hpx, pts: img, wpts, wLegs: A.wLegs, mPx, groundY, panned, sprintVideo,
-      events: ev, track: onTrack, analysisV: 4, // (4: contacts from planted feet, not left/right labels; the camera's pan; steps to 5, 10, 20 yd)
+      events: ev, track: onTrack, analysisV: 5, // (4: contacts from planted feet, not left/right labels; the camera's pan; steps to 5, 10, 20 yd. 5: step power from the speed gained over each contact)
       ...(start
         ? { evLabels: { ST: "First move", TD1: "First step", TO1: "First toe-off", TD2: "Second step" }, phaseKeys: ["ST", "TD1", "TO1", "TD2"], zeroKey: "ST", groundKey: "ST" }
         : { evLabels: { TD1: "Touchdown", TO1: "Toe-off", TD2: "Next touchdown", TO2: "Next toe-off" }, phaseKeys: ["TD1", "TO1", "TD2", "TO2"], zeroKey: "TD1", groundKey: "TD1" }),
@@ -774,7 +780,7 @@
       heightHint: "Height turns the picture into real speed (m/s, mph) and step length in feet. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the sprint",
       analyze: analyzeSprint,
-      analysisV: 4, // 3: first 3 steps, foot clearance, steps on the track (a marked cone); 4: contacts from planted feet (not left/right labels), the camera's pan, steps to 5, 10 and 20 yards
+      analysisV: 5, // 5: step power from the speed gained over each contact; 3: first 3 steps, foot clearance, steps on the track (a marked cone); 4: contacts from planted feet (not left/right labels), the camera's pan, steps to 5, 10 and 20 yards
       historyKeys: ["ttd1", "t2m", "t10yd", "t2b", "vmaxMph", "F0", "stepLen", "contact"],
     },
     jump: {

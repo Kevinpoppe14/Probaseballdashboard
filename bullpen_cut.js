@@ -32,9 +32,10 @@
     return readToken.accessToken;
   };
   // sent straight to Drive from here, 32 MB at a time (a dropped connection picks up where it got to)
-  async function driveUpload(file, athleteId, athleteName, sessionId, onProgress) {
+  // into the athlete's folder for that type of video (folder: "Bullpens", "Sprints"…)
+  async function driveUpload(file, athleteId, athleteName, sessionId, onProgress, folder = "Bullpens") {
     const type = file.type || (/\.mov$/i.test(file.name) ? "video/quicktime" : "video/mp4");
-    const { uploadUrl } = await driveApi({ action: "start", name: file.name || "video.mp4", mimeType: type, size: file.size, athleteId, athleteName, sessionId });
+    const { uploadUrl } = await driveApi({ action: "start", name: file.name || "video.mp4", mimeType: type, size: file.size, athleteId, athleteName, sessionId, folder });
     const CHUNK = 32 * 1024 * 1024;
     const put = (from, to, tries = 0) => new Promise((ok, bad) => {
       const x = new XMLHttpRequest();
@@ -548,5 +549,5 @@
     };
   }
 
-  window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, fetchVideo, useDrive, shareLink, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
+  window.BullpenCut = { matchClips, upload, saveMade, removeFiles, linkOf, fetchVideo, useDrive, shareLink, driveUpload, scanVideo, splitByMotion, cueClips, shiftClips, pitchSegment, colorOf, fmtDay, flightOf, mb };
 })();

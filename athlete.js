@@ -1399,6 +1399,7 @@
         quickTools(),
         window.MoCapApp ? el("button", { class: "primary", onclick: () => window.MoCapApp.open({ overlay, close: closeVideo }) }, "Motion Capture") : null,
         window.BullpenApp ? el("button", { class: "primary", onclick: () => window.BullpenApp.open({ overlay, close: closeVideo }) }, "Bullpen Video") : null,
+        window.MoCapQueue ? el("button", { class: "primary", onclick: () => window.MoCapQueue.open({ overlay, close: closeVideo }) }, "Video Queue") : null,
         el("button", { onclick: closeVideo }, "Cancel"))));
     overlay.className = "overlay show";
   }
