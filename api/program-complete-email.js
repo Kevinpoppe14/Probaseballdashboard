@@ -59,6 +59,11 @@ function buildHtml({ athlete, program, assignedBy, r }) {
   const lifts = r.lifts.length
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr><th ${th}>Lift</th><th ${th}>Weeks 1–2</th><th ${th}>Last 2 weeks</th><th ${th}>Change</th></tr>${r.lifts.map((l) => `<tr><td ${td}>${escapeHtml(l.name)}</td><td ${td}>${l.early} lb</td><td ${td}>${l.late} lb</td><td ${td}><b>${PR.pctText(l.pct)}</b></td></tr>`).join("")}</table>`
     : `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#777;">No lift was logged with weights in both the first two weeks and the last two${r.weeks < 3 ? " (the block was under three weeks)" : ""}.</div>`;
+  const testsTable = (list, faster) => (list.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr><th ${th}>Test</th><th ${th}>Start</th><th ${th}>End</th><th ${th}>${faster ? "Faster" : "Change"}</th></tr>${list.map((s) => `<tr><td ${td}>${escapeHtml(s.name)}</td><td ${td}>${s.before}${s.unit ? ` ${escapeHtml(s.unit)}` : ""}</td><td ${td}>${s.after}${s.unit ? ` ${escapeHtml(s.unit)}` : ""}</td><td ${td}><b>${PR.pctText(faster ? -s.pct : s.pct)}</b></td></tr>`).join("")}</table>`
+    : `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#777;">No test from near the start of the block and its end to compare.</div>`);
+  const section = (title, body) => `<tr><td style="padding:14px 28px 4px;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a52a34;">${title}</div>${body}</td></tr>`;
+  const k = r.kind || "strength", jumps = k === "strength" || k === "speed";
   const pct = r.compliance == null ? "–" : `${Math.round(r.compliance * 100)}%`;
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -73,20 +78,21 @@ function buildHtml({ athlete, program, assignedBy, r }) {
       <tr><td style="padding:18px 28px 4px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           ${row("Compliance", `${pct} (${r.done} of ${r.scheduled} sessions)`, "sessions with anything logged")}
-          ${row("Strength", r.strength == null ? "–" : `${PR.pctText(r.strength)} average`, r.lifts.length ? `estimated 1RM, ${r.lifts.length} lift${r.lifts.length === 1 ? "" : "s"}` : "")}
-          ${row("Jump height", pairText(c.jumpHeight, "in", 1), c.beforeDate && c.afterDate ? `${fmtDay(c.beforeDate)} → ${fmtDay(c.afterDate)}` : "")}
-          ${row("Relative peak power", pairText(c.relativePeakPower, "W/kg", 1), "")}
-          ${row("mRSI", pairText(c.mRSI, "", 2), "")}
-          ${row("Body weight", r.bodyweight ? `${r.bodyweight.before} → ${r.bodyweight.after} lb (${PR.signed(r.bodyweight.change, "lb")})` : "no weigh-ins to compare", r.bodyweight ? `${fmtDay(r.bodyweight.beforeDate)} → ${fmtDay(r.bodyweight.afterDate)}` : "")}
+          ${k === "strength" ? row("Strength", r.strength == null ? "–" : `${PR.pctText(r.strength)} average`, r.lifts.length ? `estimated 1RM, ${r.lifts.length} lift${r.lifts.length === 1 ? "" : "s"}` : "") : ""}
+          ${jumps ? row("Jump height", pairText(c.jumpHeight, "in", 1), c.beforeDate && c.afterDate ? `${fmtDay(c.beforeDate)} → ${fmtDay(c.afterDate)}` : "") : ""}
+          ${jumps ? row("Relative peak power", pairText(c.relativePeakPower, "W/kg", 1), "") : ""}
+          ${jumps ? row("mRSI", pairText(c.mRSI, "", 2), "") : ""}
+          ${k === "speed" ? row("Sprint times", r.sprint == null ? "no tests to compare" : `${PR.pctText(r.sprint)} faster on average`, r.sprints.length ? `${r.sprints.length} test${r.sprints.length === 1 ? "" : "s"}` : "") : ""}
+          ${k === "armcare" ? row("Shoulder & grip strength", r.shoulder == null ? "no tests to compare" : `${PR.pctText(r.shoulder)} on average`, r.shoulderTests.length ? `${r.shoulderTests.length} test${r.shoulderTests.length === 1 ? "" : "s"}, from his assessments` : "") : ""}
+          ${k !== "strength" ? "" : row("Body weight", r.bodyweight ? `${r.bodyweight.before} → ${r.bodyweight.after} lb (${PR.signed(r.bodyweight.change, "lb")})` : "no weigh-ins to compare", r.bodyweight ? `${fmtDay(r.bodyweight.beforeDate)} → ${fmtDay(r.bodyweight.afterDate)}` : "")}
         </table>
       </td></tr>
-      <tr><td style="padding:14px 28px 4px;">
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a52a34;">Lifts</div>
-        ${lifts}
-      </td></tr>
+      ${k === "strength" ? section("Lifts", lifts) : ""}
+      ${k === "speed" ? section("Sprint times", testsTable(r.sprints, true)) : ""}
+      ${k === "armcare" ? section("Shoulder & grip", testsTable(r.shoulderTests, false)) : ""}
       <tr><td style="padding:20px 28px 26px;">
         <a href="${APP_BASE_URL}/?athlete=${enc(athlete.id)}&tab=programming" style="display:inline-block;background:#a52a34;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;text-decoration:none;padding:11px 20px;border-radius:6px;">Open ${escapeHtml(athlete.name)}'s plan</a>
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;margin-top:14px;">Jump and body weight compare the test or weigh-in nearest the start of the block with the last one at its end. Strength compares each lift's best estimated 1RM (from weight and reps logged) in the first two weeks with the last two.</div>
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;margin-top:14px;">Each number compares the test or weigh-in nearest the start of the block with the last one at its end. Strength compares each lift's best estimated 1RM (from weight and reps logged) in the first two weeks with the last two.</div>
       </td></tr>
     </table>
   </td></tr></table>
@@ -120,16 +126,23 @@ async function isSignedInCoach(bearerToken) {
 // one block's result, from the database
 async function resultFor(key, { athleteId, plan, block, programs, today }) {
   const program = programs.find((p) => p.id === block.programId);
-  const [athleteRows, logRows, bwRows, testRows] = await Promise.all([
+  const [athleteRows, logRows, bwRows, testRows, assessRows, kpiRows] = await Promise.all([
     sbSelect(key, "athletes", `id=eq.${enc(athleteId)}&select=id,data`),
     sbAll(key, "athlete_logs", `athlete_id=eq.${enc(athleteId)}&program_id=eq.${enc(program.id)}&select=key,value`),
     sbAll(key, "athlete_logs", `athlete_id=eq.${enc(athleteId)}&key=like.bw-*&select=key,value`),
-    sbAll(key, "force_tests", `athlete_id=eq.${enc(athleteId)}&select=date:data->>date,jumpHeight:data->jumpHeight,relativePeakPower:data->relativePeakPower,rsiModified:data->rsiModified,systemWeight:data->systemWeight`),
+    sbAll(key, "force_tests", `athlete_id=eq.${enc(athleteId)}&select=date:data->>date,testType:data->>testType,jumpHeight:data->jumpHeight,relativePeakPower:data->relativePeakPower,rsiModified:data->rsiModified,systemWeight:data->systemWeight`),
+    sbAll(key, "assessments", `athlete_id=eq.${enc(athleteId)}&select=data`),
+    sbAll(key, "kpi_entries", `athlete_id=eq.${enc(athleteId)}&select=data`),
   ]);
   const log = { ...(((plan.programLog || {})[program.id]) || {}) };
   logRows.forEach((r) => { log[r.key] = r.value; });
   const athlete = { id: athleteId, name: (athleteRows[0] && athleteRows[0].data && athleteRows[0].data.name) || `Athlete ${athleteId}` };
-  const r = PR.blockResult({ plan, block, program, log, forceTests: testRows.map((t) => ({ ...t, jumpHeight: Number(t.jumpHeight), relativePeakPower: t.relativePeakPower == null ? null : Number(t.relativePeakPower), rsiModified: t.rsiModified == null ? null : Number(t.rsiModified), systemWeight: t.systemWeight == null ? null : Number(t.systemWeight) })), weighins: PR.weighinsFrom(bwRows), today });
+  const name = (athleteRows[0] && athleteRows[0].data && athleteRows[0].data.name) || "";
+  const kind = PR.kindOf(PR.templateOf(program, programs, name)) || "strength";
+  // countermovement jumps only (see isCmjTest in store.js); his biomechanical assessments and monthly re-assessments
+  const isCmj = (t) => { const ty = String(t.testType || "").trim().toLowerCase(); return !ty || ty === "countermovement jump" || ty === "cmj"; };
+  const assessments = PR.perfTestsFrom(assessRows.map((x) => x.data).filter((d) => d && (!d.kind || d.kind === "reassess")));
+  const r = PR.blockResult({ plan, block, program, kind, assessments, kpis: kpiRows.map((x) => x.data).filter(Boolean), log, forceTests: testRows.filter(isCmj).map((t) => ({ ...t, jumpHeight: Number(t.jumpHeight), relativePeakPower: t.relativePeakPower == null ? null : Number(t.relativePeakPower), rsiModified: t.rsiModified == null ? null : Number(t.rsiModified), systemWeight: t.systemWeight == null ? null : Number(t.systemWeight) })), weighins: PR.weighinsFrom(bwRows), today });
   return { athlete, program, r };
 }
 
@@ -168,7 +181,7 @@ module.exports = async (req, res) => {
       (plan.blocks || []).forEach((b) => {
         if (!b.programId || !b.assignedBy) return;
         const program = programs.find((p) => p.id === b.programId);
-        if (!PR.reportable(program)) return;
+        if (!PR.reportable(program) || !PR.kindOf(PR.templateOf(program, programs, ""))) return; // strength, speed and arm care only
         const { to } = PR.blockDates(plan, b);
         const tag = `${row.athlete_id}:${b.id}`;
         if (to < today && to >= PR.addDays(today, -3) && !sent.has(tag)) due.push({ athleteId: String(row.athlete_id), plan, block: b, tag });

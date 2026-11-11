@@ -2693,7 +2693,7 @@ function ProgramAssignPanel({ program, onClose, initialStart, onAssignOther }) {
 // Which screen of the Programs page is open. Kept by App (not here) so it's part of the Back history.
 const PROGRAMS_NAV_HOME = { section: "programs", folder: "", editingId: null, assigningId: null };
 
-function ProgramsPage({ nav, setNav }) {
+function ProgramsPage({ nav, setNav, onSelectAthlete }) {
   const [version, setVersion] = useState(0);
   const S = window.AthleteStore;
   // athletes' own programs saved before athlete folders existed are filed into theirs, once per visit
@@ -2735,14 +2735,20 @@ function ProgramsPage({ nav, setNav }) {
   const coachName = (email) => USER_DISPLAY_NAMES[email] || email;
   const coaches = [...new Set(programs.map((p) => p.createdBy).filter(Boolean))].sort((a, b) => coachName(a).localeCompare(coachName(b)));
   const q = query.trim().toLowerCase();
+  // An athlete's own original program (one not copied from a library program) is filed in his folder, and shows in
+  // its kind's folder too (Strength, Speed, Re-Education, Arm Care, Throwing), with the library's programs of that kind
+  const categoryOf = (p) => (p.layout === "speed" ? "speed" : p.layout === "reed" ? "re-education" : p.layout === "throwing" ? "throwing"
+    : /arm\s*-?\s*care/i.test(`${p.name || ""} ${(p.tags || []).join(" ")}`) ? "arm care" : "strength");
+  const originals = window.ProgramResults ? programs.filter((p) => p.athleteId && !window.isSentProgram(p.id) && window.ProgramResults.templateOf(p, programs) === p) : [];
+  const alsoIn = (f) => (f && !f.includes("/") ? originals.filter((p) => categoryOf(p) === f.toLowerCase() && (p.folder || "") !== f) : []);
   const searching = !!q || !!coach || !!tag;
   const here = searching
     ? programs.filter((p) =>
         (!coach || (coach === "__none__" ? !p.createdBy : p.createdBy === coach)) &&
         (!tag || (p.tags || []).includes(tag)) &&
         (!q || [p.name, p.createdBy, p.createdBy && coachName(p.createdBy), ...(p.tags || [])].some((v) => (v || "").toLowerCase().includes(q))))
-    : programs.filter((p) => ((window.isSentProgram(p.id) ? "" : p.folder) || "") === folder); // sent sessions, when shown, sit at the top level
-  const countIn = (f) => programs.filter((p) => inFolder(p.folder || "", f)).length;
+    : [...programs.filter((p) => ((window.isSentProgram(p.id) ? "" : p.folder) || "") === folder), ...alsoIn(folder)]; // sent sessions, when shown, sit at the top level
+  const countIn = (f) => programs.filter((p) => inFolder(p.folder || "", f)).length + alsoIn(f).length;
   const cleanName = (raw) => (raw || "").replace(/\//g, " ").trim();
 
   const addFolder = () => {
@@ -2872,11 +2878,14 @@ function ProgramsPage({ nav, setNav }) {
       {window.SeriesLibrary && <button className={`pill-tab ${section === "series" ? "active" : ""}`} title="Blocks of drills saved on their own (Core Stability 1…) to put into any program" onClick={() => setNav((n) => ({ ...n, section: "series" }))}>Series</button>}
       <button className={`pill-tab ${section === "exercises" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "exercises" }))}>Exercise Library</button>
       <button className={`pill-tab ${section === "rmchart" ? "active" : ""}`} onClick={() => setNav((n) => ({ ...n, section: "rmchart" }))}>1RM Chart</button>
+      {/* what each coach's programs did for the athletes who ran them: Kevin's only */}
+      {(window.AthleteStore.currentUserEmail() || "").toLowerCase() === KEVIN_EMAIL && <button className={`pill-tab ${section === "results" ? "active" : ""}`} title="Only you see this" onClick={() => setNav((n) => ({ ...n, section: "results" }))}>Program Results</button>}
     </div>
   );
   if (section === "series" && window.SeriesLibrary) return <window.SeriesLibrary sectionTabs={sectionTabs} />;
   if (section === "exercises") return <ExerciseLibrary sectionTabs={sectionTabs} />;
   if (section === "rmchart") return <RmChartPage sectionTabs={sectionTabs} />;
+  if (section === "results" && (window.AthleteStore.currentUserEmail() || "").toLowerCase() === KEVIN_EMAIL) return <ProgramResultsPage sectionTabs={sectionTabs} onSelect={onSelectAthlete || (() => {})} />;
 
   return (
     <div className="panel" key={version}>
@@ -4366,7 +4375,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoProgramResults, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4404,11 +4413,6 @@ function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoProgramResu
         {onGoLeaderboard && (
           <button className={`nav-tab ${view === "leaderboard" ? "active" : ""}`} onClick={onGoLeaderboard}>
             Leaderboard
-          </button>
-        )}
-        {onGoProgramResults && (
-          <button className={`nav-tab ${view === "programresults" ? "active" : ""}`} onClick={onGoProgramResults} title="Only you see this">
-            Program Results
           </button>
         )}
         <button className={`nav-tab ${view === "programs" ? "active" : ""}`} onClick={onGoPrograms}>
@@ -8917,9 +8921,12 @@ async function loadProgramResults(keep) {
       const program = programs.find((p) => p.id === b.programId);
       if (!PR.reportable(program)) return;
       const template = PR.templateOf(program, programs, a.name);
+      // strength, speed and arm care programs only (not re-ed or throwing): what kind says what it measures
+      const kind = PR.kindOf(template);
+      if (!kind) return;
       const { from } = PR.blockDates(plan, b);
       if (from > today || (keep && !keep({ athlete: a, block: b, program, template }))) return;
-      items.push({ athlete: a, plan, block: b, program, template });
+      items.push({ athlete: a, plan, block: b, program, template, kind });
     });
   });
   if (!items.length) return [];
@@ -8935,6 +8942,14 @@ async function loadProgramResults(keep) {
     const chunk = aids.slice(i, i + 60);
     await fetchAll(() => sb.from("athlete_logs").select("athlete_id,program_id,key,value").like("key", "bw-%").in("athlete_id", chunk));
   }
+  // and their Group Testing results (sprint times, grip and shoulder tests)
+  const kpiRows = [];
+  for (let i = 0; i < aids.length; i += 60) {
+    const chunk = aids.slice(i, i + 60);
+    for (let from = 0; ; from += 1000) { const { data, error } = await sb.from("kpi_entries").select("athlete_id,data").in("athlete_id", chunk).range(from, from + 999); if (error || !data) break; kpiRows.push(...data); if (data.length < 1000) break; }
+  }
+  const kpisOf = {};
+  kpiRows.forEach((r) => (kpisOf[String(r.athlete_id)] = kpisOf[String(r.athlete_id)] || []).push(r.data));
   const logOf = {}, weighRows = {};
   rows.forEach((r) => {
     if (/^bw-/.test(r.key || "")) (weighRows[r.athlete_id] = weighRows[r.athlete_id] || []).push(r);
@@ -8945,7 +8960,8 @@ async function loadProgramResults(keep) {
     const aid = String(it.athlete.id);
     const planLog = ((it.plan.programLog || {})[it.program.id]) || {};
     const result = window.ProgramResults.blockResult({
-      plan: it.plan, block: it.block, program: it.program, today,
+      plan: it.plan, block: it.block, program: it.program, kind: it.kind, today,
+      assessments: window.ProgramResults.perfTestsFrom([...S.getAssessments(it.athlete.id), ...(S.getReassessments ? S.getReassessments(it.athlete.id) : [])]), kpis: kpisOf[aid] || [],
       log: { ...planLog, ...(logOf[`${aid}|${it.program.id}`] || {}) },
       forceTests: S.getForceTests(it.athlete.id), weighins: window.ProgramResults.weighinsFrom(weighRows[aid]),
     });
@@ -8953,43 +8969,64 @@ async function loadProgramResults(keep) {
   });
 }
 
-// the averages as a row of tiles
-function ProgramResultsTiles({ s }) {
+// what each kind of program reports, in order: strength programs strength, jump and body weight; speed programs jump
+// and sprint times; arm care programs shoulder strength and grip. `kinds`: the kinds of program in view.
+function prColumns(kinds) {
+  const PR = window.ProgramResults, has = (...k) => k.some((x) => kinds.has(x));
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const cmj = (r, k, unit, dp) => (r.cmj && r.cmj[k] ? PR.signed(r.cmj[k].change, unit, dp) : "–");
+  return [
+    has("strength") && { key: "strength", label: "Strength", tile: "Strength (est. 1RM)", text: PR.pctText,
+      cell: (r) => (r.strength == null ? "–" : <React.Fragment>{PR.pctText(r.strength)}<small> · {plural(r.lifts.length, "lift")}</small></React.Fragment>) },
+    has("strength", "speed") && { key: "jumpHeight", label: "Jump height", tile: "Jump height", text: (v) => PR.signed(v, "in"), cell: (r) => cmj(r, "jumpHeight", "in") },
+    has("strength", "speed") && { key: "relativePeakPower", label: "Rel. power", tile: "Relative peak power", text: (v) => PR.signed(v, "W/kg"), cell: (r) => cmj(r, "relativePeakPower", "") },
+    has("strength", "speed") && { key: "mRSI", label: "mRSI", tile: "mRSI", text: (v) => PR.signed(v, "", 2), cell: (r) => cmj(r, "mRSI", "", 2) },
+    has("strength") && { key: "bodyweight", label: "Body weight", tile: "Body weight", text: (v) => PR.signed(v, "lb"), cell: (r) => (r.bodyweight ? PR.signed(r.bodyweight.change, "lb") : "–") },
+    has("speed") && { key: "sprint", label: "Sprint (faster)", tile: "Sprint times (faster)", text: PR.pctText,
+      cell: (r) => (r.sprint == null ? "–" : <React.Fragment>{PR.pctText(r.sprint)}<small> · {plural(r.sprints.length, "test")}</small></React.Fragment>) },
+    has("armcare") && { key: "shoulder", label: "Shoulder & grip", tile: "Shoulder & grip strength", text: PR.pctText,
+      cell: (r) => (r.shoulder == null ? "–" : <React.Fragment>{PR.pctText(r.shoulder)}<small> · {plural(r.shoulderTests.length, "test")}</small></React.Fragment>) },
+  ].filter(Boolean);
+}
+const prKinds = (list) => new Set(list.map((x) => x.kind || (x.result && x.result.kind)).filter(Boolean));
+// the details behind a row, on hover: each lift, sprint test and shoulder or grip test, start to end
+function prDetail(r) {
   const PR = window.ProgramResults;
-  const tile = (label, a, text) => <div><span>{label}</span><b>{a.value == null ? "–" : text(a.value)}</b><small>{a.n ? `${a.n} athlete${a.n === 1 ? "" : "s"}` : "no data yet"}</small></div>;
+  return [
+    ...r.lifts.map((l) => `${l.name}: ${l.early} → ${l.late} lb est. 1RM (${PR.pctText(l.pct)})`),
+    ...(r.sprints || []).map((s) => `${s.name}: ${s.before} → ${s.after}${s.unit ? ` ${s.unit}` : " s"} (${PR.pctText(-s.pct)} faster)`),
+    ...(r.shoulderTests || []).map((s) => `${s.name}: ${s.before} → ${s.after}${s.unit ? ` ${s.unit}` : ""} (${PR.pctText(s.pct)})`),
+  ].join("\n");
+}
+
+// the averages as a row of tiles
+function ProgramResultsTiles({ s, kinds }) {
+  const tile = (key, label, a, text) => <div key={key}><span>{label}</span><b>{a.value == null ? "–" : text(a.value)}</b><small>{a.n ? `${a.n} athlete${a.n === 1 ? "" : "s"}` : "no data yet"}</small></div>;
   return (
     <div className="bw-stats pr-tiles">
-      {tile("Compliance", s.compliance, (v) => `${Math.round(v * 100)}%`)}
-      {tile("Strength (est. 1RM)", s.strength, PR.pctText)}
-      {tile("Jump height", s.jumpHeight, (v) => PR.signed(v, "in"))}
-      {tile("Relative peak power", s.relativePeakPower, (v) => PR.signed(v, "W/kg"))}
-      {tile("mRSI", s.mRSI, (v) => PR.signed(v, "", 2))}
-      {tile("Body weight", s.bodyweight, (v) => PR.signed(v, "lb"))}
+      {tile("c", "Compliance", s.compliance, (v) => `${Math.round(v * 100)}%`)}
+      {prColumns(kinds).map((c) => tile(c.key, c.tile, s[c.key], c.text))}
     </div>
   );
 }
 // one row per athlete's block
 function ProgramResultsTable({ list, onSelect, showProgram }) {
-  const PR = window.ProgramResults;
   const name = (email) => (email ? coachNameFromEmail(email) : "–");
+  const cols = prColumns(prKinds(list));
   return (
     <div className="bp-table-wrap">
       <table className="assess-table pr-table">
-        <thead><tr><th>Athlete</th>{showProgram && <th>Program</th>}<th>Dates</th><th>Compliance</th><th>Strength</th><th>Jump height</th><th>Rel. power</th><th>mRSI</th><th>Body weight</th><th>Assigned by</th></tr></thead>
+        <thead><tr><th>Athlete</th>{showProgram && <th>Program</th>}<th>Dates</th><th>Compliance</th>{cols.map((c) => <th key={c.key}>{c.label}</th>)}<th>Assigned by</th></tr></thead>
         <tbody>
           {list.map((x) => {
-            const r = x.result, c = r.cmj || {};
+            const r = x.result;
             return (
-              <tr key={`${x.athlete.id}|${x.block.id}`} className={onSelect ? "lb-row" : ""} onClick={onSelect ? () => onSelect(x.athlete.id) : undefined} title={r.lifts.length ? r.lifts.map((l) => `${l.name}: ${l.early} → ${l.late} lb (${PR.pctText(l.pct)})`).join("\n") : ""}>
+              <tr key={`${x.athlete.id}|${x.block.id}`} className={onSelect ? "lb-row" : ""} onClick={onSelect ? () => onSelect(x.athlete.id) : undefined} title={prDetail(r)}>
                 <td><b>{x.athlete.name}</b>{!r.complete && <small className="pr-live"> in progress</small>}</td>
                 {showProgram && <td>{x.program.name}</td>}
                 <td>{shortDate(r.from)} – {shortDate(r.to)}</td>
                 <td>{r.compliance == null ? "–" : `${Math.round(r.compliance * 100)}% (${r.done}/${r.scheduled})`}</td>
-                <td>{PR.pctText(r.strength)}{r.lifts.length ? <small> · {r.lifts.length} lift{r.lifts.length === 1 ? "" : "s"}</small> : null}</td>
-                <td>{c.jumpHeight ? PR.signed(c.jumpHeight.change, "in") : "–"}</td>
-                <td>{c.relativePeakPower ? PR.signed(c.relativePeakPower.change, "") : "–"}</td>
-                <td>{c.mRSI ? PR.signed(c.mRSI.change, "", 2) : "–"}</td>
-                <td>{r.bodyweight ? PR.signed(r.bodyweight.change, "lb") : "–"}</td>
+                {cols.map((c) => <td key={c.key}>{r.kind && !prColumns(new Set([r.kind])).some((k) => k.key === c.key) ? "" : c.cell(r)}</td>)}
                 <td>{name(x.assignedBy)}</td>
               </tr>
             );
@@ -9016,10 +9053,10 @@ function ProgramResultsPanel({ templateId }) {
   return (
     <div className="panel pr-panel no-print">
       <h2>Results <small>{done.length} athlete{done.length === 1 ? "" : "s"} finished it{list.length > done.length ? ` · ${list.length - done.length} on it now` : ""} · averages from the start of the block to its end</small></h2>
-      {done.length ? <ProgramResultsTiles s={s} /> : <div className="empty-state">No one has finished it yet. The averages show here once someone does.</div>}
+      {done.length ? <ProgramResultsTiles s={s} kinds={prKinds(done)} /> : <div className="empty-state">No one has finished it yet. The averages show here once someone does.</div>}
       <button className="btn-link" onClick={() => setOpen(!open)}>{open ? "Hide athletes" : `Show each athlete (${list.length})`}</button>
       {open && <ProgramResultsTable list={list} />}
-      <p className="bc-note">Strength: each lift's best estimated 1RM in the first two weeks against the last two (hover a row for the lifts). Jump and body weight: the test or weigh-in nearest the start against the last one at the end. Compliance: sessions with anything logged out of those scheduled.</p>
+      <p className="bc-note">Strength programs: each lift's best estimated 1RM in the first two weeks against the last two, jump and body weight. Speed programs: jump and sprint times (+ is faster). Arm care programs: shoulder strength and grip from his assessments. Each compares the nearest result to the start of the block with the last at its end; hover a row for the details. Compliance: sessions with anything logged out of those scheduled.</p>
     </div>
   );
 }
@@ -9027,7 +9064,7 @@ function ProgramResultsPanel({ templateId }) {
 window.ProgramResultsPanel = ProgramResultsPanel; // (the re-ed, speed and throwing builder shows it too)
 
 // Kevin's page: every program's results by the coach who wrote it, then by program, then by athlete
-function ProgramResultsPage({ onSelect }) {
+function ProgramResultsPage({ onSelect, sectionTabs }) {
   const [list, setList] = useState(null);
   const [coach, setCoach] = useState(null);
   const [programId, setProgramId] = useState(null);
@@ -9038,12 +9075,13 @@ function ProgramResultsPage({ onSelect }) {
     return () => { live = false; };
   }, []);
   const PR = window.ProgramResults;
-  if (!list) return <div className="panel"><div className="empty-state">Working out every program's results…</div></div>;
+  if (!list) return <div className="panel">{sectionTabs}<div className="empty-state">Working out every program's results…</div></div>;
   const rows = list.filter((x) => !onlyDone || x.result.complete);
   const by = (key) => { const m = new Map(); rows.forEach((x) => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return m; };
   const who = (email) => (email ? coachNameFromEmail(email) : "Not recorded");
   const head = (
     <div className="panel">
+      {sectionTabs}
       <h2>Program Results <small>what each coach's programs did for the athletes who ran them · only you see this page</small></h2>
       <div className="lb-filters">
         <label className="pr-check"><input type="checkbox" checked={onlyDone} onChange={(e) => setOnlyDone(e.target.checked)} /> Finished blocks only</label>
@@ -9051,30 +9089,28 @@ function ProgramResultsPage({ onSelect }) {
       </div>
     </div>
   );
+  // the columns for every kind of program on the page (a coach's strength, speed and arm care programs side by side)
+  const pageCols = prColumns(prKinds(rows));
   const summaryRow = (key, label, sub, items, onClick) => {
-    const s = PR.summarize(items);
-    const cell = (a, text) => (a.value == null ? "–" : <React.Fragment>{text(a.value)}<small> ({a.n})</small></React.Fragment>);
+    const s = PR.summarize(items), mineK = prKinds(items);
+    const cell = (a, text) => (a.value == null ? "â" : <React.Fragment>{text(a.value)}<small> ({a.n})</small></React.Fragment>);
     return (
       <tr key={key} className="lb-row" onClick={onClick}>
-        <td><b>{label}</b>{sub ? <small> · {sub}</small> : null}</td>
+        <td><b>{label}</b>{sub ? <small> Â· {sub}</small> : null}</td>
         <td>{items.length}</td>
         <td>{cell(s.compliance, (v) => `${Math.round(v * 100)}%`)}</td>
-        <td>{cell(s.strength, PR.pctText)}</td>
-        <td>{cell(s.jumpHeight, (v) => PR.signed(v, "in"))}</td>
-        <td>{cell(s.relativePeakPower, (v) => PR.signed(v, ""))}</td>
-        <td>{cell(s.mRSI, (v) => PR.signed(v, "", 2))}</td>
-        <td>{cell(s.bodyweight, (v) => PR.signed(v, "lb"))}</td>
+        {pageCols.map((c) => <td key={c.key}>{prColumns(mineK).some((k) => k.key === c.key) ? cell(s[c.key], c.text) : ""}</td>)}
       </tr>
     );
   };
-  const summaryHead = (first) => <thead><tr><th>{first}</th><th>Blocks</th><th>Compliance</th><th>Strength</th><th>Jump height</th><th>Rel. power</th><th>mRSI</th><th>Body weight</th></tr></thead>;
+  const summaryHead = (first) => <thead><tr><th>{first}</th><th>Blocks</th><th>Compliance</th>{pageCols.map((c) => <th key={c.key}>{c.label}</th>)}</tr></thead>;
   if (programId) {
     const items = rows.filter((x) => x.template.id === programId), t = (items[0] || list.find((x) => x.template.id === programId) || {}).template;
     return (
       <div>{head}
         <div className="panel">
           <h2>{t ? t.name : "Program"} <small>written by {who(t && t.createdBy)}</small></h2>
-          {items.length ? <React.Fragment><ProgramResultsTiles s={PR.summarize(items)} /><ProgramResultsTable list={items} onSelect={onSelect} showProgram /></React.Fragment> : <div className="empty-state">No blocks to show.</div>}
+          {items.length ? <React.Fragment><ProgramResultsTiles s={PR.summarize(items)} kinds={prKinds(items)} /><ProgramResultsTable list={items} onSelect={onSelect} showProgram /></React.Fragment> : <div className="empty-state">No blocks to show.</div>}
         </div>
       </div>
     );
@@ -9086,9 +9122,9 @@ function ProgramResultsPage({ onSelect }) {
       <div>{head}
         <div className="panel">
           <h2>{who(coach)} <small>{progs.length} program{progs.length === 1 ? "" : "s"} · {mine.length} block{mine.length === 1 ? "" : "s"}</small></h2>
-          <ProgramResultsTiles s={PR.summarize(mine)} />
+          <ProgramResultsTiles s={PR.summarize(mine)} kinds={prKinds(mine)} />
           <div className="bp-table-wrap"><table className="assess-table pr-table">{summaryHead("Program")}<tbody>
-            {progs.map(([id, items]) => summaryRow(id, items[0].template.name, null, items, () => setProgramId(id)))}
+            {progs.map(([id, items]) => summaryRow(id, items[0].template.name, { strength: "strength", speed: "speed", armcare: "arm care" }[items[0].kind] || null, items, () => setProgramId(id)))}
           </tbody></table></div>
         </div>
       </div>
@@ -9105,7 +9141,7 @@ function ProgramResultsPage({ onSelect }) {
           </tbody></table></div>
         ) : <div className="empty-state">No {onlyDone ? "finished " : ""}program blocks yet.</div>}
       </div>
-      <p className="bc-note">A program's author is the coach who first saved it in the builder; an athlete's own copy counts toward the program it was made from. Strength is each lift's best estimated 1RM (Epley) in the first two weeks against the last two; jump and body weight compare the nearest test or weigh-in to the start of the block with the last at its end; compliance is sessions with anything logged out of those scheduled.</p>
+      <p className="bc-note">A program's author is the coach who first saved it in the builder; an athlete's own copy counts toward the program it was made from. Strength, speed and arm care programs are tracked (not re-ed or throwing). Strength: each lift's best estimated 1RM (Epley) in the first two weeks against the last two, jump and body weight. Speed: jump and sprint times (Group Testing sprints and the assessment's 10 yd start and flying 5; + is faster). Arm care: grip, 90/90 ER and IR, ER neutral and scaption from his assessments and re-assessments, each side. Jump, body weight and tests compare the nearest result to the start of the block with the last at its end; compliance is sessions with anything logged out of those scheduled.</p>
     </div>
   );
 }
@@ -10419,7 +10455,6 @@ function App({ userEmail, onLogout }) {
   const goImport = () => setView("import");
   const goTeamReport = () => setView("teamreport");
   const goLeaderboard = () => setView("leaderboard");
-  const goProgramResults = () => setView("programresults");
   const goPlayers = () => setView("players");
   const goNews = () => setView("news");
   const goFacilities = () => setView("facilities");
@@ -10551,7 +10586,6 @@ function App({ userEmail, onLogout }) {
         onGoPlayers={goPlayers}
         onGoNews={goNews}
         onGoLeaderboard={goLeaderboard}
-        onGoProgramResults={(userEmail || "").toLowerCase() === KEVIN_EMAIL ? goProgramResults : null}
         onGoFacilities={goFacilities}
         showFacilities={locationFilter === CUBS_LOCATION_LABEL}
         onGoPrograms={goPrograms}
@@ -10616,13 +10650,12 @@ function App({ userEmail, onLogout }) {
         )}
         {view === "teamreport" && <TeamReportPage onSelect={selectAthlete} dataVersion={dataVersion} onEditPeriodization={editPeriodization} />}
         {view === "leaderboard" && <LeaderboardPage onSelect={selectAthlete} dataVersion={dataVersion} />}
-        {view === "programresults" && (userEmail || "").toLowerCase() === KEVIN_EMAIL && <ProgramResultsPage onSelect={selectAthlete} />}
         {view === "players" && <PlayerProfilesPage onSelect={selectAthlete} dataVersion={dataVersion} onDataChange={bumpVersion} />}
         {view === "news" && (window.NewsPage
           ? <window.NewsPage dataVersion={dataVersion} />
           : <div className="panel"><div className="empty-state">The In the News page didn't load — make sure news.js is next to index.html and that you're opening the dashboard through start-dashboard.bat (localhost).</div></div>)}
         {view === "facilities" && <OffseasonFacilitiesPage />}
-        {view === "programs" && <ProgramsPage nav={programsNav} setNav={updateProgramsNav} />}
+        {view === "programs" && <ProgramsPage nav={programsNav} setNav={updateProgramsNav} onSelectAthlete={selectAthlete} />}
         {view === "help" && <HelpPage />}
         {view === "whatsnew" && <WhatsNewPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}

@@ -36,13 +36,15 @@
   const liftName = (e) => String(e.name || "").trim().toLowerCase().replace(/\s+/g, " ");
   const filled = (v) => v != null && String(v).trim() !== "";
 
-  // One athlete's block of a program. `log`: { key: value } logged against this program (athlete_logs); `forceTests`:
-  // [{ date, jumpHeight, relativePeakPower, rsiModified, systemWeight }]; `weighins`: [{ date, lb }]; `today` YYYY-MM-DD.
-  function blockResult({ plan, block, program, log, forceTests, weighins, today }) {
+  // One athlete's block of a program. `kind`: what it is (kindOf: "strength", "speed" or "armcare"), which says what
+  // it measures. `log`: { key: value } logged against this program (athlete_logs); `forceTests`: his countermovement
+  // jumps [{ date, jumpHeight, relativePeakPower, rsiModified, systemWeight }]; `weighins`: [{ date, lb }];
+  // `assessments`: perfTestsFrom(...) of his assessments; `kpis`: his Group Testing results; `today` YYYY-MM-DD.
+  function blockResult({ plan, block, program, kind = "strength", log, forceTests, weighins, assessments, kpis, today }) {
     const { from, to } = blockDates(plan, block);
     const weeks = (program && program.weeks) || [];
     const W = weeks.length, len = block.len || 1;
-    const out = { from, to, complete: to < today, weeks: len, scheduled: 0, done: 0, compliance: null, strength: null, lifts: [], cmj: {}, bodyweight: null };
+    const out = { from, to, complete: to < today, weeks: len, scheduled: 0, done: 0, compliance: null, strength: null, lifts: [], cmj: {}, bodyweight: null, kind, sprint: null, sprints: [], shoulder: null, shoulderTests: [] };
     if (!W) return out;
     const keys = Object.keys(log || {}).filter((k) => filled(log[k]));
     // ---- compliance
@@ -63,8 +65,8 @@
       }
     }
     out.compliance = out.scheduled ? out.done / out.scheduled : null;
-    // ---- strength: each lift's best estimated 1RM, first two weeks against the last two
-    if (!program.daily && len >= 3) {
+    // ---- strength (a strength program): each lift's best estimated 1RM, first two weeks against the last two
+    if (kind === "strength" && !program.daily && len >= 3) {
       const best = {}; // name -> { early, late }
       for (let k = 0; k < len; k++) {
         const phase = k < 2 ? "early" : k >= len - 2 ? "late" : null;
@@ -91,18 +93,47 @@
     const after = tests.filter((t) => t.date >= addDays(to, -13) && t.date <= addDays(to, 7) && (!before || t.date > before.date)).pop() || null;
     const pair = (get) => { const a = before && get(before), b = after && get(after); return a != null && b != null ? { before: r2(a), after: r2(b), change: r2(b - a), pct: a ? (b - a) / a : null } : null; };
     const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
-    out.cmj = {
+    out.cmj = kind === "strength" || kind === "speed" ? {
       jumpHeight: pair((t) => num(t.jumpHeight)),
       relativePeakPower: pair((t) => num(t.relativePeakPower)),
       mRSI: pair((t) => num(t.rsiModified)),
       beforeDate: before ? before.date : null, afterDate: after ? after.date : null,
-    };
+    } : {};
     // ---- body weight: weigh-ins and the force plate's system weight, the nearest to the start and the latest at the end
     const weights = [...(weighins || []).map((w) => ({ date: w.date, lb: Number(w.lb) })), ...tests.filter((t) => num(t.systemWeight)).map((t) => ({ date: t.date, lb: t.systemWeight * N_TO_LB }))]
       .filter((w) => w.date && w.lb > 0).sort((a, b) => a.date.localeCompare(b.date));
     const startW = weights.filter((w) => w.date >= addDays(from, -10) && w.date <= addDays(from, 10)).sort((a, b) => Math.abs(daysBetween(a.date, from)) - Math.abs(daysBetween(b.date, from)))[0] || null;
     const endW = weights.filter((w) => w.date >= addDays(to, -10) && w.date <= addDays(to, 3) && (!startW || w.date > startW.date)).pop() || null;
-    out.bodyweight = startW && endW ? { before: r1(startW.lb), after: r1(endW.lb), change: r1(endW.lb - startW.lb), beforeDate: startW.date, afterDate: endW.date } : null;
+    out.bodyweight = kind === "strength" && startW && endW ? { before: r1(startW.lb), after: r1(endW.lb), change: r1(endW.lb - startW.lb), beforeDate: startW.date, afterDate: endW.date } : null;
+    // ---- tests from assessments and Group Testing: a result near the start of the block against the last one at its
+    // end, each test (and side) on its own; the change as a share of where he started
+    const testPairs = (rows, fromLo, fromHi, toLo, toHi) => {
+      const byName = {};
+      rows.forEach((x) => { if (x.v != null && isFinite(x.v) && x.v > 0) (byName[x.name] = byName[x.name] || []).push(x); });
+      return Object.keys(byName).map((name) => {
+        const list = byName[name].sort((a, b) => a.date.localeCompare(b.date));
+        const b0 = list.filter((x) => x.date >= addDays(from, fromLo) && x.date <= addDays(from, fromHi)).pop();
+        const b1 = list.filter((x) => x.date >= addDays(to, toLo) && x.date <= addDays(to, toHi) && (!b0 || x.date > b0.date)).pop();
+        return b0 && b1 ? { name, unit: b0.unit || "", before: r2(b0.v), after: r2(b1.v), change: r2(b1.v - b0.v), pct: (b1.v - b0.v) / b0.v, beforeDate: b0.date, afterDate: b1.date } : null;
+      }).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+    };
+    const perf = (keys) => (assessments || []).flatMap((a) => keys.flatMap(([key, label, single]) => {
+      const t = (a.tests || {})[key] || {};
+      return single ? [{ date: a.date, name: label, v: parseFloat(t.left) }] : [{ date: a.date, name: `${label} L`, v: parseFloat(t.left) }, { date: a.date, name: `${label} R`, v: parseFloat(t.right) }];
+    }));
+    const kpiRows = (test) => (kpis || []).filter((e) => e && e.date && test(e)).map((e) => ({ date: e.date, name: e.kpiName, unit: e.unit, v: parseFloat(e.best != null ? e.best : e.value) }));
+    if (kind === "speed") {
+      // sprint times: lower is faster, so the change is shown as how much faster (a negative change is better)
+      const sprintKpi = (e) => e.better === "lower" && (/^s(ec)?$/i.test(String(e.unit || "").trim()) || /yard|yd|sprint|dash|fly|start/i.test(e.kpiName || ""));
+      out.sprints = testPairs([...kpiRows(sprintKpi), ...perf([["tenYdStart", "10 yd start (assessment)", true], ["flying5", "Flying 5 (assessment)", true]])], -28, 6, -13, 7);
+      out.sprint = out.sprints.length ? mean(out.sprints.map((s) => -s.pct)) : null; // + is faster
+    }
+    if (kind === "armcare") {
+      // shoulder strength and grip: the HHD tests on his assessments, each side, and any grip or shoulder Group Testing
+      const armKpi = (e) => e.better !== "lower" && /grip|shoulder|scaption|\b(er|ir)\b|rotation/i.test(e.kpiName || "");
+      out.shoulderTests = testPairs([...perf([["hhdGrip", "Grip"], ["hhd9090Er", "90/90 ER"], ["hhd9090Ir", "90/90 IR"], ["hhdErNeutral", "ER neutral"], ["hhdScaption", "Scaption"]]), ...kpiRows(armKpi)], -42, 10, -21, 21);
+      out.shoulder = out.shoulderTests.length ? mean(out.shoulderTests.map((s) => s.pct)) : null;
+    }
     return out;
   }
 
@@ -119,7 +150,19 @@
       relativePeakPower: avg((r) => r.cmj && r.cmj.relativePeakPower && r.cmj.relativePeakPower.change),
       mRSI: avg((r) => r.cmj && r.cmj.mRSI && r.cmj.mRSI.change),
       bodyweight: avg((r) => r.bodyweight && r.bodyweight.change),
+      sprint: avg((r) => r.sprint),
+      shoulder: avg((r) => r.shoulder),
     };
+  }
+
+  // His assessments' performance tests, from a biomechanical assessment (performanceTesting: { key: { left, right } })
+  // or a monthly re-assessment (values: { "performanceTesting.key": { left, right } }): [{ date, tests: { key: { left, right } } }]
+  function perfTestsFrom(records) {
+    return (records || []).filter((r) => r && r.date).map((r) => {
+      const tests = { ...(r.performanceTesting || {}) };
+      Object.keys(r.values || {}).forEach((k) => { const m = /^performanceTesting\.(.+)$/.exec(k); if (m) tests[m[1]] = r.values[k]; });
+      return { date: r.date, tests };
+    });
   }
 
   // Pre-lift weigh-ins out of an athlete's log rows ("bw-YYYYMMDD|0"), one a day: [{ date, lb }]
@@ -157,10 +200,28 @@
     const seen = new Set();
     while (p && p.athleteId && p.basedOn && !seen.has(p.id)) { seen.add(p.id); const up = byId.get(p.basedOn); if (!up) break; p = up; }
     if (p && !p.athleteId) return p; // a library program
-    const base = baseName(program.name, athleteName);
-    const lib = (programs || []).find((q) => !q.athleteId && normName(q.name) === normName(base));
-    if (lib) return lib;
-    return { id: `name:${normName(base)}`, name: base, createdBy: (p && p.createdBy) || program.createdBy || "", byName: true };
+    // the chain ends at an athlete program: one whose link back is to a program since deleted, or one from before copies
+    // kept a link, is still a copy of the library program of its name, if there is one
+    if (p) {
+      const base = baseName(program.name, athleteName);
+      const lib = (programs || []).find((q) => !q.athleteId && normName(q.name) === normName(base));
+      if (lib) return lib;
+    }
+    // not copied from the library: the athlete program it all started from is the original
+    return p || program;
+  }
+
+  // What a program is, for what its results measure: "strength" (strength, jump and body weight), "speed" (jump and
+  // sprint times), "armcare" (shoulder strength and grip), or null for what isn't tracked (re-ed, throwing, a daily
+  // program). From its layout, then an Arm Care folder, name or tag.
+  function kindOf(t) {
+    if (!t) return null;
+    if (t.layout === "speed") return "speed";
+    if (t.layout === "reed" || t.layout === "throwing" || t.daily || t.layout === "series") return null;
+    const text = [t.folder, t.name, ...(Array.isArray(t.tags) ? t.tags : [])].join(" ");
+    if (/arm\s*-?\s*care/i.test(text)) return "armcare";
+    if (/re-?ed|re-?education|throwing/i.test(`${t.folder || ""} ${t.name || ""}`)) return null; // (a re-ed or throwing program by its folder or name)
+    return "strength";
   }
   // Blocks worth reporting on: a program with weeks in it, not a one-off session sent to the app or a saved series
   const reportable = (program) => !!program && (program.weeks || []).length > 0 && !/^(gspeed-|gstrength-|series-)/.test(String(program.id || ""));
@@ -169,7 +230,7 @@
   const pctText = (v) => (v == null ? "–" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
   const signed = (v, unit, dp = 1) => (v == null ? "–" : `${v > 0 ? "+" : ""}${Number(v).toFixed(dp)}${unit ? ` ${unit}` : ""}`);
 
-  const api = { blockDates, blockResult, summarize, weighinsFrom, templateOf, reportable, pctText, signed, addDays };
+  const api = { blockDates, blockResult, summarize, weighinsFrom, perfTestsFrom, templateOf, kindOf, reportable, pctText, signed, addDays };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ProgramResults = api;
 })(typeof window !== "undefined" ? window : this);
