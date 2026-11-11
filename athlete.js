@@ -3485,7 +3485,9 @@
         const best = lower ? Math.min(...vals) : Math.max(...vals), last = vals[vals.length - 1];
         const unit = t.unit ? ` ${t.unit}` : "";
         const when = parseISO(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        return row(t.kpiName, spark(vals, lower), `${nice(last)}${unit}`, last === best ? (ts.length > 1 ? `best · ${when}` : when) : `best ${nice(best)} · ${when}`);
+        // the day's average too, when there was more than one rep (Group Testing keeps both)
+        const avg = parseFloat(t.avg), avgTxt = Number.isFinite(avg) && avg !== last ? ` · avg ${nice(avg)}` : "";
+        return row(t.kpiName, spark(vals, lower), `${nice(last)}${unit}`, `${last === best ? (ts.length > 1 ? `best · ${when}` : when) : `best ${nice(best)} · ${when}`}${avgTxt}`);
       })));
     }
 

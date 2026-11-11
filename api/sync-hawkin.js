@@ -37,6 +37,7 @@ function normalizeName(n) {
 // problem), reused here instead of inventing a second list to keep in sync.
 const NAME_ALIASES = {
   "gabe klobosits": "Gabriel Klobosits",
+  "conner westenburg": "Connor Westenburg", // spelled "Conner" in Hawkin
 };
 
 // Caps concurrent Supabase requests from this function — see store.js's identical dbLimit for why:
