@@ -9093,10 +9093,10 @@ function ProgramResultsPage({ onSelect, sectionTabs }) {
   const pageCols = prColumns(prKinds(rows));
   const summaryRow = (key, label, sub, items, onClick) => {
     const s = PR.summarize(items), mineK = prKinds(items);
-    const cell = (a, text) => (a.value == null ? "â" : <React.Fragment>{text(a.value)}<small> ({a.n})</small></React.Fragment>);
+    const cell = (a, text) => (a.value == null ? "–" : <React.Fragment>{text(a.value)}<small> ({a.n})</small></React.Fragment>);
     return (
       <tr key={key} className="lb-row" onClick={onClick}>
-        <td><b>{label}</b>{sub ? <small> Â· {sub}</small> : null}</td>
+        <td><b>{label}</b>{sub ? <small> · {sub}</small> : null}</td>
         <td>{items.length}</td>
         <td>{cell(s.compliance, (v) => `${Math.round(v * 100)}%`)}</td>
         {pageCols.map((c) => <td key={c.key}>{prColumns(mineK).some((k) => k.key === c.key) ? cell(s[c.key], c.text) : ""}</td>)}
