@@ -213,14 +213,21 @@
 
   // What a program is, for what its results measure: "strength" (strength, jump and body weight), "speed" (jump and
   // sprint times), "armcare" (shoulder strength and grip), or null for what isn't tracked (re-ed, throwing, a daily
-  // program). From its layout, then an Arm Care folder, name or tag.
+  // program). The library folder it's filed in says first (Speed, Strength, an Arm Care folder wherever it sits,
+  // Throwing, Re-Education), then its layout, then its name or tags (an athlete's original, filed in his own folder).
   function kindOf(t) {
-    if (!t) return null;
+    if (!t || t.daily || t.layout === "series") return null;
+    const folder = String(t.folder || "").toLowerCase(), top = folder.split("/")[0].trim();
+    if (/arm\s*-?\s*care/.test(folder)) return "armcare";
+    if (top === "speed") return "speed";
+    if (top === "strength") return "strength";
+    if (/throwing|re-?ed|re-?education/.test(top)) return null;
     if (t.layout === "speed") return "speed";
-    if (t.layout === "reed" || t.layout === "throwing" || t.daily || t.layout === "series") return null;
-    const text = [t.folder, t.name, ...(Array.isArray(t.tags) ? t.tags : [])].join(" ");
+    if (t.layout === "reed" || t.layout === "throwing") return null;
+    const text = `${t.name || ""} ${(Array.isArray(t.tags) ? t.tags : []).join(" ")}`;
     if (/arm\s*-?\s*care/i.test(text)) return "armcare";
-    if (/re-?ed|re-?education|throwing/i.test(`${t.folder || ""} ${t.name || ""}`)) return null; // (a re-ed or throwing program by its folder or name)
+    if (/re-?ed|re-?education|throwing/i.test(text)) return null;
+    if (/\bspeed\b|sprint|accel|max ?velo/i.test(text)) return "speed";
     return "strength";
   }
   // Blocks worth reporting on: a program with weeks in it, not a one-off session sent to the app or a saved series
