@@ -348,7 +348,7 @@ module.exports = async (req, res) => {
     const activeAthletes = athleteRows
       .map((r) => r.data)
       // coaches have a record of their own for their plan and programs; they are not on the roster
-      .filter((a) => a && a.rosterGroup !== "coaches" && (a.status || "active").toLowerCase() === "active");
+      .filter((a) => a && a.rosterGroup !== "coaches" && a.rosterGroup !== "hs-youth" && (a.status || "active").toLowerCase() === "active"); // (the High School & Youth roster isn't pro baseball)
 
     const testsByAthlete = new Map();
     forceTestRows.forEach((r) => {

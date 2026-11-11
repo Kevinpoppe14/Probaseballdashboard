@@ -452,8 +452,10 @@
     return state.customAthletes[idx];
   }
 
-  function addAthlete({ name, position, jersey, status, league, team, photoUrl, dstLocation }) {
+  function addAthlete({ name, position, jersey, status, league, team, photoUrl, dstLocation, rosterGroup }) {
+    const before = allAthletes().length;
     const athlete = findOrCreateAthlete(name);
+    const isNew = allAthletes().length > before;
     const patch = {};
     if (position) patch.position = position;
     if (jersey) patch.jersey = jersey;
@@ -461,6 +463,8 @@
     if (team !== undefined) patch.team = team;
     if (photoUrl !== undefined) patch.photoUrl = photoUrl;
     if (dstLocation !== undefined) patch.dstLocation = dstLocation;
+    // a separate roster (High School & Youth), for someone new: someone already on file stays on the roster they're on
+    if (rosterGroup && isNew) patch.rosterGroup = rosterGroup;
     patch.status = status || athlete.status || "active";
     return updateAthlete(athlete.id, patch);
   }

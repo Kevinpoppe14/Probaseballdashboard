@@ -185,6 +185,13 @@ function getCoaches() {
 // same tabs) but are kept out of each other's Team Overview / Team Report rosters.
 const CUBS_ROSTER_GROUP = "cubs-40man";
 
+// The High School & Youth roster: athletes who aren't pro baseball, on a roster of their own (the switch at the top
+// of Team Overview) with its own location buttons. They're kept out of the pro roster's list and counts and the
+// Sunday pro email; everywhere else they're athletes like any other (the same profile, plan, programs and app).
+const HS_ROSTER_GROUP = "hs-youth";
+const HS_ROSTER_LABEL = "High School & Youth";
+const isHsYouth = (a) => !!a && a.rosterGroup === HS_ROSTER_GROUP;
+
 function lastN(arr, n) {
   return arr.slice(Math.max(0, arr.length - n));
 }
@@ -4607,7 +4614,7 @@ function TeamField({ league, team, setTeam }) {
   );
 }
 
-function AddAthleteForm({ onAdded }) {
+function AddAthleteForm({ onAdded, rosterGroup }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [position, setPosition] = useState("Unassigned");
@@ -4629,6 +4636,7 @@ function AddAthleteForm({ onAdded }) {
       team: team.trim(),
       photoUrl: photoUrl.trim(),
       dstLocation,
+      rosterGroup, // High School & Youth when added from that roster
     });
     setName("");
     setJersey("");
@@ -4817,7 +4825,7 @@ function parseAthleteSheet(text) {
     };
   }).filter((a) => a.name);
 }
-function ImportAthletes({ onAdded }) {
+function ImportAthletes({ onAdded, rosterGroup }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [location, setLocation] = useState("");
@@ -4839,6 +4847,7 @@ function ImportAthletes({ onAdded }) {
       // someone already on the roster keeps their own status unless the sheet gives one
       name: a.name, position: a.position || undefined, jersey: a.jersey || undefined, status: a.status || (existing.has(a.name.toLowerCase()) ? undefined : status),
       league: a.league || undefined, team: a.team || undefined, dstLocation: a.location || location || undefined,
+      rosterGroup, // High School & Youth when imported from that roster (someone already on file stays where they are)
       });
       // mobile and email are not part of "add athlete", so they are set on the record just made (or found)
       if (a.phone || a.email) {
@@ -5329,6 +5338,7 @@ function SortableHeader({ column, sortConfig, onSort }) {
 
 function BulkActionsBar({ selectedIds, roster, onApplied, onClear }) {
   const [status, setStatus] = useState("");
+  const [rosterTo, setRosterTo] = useState(""); // "pro" or "hs": move to the Pro Baseball or High School & Youth roster
   const [dstLocation, setDstLocation] = useState("");
   const [position, setPosition] = useState("");
   const [league, setLeague] = useState("");
@@ -5342,12 +5352,19 @@ function BulkActionsBar({ selectedIds, roster, onApplied, onClear }) {
       patch.league = league;
       patch.team = ""; // a team from the old league won't be valid in the new one
     }
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0 && !rosterTo) return;
 
     const names = roster.filter((a) => selectedIds.has(a.id)).map((a) => a.name);
     if (!window.confirm(`Apply this change to ${selectedIds.size} athlete(s)?\n\n${names.join(", ")}`)) return;
 
-    selectedIds.forEach((id) => window.AthleteStore.updateAthlete(id, patch));
+    selectedIds.forEach((id) => {
+      const a = roster.find((x) => x.id === id), p = { ...patch };
+      // only between Pro and High School & Youth: a Cubs roster player or a coach keeps their group
+      if (rosterTo === "hs" && a && !a.rosterGroup) p.rosterGroup = HS_ROSTER_GROUP;
+      if (rosterTo === "pro" && isHsYouth(a)) p.rosterGroup = "";
+      if (Object.keys(p).length) window.AthleteStore.updateAthlete(id, p);
+    });
+    setRosterTo("");
     setStatus("");
     setDstLocation("");
     setPosition("");
@@ -5387,6 +5404,14 @@ function BulkActionsBar({ selectedIds, roster, onApplied, onClear }) {
             <option value="Catcher">Catcher</option>
             <option value="Infield">Infield</option>
             <option value="Outfield">Outfield</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>Move to Roster</label>
+          <select value={rosterTo} onChange={(e) => setRosterTo(e.target.value)}>
+            <option value="">— no change —</option>
+            <option value="pro">Pro Baseball</option>
+            <option value="hs">{HS_ROSTER_LABEL}</option>
           </select>
         </div>
         <div className="field">
@@ -5660,6 +5685,10 @@ function TodayPanel({ onOpenTab, dataVersion }) {
 
 function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilter, setLocationFilter, search, rangeDays, onSelect, onOpenTab, dataVersion, onDataChange, filterControls }) {
   const isCubs = (a) => a.rosterGroup === CUBS_ROSTER_GROUP;
+  // which roster: Pro Baseball, or High School & Youth (its own athletes and location buttons); remembered
+  const [rosterView, setRosterViewState] = useState(() => { try { return localStorage.getItem("rosterView") === "hs" ? "hs" : "pro"; } catch (e) { return "pro"; } });
+  const hsView = rosterView === "hs";
+  const setRosterView = (v) => { setRosterViewState(v); try { localStorage.setItem("rosterView", v); } catch (e) { /* not remembered */ } setLocationFilter("All"); };
   // a Cubs player who is also a DST client (a DST location on file, DST Remote Training say) is on both rosters:
   // the Chicago Cubs button and the DST ones (All, and their location)
   const onDstRoster = (a) => !isCubs(a) || !!a.dstLocation;
@@ -5693,15 +5722,15 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
       // Chicago Cubs is its own bucket, never part of "All" or any real DST location — shown
       // only when that button is the one actually selected.
-      if (locationFilter === CUBS_LOCATION_LABEL) {
+      if (locationFilter === CUBS_LOCATION_LABEL && !hsView) {
         const matchesCoach = coachFilter === "All" || (coachFilter === "none" ? !CUBS_COACHES.some((c) => c.name === a.cubsCoach) : a.cubsCoach === coachFilter);
         return isCubs(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && matchesCoach;
       }
       const matchesLocation = locationFilter === "All" || (a.dstLocation || "") === locationFilter;
-      return onDstRoster(a) && matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
+      return (hsView ? isHsYouth(a) : onDstRoster(a) && !isHsYouth(a)) && matchesPos && matchesStatus && matchesLeague && matchesLocation && matchesSearch;
     });
     // eslint-disable-next-line
-  }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion, coachFilter]);
+  }, [positionFilter, statusFilter, leagueFilter, locationFilter, search, dataVersion, coachFilter, hsView]);
 
   const rows = useMemo(() => {
     return filtered.map((a) => {
@@ -5726,10 +5755,10 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       const matchesStatus = statusFilter === "All" || (a.status || "active").toLowerCase() === statusFilter.toLowerCase();
       const matchesLeague = leagueFilter === "All" || (a.league || "") === leagueFilter;
       const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
-      return onDstRoster(a) && matchesPos && matchesStatus && matchesLeague && matchesSearch && (a.status || "active").toLowerCase() !== "alumni";
+      return (hsView ? isHsYouth(a) : onDstRoster(a) && !isHsYouth(a)) && matchesPos && matchesStatus && matchesLeague && matchesSearch && (a.status || "active").toLowerCase() !== "alumni";
     });
     // eslint-disable-next-line
-  }, [positionFilter, statusFilter, leagueFilter, search, dataVersion]);
+  }, [positionFilter, statusFilter, leagueFilter, search, dataVersion, hsView]);
 
   // Same filters as the DST location buttons, but counting Cubs roster athletes instead — kept
   // separate from forLocationCounts so Cubs never land in "No Location Set" or any DST count.
@@ -5784,9 +5813,9 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
   if (getRoster().length === 0) {
     return (
       <div>
-        <AddAthleteForm onAdded={onDataChange} />
-        <AddCoachForm onAdded={onDataChange} />
-        <ImportAthletes onAdded={onDataChange} />
+        <AddAthleteForm onAdded={onDataChange} rosterGroup={hsView ? HS_ROSTER_GROUP : undefined} />
+        {!hsView && <AddCoachForm onAdded={onDataChange} />}
+        <ImportAthletes onAdded={onDataChange} rosterGroup={hsView ? HS_ROSTER_GROUP : undefined} />
         <div className="panel">
           <div className="empty-state">
             No athletes on the roster yet. Sync a Google Sheet on the Player Plans page, import Hawkin Dynamics /
@@ -5799,6 +5828,10 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
 
   return (
     <div>
+      <div className="roster-switch no-print" role="group" aria-label="Roster">
+        <button className={`roster-switch-btn ${!hsView ? "on" : ""}`} onClick={() => setRosterView("pro")}>Pro Baseball</button>
+        <button className={`roster-switch-btn ${hsView ? "on" : ""}`} onClick={() => setRosterView("hs")}>{HS_ROSTER_LABEL}</button>
+      </div>
       <TodayPanel onOpenTab={onOpenTab} dataVersion={dataVersion} />
       <div className="kpi-row">
         <KpiCard
@@ -5810,7 +5843,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
       </div>
 
       <div className="panel">
-        <h2>Roster by Location <small>Click a location to filter the roster below</small></h2>
+        <h2>{hsView ? `${HS_ROSTER_LABEL} by Location` : "Roster by Location"} <small>Click a location to filter the roster below</small></h2>
         <div className="location-kpi-row">
           {locationCounts.map(({ location, count }) => (
             <KpiCard
@@ -5822,14 +5855,14 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
             />
           ))}
           {noLocationCount > 0 && <KpiCard label="No Location Set" value={noLocationCount} tone="warn" />}
-          <KpiCard
+          {!hsView && <KpiCard
             label={CUBS_LOCATION_LABEL}
             value={cubsCount}
             active={locationFilter === CUBS_LOCATION_LABEL}
             onClick={() => setLocationFilter(locationFilter === CUBS_LOCATION_LABEL ? "All" : CUBS_LOCATION_LABEL)}
-          />
+          />}
           {/* everyone with a login; opening it makes sure each has a record to build a plan on */}
-          <KpiCard
+          {!hsView && <KpiCard
             label={COACHES_LABEL}
             value={window.AthleteStore.accountHolders().length}
             active={locationFilter === COACHES_LABEL}
@@ -5838,7 +5871,7 @@ function TeamOverview({ positionFilter, statusFilter, leagueFilter, locationFilt
               if (window.AthleteStore.ensureCoachRecords(COACH_ROSTER_GROUP, coachNameFromEmail) > 0) onDataChange();
               setLocationFilter(COACHES_LABEL);
             }}
-          />
+          />}
         </div>
       </div>
 

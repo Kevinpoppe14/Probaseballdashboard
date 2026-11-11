@@ -4609,3 +4609,10 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 /* + Series beside + Add row under a day (table view) */
 .pt-add.pt-add-series { margin-left: 0; }
 .series-editor .pt-warmup { display: none; } /* a series is drills only: no day warm-up */
+
+/* ---- Team Overview: Pro Baseball | High School & Youth roster switch ---- */
+.roster-switch { display: inline-flex; gap: 0; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--panel); }
+.roster-switch-btn { border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: 13px; font-weight: 600; padding: 7px 16px; cursor: pointer; }
+.roster-switch-btn + .roster-switch-btn { border-left: 1px solid var(--border); }
+.roster-switch-btn:hover { color: var(--text); }
+.roster-switch-btn.on { background: var(--dst-red); color: #fff; }
