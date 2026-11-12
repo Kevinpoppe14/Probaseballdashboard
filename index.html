@@ -3713,6 +3713,14 @@ async function captureElement(el, printCss, width) {
         // each visible input for a plain text element sidesteps that entirely.
         clonedDoc.querySelectorAll("input").forEach((input) => {
           if (getComputedStyle(input).display === "none") return; // already hidden by printCss
+          // a tick box (a goal's "achieved") isn't text: its value would print as "on". Drawn as a box instead.
+          if (input.type === "checkbox" || input.type === "radio") {
+            const box = clonedDoc.createElement("span");
+            box.textContent = input.checked ? "☑" : "☐";
+            box.style.cssText = "display:inline-block;font-size:14px;line-height:1;margin:0 4px;color:#555;";
+            input.replaceWith(box);
+            return;
+          }
           const replacement = clonedDoc.createElement("div");
           replacement.textContent = input.value || "";
           replacement.style.cssText = getComputedStyle(input).cssText;
