@@ -451,6 +451,17 @@
       drive: R ? { hip: P.rHip, kn: P.rKn, an: P.rAn, heel: P.rHeel, toe: P.rToe } : { hip: P.lHip, kn: P.lKn, an: P.lAn, heel: P.lHeel, toe: P.lToe },
     };
   };
+  // His stretch of a clip: from the first frame he's found in to the last. A clip that runs on after he's left the
+  // picture (a sprinter out of the side of it), or starts before he's in it, is judged and worked out over just that;
+  // the gaps inside it (him hidden behind someone for a step or two) are bridged by clean(). Unclear if he's in fewer
+  // than half its frames, or in under 20 of them.
+  function himOnly(res) {
+    const fr = res.frames, a = fr.findIndex((f) => f.p);
+    if (a < 0) return { res, ok: false, cut: 0 };
+    let b = fr.length - 1; while (b > a && !fr[b].p) b--;
+    const kept = fr.slice(a, b + 1), seen = kept.filter((f) => f.p).length;
+    return { res: { ...res, frames: kept }, ok: seen >= 20 && seen >= kept.length * 0.5, cut: fr.length - kept.length };
+  }
   // fill frames the model missed or wasn't sure of, then smooth each point's path (a Gaussian, about 1/120 s wide)
   function clean(frames, key, sigmaFrames, medianFrames = 3) {
     const n = frames.length, out = frames.map(() => new Array(33));
@@ -1214,6 +1225,12 @@
         await model();
         const one = async (f, name) => {
           const res = await track(f.video, f.start, f.end, f.fps, (p) => { state.busy = `Finding his body in the ${name} video… ${Math.round(p * 100)}%`; const s = root.querySelector(".mc-status"); if (s) s.textContent = state.busy; }, null, (state.extras || {}).tape || null);
+          // (one camera: just his stretch of the clip; two: kept whole, so the two videos' frames still line up)
+          if (state.setup !== "two") {
+            const h = himOnly(res);
+            if (!h.ok) throw new Error(`The ${name} video: couldn't find him in most frames. Check that his whole body is in the picture and the light is good, and that no one is between him and the camera (a coach kneeling right beside him at the start hides him).`);
+            return h.res;
+          }
           if (res.frames.filter((x) => x.p).length < res.frames.length * 0.5) throw new Error(`The ${name} video: couldn't find him in most frames. Check that his whole body is in the picture and the light is good.`);
           return res;
         };
@@ -2287,7 +2304,8 @@
             if (e) { const v = parseFloat(e.best != null ? e.best : e.value); if (v > 0) timed = { v, date: e.date, same: e.date === day }; }
           } catch (err) { timed = null; }
           const mdText = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-          rows = [
+          // (hidden at his start, the steps can't be counted: his timed start and the run's own numbers instead)
+          rows = SV.startHidden ? [...(timed ? [[timed.same ? "10 yd start (timed)" : `10 yd start (timed ${mdText(timed.date)})`, `${timed.v.toFixed(2)} s`]] : []), ...rows].slice(0, 9) : [
             ...SV.reach.filter((r) => r.covered).map((r) => [`Steps to ${r.yd} yd`, r.steps == null ? "–" : `${r.steps}  (standard ${r.std})`]),
             ...(timed ? [[timed.same ? "10 yd start (timed)" : `10 yd start (timed ${mdText(timed.date)})`, `${timed.v.toFixed(2)} s`]] : []),
             ...SV.power.map((p) => [`Step ${p.n} power (est.)`, p.w != null ? `${p.w.toLocaleString()} W` : p.wkg != null ? `${p.wkg} W/kg` : "–"]),
@@ -2299,7 +2317,7 @@
         // the step counter on the video: the steps landed by now, the last one's length, and each 5, 10 and 20 yards as he
         // gets there, in the video's top left corner
         const counter = (g, area, i) => {
-          if (!SV) return;
+          if (!SV || SV.startHidden) return;
           const landed = SV.marks.filter((m) => m.i <= i), last = landed[landed.length - 1];
           const big = Math.round(area.h * 0.075), small = Math.round(area.h * 0.032), x = area.x + area.w * 0.03;
           let y = area.y + area.h * 0.05;
@@ -2523,8 +2541,9 @@
       stop();
       state.edits = {};
       const res = await track(fs.video, fs.start, fs.end, fs.fps, (p) => say("Finding him in the video", p), null, (state.extras || {}).tape || null);
-      if (res.frames.filter((x) => x.p).length < res.frames.length * 0.5) throw new Error("Couldn't find him in most of the video. Check that his whole body is in the picture and the light is good.");
-      fs.tracked = res;
+      const him = himOnly(res);
+      if (!him.ok) throw new Error("Couldn't find him in most of the video. Check that his whole body is in the picture and the light is good, and that no one is between him and the camera.");
+      fs.tracked = him.res;
       stop();
       say("Working out the numbers", 1);
       compute();

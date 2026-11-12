@@ -316,11 +316,37 @@
     const nextOf = (s) => (s ? steps.find((x) => x.td > s.td) : null);
     let ev, first = null, ST = null, firstFoot = null, crossover = null, startStats = {};
     if (start) {
-      // the first move: the hips leaving where they stood (by 2% of his height)
-      const h0 = hips.slice(0, Math.max(2, Math.min(8, Math.round(n * 0.05)))).reduce((s, h) => [s[0] + h[0], s[1] + h[1]], [0, 0]).map((v) => v / Math.max(2, Math.min(8, Math.round(n * 0.05))));
-      ST = m.ST != null ? m.ST : Math.max(0, hips.findIndex((h) => Math.hypot(h[0] - h0[0], h[1] - h0[1]) > 0.02 * Hpx));
-      // (2% of his height is sure to be moving, but late: back up to where the hips were still)
-      if (m.ST == null) while (ST > 0 && hipV[ST - 1] != null && hipV[ST - 1] > 0.02) ST--;
+      // The first move. A clip often starts well before the run (him walking into his stance, shuffling, getting set),
+      // and the hips leaving where they were in its first frames caught that instead. The run: the first moment his hips
+      // pass sprinting speed (1.2 of his heights a second, about 2 m/s: faster than a walk) and stay over most of it for
+      // the next 0.3 s; his first move, back from there to where they were still (under 0.15 heights a second; 0.6 s at
+      // most). A clip with no such run: the hips leaving where they stood at its start (by 2% of his height), as before.
+      const avgHips = (a, b) => { const hs = hips.slice(Math.max(0, a), Math.max(Math.max(0, a) + 1, b)); return hs.reduce((s, h) => [s[0] + h[0] / hs.length, s[1] + h[1] / hs.length], [0, 0]); };
+      if (m.ST != null) ST = m.ST;
+      else {
+        const hold = fr(0.3);
+        let run0 = -1;
+        for (let i = 0; i + hold < n; i++) {
+          if (!(hipV[i] > 1.2)) continue;
+          let ok = true;
+          for (let k = i; k <= i + hold; k++) if (!(hipV[k] > 0.9)) { ok = false; break; }
+          if (ok) { run0 = i; break; }
+        }
+        if (run0 >= 0) {
+          ST = run0;
+          const lim = Math.max(0, run0 - fr(0.6));
+          // (back while the speed keeps falling: stopped at its low point, so a glitch before it, his points jumping to
+          // someone beside him for a moment, isn't taken for his start)
+          while (ST > lim && hipV[ST - 1] != null && hipV[ST - 1] > 0.15 && hipV[ST - 1] <= hipV[ST] + 0.05) ST--;
+        } else {
+          const hs = avgHips(0, Math.max(2, Math.min(8, Math.round(n * 0.05))));
+          ST = Math.max(0, hips.findIndex((h) => Math.hypot(h[0] - hs[0], h[1] - hs[1]) > 0.02 * Hpx));
+          // (2% of his height is sure to be moving, but late: back up to where the hips were still)
+          while (ST > 0 && hipV[ST - 1] != null && hipV[ST - 1] > 0.02) ST--;
+        }
+      }
+      // where his hips stood as he started (for the time to 1 and 2 yards)
+      const h0 = avgHips(ST - fr(0.05), ST + 1);
       // the stance: the feet planted as he starts to move (the one lifted first, its contact ending soonest, is the first
       // foot to move); the first step, the first foot down after it. (A contact found a few frames late still counts as
       // the stance; with no stance found, the start line is his front foot as he moves.)
@@ -389,10 +415,21 @@
     if (start && first) {
       const s2 = nextOf(first), s3 = nextOf(s2);
       if (s3) {
-        const frontAt0 = Math.max(...FEET.map((f) => dir * footX(pts[0], f))) * dir;
+        const frontAt0 = Math.max(...FEET.map((f) => dir * footX(pts[ST], f))) * dir; // (his front foot as he starts)
         first3 = (dir * (s3.x - frontAt0)) / Hpx;
         t3 = Math.round((tReal[s3.td] - tReal[ST]) * 1000);
       }
+    }
+    // Hidden at the start: him not found in a third or more of the frames from his first move to just after his first
+    // step lands (someone between him and the camera: a coach kneeling beside him). Those frames are bridged, but the
+    // start's own numbers (his first steps, the steps to each yard line, the first two steps' power) would be guesses:
+    // they're left blank. The rest of the run is worked out as usual.
+    let startHidden = false;
+    if (start) {
+      const to = Math.min(n - 1, first ? first.td + fr(0.25) : ST + fr(0.6));
+      let miss = 0, all = 0;
+      for (let i = ST; i <= to; i++) { all++; if (!side.frames[i] || !side.frames[i].p) miss++; }
+      startHidden = all > 0 && miss / all >= 1 / 3;
     }
     // Every touchdown on the track (yards), once a cone at a known yard line is marked on the video
     const ex = extras || {}, trackYd = Number(ex.trackYd), trackX = Number(ex.trackX);
@@ -521,17 +558,21 @@
       };
       const pushes = [pushOf(ST, startStats.leadTo != null ? startStats.leadTo : first ? first.td : null), run[0] ? pushOf(run[0].td, run[0].to) : null];
       const power = pushes.map((wkg, k) => ({ n: k + 1, wkg: wkg == null ? null : Math.round(wkg * 10) / 10, w: wkg != null && kg ? Math.round(wkg * kg) : null }));
-      sprintVideo = { ST, marks, reach, t10: i10 > 0 ? Math.round((tReal[i10] - tReal[ST]) * 100) / 100 : null, i10: i10 > 0 ? i10 : null, power, panned };
+      sprintVideo = { ST, marks, reach, t10: i10 > 0 ? Math.round((tReal[i10] - tReal[ST]) * 100) / 100 : null, i10: i10 > 0 ? i10 : null, power, panned, startHidden };
       metrics.push(
         ...reach.map((r) => metric(`stepsTo${r.yd}`, `Steps to ${r.yd} yards`, r.steps, "", `${r.std} (standard)`, r.covered ? `Steps from the first move until a foot lands at or past ${r.yd} yards from the start line (his front foot). The standard is ${r.std}.` : `The clip doesn't reach ${r.yd} yards.`)),
         metric("t10ydClip", "Time to 10 yards (from first move)", sprintVideo.t10, "s", "", "From the hips first moving to the hips crossing 10 yards from the start line, in the clip (a timing gate starts later, when he breaks the beam)."),
         ...power.map((p) => metric(`power${p.n}`, `Step ${p.n} power (estimate)`, kg ? p.w : p.wkg, kg ? "W" : "W/kg", "", p.n === 1 ? "Horizontal power of the lead foot's push out of the stance, from the first move until it leaves the ground (it carries him to the first step's landing): his mass × the speed his hips gained ÷ the time × their average speed." : "Horizontal power over the first step's ground contact (the first foot down, pushing): his mass × the speed his hips gained ÷ the time × their average speed.")),
       );
     }
+    // (hidden at the start: its own numbers blank, see startHidden)
+    const START_KEYS = ["firstStep", "ttd1", "firstFoot", "firstLen", "t1yd", "t2yd", "first3", "first3Ft", "t3", "trunk1", "shin1", "stepsTo5", "stepsTo10", "stepsTo20", "t10ydClip", "power1", "power2"];
+    if (startHidden) metrics.forEach((m) => { if (m && START_KEYS.includes(m.key)) m.value = null; });
+    const hiddenNote = startHidden ? " He's hidden for much of his start (someone between him and the camera, most likely a coach kneeling beside him), so his first steps, the steps to each yard line and the first two steps' power are left blank: film with no one between him and the camera. The rest of the run is worked out as usual." : "";
     const fvNote = start ? (fv ? ` The force-velocity profile and projected times are fitted to the first ${fv.covered.toFixed(1)} s of the run in the clip: the more of his acceleration the clip covers, the surer they are.` : mPx ? " The clip is too short (or the speed too uneven) for a force-velocity profile: film at least the first 5 yards." : " Enter his height for a force-velocity profile and projected times.") : "";
     return {
       n, tReal, dir, Hpx, pts: img, wpts, wLegs: A.wLegs, mPx, groundY, panned, sprintVideo,
-      events: ev, track: onTrack, analysisV: 7, // (7: yards and mph only. 6: step 1 from the lead foot: its length from where it stands, its power its push out of the stance. 4: contacts from planted feet, not left/right labels; the camera's pan; steps to 5, 10, 20 yd. 5: step power from the speed gained over each contact)
+      events: ev, track: onTrack, analysisV: 8, // (8: a start hidden behind someone left blank. 7: yards and mph only. 6: step 1 from the lead foot: its length from where it stands, its power its push out of the stance. 4: contacts from planted feet, not left/right labels; the camera's pan; steps to 5, 10, 20 yd. 5: step power from the speed gained over each contact)
       ...(start
         ? { evLabels: { ST: "First move", TD1: "First step", TO1: "First toe-off", TD2: "Second step" }, phaseKeys: ["ST", "TD1", "TO1", "TD2"], zeroKey: "ST", groundKey: "ST" }
         : { evLabels: { TD1: "Touchdown", TO1: "Toe-off", TD2: "Next touchdown", TO2: "Next toe-off" }, phaseKeys: ["TD1", "TO1", "TD2", "TO2"], zeroKey: "TD1", groundKey: "TD1" }),
@@ -554,8 +595,8 @@
           rows: splits.map((s) => [`${s.d} yd`, `${(s.ms / 1000).toFixed(2)} s`, s.v == null ? null : `${mph(s.v).toFixed(1)} mph`]),
         } : null,
       ].filter(Boolean),
-      assessment: start && start !== "steal" && (tenYd != null || fv) ? [{ section: "performanceTesting", key: "tenYdStart", value: tenYd != null ? `${tenYd.toFixed(2)} s` : `${fv.timeTo(9.144).toFixed(2)} s (projected)` }] : [],
-      hint: `${START_NAMES[start || "maxv"]}. ${steps.length < 2 ? "Fewer than two ground contacts were found: check that his feet stay in the picture and the camera doesn't move. " : ""}Contact and flight times are only as fine as the frames: at 240 fps each frame is 4 ms. ${mPx ? "" : "Enter his height for speed in mph and lengths in feet and inches. "}Joint angles from video are good to about 5 to 10 degrees.${fvNote}`,
+      assessment: start && start !== "steal" && !startHidden && (tenYd != null || fv) ? [{ section: "performanceTesting", key: "tenYdStart", value: tenYd != null ? `${tenYd.toFixed(2)} s` : `${fv.timeTo(9.144).toFixed(2)} s (projected)` }] : [],
+      hint: `${START_NAMES[start || "maxv"]}. ${steps.length < 2 ? "Fewer than two ground contacts were found: check that his feet stay in the picture and the camera doesn't move. " : ""}Contact and flight times are only as fine as the frames: at 240 fps each frame is 4 ms. ${mPx ? "" : "Enter his height for speed in mph and lengths in feet and inches. "}Joint angles from video are good to about 5 to 10 degrees.${fvNote}${hiddenNote}`,
     };
   }
 
@@ -790,7 +831,7 @@
       heightHint: "Height turns the picture into real speed (m/s, mph) and step length in feet. \"Recorded at\" sets the timing: choose the slow-motion speed it was filmed at.",
       analyzeLabel: "Analyze the sprint",
       analyze: analyzeSprint,
-      analysisV: 7, // 7: yards and mph only; 6: step 1 from the lead foot (length and power); 5: step power from the speed gained over each contact; 3: first 3 steps, foot clearance, steps on the track (a marked cone); 4: contacts from planted feet (not left/right labels), the camera's pan, steps to 5, 10 and 20 yards
+      analysisV: 8, // 8: a start hidden behind someone left blank; 7: yards and mph only; 6: step 1 from the lead foot (length and power); 5: step power from the speed gained over each contact; 3: first 3 steps, foot clearance, steps on the track (a marked cone); 4: contacts from planted feet (not left/right labels), the camera's pan, steps to 5, 10 and 20 yards
       historyKeys: ["ttd1", "t2yd", "t10yd", "t2b", "vmaxMph", "F0", "stepLen", "contact"],
     },
     jump: {
