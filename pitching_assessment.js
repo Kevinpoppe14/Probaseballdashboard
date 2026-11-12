@@ -372,7 +372,7 @@
       if (!wrap || wrap.offsetParent === null || printing.current) return; // hidden tab, or already prepared
       const PAGE_W = 970, PAGE_H = 700; // usable area of a Letter landscape sheet with 0.35in margins, with a little spare
       const pageStyle = document.createElement("style");
-      pageStyle.textContent = "@page { size: letter landscape; margin: 0.35in; }";
+      pageStyle.textContent = "@page { size: letter landscape; margin: 0; }";
       document.head.appendChild(pageStyle);
       document.body.classList.add("print-assessment-only");
       wrap.classList.add("pa-printing"); // the compact print layout, on now so that what is measured is what prints

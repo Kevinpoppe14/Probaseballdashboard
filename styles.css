@@ -4644,3 +4644,12 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 .lb-row:hover td { background: var(--btn-bg); }
 .lb-rank { font-weight: 700; color: var(--text-dim); width: 32px; }
 .lb-plate { color: var(--text-dim); font-weight: 400; }
+
+/* Every print and Save as PDF: no room for the browser's own header and footer (the page title and date at the
+   top, the page's link and page numbers at the bottom). The page itself has no margin, and the content keeps a
+   0.35in border of its own on every page instead (cloned onto each page it runs over). The print buttons'
+   own @page rules set margin 0 too. */
+@media print {
+  @page { margin: 0; }
+  body { padding: 0.35in !important; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+}

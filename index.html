@@ -9243,7 +9243,7 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
       s.style.zoom = String(Math.min(1, PAGE_W / w, PAGE_H / h));
     });
     const pageStyle = document.createElement("style");
-    pageStyle.textContent = "@page { size: letter portrait; margin: 0.35in; }";
+    pageStyle.textContent = "@page { size: letter portrait; margin: 0; }";
     document.head.appendChild(pageStyle);
     document.body.classList.add("print-team-sheets");
     sheetPrint.current = { sheets, pageStyle };

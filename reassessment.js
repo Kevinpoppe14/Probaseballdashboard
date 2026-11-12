@@ -517,7 +517,7 @@
     const print = () => {
       saveNote();
       const page = document.createElement("style");
-      page.textContent = "@page { size: letter portrait; margin: 0.5in; }";
+      page.textContent = "@page { size: letter portrait; margin: 0; }";
       document.head.appendChild(page);
       document.body.classList.add("print-osr");
       const done = () => { document.body.classList.remove("print-osr"); page.remove(); window.removeEventListener("afterprint", done); };

@@ -1842,7 +1842,7 @@
       const PAGE_H = 925; // with headroom (borders/margins differ a little in print) so nothing spills onto page 2
       el.style.zoom = String(Math.min(1, PAGE_W / naturalW, PAGE_H / naturalH));
       const pageStyle = document.createElement("style");
-      pageStyle.textContent = "@page { size: letter portrait; margin: 0.35in; }";
+      pageStyle.textContent = "@page { size: letter portrait; margin: 0; }";
       document.head.appendChild(pageStyle);
       document.body.classList.add("print-plan-only");
       printState.current = { el, gridEl, areas, pageStyle };

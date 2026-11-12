@@ -1030,7 +1030,7 @@
 
       wrap.classList.remove("measuring");
       const pageStyle = document.createElement("style");
-      pageStyle.textContent = "@page { size: letter landscape; margin: 0.35in; }";
+      pageStyle.textContent = "@page { size: letter landscape; margin: 0; }";
       document.head.appendChild(pageStyle);
       document.body.classList.add("print-assessment-only");
       printState.current = { wrap, header, col0, col1, pageStyle };
