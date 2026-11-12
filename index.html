@@ -8774,6 +8774,8 @@ function LeaderboardPage({ onSelect, dataVersion }) {
   const [board, setBoardRaw] = useState(() => { try { return localStorage.getItem("lbBoard") || "dst"; } catch (e) { return "dst"; } });
   const [loc, setLoc] = useState("All");
   const setBoard = (b) => { setBoardRaw(b); setLoc("All"); try { localStorage.setItem("lbBoard", b); } catch (e) { /* not remembered */ } };
+  const [split, setSplit] = useState(() => { try { return localStorage.getItem("lbSplit") === "1"; } catch (e) { return false; } });
+  const setSplitSaved = (on) => { setSplit(on); try { localStorage.setItem("lbSplit", on ? "1" : ""); } catch (e) { /* not remembered */ } };
   const [pos, setPos] = useState("All");
   const [period, setPeriod] = useState("90");
   const [metric, setMetric] = useState(null); // null: the overview
@@ -8833,6 +8835,11 @@ function LeaderboardPage({ onSelect, dataVersion }) {
   const shown = metrics.filter((m) => m.rows.length);
   const open = metric && shown.find((m) => m.key === metric);
   const sortWord = (m) => (m.better === "lower" ? "lower is better" : m.better === "higher" ? "higher is better" : "high to low");
+  // Split by location (DST and Combined, all locations showing): a section for each location, ranked within it
+  const locOf = (a) => (a.rosterGroup === CUBS_ROSTER_GROUP && !a.dstLocation ? CUBS_LOCATION_LABEL : a.dstLocation || "No location");
+  const splitOffered = board !== "cubs" && loc === "All";
+  const sections = split && splitOffered ? [...DST_LOCATIONS, CUBS_LOCATION_LABEL, "No location"].filter((l) => athletes.some((a) => locOf(a) === l)) : [null];
+  const rowsIn = (m, l) => (l == null ? m.rows : m.rows.filter((r) => locOf(r.a) === l));
 
   return (
     <div>
@@ -8872,18 +8879,23 @@ function LeaderboardPage({ onSelect, dataVersion }) {
               ))}
             </select>
           </label>
+          {splitOffered && (
+            <label className="lb-split" title="A section for each location, ranked within it">
+              <input type="checkbox" checked={split} onChange={(e) => setSplitSaved(e.target.checked)} /> Split by location
+            </label>
+          )}
           {kpis == null && <span className="lb-note">Loading Group Testing…</span>}
         </div>
       </div>
 
-      {open ? (
-        <div className="panel">
-          <h2>{open.label} <small>{open.group} · {sortWord(open)} · {open.rows.length} athlete{open.rows.length === 1 ? "" : "s"}</small> <button className="btn-link" onClick={() => setMetric(null)}>‹ Every metric</button></h2>
+      {open ? sections.filter((l) => rowsIn(open, l).length).map((l) => (
+        <div className="panel" key={l || "all"}>
+          <h2>{open.label}{l ? ` · ${l}` : ""} <small>{open.group} · {sortWord(open)} · {rowsIn(open, l).length} athlete{rowsIn(open, l).length === 1 ? "" : "s"}</small> <button className="btn-link" onClick={() => setMetric(null)}>‹ Every metric</button></h2>
           <div className="bp-table-wrap">
             <table className="assess-table lb-table">
               <thead><tr><th>#</th><th>Athlete</th><th>Location</th><th>Position</th><th>{period === "latest" ? "Latest" : "Best"}</th><th>Date</th><th>Tests</th></tr></thead>
               <tbody>
-                {open.rows.map((r, i) => (
+                {rowsIn(open, l).map((r, i) => (
                   <tr key={r.a.id} className="lb-row" onClick={() => onSelect(r.a.id)}>
                     <td className="lb-rank">{i + 1}</td>
                     <td><b>{r.a.name}</b>{lbPlate(r.src) && <small className="lb-plate"> ({lbPlate(r.src)})</small>}</td>
@@ -8898,19 +8910,30 @@ function LeaderboardPage({ onSelect, dataVersion }) {
             </table>
           </div>
         </div>
-      ) : (
-        <div className="lb-grid">
-          {!shown.length && <div className="panel"><div className="empty-state">No results for these filters. Try a longer time window or All locations.</div></div>}
-          {shown.map((m) => (
-            <div key={m.key} className="panel lb-card" onClick={() => setMetric(m.key)} title="Open the full ranking">
-              <h3>{m.label} <small>{m.unit}</small></h3>
-              <div className="lb-card-sub">{m.group} · {sortWord(m)} · {m.rows.length} ranked</div>
-              <ol>
-                {m.rows.slice(0, 5).map((r) => <li key={r.a.id}><span>{r.a.name}{lbPlate(r.src) && <small className="lb-plate"> ({lbPlate(r.src)})</small>}</span><b>{fmtV(r.v, "")}</b></li>)}
-              </ol>
-            </div>
-          ))}
-        </div>
+      )) : (
+        <React.Fragment>
+          {!shown.length && <div className="lb-grid"><div className="panel"><div className="empty-state">No results for these filters. Try a longer time window or All locations.</div></div></div>}
+          {sections.map((l) => {
+            const cards = shown.filter((m) => rowsIn(m, l).length);
+            if (!cards.length) return null;
+            return (
+              <React.Fragment key={l || "all"}>
+                {l && <h2 className="lb-section">{l} <small>{athletes.filter((a) => locOf(a) === l).length} athletes</small></h2>}
+                <div className="lb-grid">
+                  {cards.map((m) => (
+                    <div key={m.key} className="panel lb-card" onClick={() => setMetric(m.key)} title="Open the full ranking">
+                      <h3>{m.label} <small>{m.unit}</small></h3>
+                      <div className="lb-card-sub">{m.group} · {sortWord(m)} · {rowsIn(m, l).length} ranked</div>
+                      <ol>
+                        {rowsIn(m, l).slice(0, 5).map((r) => <li key={r.a.id}><span>{r.a.name}{lbPlate(r.src) && <small className="lb-plate"> ({lbPlate(r.src)})</small>}</span><b>{fmtV(r.v, "")}</b></li>)}
+                      </ol>
+                    </div>
+                  ))}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </React.Fragment>
       )}
       <p className="bc-note">Force plate numbers come from Hawkin and OVR Force jumps; OVR Force works jump height out its own way, so its heights read a little higher than Hawkin&apos;s. Group Testing results are entered in Coach Mode. Click a name to open the athlete.</p>
     </div>
