@@ -8769,7 +8769,11 @@ const lbPlate = (src) => ({ "hawkin-sync": "Hawkin", "vald-import": "VALD", "ovr
 function LeaderboardPage({ onSelect, dataVersion }) {
   const S = window.AthleteStore;
   const [kpis, setKpis] = useState(null); // every Group Testing result, as { athleteId, ...data }
+  // which board: DST (the DST roster, a Cubs player who is also a DST client included), Cubs (the Cubs roster) or
+  // Combined (both); remembered in this browser
+  const [board, setBoardRaw] = useState(() => { try { return localStorage.getItem("lbBoard") || "dst"; } catch (e) { return "dst"; } });
   const [loc, setLoc] = useState("All");
+  const setBoard = (b) => { setBoardRaw(b); setLoc("All"); try { localStorage.setItem("lbBoard", b); } catch (e) { /* not remembered */ } };
   const [pos, setPos] = useState("All");
   const [period, setPeriod] = useState("90");
   const [metric, setMetric] = useState(null); // null: the overview
@@ -8788,8 +8792,9 @@ function LeaderboardPage({ onSelect, dataVersion }) {
     return () => { live = false; };
   }, [dataVersion]);
 
-  // the pro roster, filtered
-  const athletes = getRoster().filter((a) => !isHsYouth(a) && (a.status || "active").toLowerCase() === "active"
+  // the pro roster, filtered: the board's roster, then location and position
+  const onBoard = (a) => (board === "cubs" ? a.rosterGroup === CUBS_ROSTER_GROUP : board === "dst" ? a.rosterGroup !== CUBS_ROSTER_GROUP || !!a.dstLocation : true);
+  const athletes = getRoster().filter((a) => !isHsYouth(a) && (a.status || "active").toLowerCase() === "active" && onBoard(a)
     && (loc === "All" || (loc === CUBS_LOCATION_LABEL ? a.rosterGroup === CUBS_ROSTER_GROUP : a.dstLocation === loc))
     && (pos === "All" || a.position === pos));
   const today = new Date(new Date().toDateString()).getTime();
@@ -8832,15 +8837,22 @@ function LeaderboardPage({ onSelect, dataVersion }) {
   return (
     <div>
       <div className="panel">
-        <h2>Leaderboard <small>the pro roster on every measured metric · {athletes.length} athlete{athletes.length === 1 ? "" : "s"}</small></h2>
+        <div className="roster-switch no-print" role="group" aria-label="Leaderboard">
+          {[["dst", "DST"], ["cubs", "Cubs"], ["combined", "Combined"]].map(([k, t]) => (
+            <button key={k} className={`roster-switch-btn ${board === k ? "on" : ""}`} aria-pressed={board === k} onClick={() => setBoard(k)}>{t}</button>
+          ))}
+        </div>
+        <h2>{board === "dst" ? "DST Leaderboard" : board === "cubs" ? "Cubs Leaderboard" : "Combined Leaderboard"} <small>{board === "dst" ? "the DST pro roster" : board === "cubs" ? "the Cubs roster" : "the DST and Cubs rosters together"} on every measured metric · {athletes.length} athlete{athletes.length === 1 ? "" : "s"}</small></h2>
         <div className="lb-filters">
-          <label>Location
-            <select value={loc} onChange={(e) => setLoc(e.target.value)}>
-              <option value="All">All locations</option>
-              {DST_LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
-              <option value={CUBS_LOCATION_LABEL}>{CUBS_LOCATION_LABEL}</option>
-            </select>
-          </label>
+          {board !== "cubs" && (
+            <label>Location
+              <select value={loc} onChange={(e) => setLoc(e.target.value)}>
+                <option value="All">All locations</option>
+                {DST_LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+                {board === "combined" && <option value={CUBS_LOCATION_LABEL}>{CUBS_LOCATION_LABEL}</option>}
+              </select>
+            </label>
+          )}
           <label>Position
             <select value={pos} onChange={(e) => setPos(e.target.value)}>
               <option value="All">All positions</option>
