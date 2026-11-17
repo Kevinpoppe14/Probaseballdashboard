@@ -1400,8 +1400,17 @@
         window.MoCapApp ? el("button", { class: "primary", onclick: () => window.MoCapApp.open({ overlay, close: closeVideo }) }, "Motion Capture") : null,
         window.BullpenApp ? el("button", { class: "primary", onclick: () => window.BullpenApp.open({ overlay, close: closeVideo }) }, "Bullpen Video") : null,
         window.MoCapQueue ? el("button", { class: "primary", onclick: () => window.MoCapQueue.open({ overlay, close: closeVideo }) }, "Video Queue") : null,
-        el("button", { onclick: closeVideo }, "Cancel"))));
+        el("button", { class: "coach-cancel", onclick: closeVideo }, "Cancel"))));
     overlay.className = "overlay show";
+    // DST Finance (the books app, its own site): for a DST staff login only (@dynamicsportstraining.com), once
+    // signed in here with it. Added above Cancel when the signed-in account says so.
+    sb.auth.getSession().then(({ data }) => {
+      const email = ((data && data.session && data.session.user && data.session.user.email) || "").toLowerCase();
+      if (!/@dynamicsportstraining\.com$/.test(email)) return;
+      const cancel = overlay.querySelector(".coach-menu .coach-cancel");
+      if (!cancel || overlay.querySelector(".coach-menu .dst-finance")) return;
+      cancel.before(el("button", { class: "primary dst-finance", onclick: () => window.open("https://dst-books.vercel.app", "_blank", "noopener") }, "DST Finance"));
+    }, () => { /* not signed in: no link */ });
   }
   const blockDates = (b) => {
     const a = parseISO(plan.startDate); a.setDate(a.getDate() + b.start * 7);
