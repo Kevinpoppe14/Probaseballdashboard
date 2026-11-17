@@ -40,6 +40,9 @@
         const rows = named.map((e, ei) => {
           const groups = Rx.groups(e).map((g, gi) => {
             const w8 = logged[Rx.logKey(e, gi)], reps = logged[Rx.repsLogKey(e, gi)];
+            // a group logged a weight per set on the phone (Per set): "<id>|<group>|s|1"...; the group's own weight is the heaviest
+            const perSet = [];
+            for (let k = 1; k <= 12; k++) { const s = logged[`${Rx.logKey(e, gi)}|s|${k}`]; if (s && s.value) perSet.push(s.value); }
             if (w8) seen(w8.at);
             if (reps) seen(reps.at);
             const at = [w8 && w8.at, reps && reps.at].filter(Boolean).sort().pop() || null;
@@ -48,7 +51,7 @@
               weight: w8 ? w8.value : "", reps: reps ? reps.value : "", at,
               source: (w8 && w8.source) || (reps && reps.source) || "",
               est: Rx.failure(g) && w8 && reps ? Rx.estimate1RM(w8.value, reps.value) : null,
-              text: Rx.loggedText(e, g, w8 ? w8.value : "", reps ? reps.value : ""), // "135 x 5", or "4 sets" on an accumulated iso
+              text: perSet.length > 1 ? `${perSet.join(" / ")} (per set)` : Rx.loggedText(e, g, w8 ? w8.value : "", reps ? reps.value : ""), // "135 x 5", or "4 sets" on an accumulated iso
             };
           });
           // an EDT block's sets, kept on the exercise with the EDT note, show as a line of their own

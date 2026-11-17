@@ -102,6 +102,12 @@
   .section { font-size: 15px; margin: 18px 0 8px; display: flex; justify-content: space-between; align-items: baseline; }
   .section small { font-size: 12px; font-weight: 400; color: var(--dim); }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  /* My Progress › Top weights: By type / A–Z / Recent (athlete.js) */
+  .lift-order { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; margin: 0 0 10px; }
+  .lift-order button { border: none; background: transparent; color: var(--dim); font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; cursor: pointer; }
+  .lift-order button + button { border-left: 1px solid var(--border); }
+  .lift-order button.on { background: var(--accent); color: #fff; }
+  .lift-group .lift-type { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); margin: 0 0 6px; }
   .card-title { font-weight: 700; font-size: 15px; }
   .card-sub { font-size: 12px; color: var(--dim); margin-top: 6px; }
   .bar { height: 8px; border-radius: 4px; background: var(--panel-2); margin-top: 8px; overflow: hidden; }
@@ -229,6 +235,12 @@
   .set .last { font-size: 11px; color: var(--dim); padding-top: 3px; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
   /* faster logging: -5 / +5 under the weight box, last week's numbers as a tap-to-copy button, no box on unloaded drills */
   .set .steps { display: flex; }
+  /* Per set (athlete.js setBox): a box for each set of a group, stacked, instead of one for them all */
+  .set .per-set-toggle { background: none; border: none; font: inherit; font-size: 11px; font-weight: 700; color: var(--accent); padding: 4px 0 0; cursor: pointer; text-decoration: underline; }
+  .set .per-set-boxes { flex-direction: column; margin-top: 4px; }
+  .set .per-set-boxes input { height: 36px; font-size: 15px; }
+  .set .per-set-boxes input + input { border-left: 1px solid var(--line); border-top: none; }
+  .set [hidden] { display: none !important; }
   .set .step { flex: 1; height: 28px; padding: 0; font-size: 12px; font-weight: 700; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-top: none; }
   .set .step + .step { border-left: none; }
   .set .step:active { background: var(--accent); color: #fff; }

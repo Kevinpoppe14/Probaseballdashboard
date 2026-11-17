@@ -446,6 +446,26 @@
   // ---- exercise video ----------------------------------------------------------------------------
   const nameKey = window.exerciseNameKey; // names match ignoring case, spaces, hyphens and punctuation (program_rx.js)
   const exerciseInfo = (name) => (data.exercises || []).find((x) => nameKey(x.name) === nameKey(name)) || null;
+  // A lift's type, for grouping My Progress's top weights: the library's movement pattern when this page has it,
+  // else worked out from the name (single-leg before squat, so a split squat is single-leg; pull-ups before rows)
+  const LIFT_TYPES = ["Squat", "Hinge", "Single-Leg", "Horizontal Push", "Vertical Push", "Horizontal Pull", "Vertical Pull", "Olympic / Power", "Carry", "Core", "Arms & Isolation", "Other"];
+  const PATTERN_TYPE = { "Squat": "Squat", "Hinge": "Hinge", "Lunge / Single-Leg": "Single-Leg", "Horizontal Push": "Horizontal Push", "Vertical Push": "Vertical Push", "Horizontal Pull": "Horizontal Pull", "Vertical Pull": "Vertical Pull", "Carry": "Carry", "Isolation": "Arms & Isolation", "Rotation": "Core", "Anti-Rotation": "Core", "Jump": "Olympic / Power", "Med Ball Throw": "Olympic / Power", "Sprint": "Olympic / Power" };
+  // (checked against the library's own patterns: 93% of its strength exercises, and 48 of its 51 main lifts, agree)
+  const LIFT_TYPE_WORDS = [
+    ["Olympic / Power", /\b(clean|snatch|jerk|jumps?|throws?|med ?ball|slams?|high pull)\b/],
+    ["Arms & Isolation", /calf|soleus|abduct|adduct|skull|kickback|tricep|bicep|shrug|lateral raise|front raise|rear delt|\bfly|flye|wrist|neck|\btke\b/],
+    ["Hinge", /deadlift|\brdl\b|romanian|good ?morning|hinge|hip thrust|bridge|pull[- ]?through|back extension|hyper|nordic|\bghr\b|glute[- ]?ham|hamstring|swing/],
+    ["Single-Leg", /split squat|lunge|step[- ]?up|step[- ]?down|bulgarian|rfess|\brfe\b|\bffe\b|skater|pistol|lateral squat|cossack/],
+    ["Squat", /squat|leg press|hack/],
+    ["Vertical Pull", /pull[- ]?up|chin[- ]?up|pull[- ]?down|muscle[- ]?up/],
+    ["Horizontal Pull", /\brows?\b|face pull/],
+    ["Vertical Push", /overhead|\boh\b|\bohp\b|military|landmine press|shoulder press|push press|z[- ]press|arnold|o'?hearn|windmill/],
+    ["Carry", /carr(y|ies)|farmer|suitcase|waiter/],
+    ["Arms & Isolation", /curl|extension|raise/],
+    ["Horizontal Push", /bench|\bbp\b|incline|push[- ]?up|floor press|chest press|\bdips?\b|press/],
+    ["Core", /plank|pallof|chop|rollout|dead ?bug|crunch|sit[- ]?up|leg raise|anti[- ]/],
+  ];
+  const liftType = (name, pattern) => PATTERN_TYPE[pattern] || (LIFT_TYPE_WORDS.find(([, re]) => re.test(String(name || "").toLowerCase())) || ["Other"])[0];
   const closeVideo = () => {
     if (window.__dstStopScanner) window.__dstStopScanner(); // a barcode scan left open: the camera goes off
     overlay.className = "overlay"; overlay.replaceChildren();
@@ -1234,6 +1254,7 @@
   // only folds that way. A logged session folds every block. Tapping a folded block opens it again. The Done taps
   // are kept on this phone.
   const openBlocks = new Set(); // folded blocks opened again with a tap, until the page is reloaded
+  const splitHere = new Set(); // set groups switched to Per set before any weight was typed ("<program>|<key>"), until reload
   const doneKey = (item, si) => `blocksDone:${token || coachId}:${item.program.id}:${item.weekNo}:${si}${item.dayTag ? `:${item.dayTag}` : ""}`; // (a daily program's, that day's)
   const tappedDone = (item, si) => { try { return JSON.parse(localStorage.getItem(doneKey(item, si)) || "[]"); } catch (e) { return []; } };
   function foldable(item, si, b) {
@@ -1345,17 +1366,70 @@
       ? el("button", { class: "last last-same", title: `Same as the set before: ${last.when}, ${last.text}. Tap to use it.`, "aria-label": `Use ${last.text} from ${last.when}`, onclick: useLast }, el("b", null, "use"))
       : el("button", { class: "last", title: `Logged in week ${last.week} (${last.when}). Tap to use the same numbers.`, onclick: useLast },
         el("span", { class: "last-when" }, last.when), el("span", { class: "last-val" }, last.text, el("b", null, " · use")));
-    return el("div", { class: `set${fail ? " fail" : ""}` },
+    const stepsEl = el("div", { class: "steps" }, // under the box, so the box keeps its full width in a narrow column
+      el("button", { class: "step", "aria-label": `5 less for ${e.name}`, onclick: step(-5) }, "−5"),
+      el("button", { class: "step", "aria-label": `5 more for ${e.name}`, onclick: step(5) }, "+5"));
+    const node = el("div", { class: `set${fail ? " fail" : ""}` },
       el("span", { class: "reps" }, Rx.repsText(g)),
       el("div", { class: "boxes" }, weight, reps),
-      // under the box, so the box keeps its full width in a narrow column
-      el("div", { class: "steps" },
-        el("button", { class: "step", "aria-label": `5 less for ${e.name}`, onclick: step(-5) }, "−5"),
-        el("button", { class: "step", "aria-label": `5 more for ${e.name}`, onclick: step(5) }, "+5")),
+      stepsEl,
       int ? el("span", { class: "pct" }, int) : null,
       est,
       lastBtn,
       timerFor(e, g));
+    // Per set: a group of several sets (4x4) can take a weight for each set instead (dropping the weight as they
+    // go), each under its own key ("<id>|<group>|s|1"...). The group's own weight is then the heaviest of them, so
+    // the suggestions, the Training Log and the strength results read it as before. "Same for all" pairs them again.
+    const nSets = parseInt(g.sets, 10) || 0;
+    if (nSets >= 2 && nSets <= 12 && !fail) {
+      const sKey = (k) => `${wKey}|s|${k}`;
+      const isSplit = () => splitHere.has(`${pid}|${wKey}`) || Array.from({ length: nSets }, (_, k) => logged(pid, sKey(k + 1))).some(Boolean);
+      const perBox = el("div", { class: "per-set" });
+      const toggle = el("button", { class: "per-set-toggle" });
+      const topToGroup = () => {
+        const vals = Array.from({ length: nSets }, (_, k) => parseFloat(logged(pid, sKey(k + 1)))).filter((v) => v > 0);
+        save(pid, wKey, vals.length ? String(Math.max(...vals)) : "");
+        refresh();
+      };
+      const drawSplit = () => {
+        const on = isSplit();
+        weight.hidden = on; stepsEl.hidden = on;
+        if (lastBtn) lastBtn.hidden = on;
+        toggle.textContent = on ? "Same for all" : "Per set";
+        toggle.title = on ? "One weight for every set again" : "A different weight for each set";
+        perBox.replaceChildren(...(on ? [el("div", { class: "boxes per-set-boxes" }, Array.from({ length: nSets }, (_, k) => {
+          const box = el("input", { type: "text", inputmode: "decimal", enterkeyhint: "next", placeholder: `set ${k + 1}`, "aria-label": `${e.name} set ${k + 1} weight`, autocomplete: "off", value: logged(pid, sKey(k + 1)) });
+          box.addEventListener("focus", () => box.select());
+          box.addEventListener("blur", () => { save(pid, sKey(k + 1), box.value.trim()); topToGroup(); });
+          box.addEventListener("keydown", (ev) => {
+            if (ev.key !== "Enter") return;
+            ev.preventDefault();
+            const boxes = [...document.querySelectorAll("main .boxes input")];
+            const next = boxes[boxes.indexOf(box) + 1];
+            if (next) next.focus(); else box.blur();
+          });
+          return box;
+        }))] : []));
+      };
+      toggle.addEventListener("click", () => {
+        if (isSplit()) {
+          // paired again: the group keeps its heaviest weight, the per-set ones are cleared
+          splitHere.delete(`${pid}|${wKey}`);
+          for (let k = 1; k <= nSets; k++) if (logged(pid, sKey(k))) save(pid, sKey(k), "");
+          refresh();
+        } else {
+          // split: each set starts at the weight in the box (typed, filled in, or last time's), to change the ones that
+          // differ; with nothing to start from, the boxes start empty (remembered on this phone until one is filled)
+          const start = weight.value.trim() || (last && last.w) || "";
+          if (start) { for (let k = 1; k <= nSets; k++) save(pid, sKey(k), start); save(pid, wKey, start); } else splitHere.add(`${pid}|${wKey}`);
+          refresh();
+        }
+        drawSplit();
+      });
+      node.append(toggle, perBox);
+      drawSplit();
+    }
+    return node;
   }
 
   // ---- player plan: where the plan is now, the timeline row by row, goals and the action plan --------
@@ -3553,12 +3627,32 @@
       })));
     });
     if (lifts.size) {
-      main.append(el("h2", { class: "section" }, "Top weights", el("small", null, "heaviest logged each week")));
-      main.append(el("div", { class: "card" }, [...lifts.values()].sort((a, b) => b.lastPos - a.lastPos).map((x) => {
+      // By type (grouped, A to Z in each), A to Z, or most recent first; the choice is remembered on this phone
+      let order = "type";
+      try { order = localStorage.getItem("topWeightsOrder") || "type"; } catch (e) { /* default */ }
+      const liftRow = (x) => {
         const ws = [...x.weeks.entries()].sort((a, b) => a[0] - b[0]);
         const vals = ws.map((p) => p[1]), last = vals[vals.length - 1], gain = last - vals[0];
         return row(x.name, spark(vals), nice(last), ws.length > 1 ? `${gain >= 0 ? "+" : ""}${nice(gain)} since wk ${ws[0][0] + 1}` : `wk ${ws[0][0] + 1}`);
-      })));
+      };
+      const az = (a, b) => a.name.localeCompare(b.name);
+      const box = el("div");
+      const draw = () => {
+        const list = [...lifts.values()];
+        if (order === "type") {
+          const groups = new Map(LIFT_TYPES.map((t) => [t, []]));
+          list.forEach((x) => groups.get(liftType(x.name, (exerciseInfo(x.name) || {}).pattern)).push(x));
+          box.replaceChildren(...[...groups].filter(([, xs]) => xs.length).map(([t, xs]) => el("div", { class: "card lift-group" }, el("div", { class: "lift-type" }, t), xs.sort(az).map(liftRow))));
+        } else box.replaceChildren(el("div", { class: "card" }, list.sort(order === "az" ? az : (a, b) => b.lastPos - a.lastPos).map(liftRow)));
+        seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.k === order));
+      };
+      const seg = el("div", { class: "lift-order", role: "group", "aria-label": "Order top weights" }, [["type", "By type"], ["az", "A–Z"], ["recent", "Recent"]].map(([k, t]) => {
+        const b = el("button", { onclick: () => { order = k; try { localStorage.setItem("topWeightsOrder", k); } catch (e) { /* this time only */ } draw(); } }, t);
+        b.dataset.k = k;
+        return b;
+      }));
+      main.append(el("h2", { class: "section" }, "Top weights", el("small", null, "heaviest logged each week")), seg, box);
+      draw();
     }
 
     // Group Testing (the coach's Coach Mode), each test with its best and latest result
