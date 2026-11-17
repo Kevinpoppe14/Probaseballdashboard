@@ -2113,7 +2113,82 @@
     const planned = foodDay > todayKey();
     setFoodDay(foodDay, (foodDays[foodDay] || []).concat(entries.map((e) => (planned ? Object.assign({}, e, { planned: true }) : e))));
     redrawKeep();
+    if (!planned && foodDay === todayKey()) slotOffer();
   };
+
+  // ---- the slot machine (api/slot-pull.js) ----------------------------------------------------------------------
+  // For the athletes it's switched on for (the server says, from this link): each food logged today earns a pull,
+  // and three DST logos wins a free DST t-shirt. The server decides each pull and counts them; anyone else is told
+  // no once and never asked again this visit.
+  let slotOff = false;
+  const slotApi = async (body) => {
+    const r = await fetch("/api/slot-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ token }, body)) });
+    if (!r.ok) throw new Error("slot");
+    return r.json();
+  };
+  function slotOffer() {
+    if (slotOff || coachId || !token) return;
+    const day = todayKey();
+    foodSaving.then(async () => { // (once the food is saved, so it counts)
+      try {
+        const st = await slotApi({ day, peek: true });
+        if (!st.eligible) { slotOff = true; return; }
+        if (st.left > 0 && !overlay.classList.contains("show")) openSlot(day, st);
+      } catch (e) { /* no machine this time */ }
+    });
+  }
+  const SLOT_SYMBOLS = ["dst", "baseball", "fire", "muscle", "banana", "steak"];
+  const slotFace = (k) => (k === "dst"
+    ? el("img", { class: "slot-logo", src: "assets/dst-logo-light.png", alt: "DST" })
+    : el("span", { class: "slot-emoji" }, { baseball: "⚾", fire: "🔥", muscle: "💪", banana: "🍌", steak: "🥩" }[k] || "⭐"));
+  function openSlot(day, st) {
+    let left = st.left, won = !!st.won, busy = false;
+    const strips = [0, 1, 2].map(() => el("div", { class: "slot-strip" }, el("div", { class: "slot-cell" }, slotFace(SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]))));
+    const msg = el("div", { class: "slot-msg" });
+    const info = el("div", { class: "slot-info" });
+    const pull = el("button", { class: "primary slot-pull" }, "Pull");
+    const showInfo = () => {
+      info.textContent = won ? "You've won your shirt. Spins are just for fun now." : "Three DST logos wins a free DST t-shirt.";
+      pull.disabled = busy || left <= 0;
+      pull.textContent = left > 0 ? `Pull (${left} left today)` : "Log another food for another pull";
+    };
+    // each reel runs through a column of faces and stops on its own, one after another
+    const spin = (strip, target, i) => new Promise((ok) => {
+      const n = 14 + i * 5;
+      const faces = [];
+      for (let k = 0; k < n; k++) faces.push(SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]);
+      faces.push(target);
+      strip.style.transition = "none"; strip.style.transform = "translateY(0)";
+      strip.replaceChildren(...faces.map((k) => el("div", { class: "slot-cell" }, slotFace(k))));
+      void strip.offsetHeight;
+      strip.style.transition = `transform ${1.1 + i * 0.45}s cubic-bezier(.2,.75,.25,1)`;
+      strip.style.transform = `translateY(-${n * 76}px)`;
+      setTimeout(() => { strip.style.transition = "none"; strip.replaceChildren(el("div", { class: "slot-cell" }, slotFace(target))); strip.style.transform = "translateY(0)"; ok(); }, (1.1 + i * 0.45) * 1000 + 60);
+    });
+    pull.onclick = async () => {
+      if (busy || left <= 0) return;
+      busy = true; msg.textContent = ""; msg.className = "slot-msg"; showInfo();
+      let r;
+      try { r = await slotApi({ day }); } catch (e) { r = null; }
+      if (!r || !r.reels) { busy = false; msg.textContent = r ? "No pulls left today: log another food for another." : "Couldn't reach the machine. Check your connection."; left = r ? 0 : left; showInfo(); return; }
+      await Promise.all(strips.map((s, i) => spin(s, r.reels[i], i)));
+      left = r.left; busy = false;
+      if (r.win) {
+        won = true;
+        msg.className = "slot-msg win";
+        msg.textContent = "🎉 Three DST logos! You won a free DST t-shirt. Kevin's been told: show him this screen.";
+      } else msg.textContent = r.reels.filter((k) => k === "dst").length === 2 ? "So close! Two DST logos." : "Not this time. Every food you log is another pull.";
+      showInfo();
+    };
+    overlay.replaceChildren(el("div", { class: "sheet slot-sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "Fuel Up Slots"),
+      el("p", { class: "slot-sub" }, "Food logged: you earned a pull."),
+      el("div", { class: "slot-machine" }, strips.map((s) => el("div", { class: "slot-window" }, s))),
+      pull, info, msg));
+    overlay.className = "overlay show";
+    showInfo();
+  }
   // units for a custom food: [family, size in that family's base unit]; an amount converts within its family
   // (grams and ounces by weight; cups, spoons and fluid ounces by volume)
   const CUSTOM_UNITS = { serving: ["count", 1], piece: ["count", 1], g: ["weight", 1], oz: ["weight", 28.35], cup: ["volume", 48], "fl oz": ["volume", 6], tbsp: ["volume", 3], tsp: ["volume", 1] };
