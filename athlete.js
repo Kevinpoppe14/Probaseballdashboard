@@ -1665,7 +1665,7 @@
       if (sets.length) missing.push({ e, sets });
     });
     // logged: the athlete gets the finish screen; a coach in Coach Mode just a note, to keep the session moving
-    const finish = () => { save(pid, sessionKey(item, si), "done"); closeVideo(); render(); if (coachId) showStatus("Session logged"); else finishScreen(item, si, rows); };
+    const finish = () => { save(pid, sessionKey(item, si), "done"); closeVideo(); render(); if (coachId) showStatus("Session logged"); else { finishScreen(item, si, rows); slotOffer("lift"); } };
     if (!missing.length) { finish(); return; }
 
     const fields = []; // { key, input }
@@ -2174,12 +2174,15 @@
   function setFoodDay(key, entries) {
     // a day with food on it is marked training or rest the first time (as the Nutrition tab is set), for their coach
     if (entries.some((e) => e.name) && !entries.some((e) => e.id === DAY_TAG)) entries = entries.concat([{ id: DAY_TAG, dayType: nutRest ? "rest" : "train" }]);
+    const ateCount = (list) => (list || []).filter((e) => e && e.name && !e.planned).length;
+    const ateMore = key === todayKey() && ateCount(entries) > ateCount(foodDays[key]); // food eaten today: a slot pull, maybe
     foodDays[key] = entries;
     foodSaving = foodSaving.then(async () => {
       let ok = false;
       try { ok = await api.foodSave(key, foodDays[key] || []); } catch (e) { ok = false; }
       showStatus(ok ? "Saved" : "Not saved. Check your connection and try again.", !ok);
     });
+    if (ateMore) slotOffer("food");
   }
   // added to the day shown; a day still to come is planned, not eaten
   const addFood = (entries) => {
@@ -2187,27 +2190,34 @@
     const planned = foodDay > todayKey();
     setFoodDay(foodDay, (foodDays[foodDay] || []).concat(entries.map((e) => (planned ? Object.assign({}, e, { planned: true }) : e))));
     redrawKeep();
-    if (!planned && foodDay === todayKey()) slotOffer();
   };
 
   // ---- the slot machine (api/slot-pull.js) ----------------------------------------------------------------------
-  // For the athletes it's switched on for (the server says, from this link): each food logged today earns a pull,
-  // and three DST logos wins a free DST t-shirt. The server decides each pull and counts them; anyone else is told
+  // For the athletes it's switched on for (the server says, from this link): food logged today earns a pull (each
+  // food for Shane Baz; each meal for everyone else, through Saturday Nov 21), and so does each lift finished that
+  // week. Three DST logos wins a free DST t-shirt. The server decides each pull and counts them; anyone else is told
   // no once and never asked again this visit.
   let slotOff = false;
   const slotApi = async (body) => {
-    const r = await fetch("/api/slot-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ token }, body)) });
+    const r = await fetch("/api/slot-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ token, tz: new Date().getTimezoneOffset() }, body)) });
     if (!r.ok) throw new Error("slot");
     return r.json();
   };
-  function slotOffer() {
+  // the weights and the session's done mark saved (flush), so the finished lift counts; up to about 15 seconds
+  const logsSaved = async () => { for (let i = 0; i < 30 && pending.size; i++) await new Promise((ok) => setTimeout(ok, 500)); };
+  // kind: "food" (something eaten today was logged) or "lift" (a session was just logged as done)
+  function slotOffer(kind) {
     if (slotOff || coachId || !token) return;
     const day = todayKey();
-    foodSaving.then(async () => { // (once the food is saved, so it counts)
+    (kind === "lift" ? logsSaved() : foodSaving).then(async () => { // (once it's saved, so it counts)
       try {
         const st = await slotApi({ day, peek: true });
         if (!st.eligible) { slotOff = true; return; }
-        if (st.left > 0 && !overlay.classList.contains("show")) openSlot(day, st);
+        if (!(st.left > 0)) return;
+        if (!overlay.classList.contains("show")) { openSlot(day, st, kind); return; }
+        // the "done" screen of a lift is up: a button on it, so they still see their session first
+        const acts = overlay.querySelector(".finish .swap-actions");
+        if (acts && !acts.querySelector(".slot-offer")) acts.prepend(el("button", { class: "primary slot-offer", onclick: () => openSlot(day, st, kind) }, "🎰 You earned a slot pull"));
       } catch (e) { /* no machine this time */ }
     });
   }
@@ -2215,16 +2225,17 @@
   const slotFace = (k) => (k === "dst"
     ? el("img", { class: "slot-logo", src: "assets/dst-logo-light.png", alt: "DST" })
     : el("span", { class: "slot-emoji" }, { baseball: "⚾", fire: "🔥", muscle: "💪", banana: "🍌", steak: "🥩" }[k] || "⭐"));
-  function openSlot(day, st) {
+  function openSlot(day, st, kind) {
     let left = st.left, won = !!st.won, busy = false;
+    const more = st.rule === "food" ? (st.until ? "Log another food or finish a lift" : "Log another food") : "Log a meal or finish a lift";
     const strips = [0, 1, 2].map(() => el("div", { class: "slot-strip" }, el("div", { class: "slot-cell" }, slotFace(SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]))));
     const msg = el("div", { class: "slot-msg" });
     const info = el("div", { class: "slot-info" });
     const pull = el("button", { class: "primary slot-pull" }, "Pull");
     const showInfo = () => {
-      info.textContent = won ? "You've won your shirt. Spins are just for fun now." : "Three DST logos wins a free DST t-shirt.";
+      info.textContent = won ? "You've won your shirt. Spins are just for fun now." : `Three DST logos wins a free DST t-shirt.${st.until ? " Through Saturday." : ""}`;
       pull.disabled = busy || left <= 0;
-      pull.textContent = left > 0 ? `Pull (${left} left today)` : "Log another food for another pull";
+      pull.textContent = left > 0 ? `Pull (${left} left today)` : `${more} for another pull`;
     };
     // each reel runs through a column of faces and stops on its own, one after another
     const spin = (strip, target, i) => new Promise((ok) => {
@@ -2244,20 +2255,20 @@
       busy = true; msg.textContent = ""; msg.className = "slot-msg"; showInfo();
       let r;
       try { r = await slotApi({ day }); } catch (e) { r = null; }
-      if (!r || !r.reels) { busy = false; msg.textContent = r ? "No pulls left today: log another food for another." : "Couldn't reach the machine. Check your connection."; left = r ? 0 : left; showInfo(); return; }
+      if (!r || !r.reels) { busy = false; msg.textContent = r ? `No pulls left today: ${more.toLowerCase()} for another.` : "Couldn't reach the machine. Check your connection."; left = r ? 0 : left; showInfo(); return; }
       await Promise.all(strips.map((s, i) => spin(s, r.reels[i], i)));
       left = r.left; busy = false;
       if (r.win) {
         won = true;
         msg.className = "slot-msg win";
         msg.textContent = "🎉 Three DST logos! You won a free DST t-shirt. Kevin's been told: show him this screen.";
-      } else msg.textContent = r.reels.filter((k) => k === "dst").length === 2 ? "So close! Two DST logos." : "Not this time. Every food you log is another pull.";
+      } else msg.textContent = r.reels.filter((k) => k === "dst").length === 2 ? "So close! Two DST logos." : `Not this time. ${more}: that's another pull.`;
       showInfo();
     };
     overlay.replaceChildren(el("div", { class: "sheet slot-sheet" },
       el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
       el("h2", null, "Fuel Up Slots"),
-      el("p", { class: "slot-sub" }, "Food logged: you earned a pull."),
+      el("p", { class: "slot-sub" }, kind === "lift" ? "Lift logged: you earned a pull." : `${st.rule === "food" ? "Food" : "Meal"} logged: you earned a pull.`),
       el("div", { class: "slot-machine" }, strips.map((s) => el("div", { class: "slot-window" }, s))),
       pull, info, msg));
     overlay.className = "overlay show";
