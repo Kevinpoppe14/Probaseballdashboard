@@ -49,6 +49,12 @@ async function sendEmail({ to, subject, html }) {
   await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
 }
 
+// the emails of the coaches with a location set on their coach record (coachLocations; the Coaches roster)
+async function locatedCoaches(key) {
+  const rows = await sbGet(key, "athletes", "select=data&data->>rosterGroup=eq.coaches");
+  return new Set(rows.map((r) => r.data || {}).filter((a) => a.coachEmail && Array.isArray(a.coachLocations) && a.coachLocations.filter(Boolean).length).map((a) => String(a.coachEmail).toLowerCase()));
+}
+
 // the athlete behind a token, or null; only remote athletes can send clips
 async function athleteFor(key, token) {
   if (!/^[0-9a-f]{32,128}$/.test(token)) return null;
@@ -107,7 +113,10 @@ async function done(key, body, res) {
   const blocks = (((planRow && planRow.data) || {}).blocks || []).filter((b) => b && String(b.programId) === programId);
   const assigners = blocks.map((b) => b.assignedBy).filter(Boolean);
   const coaches = [...new Set((assigners.length ? assigners : [program && program.data && program.data.createdBy]).filter((e) => e && emailRe.test(e) && !EXCLUDED_RECIPIENTS.includes(e)))];
-  const to = coaches.length ? coaches : [SEND_AS_EMAIL];
+  // a coach with no location set on their coach record gets no emails: theirs comes to Kevin instead
+  const located = await locatedCoaches(key);
+  const to = [...new Set(coaches.map((e) => (located.has(e.toLowerCase()) ? e : SEND_AS_EMAIL)))];
+  if (!to.length) to.push(SEND_AS_EMAIL);
 
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const data = {

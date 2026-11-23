@@ -1,6 +1,6 @@
 // Weekly roster digest — Vercel Cron sends a roster overview (grouped by DST Location, active
-// athletes only; a coach with locations set on their coach record gets only those) to every coach who
-// has ever signed in, every Sunday around 11am Central, from
+// athletes only; each coach gets only the locations set on their coach record, and a coach with none
+// set gets nothing) to every coach who has ever signed in, every Sunday around 11am Central, from
 // September 1 through March 1. See vercel.json: TWO cron entries fire it (16:00 and 17:00 UTC),
 // one for each side of the Nov/March Central-time DST transition — a single fixed UTC hour would
 // drift an hour off "11am Central" for half the year. Whichever entry actually lands on 11am
@@ -415,7 +415,6 @@ module.exports = async (req, res) => {
         .sort(([a], [b]) => last(a) - last(b) || a.localeCompare(b))
         .map(([location, athletes]) => ({ location, athletes: athletes.sort((a, b) => lastNameOnly(a.name).localeCompare(lastNameOnly(b.name))) }));
     };
-    const dstLocations = groupByLocation(enriched.filter((a) => !a.cubsOnly));
     const allLocations = groupByLocation(enriched);
 
     const subject = `Weekly Pro Baseball Snapshot — ${chicagoToday.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
@@ -428,18 +427,20 @@ module.exports = async (req, res) => {
 
     // A coach with locations set on their coach record (coachLocations, by login id or email) gets only those
     // locations' athletes, plus any remote athlete whose program they assigned or whose assessment they did (the
-    // dashboard's Today panel uses the same rule); a coach with none set gets every location, as before (and the
-    // No Location Set list). The accounts in CUBS_DIGEST_RECIPIENTS also get every Cubs player, whatever their
-    // locations. Coaches who'd get the same athletes share one email.
+    // dashboard's Today panel uses the same rule). A coach with no location set gets no email at all. The accounts
+    // in CUBS_DIGEST_RECIPIENTS also get every Cubs player, whatever their locations. Coaches who'd get the same
+    // athletes share one email.
     const coachRecs = athleteRows.map((r) => r.data).filter((a) => a && a.rosterGroup === "coaches");
     const locationsFor = (u) => {
       const rec = coachRecs.find((a) => a.coachUserId === u.id) || coachRecs.find((a) => (a.coachEmail || "").toLowerCase() === u.email.toLowerCase());
       return rec && Array.isArray(rec.coachLocations) ? rec.coachLocations.filter(Boolean) : [];
     };
     const groups = new Map(); // "<cubs>|<locations>|<their remote athletes>" -> { cubs, locs, sections, to: [] }
+    const noLocation = [];
     recipients.forEach((u) => {
       const cubs = CUBS_DIGEST_RECIPIENTS.includes(u.email.toLowerCase());
       const locs = locationsFor(u).sort();
+      if (!locs.length) { noLocation.push(u.email); return; } // no location on their coach record: no email
       const pool = cubs ? enriched : enriched.filter((a) => !a.cubsOnly);
       let mine = pool, theirRemote = [];
       if (locs.length) {
@@ -448,7 +449,7 @@ module.exports = async (req, res) => {
         mine = pool.filter((a) => locs.includes(a.dstLocation) || (cubs && a.cubsRoster) || theirRemote.includes(a));
       }
       const key = `${cubs}|${locs.join(",")}|${theirRemote.map((a) => a.name).sort().join(",")}`;
-      if (!groups.has(key)) groups.set(key, { cubs, locs, sections: locs.length ? groupByLocation(mine) : cubs ? allLocations : dstLocations, to: [] });
+      if (!groups.has(key)) groups.set(key, { cubs, locs, sections: groupByLocation(mine), to: [] });
       groups.get(key).to.push(u.email);
     });
     const sent = [], skipped = [];
@@ -457,8 +458,9 @@ module.exports = async (req, res) => {
       if (!sections.some((l) => l.athletes.length)) { skipped.push({ to: g.to, locations: g.locs, reason: "no active athletes at their locations" }); continue; }
       await sendDigestEmail({ to: g.to.join(", "), subject, html: buildDigestHtml({ locations: sections, today: chicagoToday }) });
       await sbUpsert(serviceKey, "email_log", [{ sent_by: "system", to_email: g.to.join(", "), subject, kind: "weekly_digest" }]);
-      sent.push({ to: g.to, locations: g.locs.length ? g.locs : "all", cubs: g.cubs });
+      sent.push({ to: g.to, locations: g.locs, cubs: g.cubs });
     }
+    if (noLocation.length) skipped.push({ to: noLocation, reason: "no location set on their coach record" });
     if (!force) await sbUpsert(serviceKey, "app_meta", [{ key: "lastWeeklyRosterEmailDate", value: dateKey }]);
 
     res.status(200).json({ ok: true, sent: sent.reduce((n, s) => n + s.to.length, 0), emails: sent, skipped, athletes: enriched.length, dstAthletes: enriched.filter((a) => !a.cubsOnly).length, locations: allLocations.map((l) => l.location) });

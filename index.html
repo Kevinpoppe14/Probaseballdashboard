@@ -4353,6 +4353,80 @@ function WhatsNewPage() {
     </div>
   );
 }
+// Ideas: what athletes (from their phone app) and coaches have suggested to make the dashboard and the app better,
+// newest first, with a box to send one (api/ideas.js keeps them and emails Kevin). Kevin marks each New, Planned,
+// Done or Not now; everyone else sees where it stands.
+const IDEA_AREAS = ["Dashboard", "Phone app", "Program builder", "Coach Mode", "Other"];
+const IDEA_STATUS = { new: "New", planned: "Planned", done: "Done", "not now": "Not now" };
+async function ideasApi(body) {
+  const { data } = await window.supabaseClient.auth.getSession();
+  const token = data && data.session && data.session.access_token;
+  const r = await fetch("/api/ideas", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || ""}` }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "Couldn't reach the ideas box. Check your connection and try again.");
+  return j;
+}
+function IdeasPage() {
+  const [ideas, setIdeas] = useState(null);
+  const [canEdit, setCanEdit] = useState(false);
+  const [error, setError] = useState("");
+  const [text, setText] = useState("");
+  const [area, setArea] = useState("Dashboard");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [show, setShow] = useState("open"); // "open" (New and Planned), "all"
+  const load = () => ideasApi({ action: "list" }).then((j) => { setIdeas(j.ideas || []); setCanEdit(!!j.canEdit); setError(""); }, (e) => setError(e.message));
+  React.useEffect(() => { load(); }, []);
+  const send = async () => {
+    if (text.trim().length < 3 || sending) return;
+    setSending(true); setError("");
+    try { await ideasApi({ action: "add", text: text.trim(), area }); setText(""); setSent(true); setTimeout(() => setSent(false), 4000); load(); }
+    catch (e) { setError(e.message); }
+    setSending(false);
+  };
+  const setStatus = async (id, status) => {
+    setIdeas((list) => list.map((x) => (x.id === id ? { ...x, status } : x)));
+    try { await ideasApi({ action: "status", id, status }); } catch (e) { setError(e.message); load(); }
+  };
+  const fmt = (iso) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const shown = (ideas || []).filter((x) => show === "all" || x.status === "new" || x.status === "planned");
+  return (
+    <div className="panel ideas-page">
+      <h2>Ideas <small>Ideas from coaches and athletes to make the dashboard and the app better</small></h2>
+      <div className="ideas-send">
+        <textarea rows={3} maxLength={2000} value={text} placeholder="What would make the dashboard or the app better for you?" onChange={(e) => setText(e.target.value)} />
+        <div className="ideas-send-row">
+          <select value={area} onChange={(e) => setArea(e.target.value)} aria-label="What it's for">
+            {IDEA_AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <button className="btn btn-primary" disabled={sending || text.trim().length < 3} onClick={send}>{sending ? "Sending…" : "Send idea"}</button>
+          {sent && <span className="ideas-thanks">Thanks! Kevin has it.</span>}
+        </div>
+        <p className="whats-new-intro">Athletes can send ideas too, from the bottom of the Progress tab in their app.</p>
+      </div>
+      {error && <p className="ideas-error">{error}</p>}
+      <div className="ideas-filter">
+        <button className={`btn-link${show === "open" ? " on" : ""}`} onClick={() => setShow("open")}>New and planned</button>
+        <button className={`btn-link${show === "all" ? " on" : ""}`} onClick={() => setShow("all")}>All ({(ideas || []).length})</button>
+      </div>
+      {ideas === null && !error && <p className="whats-new-intro">Loading…</p>}
+      {ideas && !shown.length && <p className="whats-new-intro">{ideas.length ? "Nothing open right now." : "No ideas yet. Be the first."}</p>}
+      {shown.map((x) => (
+        <div className={`idea-item idea-${x.status.replace(" ", "-")}`} key={x.id}>
+          <div className="idea-head">
+            <span className="idea-area">{x.area}</span>
+            <span className="idea-who">{x.from ? `${x.from.name} · ${x.from.kind}` : ""} · {fmt(x.at)}</span>
+            {canEdit
+              ? <select className="idea-status" value={x.status} onChange={(e) => setStatus(x.id, e.target.value)} aria-label="Status">{Object.entries(IDEA_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+              : <span className="idea-status-tag">{IDEA_STATUS[x.status] || x.status}</span>}
+          </div>
+          <p>{x.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // the newest addition's date, for the top bar's "What's new" dot
 const latestWhatsNew = () => ((window.WhatsNew && window.WhatsNew.WHATS_NEW) || []).reduce((m, e) => (e.date > m ? e.date : m), "");
 
@@ -4385,7 +4459,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onGoIdeas, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4457,6 +4531,7 @@ function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, on
               What's new{whatsNewUnseen ? <span className="whats-new-dot" aria-label="new" /> : null}
             </button>
           )}
+          {onGoIdeas && <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoIdeas} title="Send an idea to make the dashboard or the app better, and see everyone's">Ideas</button>}
           <button className="btn-link" style={{ marginRight: 10 }} onClick={onGoHelp}>Help</button>
           <button className="btn-link" onClick={onLogout}>Log out</button>
         </div>
@@ -10636,6 +10711,7 @@ function App({ userEmail, onLogout }) {
         onGoPrograms={goPrograms}
         onGoHelp={goHelp}
         onGoWhatsNew={goWhatsNew}
+        onGoIdeas={() => setView("ideas")}
         whatsNewUnseen={whatsNewUnseen}
         onTour={playTour}
         userEmail={userEmail}
@@ -10703,6 +10779,7 @@ function App({ userEmail, onLogout }) {
         {view === "programs" && <ProgramsPage nav={programsNav} setNav={updateProgramsNav} onSelectAthlete={selectAthlete} />}
         {view === "help" && <HelpPage />}
         {view === "whatsnew" && <WhatsNewPage />}
+        {view === "ideas" && <IdeasPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}
       </div>
       <div className="footer-note">

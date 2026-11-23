@@ -1,5 +1,5 @@
-// Weekly "What's new" email: every Monday around 9am Central, all year, every coach who has a dashboard login
-// gets the new additions to the phone app, the program builder, Coach Mode and the dashboard from the past seven
+// Weekly "What's new" email: every Monday around 9am Central, all year, every coach who has a dashboard login and a
+// location set on their coach record gets the new additions to the phone app, the program builder, Coach Mode and the dashboard from the past seven
 // days (the Monday to Sunday before), grouped by area. The additions are written by hand in whats_new.js (newest first); a week with none sends
 // nothing. Like api/weekly-roster-email.js: TWO cron entries in vercel.json (14:00 and 15:00 UTC Mondays), one
 // for each side of the Central-time DST change, and only the one that lands on 9am Chicago time sends; an app_meta
@@ -35,18 +35,25 @@ async function sbUpsert(serviceKey, table, rows) {
   });
   if (!res.ok) throw new Error(`Supabase upsert ${table} failed: HTTP ${res.status} ${await res.text()}`);
 }
-// every login (the coaches; athletes use their phone links, not logins), less the excluded ones
+// every login (the coaches; athletes use their phone links, not logins) with a location set on their coach record
+// (coachLocations, by login id or email; the Coaches roster), less the excluded ones. A coach with no location gets
+// no emails.
 async function getRecipients(serviceKey) {
   const users = [];
   for (let page = 1; ; page++) {
     const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=200`, { headers: sbHeaders(serviceKey) });
     if (!res.ok) throw new Error(`Failed to list users: HTTP ${res.status} ${await res.text()}`);
     const list = (await res.json()).users || [];
-    list.forEach((u) => { if (u.email) users.push(u.email); });
+    list.forEach((u) => { if (u.email) users.push({ email: u.email.toLowerCase(), id: u.id }); });
     if (list.length < 200) break;
   }
+  const coaches = (await sbSelect(serviceKey, "athletes", "select=data&data->>rosterGroup=eq.coaches")).map((r) => r.data || {});
+  const located = (u) => {
+    const rec = coaches.find((a) => a.coachUserId === u.id) || coaches.find((a) => String(a.coachEmail || "").toLowerCase() === u.email);
+    return !!rec && Array.isArray(rec.coachLocations) && rec.coachLocations.filter(Boolean).length > 0;
+  };
   const excluded = new Set(EXCLUDED_RECIPIENTS.map((e) => e.toLowerCase()));
-  return [...new Set(users.map((e) => e.toLowerCase()))].filter((e) => !excluded.has(e));
+  return [...new Set(users.filter(located).map((u) => u.email))].filter((e) => !excluded.has(e));
 }
 
 // ---- the email -------------------------------------------------------------------------------------------

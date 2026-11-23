@@ -18,6 +18,7 @@
     "api/drive-video.js": { "maxDuration": 30 },
     "api/equipment-alert.js": { "maxDuration": 30 },
     "api/slot-pull.js": { "maxDuration": 20 },
+    "api/ideas.js": { "maxDuration": 20 },
     "api/weekly-roster-email.js": { "maxDuration": 60 },
     "api/daily-activity-email.js": { "maxDuration": 60 },
     "api/form-check.js": { "maxDuration": 30 },

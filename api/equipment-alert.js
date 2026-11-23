@@ -96,7 +96,10 @@ module.exports = async (req, res) => {
     const overrides = {};
     overrideRows.forEach((r) => { (overrides[r.program_id] = overrides[r.program_id] || {})[r.exercise_id] = r.data; });
 
-    // per coach: the programs they assigned that have flagged exercises
+    // per coach: the programs they assigned that have flagged exercises. A coach with no location set on their coach
+    // record (coachLocations; the Coaches roster) gets no emails: theirs comes to Kevin instead.
+    const located = new Set((await sbGet(key, "athletes", "select=data&data->>rosterGroup=eq.coaches")).map((r) => r.data || {})
+      .filter((a) => a.coachEmail && Array.isArray(a.coachLocations) && a.coachLocations.filter(Boolean).length).map((a) => String(a.coachEmail).toLowerCase()));
     const byCoach = new Map();
     let flaggedTotal = 0;
     programs.forEach((p) => {
@@ -107,7 +110,7 @@ module.exports = async (req, res) => {
       const assigners = blocks.filter((b) => String(b.programId) === String(p.id)).map((b) => b.assignedBy).filter(Boolean);
       // who to tell: whoever assigned it, else whoever wrote the program, else the dashboard's own sender
       const to = [...new Set((assigners.length ? assigners : [p.data.createdBy]).filter((e) => e && emailRe.test(e) && !EXCLUDED_RECIPIENTS.includes(e)))];
-      (to.length ? to : [SEND_AS_EMAIL]).forEach((coach) => {
+      [...new Set((to.length ? to : [SEND_AS_EMAIL]).map((e) => (located.has(e.toLowerCase()) ? e : SEND_AS_EMAIL)))].forEach((coach) => {
         if (!byCoach.has(coach)) byCoach.set(coach, []);
         byCoach.get(coach).push({ program: p.data.name || "Untitled program", flagged });
       });

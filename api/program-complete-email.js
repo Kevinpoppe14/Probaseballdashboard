@@ -5,7 +5,8 @@
 //
 // Vercel Cron (vercel.json) calls it every morning. A block that ended in the last three days and hasn't been sent is
 // sent (so a missed run catches up); each is sent once (app_meta "programCompleteSent" keeps the ones sent).
-// Sent from Kevin's Gmail (domain-wide delegation, as the other emails are) to the assigning coach.
+// Sent from Kevin's Gmail (domain-wide delegation, as the other emails are) to the assigning coach, or to Kevin
+// when that coach has no location set on their coach record (coaches with none get no emails).
 //
 // A signed-in coach can call it by hand: ?preview=1 returns the next email's HTML without sending it (or a list of
 // what would go out, with ?list=1); ?athlete=ID&block=ID previews one block, sent or not.
@@ -25,6 +26,17 @@ async function sbSelect(key, table, query) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, { headers: sbHeaders(key) });
   if (!res.ok) throw new Error(`Supabase select ${table} failed: HTTP ${res.status} ${await res.text()}`);
   return (await res.json()) || [];
+}
+// Coaches get emails only once a location is set on their coach record (coachLocations; the Coaches roster). The
+// coach records' emails (and login ids) with the locations set on each.
+async function coachLocations(key) {
+  const rows = await sbSelect(key, "athletes", "select=data&data->>rosterGroup=eq.coaches");
+  const map = new Map();
+  rows.forEach((r) => {
+    const a = r.data || {}, locs = Array.isArray(a.coachLocations) ? a.coachLocations.filter(Boolean) : [];
+    if (a.coachEmail) map.set(String(a.coachEmail).toLowerCase(), locs);
+  });
+  return map;
 }
 // every row of a query, a page at a time
 async function sbAll(key, table, query) {
@@ -194,15 +206,19 @@ module.exports = async (req, res) => {
       res.setHeader("Content-Type", "text/html; charset=utf-8"); res.status(200).send(buildHtml({ ...out, assignedBy: d.block.assignedBy })); return;
     }
     const results = [];
+    const locs = await coachLocations(key);
     for (const d of due) {
       try {
         const out = await resultFor(key, { ...d, programs, today });
         const pct = out.r.compliance == null ? "" : ` · ${Math.round(out.r.compliance * 100)}% compliance`;
-        const subject = `${out.athlete.name} finished ${out.program.name}${pct}`;
-        await sendEmail({ to: d.block.assignedBy, subject, html: buildHtml({ ...out, assignedBy: d.block.assignedBy }) });
-        await sbUpsert(key, "email_log", [{ sent_by: "system", to_email: d.block.assignedBy, subject, kind: "program_complete" }]).catch(() => null);
+        // a coach with no location set gets no emails: it comes to Kevin instead, saying whose it was
+        const coach = String(d.block.assignedBy).toLowerCase();
+        const to = (locs.get(coach) || []).length ? d.block.assignedBy : SEND_AS_EMAIL;
+        const subject = `${out.athlete.name} finished ${out.program.name}${pct}${to === d.block.assignedBy ? "" : ` (assigned by ${d.block.assignedBy}, who has no location set)`}`;
+        await sendEmail({ to, subject, html: buildHtml({ ...out, assignedBy: d.block.assignedBy }) });
+        await sbUpsert(key, "email_log", [{ sent_by: "system", to_email: to, subject, kind: "program_complete" }]).catch(() => null);
         sent.add(d.tag);
-        results.push({ athlete: out.athlete.name, program: out.program.name, to: d.block.assignedBy });
+        results.push({ athlete: out.athlete.name, program: out.program.name, to });
       } catch (e) {
         results.push({ athlete: d.athleteId, block: d.block.id, error: e.message || String(e) });
       }

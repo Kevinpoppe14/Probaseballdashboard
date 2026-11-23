@@ -1474,6 +1474,7 @@
         window.MoCapApp ? el("button", { class: "primary", onclick: () => window.MoCapApp.open({ overlay, close: closeVideo }) }, "Motion Capture") : null,
         window.BullpenApp ? el("button", { class: "primary", onclick: () => window.BullpenApp.open({ overlay, close: closeVideo }) }, "Bullpen Video") : null,
         window.MoCapQueue ? el("button", { class: "primary", onclick: () => window.MoCapQueue.open({ overlay, close: closeVideo }) }, "Video Queue") : null,
+        token ? el("button", { class: "primary", onclick: openIdeas }, "💡 Send an idea") : null,
         el("button", { class: "coach-cancel", onclick: closeVideo }, "Cancel"))));
     overlay.className = "overlay show";
     // DST Finance (the books app, its own site): for a DST staff login only (@dynamicsportstraining.com), once
@@ -3698,7 +3699,47 @@
     if (!byLift.size && !lifts.size && !byTest.size && !bc && !cmj && !bw) {
       main.append(el("div", { class: "empty" }, "Log your weights and your progress will show up here: your top weights each week, estimated maxes from sets to failure, and your testing results."));
     }
+    // the ideas box, last on the page (not in Coach Mode, which is the coach looking at an athlete's app)
+    if (!coachId && token) main.append(el("div", { class: "card idea-card" },
+      el("div", { class: "card-title" }, "💡 Got an idea?"),
+      el("div", { class: "card-sub" }, "Tell us what would make this app better for you."),
+      el("button", { class: "primary", onclick: () => openIdeas() }, "Send an idea")));
     return main;
+  }
+
+  // ---- the ideas box (api/ideas.js): an idea for the app or the dashboard, straight to Kevin ---------------
+  function openIdeas() {
+    const AREAS = staff ? ["Phone app", "Dashboard", "Program builder", "Coach Mode", "Other"] : ["Phone app", "Other"];
+    let area = "Phone app";
+    const text = el("textarea", { class: "check-note", rows: "5", maxlength: "2000", placeholder: "What would you add or change? Anything that's confusing, missing or could be easier." });
+    const chips = el("div", { class: "chips nut-chips" });
+    const drawChips = () => chips.replaceChildren(...AREAS.map((a) => el("button", { class: `chip${a === area ? " on" : ""}`, onclick: () => { area = a; drawChips(); } }, a)));
+    drawChips();
+    const msg = el("div", { class: "swap-note" });
+    const sendBtn = el("button", { class: "primary" }, "Send");
+    sendBtn.addEventListener("click", async () => {
+      const t = text.value.trim();
+      if (t.length < 3) { msg.textContent = "Write a few words about your idea first."; return; }
+      sendBtn.disabled = true; msg.textContent = "Sending…";
+      try {
+        const r = await fetch("/api/ideas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", token, text: t, area }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "Couldn't send that. Check your connection and try again.");
+        overlay.replaceChildren(el("div", { class: "sheet" },
+          el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+          el("h2", null, "Thanks! 💡"),
+          el("div", { class: "swap-note" }, "Your idea went straight to Kevin. Keep them coming."),
+          el("div", { class: "swap-actions" }, el("button", { class: "primary", onclick: closeVideo }, "Done"))));
+      } catch (e) { sendBtn.disabled = false; msg.textContent = e.message; }
+    });
+    overlay.replaceChildren(el("div", { class: "sheet" },
+      el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
+      el("h2", null, "💡 Send an idea"),
+      el("div", { class: "swap-note" }, staff ? "For the app, the dashboard, the program builder or Coach Mode. It goes straight to Kevin." : "Anything that would make this app better for you. It goes straight to Kevin."),
+      chips, text, msg,
+      el("div", { class: "swap-actions" }, sendBtn, el("button", { onclick: closeVideo }, "Cancel"))));
+    overlay.className = "overlay show";
+    setTimeout(() => text.focus(), 50);
   }
 
   // ---- the page ----------------------------------------------------------------------------------
