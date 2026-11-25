@@ -4700,3 +4700,16 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
   @page { margin: 0; }
   body { padding: 0.35in !important; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 }
+
+/* Team Reports: pick the players on the report and the people on the email */
+.tr-pick { padding: 12px 14px; }
+.tr-pick-group + .tr-pick-group { margin-top: 10px; }
+.tr-pick-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.tr-pick-head .btn-link { font-size: 12px; }
+.tr-pick-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow-y: auto; }
+.tr-pick-item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 16px; font-size: 13px; cursor: pointer; color: var(--text-dim); }
+.tr-pick-item.on { border-color: var(--dst-red); color: var(--text); }
+.tr-pick-item input { margin: 0; accent-color: var(--dst-red); }
+.tr-pick-name { font-weight: 600; }
+.tr-pick-sub { color: var(--text-dim); font-size: 11.5px; margin-left: 6px; }
+@media print { .tr-pick { display: none !important; } }

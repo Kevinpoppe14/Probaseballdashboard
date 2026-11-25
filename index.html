@@ -3985,7 +3985,8 @@ async function renderTeamReportToPdf() {
 // Generic "compose + send a PDF" panel — used both for a single athlete's tab and for a team
 // report going out to several contacts at once. `renderPdf` does the actual snapshot (different
 // for each caller); everything else (recipients, status, error handling) is shared.
-function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, logContext, onClose, extra, canSend = true }) {
+// `pickedTo` are recipients chosen in a picker (`before`, shown above the fields); they go out with whatever is typed in To.
+function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachmentNote, renderPdf, filename, logContext, onClose, extra, before, pickedTo, toLabel, canSend = true }) {
   const [to, setTo] = useState(defaultTo || "");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(defaultSubject);
@@ -4006,8 +4007,11 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
   const send = async () => {
     setError("");
     const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    const toList = to.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!toList.length || toList.some((addr) => !emailRe.test(addr))) { setError("Enter at least one valid recipient email."); return; }
+    const typed = to.split(",").map((s) => s.trim()).filter(Boolean);
+    if (typed.some((addr) => !emailRe.test(addr))) { setError("One of the To addresses doesn't look like a valid email."); return; }
+    const seen = new Set();
+    const toList = [...(pickedTo || []), ...typed].filter((addr) => { const k = addr.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+    if (!toList.length) { setError(pickedTo ? "Pick at least one person or enter an email." : "Enter at least one valid recipient email."); return; }
     const ccList = cc.split(",").map((s) => s.trim()).filter(Boolean);
     if (ccList.some((addr) => !emailRe.test(addr))) { setError("One of the CC addresses doesn't look like a valid email."); return; }
     if (!subject.trim() || !body.trim()) { setError("Subject and message can't be empty."); return; }
@@ -4027,7 +4031,7 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
       const json = await res.json().catch(() => ({}));
       if (res.status === 413) throw new Error("The PDF is too large to email. Send fewer parts at a time.");
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`);
-      setSent(true);
+      setSent(toList.join(", "));
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -4041,14 +4045,15 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
       <h2>{title}</h2>
       {sent ? (
         <React.Fragment>
-          <div className="success-banner">Sent to {to}{cc.trim() ? ` (cc: ${cc.trim()})` : ""}.</div>
+          <div className="success-banner">Sent to {sent}{cc.trim() ? ` (cc: ${cc.trim()})` : ""}.</div>
           <button className="btn btn-secondary" style={{ marginTop: 8 }} onClick={onClose}>Close</button>
         </React.Fragment>
       ) : (
         <React.Fragment>
+          {before}
           <div className="form-row">
             <div className="field" style={{ minWidth: 220 }}>
-              <label>To</label>
+              <label>{toLabel || "To"}</label>
               <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="athlete@example.com" disabled={sending} />
             </div>
             <div className="field" style={{ minWidth: 220 }}>
@@ -4080,22 +4085,58 @@ function EmailComposer({ title, defaultTo, defaultSubject, defaultBody, attachme
 // Sends the whole team report (one sheet per athlete) to one or more contacts at once, replacing
 // the old per-contact "open a Gmail draft and drag in a PDF the local dev server built" flow —
 // that relied on a local server this app no longer runs since moving to Supabase/Vercel.
-function EmailTeamReportButton({ team, defaultRecipients }) {
+// The people to send to are picked from the team's staff contacts and the players on the report (those with an
+// email on file); anyone else can be typed in. Nobody is ticked to start with.
+function EmailTeamReportButton({ team, contacts = [], players = [], playerCount = 0 }) {
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  React.useEffect(() => { setPicked(new Set()); }, [team]);
   const dateText = new Date().toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
   const provider = team === "Chicago Cubs" ? "Chicago Cubs Strength & Conditioning" : "Dynamic Sports Training";
+  const staff = contacts.filter((c) => c.e && c.e.length).map((c, i) => ({ key: `c${i}:${c.n}`, name: c.n, sub: c.t, emails: c.e }));
+  const playersWithEmail = players.filter((a) => a.email).map((a) => ({ key: `a:${a.id}`, name: a.name, sub: "Player", emails: [a.email] }));
+  const people = [...staff, ...playersWithEmail];
+  const pickedTo = [...new Set(people.filter((p) => picked.has(p.key)).flatMap((p) => p.emails))];
+  const toggle = (k) => setPicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const group = (label, list) => list.length > 0 && (
+    <div className="tr-pick-group">
+      <div className="tr-pick-head">
+        <b>{label}</b>
+        <button type="button" className="btn-link" onClick={() => setPicked((s) => new Set([...s, ...list.map((p) => p.key)]))}>All</button>
+        <button type="button" className="btn-link" onClick={() => setPicked((s) => { const n = new Set(s); list.forEach((p) => n.delete(p.key)); return n; })}>None</button>
+      </div>
+      <div className="tr-pick-list">
+        {list.map((p) => (
+          <label key={p.key} className={`tr-pick-item${picked.has(p.key) ? " on" : ""}`} title={p.emails.join(", ")}>
+            <input type="checkbox" checked={picked.has(p.key)} onChange={() => toggle(p.key)} />
+            <span><span className="tr-pick-name">{p.name}</span>{p.sub && <span className="tr-pick-sub">{p.sub}</span>}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+  const picker = people.length > 0 && (
+    <div className="tr-pick" style={{ marginBottom: 10 }}>
+      {group("Team staff", staff)}
+      {group("Players on the report", playersWithEmail)}
+      <div className="assess-row-note">{pickedTo.length ? `${pickedTo.length} address${pickedTo.length === 1 ? "" : "es"} picked` : "Nobody picked yet"} · add anyone else below.</div>
+    </div>
+  );
   return (
     <React.Fragment>
-      <button type="button" className="btn btn-secondary no-print" onClick={() => setOpen(true)} title={`Email the ${team} report to its contacts`}>
+      <button type="button" className="btn btn-secondary no-print" onClick={() => setOpen(true)} disabled={!playerCount} title={`Email the ${team} report`}>
         Email Team Report
       </button>
       {open && (
         <EmailComposer
           title={`Email ${team} Report`}
-          defaultTo={defaultRecipients || ""}
+          defaultTo=""
+          before={picker}
+          pickedTo={pickedTo}
+          toLabel={people.length ? "Other recipients" : "To"}
           defaultSubject={`${team} player reports - ${provider}`}
           defaultBody={`Hi,\n\nAttached is the latest ${team} player report from ${provider}, covering each player's periodization, performance metrics and coaching notes.\n\nLet me know if you have any questions.\n\nThank you,`}
-          attachmentNote="A PDF with one page per player will be attached, sent from your own email address."
+          attachmentNote={`A PDF with one page for each of the ${playerCount} player${playerCount === 1 ? "" : "s"} ticked on the report will be attached, sent from your own email address.`}
           renderPdf={renderTeamReportToPdf}
           filename={`${team.replace(/[^a-z0-9]+/gi, "_")}-team-report-${dateText}.pdf`}
           logContext={{ kind: "team_report", athleteName: team }}
@@ -9485,6 +9526,11 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
   }, [selectedTeam, dataVersion]);
 
   const activeCount = rows.filter((r) => (r.athlete.status || "active").toLowerCase() === "active").length;
+  // players left off the report: their sheets aren't drawn, so the printout and the emailed PDF skip them
+  const [leftOff, setLeftOff] = useState(() => new Set());
+  React.useEffect(() => { setLeftOff(new Set()); }, [selectedTeam]);
+  const shownRows = rows.filter((r) => !leftOff.has(String(r.athlete.id)));
+  const toggleOnReport = (id) => setLeftOff((s) => { const n = new Set(s); const k = String(id); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   // ---- printing: one athlete sheet per portrait Letter page ----
   // Each sheet keeps its on-screen width, is measured, and is scaled down (never up) so the whole
@@ -9594,16 +9640,14 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
               </div>
             </div>
             <div className="no-print" style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-              <button className="btn btn-secondary" onClick={printTeamReport} title="Prints one page per athlete">
+              <button className="btn btn-secondary" onClick={printTeamReport} disabled={!shownRows.length} title="Prints one page per athlete ticked on the report">
                 Print / Save PDF
               </button>
               <EmailTeamReportButton
                 team={selectedTeam}
-                defaultRecipients={
-                  window.MLB_TEAM_CONTACTS && window.MLB_TEAM_CONTACTS[selectedTeam]
-                    ? window.MLB_TEAM_CONTACTS[selectedTeam].contacts.flatMap((c) => c.e).join(", ")
-                    : ""
-                }
+                contacts={(window.MLB_TEAM_CONTACTS && window.MLB_TEAM_CONTACTS[selectedTeam] && window.MLB_TEAM_CONTACTS[selectedTeam].contacts) || []}
+                players={shownRows.map((r) => r.athlete)}
+                playerCount={shownRows.length}
               />
             </div>
           </div>
@@ -9616,9 +9660,32 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
           {selectedLeague === "MLB" && <TeamContactsPanel team={selectedTeam} />}
 
           <h2 className="no-print" style={{ marginBottom: 14 }}>Players <small style={{ color: "var(--text-dim)", fontSize: 12 }}>One sheet per athlete &middot; click a name to open their profile</small></h2>
+          {rows.length > 1 && (
+            <div className="panel no-print tr-pick">
+              <div className="tr-pick-head">
+                <b>On the report</b>
+                <span className="tr-pick-sub">{shownRows.length} of {rows.length} players · unticked players are left out of the printout and the emailed PDF</span>
+                <button type="button" className="btn-link" onClick={() => setLeftOff(new Set())}>All</button>
+                <button type="button" className="btn-link" onClick={() => setLeftOff(new Set(rows.map((r) => String(r.athlete.id))))}>None</button>
+              </div>
+              <div className="tr-pick-list">
+                {rows.map(({ athlete }) => {
+                  const on = !leftOff.has(String(athlete.id));
+                  return (
+                    <label key={athlete.id} className={`tr-pick-item${on ? " on" : ""}`}>
+                      <input type="checkbox" checked={on} onChange={() => toggleOnReport(athlete.id)} />
+                      <span className="tr-pick-name">{lastFirstName(athlete.name)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <RangeSelector range={perfRange} onChange={setPerfRange} />
-          {rows.length ? (
-            rows.map(({ athlete }) => {
+          {rows.length && !shownRows.length ? (
+            <div className="panel"><div className="empty-state">No players ticked — tick at least one above to build the report.</div></div>
+          ) : rows.length ? (
+            shownRows.map(({ athlete }) => {
               const plan = window.AthleteStore.getPeriodization(athlete.id);
               const hasPlan = !!plan && plan.blocks.length > 0;
               const rangeText = rangeLabel(perfRange);
