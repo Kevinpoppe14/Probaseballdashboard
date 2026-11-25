@@ -71,6 +71,7 @@
 <script src="tour.js"></script>
 <script src="program_rx.js"></script>
 <script src="program_results.js"></script>
+<script src="reports_engine.js"></script>
 <script src="whats_new.js"></script>
 <script src="program_pdf.js"></script>
 <script type="text/babel" data-presets="react" src="app_ask.js"></script>
@@ -4427,6 +4428,180 @@ function IdeasPage() {
   );
 }
 
+// Reports: the standard one-page reports (reports_engine.js), a group report for a location or roster and an
+// individual report for one athlete, previewed here, printed or saved as a PDF, and emailed on a schedule (or once)
+// by api/reports.js. The preview reads the same tables the emailed link does, through the coach's own sign-in.
+const reportQuery = async (table, cols, filters) => {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    let q = window.supabaseClient.from(table).select(cols).range(from, from + 999);
+    (filters || []).forEach(([c, op, v]) => { q = op === "in" ? q.in(c, v) : op === "gte" ? q.gte(c, v) : q.eq(c, v); });
+    const { data, error } = await q;
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+};
+async function reportsApi(body) {
+  const { data } = await window.supabaseClient.auth.getSession();
+  const token = data && data.session && data.session.access_token;
+  const r = await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || ""}` }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "Couldn't reach the reports service. Check your connection and try again.");
+  return j;
+}
+const REPORT_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function ReportsPage() {
+  const E = window.ReportsEngine;
+  const people = useMemo(() => window.AthleteStore.allAthletes().filter((a) => a.rosterGroup !== "coaches" && !/^(alumni|inactive)$/i.test(String(a.status || "active"))).sort((a, b) => (a.name || "").localeCompare(b.name || "")), []);
+  const coachEmails = useMemo(() => window.AthleteStore.allAthletes().filter((a) => a.rosterGroup === "coaches" && a.coachEmail && !/test@|pdf-renderer/.test(a.coachEmail)).map((a) => ({ name: a.name, email: String(a.coachEmail).toLowerCase() })).sort((a, b) => a.name.localeCompare(b.name)), []);
+  const [kind, setKind] = useState("group");
+  const [where, setWhere] = useState("loc:DST North"); // "loc:<location>" | "roster:<group>"
+  const [athleteId, setAthleteId] = useState("");
+  const [athleteFilter, setAthleteFilter] = useState("");
+  const [weeks, setWeeks] = useState(8);
+  const [html, setHtml] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const frame = React.useRef(null);
+  // scheduling
+  const [schedules, setSchedules] = useState(null);
+  const [log, setLog] = useState([]);
+  const [me, setMe] = useState("");
+  const [editing, setEditing] = useState(null); // the schedule being set up (a draft), or null
+  const [msg, setMsg] = useState("");
+
+  const spec = () => {
+    if (kind === "individual") return { kind, weeks, target: { type: "athlete", id: athleteId } };
+    const [t, v] = where.split(/:(.+)/);
+    return { kind, weeks, target: t === "roster" ? { type: "roster", group: v } : { type: "location", location: v } };
+  };
+  const targetText = (s) => (s.target.type === "athlete" ? ((people.find((a) => String(a.id) === String(s.target.id)) || {}).name || "An athlete") : s.target.type === "roster" ? E.ROSTERS[s.target.group] || s.target.group : s.target.type === "location" ? s.target.location : s.target.title || "Selected athletes");
+  const preview = async () => {
+    if (kind === "individual" && !athleteId) { setError("Pick an athlete."); return; }
+    setBusy(true); setError("");
+    try { const built = await E.build(reportQuery, spec(), {}); setHtml(E.render(built, { printButton: false, generated: `Generated ${new Date().toLocaleDateString()} · Dynamic Sports Training` })); }
+    catch (e) { setError((e && e.message) || "Couldn't build the report."); }
+    setBusy(false);
+  };
+  const loadSchedules = () => reportsApi({ action: "list" }).then((j) => { setSchedules(j.schedules || []); setLog(j.log || []); setMe(j.me || ""); }, (e) => setError(e.message));
+  React.useEffect(() => { loadSchedules(); }, []);
+  const newSchedule = () => setEditing({ name: "", ...spec(), freq: "weekly", dow: 1, dom: 1, recipients: { me: true, athletes: false, coaches: [], emails: [] }, emailsText: "", note: "" });
+  const saveSchedule = async () => {
+    setMsg("");
+    try {
+      const s = { ...editing, recipients: { ...editing.recipients, emails: String(editing.emailsText || "").split(/[\s,;]+/).filter(Boolean) } };
+      delete s.emailsText;
+      await reportsApi({ action: "save", schedule: s });
+      setEditing(null); setMsg("Saved. It will go out on schedule (about 7am Central)."); loadSchedules();
+    } catch (e) { setMsg(e.message); }
+  };
+  const act = async (body, done) => { setMsg(""); try { const j = await reportsApi(body); setMsg(done(j)); loadSchedules(); } catch (e) { setMsg(e.message); } };
+  const outside = (list) => list.filter((e) => !/@dynamicsportstraining\.com$/i.test(e));
+  const filtered = people.filter((a) => !athleteFilter || (a.name || "").toLowerCase().includes(athleteFilter.toLowerCase()));
+
+  return (
+    <div className="panel reports-page">
+      <h2>Reports <small>One-page group and athlete reports: performance, body weight, strength, testing and velocity</small></h2>
+      <div className="rp-controls">
+        <div className="rp-seg">
+          <button className={kind === "group" ? "on" : ""} onClick={() => setKind("group")}>Group report</button>
+          <button className={kind === "individual" ? "on" : ""} onClick={() => setKind("individual")}>Athlete report</button>
+        </div>
+        {kind === "group" ? (
+          <select value={where} onChange={(e) => setWhere(e.target.value)} aria-label="Location or roster">
+            {E.LOCATIONS.map((l) => <option key={l} value={`loc:${l}`}>{l}</option>)}
+            {Object.entries(E.ROSTERS).map(([k, v]) => <option key={k} value={`roster:${k}`}>{v}</option>)}
+          </select>
+        ) : (
+          <span className="rp-athlete">
+            <input placeholder="Find an athlete" value={athleteFilter} onChange={(e) => setAthleteFilter(e.target.value)} />
+            <select value={athleteId} onChange={(e) => setAthleteId(e.target.value)} aria-label="Athlete">
+              <option value="">Pick an athlete…</option>
+              {filtered.map((a) => <option key={a.id} value={a.id}>{a.name}{a.dstLocation ? ` · ${a.dstLocation}` : a.rosterGroup === "cubs-40man" ? " · Cubs" : ""}</option>)}
+            </select>
+          </span>
+        )}
+        <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))} aria-label="Weeks">
+          {[4, 8, 12, 26, 52].map((w) => <option key={w} value={w}>Last {w} weeks</option>)}
+        </select>
+        <button className="btn btn-primary" disabled={busy} onClick={preview}>{busy ? "Building…" : "Show report"}</button>
+        {html && <button className="btn btn-secondary" onClick={() => frame.current && frame.current.contentWindow.print()}>Print / Save PDF</button>}
+        <button className="btn btn-secondary" onClick={newSchedule}>Email this report…</button>
+      </div>
+      {error && <p className="ideas-error">{error}</p>}
+      {editing && (
+        <div className="rp-sched">
+          <h3>Email: {targetText(editing)} · {editing.kind === "individual" ? "athlete report" : "group report"} · last {editing.weeks} weeks</h3>
+          <div className="rp-row">
+            <label>Name <input value={editing.name} placeholder="e.g. North weekly" onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></label>
+            <label>How often <select value={editing.freq} onChange={(e) => setEditing({ ...editing, freq: e.target.value })}><option value="daily">Every day</option><option value="weekly">Every week</option><option value="biweekly">Every other week</option><option value="monthly">Every month</option></select></label>
+            {(editing.freq === "weekly" || editing.freq === "biweekly") && <label>On <select value={editing.dow} onChange={(e) => setEditing({ ...editing, dow: Number(e.target.value) })}>{REPORT_DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}</select></label>}
+            {editing.freq === "monthly" && <label>Day <select value={editing.dom} onChange={(e) => setEditing({ ...editing, dom: Number(e.target.value) })}>{Array.from({ length: 28 }, (_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}</select></label>}
+          </div>
+          <div className="rp-row">
+            <label className="rp-check"><input type="checkbox" checked={editing.recipients.me} onChange={(e) => setEditing({ ...editing, recipients: { ...editing.recipients, me: e.target.checked } })} /> Me</label>
+            <label className="rp-check"><input type="checkbox" checked={editing.recipients.athletes} onChange={(e) => setEditing({ ...editing, recipients: { ...editing.recipients, athletes: e.target.checked } })} /> {editing.kind === "individual" ? "The athlete (the email on their profile)" : "Each athlete gets their own page (the email on their profile)"}</label>
+          </div>
+          <div className="rp-row">
+            <label style={{ flex: 1 }}>Coaches
+              <select multiple value={editing.recipients.coaches} onChange={(e) => setEditing({ ...editing, recipients: { ...editing.recipients, coaches: [...e.target.selectedOptions].map((o) => o.value) } })} style={{ height: 92 }}>
+                {coachEmails.map((c) => <option key={c.email} value={c.email}>{c.name}</option>)}
+              </select>
+            </label>
+            <label style={{ flex: 1 }}>Other emails (agents, team staff, parents)
+              <textarea rows={4} value={editing.emailsText} placeholder="one or more, separated by commas" onChange={(e) => setEditing({ ...editing, emailsText: e.target.value })} />
+            </label>
+          </div>
+          <label>Note at the top of the email (optional) <input value={editing.note} onChange={(e) => setEditing({ ...editing, note: e.target.value })} /></label>
+          {outside(String(editing.emailsText || "").split(/[\s,;]+/).filter(Boolean)).length > 0 && <p className="muted rp-warn">Addresses outside DST get only this report, see your name on it and can stop it. Kevin gets a weekly list of reports sent outside DST.</p>}
+          <div className="rp-row">
+            <button className="btn btn-primary" onClick={saveSchedule}>Save schedule</button>
+            <button className="btn btn-secondary" onClick={() => act({ action: "sendOnce", spec: { kind: editing.kind, target: editing.target, weeks: editing.weeks }, recipients: { ...editing.recipients, emails: String(editing.emailsText || "").split(/[\s,;]+/).filter(Boolean) }, note: editing.note }, (j) => `Sent ${j.sent} email${j.sent === 1 ? "" : "s"}.`)}>Send once now</button>
+            <button className="btn-link" onClick={() => setEditing(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {msg && <p className="rp-msg">{msg}</p>}
+      <div className="rp-preview">
+        {html ? <iframe ref={frame} title="Report preview" srcDoc={html} /> : <p className="muted">Pick a location, roster or athlete and click Show report. It prints on one page.</p>}
+      </div>
+      <h3 className="rp-h3">Scheduled reports</h3>
+      {schedules === null ? <p className="muted">Loading…</p> : !schedules.length ? <p className="muted">None yet. Show a report and click Email this report to set one up.</p> : (
+        <table className="rp-table">
+          <thead><tr><th>Name</th><th>Report</th><th>When</th><th>To</th><th>Last sent</th><th>Set up by</th><th /></tr></thead>
+          <tbody>{schedules.map((s) => {
+            const r = s.recipients || {};
+            const to = [r.me ? "the coach" : "", r.athletes ? "athletes" : "", ...(r.coaches || []), ...(r.emails || [])].filter(Boolean);
+            const mine = s.createdBy === me || me === "kevin@dynamicsportstraining.com";
+            return (
+              <tr key={s.id} className={s.paused ? "rp-paused" : ""}>
+                <td><b>{s.name}</b>{s.paused ? " (paused)" : ""}</td>
+                <td>{targetText(s)} · {s.kind === "individual" ? "athlete" : "group"} · {s.weeks} wks</td>
+                <td>{s.when}</td>
+                <td title={to.join(", ")}>{to.slice(0, 3).join(", ")}{to.length > 3 ? ` +${to.length - 3}` : ""}{(s.unsubscribed || []).length ? <div className="muted">{s.unsubscribed.length} stopped it</div> : null}</td>
+                <td>{s.lastSent ? new Date(s.lastSent).toLocaleDateString() : "–"}</td>
+                <td>{s.createdBy}</td>
+                <td className="rp-acts">
+                  <button className="btn-link" onClick={() => act({ action: "send", id: s.id }, (j) => `Sent ${j.sent} email${j.sent === 1 ? "" : "s"}.`)}>Send now</button>
+                  {mine && <button className="btn-link" onClick={() => act({ action: "save", schedule: { ...s, paused: !s.paused } }, () => (s.paused ? "Resumed." : "Paused."))}>{s.paused ? "Resume" : "Pause"}</button>}
+                  {mine && <button className="btn-link" onClick={() => { if (window.confirm(`Delete "${s.name}"?`)) act({ action: "delete", id: s.id }, () => "Deleted."); }}>Delete</button>}
+                </td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      )}
+      {log.length > 0 && (
+        <details className="rp-log"><summary>Recently sent ({log.length})</summary>
+          <table className="rp-table"><tbody>{log.slice(0, 60).map((x, i) => <tr key={i}><td>{new Date(x.at).toLocaleString()}</td><td>{x.name}</td><td>{x.report}</td><td>{x.to}{x.outside ? " (outside DST)" : ""}</td><td>{x.by}</td></tr>)}</tbody></table>
+        </details>
+      )}
+    </div>
+  );
+}
+
 // the newest addition's date, for the top bar's "What's new" dot
 const latestWhatsNew = () => ((window.WhatsNew && window.WhatsNew.WHATS_NEW) || []).reduce((m, e) => (e.date > m ? e.date : m), "");
 
@@ -4459,7 +4634,7 @@ function dstLogoForTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "assets/dst-logo.png" : "assets/dst-logo-light.png";
 }
 
-function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onGoIdeas, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
+function TopBar({ view, onHome, onGoTeamReport, onGoReports, onGoLeaderboard, onGoPlayers, onGoNews, onGoFacilities, showFacilities, onGoPrograms, onGoHelp, onGoWhatsNew, whatsNewUnseen, onGoIdeas, onTour, userEmail, onLogout, cubsTheme, theme, onToggleTheme }) {
   return (
     <div className={`topbar${cubsTheme ? " cubs-theme" : ""}`}>
       <div className="brand" style={{ cursor: "pointer" }} onClick={onHome}>
@@ -4494,6 +4669,11 @@ function TopBar({ view, onHome, onGoTeamReport, onGoLeaderboard, onGoPlayers, on
         <button className={`nav-tab ${view === "teamreport" ? "active" : ""}`} onClick={onGoTeamReport}>
           Team Reports
         </button>
+        {onGoReports && (
+          <button className={`nav-tab ${view === "reports" ? "active" : ""}`} onClick={onGoReports}>
+            Reports
+          </button>
+        )}
         {onGoLeaderboard && (
           <button className={`nav-tab ${view === "leaderboard" ? "active" : ""}`} onClick={onGoLeaderboard}>
             Leaderboard
@@ -10712,6 +10892,7 @@ function App({ userEmail, onLogout }) {
         onGoHelp={goHelp}
         onGoWhatsNew={goWhatsNew}
         onGoIdeas={() => setView("ideas")}
+        onGoReports={() => setView("reports")}
         whatsNewUnseen={whatsNewUnseen}
         onTour={playTour}
         userEmail={userEmail}
@@ -10780,6 +10961,7 @@ function App({ userEmail, onLogout }) {
         {view === "help" && <HelpPage />}
         {view === "whatsnew" && <WhatsNewPage />}
         {view === "ideas" && <IdeasPage />}
+        {view === "reports" && <ReportsPage />}
         {view === "import" && <ImportPage onImported={bumpVersion} onSelect={selectAthlete} />}
       </div>
       <div className="footer-note">

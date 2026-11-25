@@ -10,7 +10,8 @@
     { "path": "/api/form-check", "schedule": "0 10 * * *" },
     { "path": "/api/weekly-features-email", "schedule": "0 14 * * 1" },
     { "path": "/api/weekly-features-email", "schedule": "0 15 * * 1" },
-    { "path": "/api/program-complete-email", "schedule": "0 14 * * *" }
+    { "path": "/api/program-complete-email", "schedule": "0 14 * * *" },
+    { "path": "/api/reports", "schedule": "0 13 * * *" }
   ],
   "functions": {
     "api/sync-hawkin.js": { "maxDuration": 60 },
@@ -19,6 +20,7 @@
     "api/equipment-alert.js": { "maxDuration": 30 },
     "api/slot-pull.js": { "maxDuration": 20 },
     "api/ideas.js": { "maxDuration": 20 },
+    "api/reports.js": { "maxDuration": 60 },
     "api/weekly-roster-email.js": { "maxDuration": 60 },
     "api/daily-activity-email.js": { "maxDuration": 60 },
     "api/form-check.js": { "maxDuration": 30 },
