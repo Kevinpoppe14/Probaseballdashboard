@@ -89,8 +89,9 @@
     { key: "jumpMomentum", label: "Momentum", unit: "kg·m/s", get: (t) => num(t.jumpMomentum), dp: 0 },
   ];
   const FASTBALL = /four|4-?seam|fastball|sinker|two-?seam|2-?seam/i;
-  // not a lift an estimated 1RM means anything for: jumps and drops, throws and swings, carries, holds and stretches
-  const NOT_STRENGTH = /drop|jump|hop|bound|throw|toss|slam|swing|carr(y|ies)|walk|march|sprint|stretch|plank|hold|\biso\b|isometric|extreme|mobility/i;
+  // not a lift an estimated 1RM means anything for: jumps and drops, throws and swings, carries, holds and stretches,
+  // bodyweight work (often logged at bodyweight) and force-plate tests
+  const NOT_STRENGTH = /drop|jump|hop|bound|throw|toss|slam|swing|carr(y|ies)|walk|march|sprint|stretch|plank|hold|\biso\b|isometric|extreme|mobility|suspension|trx|inverted|push-?up|chin-?up|pull-?up|\bdips?\b|force plate|test/i;
   const median = (xs) => { const v = xs.filter((x) => x != null && isFinite(x)).sort((a, b) => a - b); if (!v.length) return null; const m = Math.floor(v.length / 2); return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
 
   function individual(b, { weeks = 8, today }) {
