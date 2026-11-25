@@ -89,6 +89,9 @@
     { key: "jumpMomentum", label: "Momentum", unit: "kg·m/s", get: (t) => num(t.jumpMomentum), dp: 0 },
   ];
   const FASTBALL = /four|4-?seam|fastball|sinker|two-?seam|2-?seam/i;
+  // not a lift an estimated 1RM means anything for: jumps and drops, throws and swings, carries, holds and stretches
+  const NOT_STRENGTH = /drop|jump|hop|bound|throw|toss|slam|swing|carr(y|ies)|walk|march|sprint|stretch|plank|hold|\biso\b|isometric|extreme|mobility/i;
+  const median = (xs) => { const v = xs.filter((x) => x != null && isFinite(x)).sort((a, b) => a - b); if (!v.length) return null; const m = Math.floor(v.length / 2); return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
 
   function individual(b, { weeks = 8, today }) {
     const a = b.athlete;
@@ -153,11 +156,21 @@
       const L2 = (lifts[key] = lifts[key] || { name, weeks: {} });
       if (!L2.weeks[wk] || est > L2.weeks[wk]) L2.weeks[wk] = est;
     });
+    // A lift's change needs three weeks or more: the best of its last two weeks against the best of its first two (as
+    // program_results.js does for a block). Over ±40% reads as a change in how it's loaded (a new rep scheme, one
+    // hand to two), not strength, so it's shown but left out of the averages.
     const strength = Object.values(lifts).map((l) => {
       const series = Object.keys(l.weeks).sort().map((date) => ({ date, v: Math.round(l.weeks[date]) }));
-      const f = series[0], z = series[series.length - 1];
-      return { name: l.name, series, first: f ? f.v : null, latest: z ? z.v : null, best: Math.max(...series.map((s) => s.v)), change: series.length > 1 ? z.v - f.v : null, pct: series.length > 1 && f.v ? (z.v - f.v) / f.v : null };
-    }).filter((l) => l.series.length >= 1).sort((x, y) => (y.series.length - x.series.length) || (y.best - x.best)).slice(0, 8);
+      const z = series[series.length - 1];
+      let first = null, late = null, pct = null, change = null, unclear = false;
+      if (series.length >= 3) {
+        first = Math.max(series[0].v, series[1].v); late = Math.max(series[series.length - 1].v, series[series.length - 2].v);
+        change = late - first; pct = first ? change / first : null;
+        if (pct != null && Math.abs(pct) > 0.4) { unclear = true; }
+      }
+      return { name: l.name, series, first: first != null ? first : series[0].v, latest: late != null ? late : z.v, best: Math.max(...series.map((s) => s.v)), change, pct: unclear ? null : pct, unclear };
+    }).filter((l) => l.series.length >= 1 && !NOT_STRENGTH.test(l.name)).sort((x, y) => (y.series.length - x.series.length) || (y.best - x.best)).slice(0, 8);
+    const strengthChange = median(strength.map((l) => l.pct));
     // testing: each test's latest result in the window, against the one before it
     const byTest = {};
     b.kpis.forEach((k) => { const v = num(k.best != null ? k.best : k.value); if (v == null) return; (byTest[k.kpiName] = byTest[k.kpiName] || []).push({ date: k.date, v, unit: k.unit || "", better: k.better || "higher" }); });
@@ -194,8 +207,9 @@
     const jh = cmj[0];
     if (jh.vsPriorPct != null && jh.vsPriorPct <= -0.05) flags.push(`Jump height down ${Math.abs(Math.round(jh.vsPriorPct * 100))}% from the test before`);
     if (bodyweight.change != null && bodyweight.latest && Math.abs(bodyweight.change / bodyweight.latest) >= 0.03) flags.push(`Body weight ${bodyweight.change > 0 ? "up" : "down"} ${Math.abs(bodyweight.change)} lb in ${weeks} weeks`);
-    if (program && program.compliance != null && program.scheduled >= 3 && program.compliance < 0.7) flags.push(`Compliance ${Math.round(program.compliance * 100)}%`);
-    return { athlete: a, weeks, from, to: today, cmj, cmjTests: winDays.length, bodyweight, strength, testing, velocity, program, flags };
+    // compliance, once the program is into its second week (a first week just started reads as 0%)
+    if (program && program.compliance != null && program.week >= 2 && program.scheduled >= 3 && program.compliance < 0.7) flags.push(`Compliance ${Math.round(program.compliance * 100)}%`);
+    return { athlete: a, weeks, from, to: today, cmj, cmjTests: winDays.length, bodyweight, strength, strengthChange, testing, velocity, program, flags };
   }
 
   function group(bundles, { weeks = 8, today, title }) {
@@ -215,7 +229,7 @@
         jumpHeight: r2(mean(m("jumpHeight").map((c) => c.latest))), jumpHeightChange: r2(mean(m("jumpHeight").map((c) => c.sinceStart))),
         mRSI: r2(mean(m("mRSI").map((c) => c.latest))), relativePeakPower: r1(mean(m("relativePeakPower").map((c) => c.latest))),
         bodyweightChange: r1(mean(people.map((p) => p.bodyweight.change))),
-        strength: mean(people.map((p) => mean(p.strength.filter((l) => l.pct != null).map((l) => l.pct)))),
+        strength: median(people.map((p) => p.strengthChange)),
         compliance: mean(people.map((p) => (p.program ? p.program.compliance : null))),
         tested: people.filter((p) => p.cmjTests > 0).length,
       },
@@ -282,7 +296,7 @@ td{padding:3px 4px;border-bottom:1px solid #f1f1f1;vertical-align:middle}td.n{te
     const kp = R.cmj.map((c) => `<div class="kpi"><div class="l">${esc(c.label)}</div><div class="v">${esc(show(c.latest, c.dp))}<span class="u"> ${esc(c.unit)}</span></div>
 <div class="d" style="color:${tone(c.vsPrior)}">${c.vsPrior != null ? `${esc(signed(c.vsPrior, c.dp))} vs last` : "&nbsp;"}</div><div class="d" style="color:${tone(c.sinceStart)}">${c.sinceStart != null ? `${esc(signed(c.sinceStart, c.dp))} in ${R.weeks} wks` : "&nbsp;"}</div></div>`).join("");
     const bw = R.bodyweight;
-    const strength = R.strength.length ? `<table><tr><th>Lift</th><th class="n">First</th><th class="n">Latest</th><th class="n">Change</th><th>Trend (est. 1RM, lb)</th></tr>${R.strength.slice(0, 7).map((l) => `<tr><td>${esc(l.name)}</td><td class="n">${esc(show(l.first, 0))}</td><td class="n"><b>${esc(show(l.latest, 0))}</b></td><td class="n" style="color:${tone(l.change)}">${l.pct != null ? esc(`${signed(l.change, 0)} (${signed(l.pct * 100, 1)}%)`) : "–"}</td><td>${spark(l.series, { w: 150, h: 26, from: R.from, to: R.to, dp: 0 })}</td></tr>`).join("")}</table>`
+    const strength = R.strength.length ? `<table><tr><th>Lift</th><th class="n">First</th><th class="n">Latest</th><th class="n">Change</th><th>Trend (est. 1RM, lb)</th></tr>${R.strength.slice(0, 7).map((l) => `<tr><td>${esc(l.name)}</td><td class="n">${esc(show(l.first, 0))}</td><td class="n"><b>${esc(show(l.latest, 0))}</b></td><td class="n" style="color:${l.unclear ? DIM : tone(l.change)}">${l.pct != null ? esc(`${signed(l.change, 0)} (${signed(l.pct * 100, 1)}%)`) : l.unclear ? "load changed" : "–"}</td><td>${spark(l.series, { w: 150, h: 26, from: R.from, to: R.to, dp: 0 })}</td></tr>`).join("")}</table>`
       : `<div class="muted">No weights logged in the app in this window.</div>`;
     const tests = R.testing.length ? `<table><tr><th>Test</th><th class="n">Latest</th><th class="n">Date</th><th class="n">Change</th></tr>${R.testing.slice(0, 12).map((t) => `<tr><td>${esc(t.name)}</td><td class="n"><b>${esc(show(t.latest, 2))}</b> <span class="u">${esc(t.unit)}</span></td><td class="n">${esc(shortDate(t.date))}</td><td class="n" style="color:${tone(t.change, t.better)}">${t.change != null ? esc(signed(t.change, 2)) : "–"}</td></tr>`).join("")}</table>`
       : `<div class="muted">No testing results in this window.</div>`;
@@ -316,7 +330,7 @@ ${spark(bw.series, { w: 330, h: 56, from: R.from, to: R.to, color: INK })}</div>
     const row = (p) => {
       const c = (k) => p.cmj.find((x) => x.key === k);
       const jh = c("jumpHeight"), rs = c("mRSI"), rp = c("relativePeakPower");
-      const st = mean(p.strength.filter((l) => l.pct != null).map((l) => l.pct));
+      const st = p.strengthChange;
       return `<tr><td><b>${esc(p.athlete.name)}</b><div class="muted" style="font-size:9.5px">${esc([p.athlete.position, p.athlete.team].filter(Boolean).join(" · "))}</div></td>
 <td class="n">${esc(show(jh.latest, 1))}</td><td class="n" style="color:${tone(jh.vsPrior)}">${jh.vsPrior != null ? esc(signed(jh.vsPrior, 1)) : ""}</td>
 <td class="n">${esc(show(rs.latest, 2))}</td><td class="n">${esc(show(rp.latest, 1))}</td><td class="n">${jh.latestDate ? esc(shortDate(jh.latestDate)) : "–"}</td>
