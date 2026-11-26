@@ -178,6 +178,16 @@
   .swap-actions button { flex: 1 1 auto; min-height: 44px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); font-size: 15px; }
   .swap-actions .primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
   .coach-menu .swap-actions { flex-direction: column; }
+  /* Coach tools, in groups: Open, Programs, Video; two across */
+  .cm-group { margin-top: 14px; }
+  .cm-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 2px 6px; }
+  .cm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .cm-grid button, .cm-foot button { min-height: 46px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 14.5px; font-weight: 600; line-height: 1.2; }
+  .cm-grid button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cm-grid button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .cm-foot { display: flex; gap: 8px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .cm-foot button { flex: 1 1 0; font-weight: 500; }
+  .cm-foot .coach-cancel { background: transparent; color: var(--dim); }
   .session-end { margin: 6px 0 20px; }
   .session-log { width: 100%; min-height: 52px; border-radius: 12px; border: none; background: var(--accent); font-size: 17px; font-weight: 700; }
   .session-done { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1px solid #2e9e4f; color: var(--good); font-weight: 700; }

@@ -1463,28 +1463,39 @@
   const seriesDrop = () => (coachId && window.QuickAssign ? el("button", { class: "program-change", title: "Put a saved series (Core Stability 1…) on this athlete's plan for a date", onclick: () => window.QuickAssign.open({ overlay, close: closeVideo, status: showStatus, mode: "series", person: { id: String(coachId), name: (data && data.athlete && data.athlete.name) || "this athlete" }, onAssignedSelf: () => setTimeout(() => window.location.reload(), 600) }) }, "+ Series") : null);
   function openCoachMenu() {
     const to = (href) => () => { window.location.href = href; };
-    overlay.replaceChildren(el("div", { class: "sheet coach-menu" },
+    // grouped: where to go (Coach Mode, the dashboard), putting programs on people, and video; a group with
+    // nothing in it (a tool not loaded) isn't shown
+    const group = (label, cls, buttons) => {
+      const list = buttons.flat().filter(Boolean);
+      return list.length ? el("div", { class: `cm-group ${cls}` }, el("div", { class: "cm-label" }, label), el("div", { class: "cm-grid" }, list)) : null;
+    };
+    const btn = (text, onclick, cls = "") => el("button", { class: cls, onclick }, text);
+    overlay.replaceChildren(el("div", { class: "sheet coach-menu cm" },
       el("button", { class: "close", "aria-label": "Close", onclick: closeVideo }, "×"),
       el("h2", null, "Coach tools"),
       el("div", { class: "swap-coach" }, "Sign in with your dashboard account. Each has a way back to your program."),
-      el("div", { class: "swap-actions" },
-        el("button", { class: "primary", onclick: to("coach.html?from=app") }, "Coach Mode"),
-        el("button", { class: "primary", onclick: to("index.html?from=app") }, "Dashboard"),
-        quickTools(),
-        window.MoCapApp ? el("button", { class: "primary", onclick: () => window.MoCapApp.open({ overlay, close: closeVideo }) }, "Motion Capture") : null,
-        window.BullpenApp ? el("button", { class: "primary", onclick: () => window.BullpenApp.open({ overlay, close: closeVideo }) }, "Bullpen Video") : null,
-        window.MoCapQueue ? el("button", { class: "primary", onclick: () => window.MoCapQueue.open({ overlay, close: closeVideo }) }, "Video Queue") : null,
-        token ? el("button", { class: "primary", onclick: openIdeas }, "💡 Send an idea") : null,
-        el("button", { class: "coach-cancel", onclick: closeVideo }, "Cancel"))));
+      group("Open", "cm-open", [
+        btn("Coach Mode", to("coach.html?from=app"), "primary"),
+        btn("Dashboard", to("index.html?from=app"), "primary"),
+      ]),
+      group("Programs", "cm-programs", quickTools().map((b) => { b.className = ""; return b; })),
+      group("Video", "cm-video", [
+        window.MoCapApp ? btn("Motion Capture", () => window.MoCapApp.open({ overlay, close: closeVideo })) : null,
+        window.BullpenApp ? btn("Bullpen Video", () => window.BullpenApp.open({ overlay, close: closeVideo })) : null,
+        window.MoCapQueue ? btn("Video Queue", () => window.MoCapQueue.open({ overlay, close: closeVideo })) : null,
+      ]),
+      el("div", { class: "cm-foot" },
+        token ? btn("💡 Send an idea", openIdeas, "cm-idea") : null,
+        btn("Cancel", closeVideo, "coach-cancel"))));
     overlay.className = "overlay show";
     // DST Finance (the books app, its own site): for a DST staff login only (@dynamicsportstraining.com), once
-    // signed in here with it. Added above Cancel when the signed-in account says so.
+    // signed in here with it. Added to the Open group when the signed-in account says so.
     sb.auth.getSession().then(({ data }) => {
       const email = ((data && data.session && data.session.user && data.session.user.email) || "").toLowerCase();
       if (!/@dynamicsportstraining\.com$/.test(email)) return;
-      const cancel = overlay.querySelector(".coach-menu .coach-cancel");
-      if (!cancel || overlay.querySelector(".coach-menu .dst-finance")) return;
-      cancel.before(el("button", { class: "primary dst-finance", onclick: () => window.open("https://dst-books.vercel.app", "_blank", "noopener") }, "DST Finance"));
+      const grid = overlay.querySelector(".coach-menu .cm-open .cm-grid");
+      if (!grid || overlay.querySelector(".coach-menu .dst-finance")) return;
+      grid.append(btn("DST Finance", () => window.open("https://dst-books.vercel.app", "_blank", "noopener"), "dst-finance"));
     }, () => { /* not signed in: no link */ });
   }
   const blockDates = (b) => {
