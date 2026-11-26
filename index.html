@@ -5807,7 +5807,6 @@ function inCoachScope(a, scope) {
 }
 // Needs attention: what the phone's logs say about an athlete between visits, each a reason shown beside the name:
 //   weight moving fast   pre-lift weigh-ins (store.bodyweightLog) up or down 2% or more within about a week
-//   not logging food     a nutrition plan, and no food logged in 3+ days
 //   low protein          a nutrition plan, and protein under 80% of target on average over the days logged this week
 // `food` is the last two weeks of food_logs by athlete ({ days: Map day -> entries }), fetched by the panel.
 function attentionFor(a, food) {
@@ -5825,9 +5824,7 @@ function attentionFor(a, food) {
   if (food && rec && rec.goal && rec.snapshot) {
     const mine = food.get(String(a.id)), today = new Date(), key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const eatenOn = (dk) => ((mine && mine.get(dk)) || []).filter((e) => e.name && !e.planned);
-    let last = null;
-    for (let i = 0; i < 14 && last == null; i += 1) { const d = new Date(today); d.setDate(d.getDate() - i); if (eatenOn(key(d)).length) last = i; }
-    if (last == null || last >= 3) out.push({ text: last == null ? "no food logged in 2 weeks" : `no food logged in ${last} days`, tab: "meallog" });
+    // (no flag for not logging food: only what's logged is judged)
     const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() - i); return eatenOn(key(d)); }).filter((l) => l.length);
     const target = rec.snapshot.train && rec.snapshot.train.p;
     if (week.length >= 2 && target) {
@@ -5890,7 +5887,7 @@ function todayItems(food, hs) { // hs: the High School & Youth roster's athletes
   const byName = (x, y) => lastNameOnly(x.a.name).localeCompare(lastNameOnly(y.a.name));
   const longestFirst = (x, y) => (y.sort || 0) - (x.sort || 0) || byName(x, y);
   return [
-    { key: "attention", title: "Needs attention", tone: "danger", hint: "From their app: weight moving fast, food not logged, or protein low", list: out.attention.sort(longestFirst) },
+    { key: "attention", title: "Needs attention", tone: "danger", hint: "From their app: weight moving fast or protein low", list: out.attention.sort(longestFirst) },
     { key: "gap", title: "Program gap", tone: "danger", hint: "A block ended last week with nothing after it", list: out.gap.sort(byName) },
     { key: "ending", title: "Program ending this week", tone: "warn", hint: "Line up the next phase", list: out.ending.sort(byName) },
     { key: "quiet", title: "Not logging", tone: "warn", hint: `Has a program, nothing logged in ${LOG_QUIET_DAYS}+ days`, list: out.quiet.sort(longestFirst) },
