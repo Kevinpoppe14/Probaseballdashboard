@@ -7256,10 +7256,77 @@ function GroupTestingPanel({ athleteId, range }) {
   const at = (d) => new Date(`${d}T12:00:00`).getTime();
   const day = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`; };
   const tests = [...byTest.values()].map((list) => list.slice().sort((a, b) => a.date.localeCompare(b.date))).sort((a, b) => a[0].kpiName.localeCompare(b[0].kpiName));
+  // a left and right test of the same name ("Seated Knee Extension 45° (L)" / "(R)") share one card and one graph,
+  // a line each; anything else (another angle included) is its own card
+  const sideOf = (name) => { const m = /^(.*\S)\s*\((L|R)\)\s*$/.exec(name || ""); return m ? { base: m[1], side: m[2] } : null; };
+  const pairs = new Map();
+  tests.forEach((list) => { const s = sideOf(list[0].kpiName); if (!s) return; const k = `${s.base}|${list[0].unit || ""}|${list[0].better || ""}`; if (!pairs.has(k)) pairs.set(k, { base: s.base }); pairs.get(k)[s.side] = list; });
+  const cards = [], paired = new Set();
+  tests.forEach((list) => {
+    const s = sideOf(list[0].kpiName), p = s && pairs.get(`${s.base}|${list[0].unit || ""}|${list[0].better || ""}`);
+    if (p && p.L && p.R) { if (!paired.has(p)) { paired.add(p); cards.push({ pair: p, name: p.base }); } }
+    else cards.push({ list, name: list[0].kpiName });
+  });
+  cards.sort((a, b) => a.name.localeCompare(b.name));
+  const LEFT_COLOR = "#3b82f6", RIGHT_COLOR = "#ef4444";
+  const pairCard = ({ base, L, R }) => {
+    const t = L[L.length - 1], lower = t.better === "lower", u = t.unit ? ` ${t.unit}` : "";
+    const fmt = (v) => (v == null ? "–" : `${Math.round(v * 100) / 100}${u}`);
+    const prOf = (list) => { const b = list.map((e) => bestOf(e, lower)).filter((x) => x != null); return b.length ? (lower ? Math.min(...b) : Math.max(...b)) : null; };
+    const prL = prOf(L), prR = prOf(R);
+    const inRange = (e) => (!from || e.date >= from) && (!to || e.date <= to);
+    const byDate = new Map();
+    L.forEach((e) => { const r = byDate.get(e.date) || { date: e.date }; r.L = bestOf(e, lower); byDate.set(e.date, r); });
+    R.forEach((e) => { const r = byDate.get(e.date) || { date: e.date }; r.R = bestOf(e, lower); byDate.set(e.date, r); });
+    const all = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const shown = all.filter(inRange);
+    const rows = shown.map((r) => ({ t: at(r.date), L: r.L != null ? r.L : null, R: r.R != null ? r.R : null }));
+    // the gap between sides, on a day both were tested: how far the weaker is behind the stronger
+    const gap = (r) => (r.L != null && r.R != null && Math.max(r.L, r.R) ? { pct: Math.round((Math.abs(r.L - r.R) / Math.max(r.L, r.R)) * 1000) / 10, weak: r.L === r.R ? "" : (lower ? r.L > r.R : r.L < r.R) ? "L" : "R" } : null);
+    const lastBoth = all.filter((r) => r.L != null && r.R != null).pop();
+    const g = lastBoth && gap(lastBoth);
+    const lt = L[L.length - 1], rt = R[R.length - 1];
+    return (
+      <div className="gt-test" key={base}>
+        <h3>{base} <small style={{ color: "var(--text-dim)", fontWeight: 400 }}>left &amp; right</small></h3>
+        <div className="bw-stats">
+          <div><span>Left latest</span><b style={{ color: LEFT_COLOR }}>{fmt(bestOf(lt, lower))}</b><small>{shortDate(lt.date)} · PR {fmt(prL)}</small></div>
+          <div><span>Right latest</span><b style={{ color: RIGHT_COLOR }}>{fmt(bestOf(rt, lower))}</b><small>{shortDate(rt.date)} · PR {fmt(prR)}</small></div>
+          <div><span>L/R difference</span><b>{g ? `${g.pct}%` : "–"}</b><small>{g ? (g.weak ? `${g.weak === "L" ? "left" : "right"} behind · ${shortDate(lastBoth.date)}` : `even · ${shortDate(lastBoth.date)}`) : "not tested the same day"}</small></div>
+          <div><span>Sessions</span><b>{all.length}</b><small>{lower ? "lower is better" : "higher is better"}</small></div>
+        </div>
+        {rows.length > 1 && (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={rows}>
+              <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+              <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} stroke={axis} fontSize={12} minTickGap={36} />
+              <YAxis stroke={axis} fontSize={12} domain={paddedDomain(rows, ["L", "R"])} reversed={lower} />
+              <Tooltip contentStyle={tooltipStyle} labelFormatter={day} formatter={(v, name) => [fmt(v), name]} />
+              <Legend />
+              <Line type="monotone" dataKey="L" name="Left" stroke={LEFT_COLOR} strokeWidth={2} dot={{ r: 3, fill: LEFT_COLOR, stroke: LEFT_COLOR }} connectNulls />
+              <Line type="monotone" dataKey="R" name="Right" stroke={RIGHT_COLOR} strokeWidth={2} dot={{ r: 3, fill: RIGHT_COLOR, stroke: RIGHT_COLOR }} connectNulls />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+        {shown.length ? (
+          <div className="bp-table-wrap">
+            <table className="assess-table bw-table">
+              <thead><tr><th>Date</th><th>Left</th><th>Right</th><th>Difference</th></tr></thead>
+              <tbody>
+                {shown.slice().reverse().map((r) => { const d = gap(r); return (
+                  <tr key={r.date}><td>{shortDate(r.date)}</td><td><b>{fmt(r.L)}</b>{r.L != null && r.L === prL ? " ★" : ""}</td><td><b>{fmt(r.R)}</b>{r.R != null && r.R === prR ? " ★" : ""}</td><td>{d ? `${d.pct}%${d.weak ? ` (${d.weak} behind)` : ""}` : "–"}</td></tr>
+                ); })}
+              </tbody>
+            </table>
+          </div>
+        ) : <div className="empty-state">No {base} results in {rangeLabel(range).toLowerCase()}.</div>}
+      </div>
+    );
+  };
   return (
     <div className="panel">
       <h2>Group Testing <small>from Coach Mode › Group Testing · {rangeLabel(range)}</small></h2>
-      {tests.map((list) => {
+      {cards.map((c) => c.pair ? pairCard(c.pair) : ((list) => {
         const t = list[list.length - 1], lower = t.better === "lower", u = t.unit ? ` ${t.unit}` : "";
         const fmt = (v) => (v == null ? "–" : `${Math.round(v * 100) / 100}${u}`);
         const bests = list.map((e) => bestOf(e, lower)).filter((x) => x != null);
@@ -7303,8 +7370,8 @@ function GroupTestingPanel({ athleteId, range }) {
             ) : <div className="empty-state">No {t.kpiName} results in {rangeLabel(range).toLowerCase()}. The latest was {fmt(bestOf(t, lower))} on {shortDate(t.date)}.</div>}
           </div>
         );
-      })}
-      <p className="bc-note">Entered in Coach Mode › Group Testing: every rep, with that day's best and average. ★ marks his PR. They also show on his Training Log and on Progress in his app.</p>
+      })(c.list))}
+      <p className="bc-note">Entered in Coach Mode › Group Testing: every rep, with that day's best and average. ★ marks his PR. Left and right tests of the same name share a graph. They also show on his Training Log and on Progress in his app.</p>
     </div>
   );
 }

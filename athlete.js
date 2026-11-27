@@ -3683,7 +3683,45 @@
     (tests || []).forEach((t) => { if (!Number.isFinite(testValue(t))) return; if (!byTest.has(t.kpiId)) byTest.set(t.kpiId, []); byTest.get(t.kpiId).push(t); });
     if (byTest.size) {
       main.append(el("h2", { class: "section" }, "Testing"));
-      main.append(el("div", { class: "card" }, [...byTest.values()].map((ts) => {
+      // a left and right test of the same name ("Seated Knee Extension 45° (L)" / "(R)") share a row: one trend line
+      // each and both latest results; another angle is a row of its own
+      const sideOf = (name) => { const m = /^(.*\S)\s*\((L|R)\)\s*$/.exec(name || ""); return m ? { base: m[1], side: m[2] } : null; };
+      const keyOf = (ts) => { const s = sideOf(ts[0].kpiName); return s ? `${s.base}|${ts[0].unit || ""}|${ts[0].better || ""}` : null; };
+      const pairs = new Map();
+      [...byTest.values()].forEach((ts) => { const k = keyOf(ts); if (!k) return; if (!pairs.has(k)) pairs.set(k, { base: sideOf(ts[0].kpiName).base }); pairs.get(k)[sideOf(ts[0].kpiName).side] = ts; });
+      const items = [], done = new Set();
+      [...byTest.values()].forEach((ts) => { const p = pairs.get(keyOf(ts)); if (p && p.L && p.R) { if (!done.has(p)) { done.add(p); items.push({ pair: p, name: p.base }); } } else items.push({ ts, name: ts[0].kpiName }); });
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+      // both sides' lines on one scale, by date (a day only one side was tested leaves a gap in the other's line)
+      const spark2 = (L, R, flip) => {
+        const dates = [...new Set([...L, ...R].map((t) => t.date))].sort();
+        if (dates.length < 2) return null;
+        const f = (x) => (flip ? -x : x), all = [...L, ...R].map((t) => f(testValue(t)));
+        const w = 84, h = 26, lo = Math.min(...all), span = Math.max(...all) - lo || 1;
+        const pt = (t) => [(dates.indexOf(t.date) / (dates.length - 1)) * (w - 6) + 3, h - 3 - ((f(testValue(t)) - lo) / span) * (h - 6)];
+        const line = (ts, cls) => { const p = ts.map(pt); return `<polyline class="${cls}" points="${p.map((q) => q.map((n) => n.toFixed(1)).join(",")).join(" ")}" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle class="${cls}" cx="${p[p.length - 1][0].toFixed(1)}" cy="${p[p.length - 1][1].toFixed(1)}" r="2.6"/>`; };
+        const box = el("span", { class: "spark spark-lr" });
+        box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true">${line(L, "lr-l")}${line(R, "lr-r")}</svg>`;
+        return box;
+      };
+      const pairRow = ({ base, L, R }) => {
+        L.sort(byDate); R.sort(byDate);
+        const lower = L[L.length - 1].better === "lower", unit = L[L.length - 1].unit ? ` ${L[L.length - 1].unit}` : "";
+        const lv = testValue(L[L.length - 1]), rv = testValue(R[R.length - 1]);
+        const lastDate = [L[L.length - 1].date, R[R.length - 1].date].sort().pop();
+        const when = parseISO(lastDate).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        // how far apart the sides were the last day both were tested
+        const both = L.map((l) => [l, R.find((r) => r.date === l.date)]).filter(([, r]) => r).pop();
+        let gapTxt = "";
+        if (both) {
+          const a = testValue(both[0]), b = testValue(both[1]), pct = Math.max(a, b) ? Math.round((Math.abs(a - b) / Math.max(a, b)) * 100) : 0;
+          gapTxt = pct ? ` · ${(lower ? a > b : a < b) ? "L" : "R"} ${pct}% behind` : " · even";
+        }
+        const value = el("span", null, el("span", { class: "lr-l-t" }, `L ${nice(lv)}`), " · ", el("span", { class: "lr-r-t" }, `R ${nice(rv)}`), unit);
+        return el("div", { class: "prog-row" }, el("span", { class: "prog-name" }, base), spark2(L, R, lower), el("span", { class: "prog-val" }, el("b", null, value), el("small", null, `${when}${gapTxt}`)));
+      };
+      main.append(el("div", { class: "card" }, items.map((it) => (it.pair ? pairRow(it.pair) : ((ts) => {
         ts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
         const t = ts[ts.length - 1], lower = t.better === "lower", vals = ts.map(testValue);
         const best = lower ? Math.min(...vals) : Math.max(...vals), last = vals[vals.length - 1];
@@ -3692,7 +3730,7 @@
         // the day's average too, when there was more than one rep (Group Testing keeps both)
         const avg = parseFloat(t.avg), avgTxt = Number.isFinite(avg) && avg !== last ? ` · avg ${nice(avg)}` : "";
         return row(t.kpiName, spark(vals, lower), `${nice(last)}${unit}`, `${last === best ? (ts.length > 1 ? `best · ${when}` : when) : `best ${nice(best)} · ${when}`}${avgTxt}`);
-      })));
+      })(it.ts)))));
     }
 
     // force plate countermovement jumps
