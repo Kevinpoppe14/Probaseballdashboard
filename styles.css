@@ -4715,9 +4715,7 @@ svg.bp-ranges { display: block; width: 100%; max-width: 720px; }
 @media print { .tr-pick { display: none !important; } }
 
 /* Team Report: the testing table under Performance Metrics */
-.ts-title { font-size: 14px; margin: 14px 0 6px; }
-.ts-title small { color: var(--text-dim); font-weight: 400; font-size: 11.5px; }
-.ts-table { font-size: 12px; }
+.ts-table { font-size: 12px; width: 100%; }
 .ts-table td, .ts-table th { padding: 4px 8px; }
 .ts-table td small { color: var(--text-dim); font-size: 10.5px; }
 .ts-table .ts-up { color: var(--good); font-weight: 600; }

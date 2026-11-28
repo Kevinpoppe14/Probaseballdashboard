@@ -6656,11 +6656,14 @@ function AthletePerformanceGraphs({ athleteId, range }) {
     return point;
   });
   const yearLines = yearStartTimestamps(tests.map((t) => t.date));
+  // only the metrics this athlete's force plate actually records in the range (VALD has no braking RFD, landing
+  // force…), so the report isn't padded with "No data yet" cards
+  const hasData = (m) => kpiChartData.some((p) => typeof p[m.key] === "number" && isFinite(p[m.key]));
   return (
     <div>
       <CmjSummary tests={tests} athleteId={athleteId} />
       <div className="kpi-trend-grid">
-        {FORCE_KPI_METRICS.map((m) => (
+        {FORCE_KPI_METRICS.filter(hasData).map((m) => (
           <MiniTrendChart key={m.key} title={m.label} unit={m.unit} data={kpiChartData} dataKey={m.key} yearLines={yearLines} color={chartLineColor} />
         ))}
       </div>
@@ -9846,7 +9849,10 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
                   <div className="panel report-section">
                     <h2>Performance Metrics <small>{rangeText}</small></h2>
                     <AthletePerformanceGraphs athleteId={athlete.id} range={perfRange} />
-                    <h3 className="ts-title">Testing <small>VALD ForceFrame and DynaMo, and Group Testing · {rangeText}</small></h3>
+                  </div>
+
+                  <div className="panel report-section">
+                    <h2>Testing <small>VALD ForceFrame and DynaMo, and Group Testing · {rangeText}</small></h2>
                     <TestingSummary athleteId={athlete.id} range={perfRange} />
                   </div>
 
