@@ -3955,11 +3955,48 @@ async function renderElementToPdf(selector, { width, orientation }) {
   return pdf.output("datauristring").split(",")[1];
 }
 
+// A timeline too wide for the page (a 40-week plan) is laid out for the PDF as stacked rows of weeks instead of one
+// row shrunk to fit: each row is a copy of the grid in a window `rowWeeks` weeks wide, shifted along, with the row
+// labels kept at the left. Put back by the returned function.
+function splitLongTimelineForPdf(wrap, fitWidth) {
+  const scroll = wrap && wrap.querySelector(".period-scroll");
+  const grid = scroll && scroll.querySelector(".period-grid");
+  const weekEls = grid ? grid.querySelectorAll(".period-head .period-week") : [];
+  if (!grid || !weekEls.length) return null;
+  const weeks = weekEls.length, ww = weekEls[0].offsetWidth;
+  const lw = (grid.querySelector(".period-corner") || grid.querySelector(".period-lane-label")).offsetWidth;
+  if (!ww || lw + weeks * ww <= fitWidth) return null;
+  const fit = Math.max(4, Math.floor((fitWidth - lw) / ww));
+  const rows = Math.ceil(weeks / fit), per = Math.ceil(weeks / rows);
+  const holder = document.createElement("div");
+  holder.className = "period-split-rows";
+  for (let r = 0; r < rows; r += 1) {
+    const first = r * per, n = Math.min(per, weeks - first), shift = first * ww;
+    const win = document.createElement("div");
+    win.style.cssText = `overflow:hidden;width:${lw + n * ww}px;margin:0 0 14px;position:relative`;
+    const copy = grid.cloneNode(true);
+    copy.style.marginLeft = `-${shift}px`;
+    if (shift) copy.querySelectorAll(".period-lane-label").forEach((l) => { l.style.position = "relative"; l.style.left = `${shift}px`; l.style.zIndex = "3"; l.style.background = "#fff"; });
+    win.appendChild(copy);
+    holder.appendChild(win);
+  }
+  scroll.style.display = "none";
+  scroll.after(holder);
+  return () => { holder.remove(); scroll.style.display = ""; };
+}
+
 async function renderTabToPdf(tab) {
   if (tab === "assessment") return renderAssessmentToPdf();
   // a long tab (the nutrition plan runs to ten pages) is compressed until it fits in an email
   const tooBig = "This tab is too large to email as one PDF.";
-  if (tab === "plan") return renderWithinEmailLimit(() => renderElementToPdf(".period-wrap", { width: 1000, orientation: "portrait" }), [0.92, 0.75, 0.6], tooBig);
+  if (tab === "plan") {
+    const undo = splitLongTimelineForPdf(document.querySelector(".period-wrap"), 900);
+    try {
+      return await renderWithinEmailLimit(() => renderElementToPdf(".period-wrap", { width: 1000, orientation: "portrait" }), [0.92, 0.75, 0.6], tooBig);
+    } finally {
+      if (undo) undo();
+    }
+  }
   // Statcast/Performance are chart grids with no fixed page design of their own to match — wide
   // landscape gives their side-by-side charts more room than a portrait page would.
   return renderWithinEmailLimit(() => renderElementToPdf(`[data-tab-content="${tab}"]`, { width: 1300, orientation: "landscape" }), [0.92, 0.75, 0.6], tooBig);
@@ -7900,7 +7937,7 @@ function AthleteDetail({ athleteId, rangeDays, onBack, onDataChange, tab, onTabC
           would each hold their own plan and could save over each other. A block's Program button here opens the
           Programming tab at that block. */}
       {activeTab === "plan" && window.PeriodizationBoard && <window.PeriodizationBoard athlete={athlete} headerExtra={<PositionalProfilePanel athlete={athlete} planView compact />} onOpenProgram={(nav) => { setProgramOpen(nav); setActiveTab("programming"); }} />}
-      <NotesPanel athleteId={athlete.id} />
+      {/* the notes are part of the Player Plan itself (the end of the period-wrap, periodization.js), so they print with it */}
       </div>
 
       {activeTab === "programming" && window.PeriodizationBoard && <window.PeriodizationBoard key={`prog-${programOpen ? programOpen.blockId || programOpen.laneId : "top"}`} athlete={athlete} mode="programming" openNav={programOpen} />}

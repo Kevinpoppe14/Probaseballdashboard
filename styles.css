@@ -1426,7 +1426,10 @@ tbody tr:hover {
   .ph-initials { background: #eee !important; }
   .period-lane-label { background: #fff !important; border-right-color: #ccc !important; }
   .period-head, .period-lane, .period-week { border-color: #ddd !important; }
-  .period-track { background-image: linear-gradient(to right, transparent calc(100% - 1px), #ddd 100%) !important; }
+  /* no week gridlines on paper: the PDF renderer turns that repeating gradient into grey/silver blocks */
+  .period-track { background-image: none !important; }
+  /* the timeline's Notes row only when it has a note in it */
+  .period-notes-lane:not(:has(.period-note)) { display: none !important; }
   .period-seg { background: #d9d9d9 !important; }
   .period-seg.done { background: #a52a34 !important; }
   .cubs-theme .period-seg.done { background: var(--cubs-blue) !important; }

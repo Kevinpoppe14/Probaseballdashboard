@@ -2310,6 +2310,9 @@
         )}
 
         {mode === "programming" && <PlanProgramTabs plan={plan} athlete={athlete} onLinkProgram={linkProgram} nav={progNav} onNav={(next) => goProgram(next, false)} dirty={progDirty} setDirty={setProgDirty} panelRef={progPanelRef} extRev={progRev} />}
+
+        {/* the athlete's notes (off-season updates and the like) end the Player Plan, so they print and email with it */}
+        {mode === "plan" && window.NotesPanel && <div className="panel period-notes-panel"><window.NotesPanel athleteId={athlete.id} embedded /></div>}
       </div>
     );
   }
