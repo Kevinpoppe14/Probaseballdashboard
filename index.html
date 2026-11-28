@@ -3526,8 +3526,10 @@ function KpiCard({ label, value, tone, onClick, active, sub }) {
 // A Cubs 40-man athlete who isn't also a DST client (no dstLocation on file) has their plan built
 // and run by the Cubs' own strength & conditioning staff, not DST — so anything sent about their
 // Player Plan should say that instead, same as the plan/report header itself (see PlanHeader).
+// `cubsLook` on a Cubs 40-man athlete who is also a DST client (Horton) gives their plan and reports the Cubs look
+// and branding all the same; their DST location still counts everywhere else.
 function isCubsOnlyAthlete(athlete) {
-  return !!athlete && athlete.rosterGroup === CUBS_ROSTER_GROUP && !athlete.dstLocation;
+  return !!athlete && athlete.rosterGroup === CUBS_ROSTER_GROUP && (!athlete.dstLocation || athlete.cubsLook === true);
 }
 const DST_CHART_COLOR = "#b5283a";
 const CUBS_CHART_COLOR = "#0e3386";

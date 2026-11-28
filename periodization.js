@@ -1367,7 +1367,7 @@
     // A Cubs 40-man athlete who isn't also a DST client (no dstLocation on file) has their plan
     // run by the Cubs' own strength & conditioning staff, not DST, so this plan/report (also used
     // as-is for the team report's per-athlete sheet) is branded as theirs instead.
-    const isCubsOnly = athlete.rosterGroup === "cubs-40man" && !athlete.dstLocation;
+    const isCubsOnly = window.isCubsOnlyAthlete ? window.isCubsOnlyAthlete(athlete) : athlete.rosterGroup === "cubs-40man" && !athlete.dstLocation;
     return (
       <div className={`panel period-header${isCubsOnly ? " period-header-cubs" : ""}`}>
         <div className="ph-left">
