@@ -9938,6 +9938,8 @@ const USER_DISPLAY_NAMES = { "kevin@dynamicsportstraining.com": "Kevin Poppe" };
 function NotesPanel({ athleteId, embedded = false }) {
   const [text, setText] = useState("");
   const [tick, setTick] = useState(0);
+  const [editing, setEditing] = useState(null); // the note being edited, and its text so far
+  const [draft, setDraft] = useState("");
   const notes = useMemo(() => window.AthleteStore.getNotes(athleteId), [athleteId, tick]);
 
   const handleAdd = () => {
@@ -9962,6 +9964,7 @@ function NotesPanel({ athleteId, embedded = false }) {
             placeholder="Log a note for this athlete... (e.g. observations from today's session)"
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
           />
         </div>
         <button className="btn btn-primary" disabled={!text.trim()} onClick={handleAdd}>Add Note</button>
@@ -9972,10 +9975,35 @@ function NotesPanel({ athleteId, embedded = false }) {
           {notes.map((n) => (
             <div className="note-entry" key={n.id}>
               <div className="note-meta">
-                <span>{new Date(n.timestamp).toLocaleString()}{n.author ? ` · ${USER_DISPLAY_NAMES[n.author] || n.author}` : ""}</span>
-                <button className="btn-link no-print" onClick={() => handleDelete(n.id)}>Delete</button>
+                <span>
+                  {new Date(n.timestamp).toLocaleString()}{n.author ? ` · ${USER_DISPLAY_NAMES[n.author] || n.author}` : ""}
+                  {n.editedAt ? ` · edited ${new Date(n.editedAt).toLocaleDateString()}` : ""}
+                </span>
+                {editing === n.id ? null : (
+                  <span className="no-print">
+                    <button className="btn-link" onClick={() => { setEditing(n.id); setDraft(n.text); }}>Edit</button>
+                    {" · "}
+                    <button className="btn-link" onClick={() => handleDelete(n.id)}>Delete</button>
+                  </span>
+                )}
               </div>
-              <div className="note-text">{n.text}</div>
+              {editing === n.id ? (
+                <div className="note-edit no-print">
+                  <textarea
+                    value={draft}
+                    rows={Math.min(30, Math.max(4, draft.split("\n").length + 1))}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    style={{ width: "100%" }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button className="btn btn-primary" disabled={!draft.trim()} onClick={() => { window.AthleteStore.updateNote(n.id, draft.trim()); setEditing(null); setTick((t) => t + 1); }}>Save</button>
+                    <button className="btn btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="note-text">{n.text}</div>
+              )}
             </div>
           ))}
         </div>

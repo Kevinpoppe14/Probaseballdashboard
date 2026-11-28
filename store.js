@@ -704,6 +704,18 @@
     syncDelete("notes", noteId);
   }
 
+  // A note's text changed (its date and author stay; who edited it and when are kept alongside)
+  function updateNote(noteId, text) {
+    const note = state.notes.find((n) => n.id === noteId);
+    if (!note) return null;
+    note.text = text;
+    note.editedAt = new Date().toISOString();
+    note.editedBy = currentUser.email;
+    persistLocal();
+    syncUpsert("notes", note.id, note.athleteId, note);
+    return note;
+  }
+
   // ---- Movement / physical assessments (see assessment.js for the field layout) ----
   // Pitching assessments (pitching_assessment.js) share the table, marked kind: "pitching"; each getter
   // returns only its own kind, so one never counts as the other.
@@ -1314,6 +1326,7 @@
     addNote,
     getNotes,
     deleteNote,
+    updateNote,
     getAssessments,
     getPitchingAssessments,
     getBullpens,
