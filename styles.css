@@ -1401,6 +1401,9 @@ tbody tr:hover {
   /* goals sit above the timeline on screen; on paper they stay after it */
   .period-wrap { display: flex; flex-direction: column; }
   .period-wrap > .period-goals-slot { order: 1; }
+  /* the notes come last on paper, all of them */
+  .period-wrap > .period-notes-panel { order: 2; }
+  .period-wrap .notes-log { max-height: none !important; overflow: visible !important; }
   body.print-plan-only, body.print-plan-only .app, body.print-plan-only .main { background: #fff !important; min-height: 0 !important; }
 
   /* ---- white-paper colours for the plan; keep every colour that carries meaning ---- */
@@ -1713,6 +1716,7 @@ tbody tr:hover {
 /* "[" bracket spanning the height of the list with PRIORITY running up the side */
 .priority-bracket {
   width: 26px;
+  min-height: 86px; /* tall enough for the word PRIORITY, even beside a single goal */
   flex-shrink: 0;
   border: 2px solid var(--dst-red);
   border-right: none;

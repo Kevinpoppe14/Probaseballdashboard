@@ -3595,7 +3595,24 @@ let pdfJpegQuality = 0.92;
 let pdfCaptureScale = 2;
 // Pieces a page break shouldn't cut through (a chart with its title, a panel, a table row): their spans are kept on
 // each snapshot (see captureElement) and addCanvasAsPages moves a break up above any one that fits on a page.
-const PDF_KEEP_TOGETHER = ".panel, .panel > *, .recharts-wrapper, svg, img, canvas, tr, .kpi-card, .metric-strip";
+// The plan's timeline box is the exception: a long plan's timeline printed as stacked rows of weeks may break between
+// rows (each row, and a one-row timeline, stays whole) so it can share the first page with the header.
+const PDF_KEEP_TOGETHER = ".panel:not(.period-visual), .panel:not(.period-visual) > *, .period-visual-top, .period-scroll, .period-split-rows > div, .recharts-wrapper, svg, img, canvas, tr, .kpi-card, .metric-strip";
+
+// true when a slice of the snapshot is blank (nothing but white): not worth a page of its own
+function canvasSliceIsBlank(canvas, y0, h) {
+  try {
+    const ctx = canvas.getContext("2d");
+    const step = Math.max(1, Math.floor(h / 60));
+    for (let y = y0; y < y0 + h; y += step) {
+      const row = ctx.getImageData(0, y, canvas.width, 1).data;
+      for (let i = 0; i < row.length; i += 4 * 8) if (row[i] < 245 || row[i + 1] < 245 || row[i + 2] < 245) return false;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
 // Slices a (probably page-taller-than-one-page) canvas into a multi-page PDF, one page-height's
 // worth of pixels at a time, instead of squashing everything onto a single page. isFirstPage
@@ -3624,6 +3641,8 @@ function addCanvasAsPages(pdf, canvas, pageW, pageH, isFirstPage = true) {
       if (cut - renderedPx < pageHeightPx * 0.15) cut = Math.min(renderedPx + pageHeightPx, canvas.height);
     }
     const sliceHeightPx = cut - renderedPx;
+    // a blank stretch (the empty end of a snapshot) gets no page of its own
+    if (!(first && isFirstPage) && canvasSliceIsBlank(canvas, renderedPx, sliceHeightPx)) { renderedPx += sliceHeightPx; continue; }
     const slice = document.createElement("canvas");
     slice.width = canvas.width;
     slice.height = sliceHeightPx;
