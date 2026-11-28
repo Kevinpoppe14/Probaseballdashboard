@@ -7376,6 +7376,69 @@ function GroupTestingPanel({ athleteId, range }) {
   );
 }
 
+// The Team Report's testing table: every Group Testing / VALD result (ForceFrame, DynaMo, sprints, jumps…) in the
+// report's date range, one row per test, a left and right test of the same name side by side, with the first and
+// latest result in the range and the change between them. Compact, so the sheet stays near one page.
+function TestingSummary({ athleteId, range }) {
+  const S = window.AthleteStore;
+  const [entries, setEntries] = useState(null);
+  React.useEffect(() => {
+    let live = true;
+    setEntries(null);
+    Promise.resolve(S.loadKpiEntries ? S.loadKpiEntries(athleteId) : []).catch(() => []).then((r) => { if (live) setEntries(r || []); });
+    return () => { live = false; };
+  }, [athleteId]); // eslint-disable-line
+  if (!entries) return null;
+  const from = rangeCutoffKey(range), to = rangeEndKey(range);
+  const shown = entries.filter((e) => e.kpiId && e.date && (!from || e.date >= from) && (!to || e.date <= to));
+  if (!shown.length) return <div className="empty-state">No testing results in {rangeLabel(range).toLowerCase()}.</div>;
+  const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
+  const valOf = (e) => { const b = num(e.best); if (b != null) return b; const t = (Array.isArray(e.trials) && e.trials.length ? e.trials : [e.value]).map(num).filter((x) => x != null); return t.length ? (e.better === "lower" ? Math.min(...t) : Math.max(...t)) : null; };
+  const byTest = new Map();
+  shown.forEach((e) => { if (!byTest.has(e.kpiId)) byTest.set(e.kpiId, []); byTest.get(e.kpiId).push(e); });
+  const lists = [...byTest.values()].map((l) => l.slice().sort((a, b) => a.date.localeCompare(b.date)));
+  const sideOf = (name) => { const m = /^(.*\S)\s*\((L|R)\)\s*$/.exec(name || ""); return m ? { base: m[1], side: m[2] } : null; };
+  const keyOf = (l) => { const s = sideOf(l[0].kpiName); return s ? `${s.base}|${l[0].unit || ""}` : null; };
+  const pairs = new Map();
+  lists.forEach((l) => { const k = keyOf(l); if (!k) return; if (!pairs.has(k)) pairs.set(k, { name: sideOf(l[0].kpiName).base }); pairs.get(k)[sideOf(l[0].kpiName).side] = l; });
+  const rows = [], used = new Set();
+  lists.forEach((l) => {
+    const p = pairs.get(keyOf(l));
+    if (p && p.L && p.R) { if (!used.has(p)) { used.add(p); rows.push({ name: p.name, sides: [["L", p.L], ["R", p.R]], t: p.L[0] }); } }
+    else rows.push({ name: l[0].kpiName, sides: [["", l]], t: l[0] });
+  });
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  const r1 = (v) => (v == null ? "–" : String(Math.round(v * 10) / 10));
+  const signed = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${r1(v)}`);
+  const cell = (sides, pick) => sides.map(([s, l]) => { const v = pick(l); return v == null ? null : `${s ? `${s} ` : ""}${v}`; }).filter(Boolean).join(" · ") || "–";
+  return (
+    <table className="assess-table ts-table">
+      <thead><tr><th>Test</th><th>First</th><th>Latest</th><th>Change</th><th>Tests</th></tr></thead>
+      <tbody>
+        {rows.map((r) => {
+          const u = r.t.unit ? ` ${r.t.unit}` : "", lower = r.t.better === "lower";
+          const dates = [...new Set(r.sides.flatMap(([, l]) => l.map((e) => e.date)))].sort();
+          const last = dates[dates.length - 1];
+          return (
+            <tr key={r.name}>
+              <td>{r.name}</td>
+              <td>{cell(r.sides, (l) => r1(valOf(l[0])))}{u} <small>{shortDate(dates[0])}</small></td>
+              <td><b>{cell(r.sides, (l) => r1(valOf(l[l.length - 1])))}</b>{u} <small>{shortDate(last)}</small></td>
+              <td>{r.sides.map(([s, l]) => {
+                if (l.length < 2) return null;
+                const d = valOf(l[l.length - 1]) - valOf(l[0]);
+                const good = lower ? d < 0 : d > 0, bad = lower ? d > 0 : d < 0;
+                return <span key={s} className={good ? "ts-up" : bad ? "ts-down" : ""}>{s ? `${s} ` : ""}{signed(d)} </span>;
+              })}</td>
+              <td>{dates.length}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 function BodyweightPanel({ athleteId, range }) {
   const S = window.AthleteStore;
   const { grid, axis } = useChartColors();
@@ -9783,6 +9846,8 @@ function TeamReportPage({ onSelect, dataVersion, onEditPeriodization }) {
                   <div className="panel report-section">
                     <h2>Performance Metrics <small>{rangeText}</small></h2>
                     <AthletePerformanceGraphs athleteId={athlete.id} range={perfRange} />
+                    <h3 className="ts-title">Testing <small>VALD ForceFrame and DynaMo, and Group Testing · {rangeText}</small></h3>
+                    <TestingSummary athleteId={athlete.id} range={perfRange} />
                   </div>
 
                   <div className="panel report-section">
