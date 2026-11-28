@@ -3984,7 +3984,9 @@ function splitLongTimelineForPdf(wrap, fitWidth) {
   if (!grid || !weekEls.length) return null;
   const weeks = weekEls.length, ww = weekEls[0].offsetWidth;
   const lw = (grid.querySelector(".period-corner") || grid.querySelector(".period-lane-label")).offsetWidth;
-  if (!ww || lw + weeks * ww <= fitWidth) return null;
+  // an off-season plan (up to ~26 weeks) fits the page in one row once the board resizes to the PDF's width; only a
+  // longer one (a 40-week rehab plan) gets stacked rows
+  if (weeks <= 26 || !ww || lw + weeks * ww <= fitWidth) return null;
   const fit = Math.max(4, Math.floor((fitWidth - lw) / ww));
   const rows = Math.ceil(weeks / fit), per = Math.ceil(weeks / rows);
   const holder = document.createElement("div");
