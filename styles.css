@@ -1718,11 +1718,16 @@ tbody tr:hover {
   align-items: center;
   justify-content: center;
   margin: 2px 0 6px;
+  position: relative;
 }
 
+/* turned with a plain rotation, not writing-mode: the PDF renderer (html2canvas) doesn't know writing-mode and
+   drew the word upside down */
 .priority-bracket span {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(-90deg);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 2px;
