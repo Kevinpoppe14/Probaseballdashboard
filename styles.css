@@ -1398,6 +1398,10 @@ tbody tr:hover {
   /* ---- "Print / Save PDF" on the plan: show only the plan ---- */
   body.print-plan-only *:not(:has(.period-wrap)):not(.period-wrap):not(.period-wrap *) { display: none !important; }
   body.print-plan-only .main { padding: 0 !important; max-width: none !important; }
+  /* the plan centred on the sheet; a section (timeline row, goals, action plan, notes) never split across pages */
+  body.print-plan-only .period-wrap { margin-left: auto !important; margin-right: auto !important; }
+  body.print-plan-only .period-wrap > .panel, body.print-plan-only .period-goals-slot > .panel,
+  body.print-plan-only .period-split-rows > div, body.print-plan-only .note-entry { break-inside: avoid; }
   /* goals sit above the timeline on screen; on paper they stay after it */
   .period-wrap { display: flex; flex-direction: column; }
   .period-wrap > .period-goals-slot { order: 1; }

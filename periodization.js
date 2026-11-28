@@ -1822,7 +1822,9 @@
       // The whole plan is laid out ~1000px wide and scaled to the page; the (much wider) week grid is
       // shrunk on its own to fit that width, so the text everywhere else stays as large as possible.
       const naturalW = 1000;
-      const gridEl = el.querySelector(".period-grid");
+      // a long plan's timeline prints as stacked rows of weeks, as in the PDF (splitLongTimelineForPdf, index.html)
+      const undoSplit = window.splitLongTimelineForPdf ? window.splitLongTimelineForPdf(el, naturalW - 100) : null;
+      const gridEl = undoSplit ? null : el.querySelector(".period-grid");
       const gridW = LABEL_W + planRef.current.weeks * WEEK_W;
       el.style.zoom = "";
       el.style.width = `${naturalW}px`;
@@ -1838,14 +1840,16 @@
       el.classList.add("measuring"); // hides the on-screen-only controls so we measure what will print
       const naturalH = el.scrollHeight;
       el.classList.remove("measuring");
-      const PAGE_W = 725; // usable width / height of a Letter portrait sheet (0.35in margins), in CSS px,
-      const PAGE_H = 925; // with headroom (borders/margins differ a little in print) so nothing spills onto page 2
-      el.style.zoom = String(Math.min(1, PAGE_W / naturalW, PAGE_H / naturalH));
+      // scaled to the page's width only: a plan with its notes runs onto a second page rather than being shrunk
+      // until it fits on one (each section stays whole across the break, see .period-wrap in styles.css)
+      const PAGE_W = 725; // usable width of a Letter portrait sheet (0.35in margins), in CSS px
+      void naturalH;
+      el.style.zoom = String(Math.min(1, PAGE_W / naturalW));
       const pageStyle = document.createElement("style");
-      pageStyle.textContent = "@page { size: letter portrait; margin: 0; }";
+      pageStyle.textContent = "@page { size: letter portrait; margin: 0.35in 0; }";
       document.head.appendChild(pageStyle);
       document.body.classList.add("print-plan-only");
-      printState.current = { el, gridEl, areas, pageStyle };
+      printState.current = { el, gridEl, areas, pageStyle, undoSplit };
     };
     const cleanupPrint = () => {
       const s = printState.current;
@@ -1856,6 +1860,7 @@
       s.el.style.zoom = "";
       s.el.style.width = "";
       if (s.gridEl) s.gridEl.style.zoom = "";
+      if (s.undoSplit) s.undoSplit();
       s.areas.forEach((a) => { a.ta.style.height = a.height; a.ta.style.overflow = a.overflow; });
     };
     const printPlan = () => { preparePrint(); window.print(); };
